@@ -1,11 +1,9 @@
 import { offscreenRequestSchema, type SessionArchive } from "@jittle-lamp/shared";
 
-declare const process: {
-  env: Record<string, string | undefined>;
-};
+declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
 
 const companionServerOrigin = "http://127.0.0.1:48115";
-const cloudApiOrigin = (process.env.JITTLE_LAMP_API_ORIGIN?.trim() || "https://jl-api.monthlyparty.com").replace(/\/+$/, "");
+const cloudApiOrigin = (__JITTLE_LAMP_API_ORIGIN__?.trim() || "https://jl-api.monthlyparty.com").replace(/\/+$/, "");
 
 type ChromeTabCaptureTrackConstraints = MediaTrackConstraints & {
   mandatory: {
@@ -144,6 +142,9 @@ async function tryWriteArtifactsToCloud(
       return { saved: false };
     }
 
+    const recordingChecksum = await sha256Hex(await recordingBlob.arrayBuffer());
+    const archiveChecksum = await sha256Hex(await jsonBlob.arrayBuffer());
+
     const startResponse = await fetch(`${cloudApiOrigin}/evidences/desktop-sessions/sync/start`, {
       method: "POST",
       credentials: "include",
@@ -155,8 +156,8 @@ async function tryWriteArtifactsToCloud(
         title: archive.name,
         sourceMetadata: JSON.stringify({ source: "extension" }),
         artifacts: [
-          { key: "recording", kind: "recording", mimeType: "video/webm", bytes: recordingBlob.size, checksum: "" },
-          { key: "archive", kind: "network-log", mimeType: "application/json", bytes: jsonBlob.size, checksum: "" }
+          { key: "recording", kind: "recording", mimeType: "video/webm", bytes: recordingBlob.size, checksum: recordingChecksum },
+          { key: "archive", kind: "network-log", mimeType: "application/json", bytes: jsonBlob.size, checksum: archiveChecksum }
         ]
       })
     });
@@ -179,7 +180,7 @@ async function tryWriteArtifactsToCloud(
         return { saved: false };
       }
 
-      const checksum = await sha256Hex(await blob.arrayBuffer());
+      const checksum = session.key === "recording" ? recordingChecksum : archiveChecksum;
       const completeResponse = await fetch(`${cloudApiOrigin}/evidences/uploads/${encodeURIComponent(session.uploadId)}/complete`, {
         method: "POST",
         credentials: "include",

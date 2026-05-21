@@ -1,6 +1,7 @@
 import { extensionManifest } from "./manifest";
 
 const outdir = new URL("../dist/", import.meta.url);
+const apiOrigin = (process.env.JITTLE_LAMP_API_ORIGIN?.trim() || "https://jl-api.monthlyparty.com").replace(/\/+$/, "");
 
 const result = await Bun.build({
   entrypoints: [
@@ -14,7 +15,10 @@ const result = await Bun.build({
   target: "browser",
   format: "esm",
   sourcemap: "linked",
-  naming: "[name].js"
+  naming: "[name].js",
+  define: {
+    __JITTLE_LAMP_API_ORIGIN__: JSON.stringify(apiOrigin)
+  }
 });
 
 if (!result.success) {
