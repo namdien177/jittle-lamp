@@ -422,7 +422,9 @@ async function stopRecordingSession(detail: string): Promise<void> {
       transitionDraftPhase(
         processingDraft,
         "ready",
-        offscreenResponse.destination === "companion"
+        offscreenResponse.destination === "cloud"
+          ? "Saved session directly to cloud because you are signed in on web."
+          : offscreenResponse.destination === "companion"
           ? `Saved session to the desktop companion folder at ${offscreenResponse.outputDir ?? "the configured output directory"}.`
           : "Saved session with browser downloads because the desktop companion was unavailable."
       )
