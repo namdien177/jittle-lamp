@@ -116,6 +116,34 @@ function AuthenticatedHome(): React.JSX.Element {
         </header>
 
         <div className="auth-main-content">
+          <section className="auth-home-intro" aria-label="Product overview and quick drop zone">
+            <article className="auth-home-intro-copy">
+              <span className="auth-home-kicker">Investigation workspace</span>
+              <h2>Understand every session in one timeline.</h2>
+              <p>
+                Jittle Lamp unifies video playback, network traces, and event timelines into one collaborative evidence
+                workspace. Capture once, review quickly, and share findings with your team in minutes.
+              </p>
+              <ul className="auth-home-feature-list">
+                <li>Playback + timeline correlation</li>
+                <li>Fast cloud sharing with stable links</li>
+                <li>Workspace-wide evidence search</li>
+              </ul>
+            </article>
+            <aside className="auth-home-drop-zone" aria-label="Quick drop zone">
+              <h3>Quick drop zone</h3>
+              <p>Drop a session ZIP for instant local review without uploading to the cloud.</p>
+              <div className="auth-home-drop-hint" aria-hidden="true">
+                <span>ZIP</span>
+                <span>→</span>
+                <span>Quick View</span>
+              </div>
+              <button type="button" className="auth-button primary" onClick={() => navigate("/quick-view")}>
+                Open quick drop
+              </button>
+            </aside>
+          </section>
+
           <div className="auth-toolbar">
             <input
               type="text"
