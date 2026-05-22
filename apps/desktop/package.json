@@ -14,7 +14,8 @@
     "package:stable": "bun run package:local",
     "package:canary": "bun run ./scripts/package.ts --mode=local --env=canary",
     "set-output": "bun run ./src/configure-output.ts",
-    "typecheck": "bun x tsc --noEmit -p tsconfig.json"
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
+    "cli": "bun run ./src/cli.ts"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.3",
