@@ -28,7 +28,7 @@ import { api, type ArtifactReadUrl, type FetchToken } from "./api";
 import { DesktopAuthApprovalPage } from "./desktop-auth-page";
 import { clerkPublishableKey } from "./env";
 import { EvidenceViewerContent } from "./evidence-viewer-content";
-import { HomePage } from "./home-page";
+import { HomePage, PublicHomePage } from "./home-page";
 import { JoinOrganizationPage } from "./join-org-page";
 import type { LoadedSession } from "./loader";
 import { OrganisationsPage } from "./organisations-page";
@@ -450,7 +450,7 @@ function CloudEvidencePage(): React.JSX.Element {
 const evidenceWebRoutes: JittleRouteObject[] = [
   {
     path: "/",
-    element: clerkPublishableKey ? <HomePage /> : <ZipEvidencePage />
+    element: clerkPublishableKey ? <HomePage /> : <PublicHomePage />
   },
   {
     path: "/quick-view",

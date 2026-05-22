@@ -9,18 +9,19 @@ import { useAccountProfile, useSelectActiveOrganization } from "./queries";
 export function AppHeader(): React.JSX.Element | null {
   if (!clerkPublishableKey) return null;
   return (
-    <header className="app-header">
-      <Link to="/" className="app-header-brand">
+    <header className="ed-nav">
+      <Link to="/" className="ed-nav-brand">
         Jittle Lamp
       </Link>
-      <div className="app-header-right">
+      <div className="ed-nav-right">
         <SignedIn>
           <OrganisationMenu />
+          <span className="ed-nav-sep" aria-hidden="true" />
           <UserButton />
         </SignedIn>
         <SignedOut>
           <SignInButton mode="modal">
-            <button className="btn-ghost btn-sm" type="button">
+            <button className="ed-nav-link" type="button">
               Sign in
             </button>
           </SignInButton>
@@ -78,37 +79,37 @@ function OrganisationMenu(): React.JSX.Element {
   const triggerLabel = activeOrg?.name ?? (loading ? "Loading…" : "Select organisation");
 
   return (
-    <div className="org-menu" ref={containerRef}>
+    <div className="ed-org-menu" ref={containerRef}>
       <button
         type="button"
-        className="btn-ghost btn-sm org-menu-trigger"
+        className="ed-nav-link ed-org-menu-trigger"
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className="org-menu-label">{triggerLabel}</span>
-        <ChevronDown className="org-menu-caret" aria-hidden size={14} strokeWidth={2} />
+        <span className="ed-org-menu-label">{triggerLabel}</span>
+        <ChevronDown className="ed-org-menu-caret" aria-hidden size={14} strokeWidth={1.5} />
       </button>
       {open ? (
-        <div className="org-menu-popover" role="menu">
-          <div className="org-menu-section-label">Your organisations</div>
+        <div className="ed-org-menu-popover" role="menu">
+          <div className="ed-org-menu-heading">Your organisations</div>
           {loading && orgs.length === 0 ? (
-            <div className="org-menu-empty">Loading…</div>
+            <div className="ed-org-menu-empty">Loading…</div>
           ) : orgs.length === 0 ? (
-            <div className="org-menu-empty">You're not in any organisation yet.</div>
+            <div className="ed-org-menu-empty">You&apos;re not in any organisation yet.</div>
           ) : (
-            <ul className="org-menu-list">
+            <ul className="ed-org-menu-list">
               {orgs.map((org) => (
                 <li key={org.id}>
                   <button
                     type="button"
-                    className="org-menu-item"
+                    className="ed-org-menu-item"
                     data-active={org.isActive ? "true" : "false"}
                     disabled={busyOrgId !== null}
                     onClick={() => handleSwitch(org.id)}
                   >
-                    <span className="org-menu-item-name">{org.name}</span>
-                    <span className="org-menu-item-meta">
+                    <span className="ed-org-menu-item-name">{org.name}</span>
+                    <span className="ed-org-menu-item-meta">
                       {org.isPersonal ? "Personal" : org.role}
                       {org.isActive ? " · active" : ""}
                     </span>
@@ -117,9 +118,13 @@ function OrganisationMenu(): React.JSX.Element {
               ))}
             </ul>
           )}
-          {error ? <div className="org-menu-error">{error}</div> : null}
-          <div className="org-menu-divider" />
-          <button type="button" className="org-menu-item org-menu-action" onClick={goToJoin}>
+          {error ? <div className="ed-org-menu-error">{error}</div> : null}
+          <div className="ed-org-menu-rule" />
+          <button
+            type="button"
+            className="ed-org-menu-item ed-org-menu-action"
+            onClick={goToJoin}
+          >
             Join organisation with code
           </button>
         </div>

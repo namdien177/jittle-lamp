@@ -1,6 +1,5 @@
 import React from "react";
 import { UserButton } from "@clerk/clerk-react";
-import { Building2, Cloud, Upload } from "lucide-react";
 import { NavLink } from "react-router";
 
 import { useAccountProfile } from "./queries";
@@ -12,43 +11,47 @@ export function AuthSidebar(props: { evidenceCount?: number }): React.JSX.Elemen
   const accountLabel = profile?.user.displayName ?? profile?.user.email ?? "Signed in";
 
   return (
-    <aside className="auth-sidebar">
-      <div className="auth-sidebar-brand">
-        <img className="auth-sidebar-brand-mark" src="/logo.jpg" alt="" aria-hidden="true" />
-        <div className="column auth-sidebar-brand-text">
-          <span className="auth-sidebar-brand-name">Jittle Lamp</span>
-          <span className="auth-sidebar-brand-version">web evidence</span>
-        </div>
-      </div>
+    <aside className="ed-side">
+      <NavLink to="/" end className="ed-side-brand">
+        Jittle Lamp
+      </NavLink>
 
-      <div className="auth-sidebar-section">
-        <span className="auth-sidebar-section-label">Workspace</span>
-        <NavLink to="/" end className={({ isActive }) => `auth-sidebar-link ${isActive ? "active" : ""}`}>
-          <Cloud className="auth-sidebar-link-icon" aria-hidden size={16} strokeWidth={2} />
-          <span>Cloud evidences</span>
+      <nav className="ed-side-nav" aria-label="Workspace navigation">
+        <p className="ed-side-heading">Workspace</p>
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) => `ed-side-link${isActive ? " is-active" : ""}`}
+        >
+          <span className="ed-side-link-mark" aria-hidden="true" />
+          <span className="ed-side-link-label">Cloud evidences</span>
           {props.evidenceCount !== undefined ? (
-            <span className="auth-sidebar-link-count">{props.evidenceCount}</span>
+            <span className="ed-side-link-count">{props.evidenceCount}</span>
           ) : null}
         </NavLink>
-        <NavLink to="/quick-view" className={({ isActive }) => `auth-sidebar-link ${isActive ? "active" : ""}`}>
-          <Upload className="auth-sidebar-link-icon" aria-hidden size={16} strokeWidth={2} />
-          <span>Quick view ZIP</span>
+        <NavLink
+          to="/quick-view"
+          className={({ isActive }) => `ed-side-link${isActive ? " is-active" : ""}`}
+        >
+          <span className="ed-side-link-mark" aria-hidden="true" />
+          <span className="ed-side-link-label">Quick view (ZIP)</span>
         </NavLink>
-        <NavLink to="/organisations" className={({ isActive }) => `auth-sidebar-link ${isActive ? "active" : ""}`}>
-          <Building2 className="auth-sidebar-link-icon" aria-hidden size={16} strokeWidth={2} />
-          <span>Organisations</span>
+        <NavLink
+          to="/organisations"
+          className={({ isActive }) => `ed-side-link${isActive ? " is-active" : ""}`}
+        >
+          <span className="ed-side-link-mark" aria-hidden="true" />
+          <span className="ed-side-link-label">Organisations</span>
         </NavLink>
-      </div>
+      </nav>
 
-      <div className="auth-sidebar-footer">
-        <div className="auth-sidebar-account">
-          <UserButton />
-          <div className="auth-sidebar-account-meta">
-            <span className="auth-sidebar-account-name">{accountLabel}</span>
-            <span className="auth-sidebar-account-org">
-              {activeOrg ? activeOrg.name : "No active workspace"}
-            </span>
-          </div>
+      <div className="ed-side-account">
+        <UserButton />
+        <div className="ed-side-account-meta">
+          <span className="ed-side-account-name">{accountLabel}</span>
+          <span className="ed-side-account-org">
+            {activeOrg ? activeOrg.name : "No active workspace"}
+          </span>
         </div>
       </div>
     </aside>
@@ -60,7 +63,7 @@ export function AuthenticatedWebLayout(props: {
   evidenceCount?: number;
 }): React.JSX.Element {
   return (
-    <div className="auth-shell">
+    <div className="ed-shell">
       <AuthSidebar {...(props.evidenceCount !== undefined ? { evidenceCount: props.evidenceCount } : {})} />
       {props.children}
     </div>
