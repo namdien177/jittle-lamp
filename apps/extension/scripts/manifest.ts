@@ -37,6 +37,10 @@ export const extensionManifest = {
     "offscreen",
     "webRequest"
   ],
-  host_permissions: ["http://127.0.0.1/*"],
+  host_permissions: [
+    "http://127.0.0.1/*",
+    "http://127.0.0.1:3001/*",
+    "https://jl-api.monthlyparty.com/*"
+  ],
   optional_host_permissions: ["<all_urls>"]
 } satisfies chrome.runtime.ManifestV3;

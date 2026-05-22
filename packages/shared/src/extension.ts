@@ -125,7 +125,7 @@ export const offscreenResponseSchema = z.object({
   ok: z.boolean(),
   recordingBytes: z.number().int().nonnegative().optional(),
   eventBytes: z.number().int().nonnegative().optional(),
-  destination: z.enum(["companion", "downloads"]).optional(),
+  destination: z.enum(["cloud", "companion", "downloads"]).optional(),
   outputDir: z.string().min(1).optional(),
   error: z.string().min(1).optional()
 });

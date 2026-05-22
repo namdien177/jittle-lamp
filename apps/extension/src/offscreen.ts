@@ -1,6 +1,9 @@
 import { offscreenRequestSchema, type SessionArchive } from "@jittle-lamp/shared";
 
+declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
+
 const companionServerOrigin = "http://127.0.0.1:48115";
+const cloudApiOrigin = (__JITTLE_LAMP_API_ORIGIN__?.trim() || "https://jl-api.monthlyparty.com").replace(/\/+$/, "");
 
 type ChromeTabCaptureTrackConstraints = MediaTrackConstraints & {
   mandatory: {
@@ -21,6 +24,7 @@ type ActiveRecorderState = {
 type CompanionWriteResult =
   | {
       saved: true;
+      destination: "cloud" | "companion";
       outputDir: string;
     }
   | {
@@ -31,6 +35,16 @@ type CompanionHealthPayload = {
   ok?: boolean;
   origin?: string;
   outputDir?: string;
+};
+
+type CloudUploadStartPayload = {
+  evidenceId: string;
+  uploadSessions: Array<{
+    key: "recording" | "archive";
+    uploadId: string;
+    uploadUrl: string;
+    headers: { "content-type": string };
+  }>;
 };
 
 let activeRecorderState: ActiveRecorderState | null = null;
@@ -60,7 +74,7 @@ async function handleRequest(
   ok: boolean;
   recordingBytes?: number;
   eventBytes?: number;
-  destination?: "companion" | "downloads";
+  destination?: "cloud" | "companion" | "downloads";
   outputDir?: string;
   error?: string;
 }> {
@@ -73,7 +87,15 @@ async function handleRequest(
       const recordingBlob = await stopRecorder(request.sessionId);
       const finalized = finalizeArchiveForExport(request.archive, recordingBlob.size, recordingBlob.type || "video/webm");
 
-      const companionResult = await tryWriteArtifactsToCompanion(
+      const cloudUploadResult = await tryWriteArtifactsToCloud(
+        finalized.archive,
+        recordingBlob,
+        finalized.jsonBlob
+      );
+
+      const companionResult = cloudUploadResult.saved
+        ? cloudUploadResult
+        : await tryWriteArtifactsToCompanion(
         finalized.archive,
         recordingBlob,
         finalized.jsonBlob
@@ -98,11 +120,96 @@ async function handleRequest(
         ok: true,
         recordingBytes: recordingBlob.size,
         eventBytes: finalized.jsonBlob.size,
-        destination: companionResult.saved ? "companion" : "downloads",
+        destination: companionResult.saved ? companionResult.destination : "downloads",
         ...(companionResult.saved ? { outputDir: companionResult.outputDir } : {})
       };
     }
   }
+}
+
+async function tryWriteArtifactsToCloud(
+  archive: SessionArchive,
+  recordingBlob: Blob,
+  jsonBlob: Blob
+): Promise<CompanionWriteResult> {
+  try {
+    const meResponse = await fetch(`${cloudApiOrigin}/protected/me`, {
+      method: "GET",
+      credentials: "include"
+    });
+
+    if (!meResponse.ok) {
+      return { saved: false };
+    }
+
+    const recordingChecksum = await sha256Hex(await recordingBlob.arrayBuffer());
+    const archiveChecksum = await sha256Hex(await jsonBlob.arrayBuffer());
+
+    const startResponse = await fetch(`${cloudApiOrigin}/evidences/desktop-sessions/sync/start`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        sessionId: archive.sessionId,
+        title: archive.name,
+        sourceMetadata: JSON.stringify({ source: "extension" }),
+        artifacts: [
+          { key: "recording", kind: "recording", mimeType: "video/webm", bytes: recordingBlob.size, checksum: recordingChecksum },
+          { key: "archive", kind: "network-log", mimeType: "application/json", bytes: jsonBlob.size, checksum: archiveChecksum }
+        ]
+      })
+    });
+
+    if (!startResponse.ok) {
+      return { saved: false };
+    }
+
+    const payload = (await startResponse.json()) as CloudUploadStartPayload;
+
+    for (const session of payload.uploadSessions) {
+      const blob = session.key === "recording" ? recordingBlob : jsonBlob;
+      const putResponse = await fetch(session.uploadUrl, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "content-type": session.headers["content-type"] },
+        body: blob
+      });
+      if (!putResponse.ok) {
+        return { saved: false };
+      }
+
+      const checksum = session.key === "recording" ? recordingChecksum : archiveChecksum;
+      const completeResponse = await fetch(`${cloudApiOrigin}/evidences/uploads/${encodeURIComponent(session.uploadId)}/complete`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          bytes: blob.size,
+          checksum,
+          mimeType: session.headers["content-type"]
+        })
+      });
+
+      if (!completeResponse.ok) {
+        return { saved: false };
+      }
+    }
+
+    return {
+      saved: true,
+      destination: "cloud",
+      outputDir: "cloud"
+    };
+  } catch {
+    return { saved: false };
+  }
+}
+
+async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 async function tryWriteArtifactsToCompanion(
@@ -126,6 +233,7 @@ async function tryWriteArtifactsToCompanion(
 
     return {
       saved: true,
+      destination: "companion",
       outputDir: companionHealth.outputDir
     };
   } catch {
