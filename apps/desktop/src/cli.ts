@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -58,7 +59,7 @@ async function main(): Promise<void> {
       mimeType: "video/webm",
       bytes: recordingPayload.byteLength,
       checksum: `sha256:${await sha256Hex(recordingPayload)}`,
-      payload: new Uint8Array(recordingPayload)
+      payload: Uint8Array.from(recordingPayload)
     },
     {
       key: "archive",
@@ -66,7 +67,7 @@ async function main(): Promise<void> {
       mimeType: "application/json",
       bytes: archivePayload.byteLength,
       checksum: `sha256:${await sha256Hex(archivePayload)}`,
-      payload: new Uint8Array(archivePayload)
+      payload: Uint8Array.from(archivePayload)
     }
   ];
 
@@ -119,7 +120,7 @@ async function main(): Promise<void> {
         "content-type": artifact.mimeType,
         authorization: `Bearer ${token}`
       },
-      body: artifact.payload
+      body: new Blob([toArrayBuffer(artifact.payload)], { type: artifact.mimeType })
     });
     if (!uploadResponse.ok) {
       throw new Error(`Upload failed for ${artifact.key} (${uploadResponse.status})`);
@@ -188,9 +189,12 @@ function printUsage(): void {
   console.info(`Usage:\n  bun run --cwd apps/desktop cli upload-evidence --session-id <session-id> [--title <title>] [--replace-evidence-id <evidence-id>] [--token <bearer-token>]\n\nEnvironment:\n  JITTLE_LAMP_ACCESS_TOKEN   Bearer token from an authenticated desktop session.`);
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Buffer.from(new Uint8Array(digest)).toString("hex");
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 void main().catch((error: unknown) => {
