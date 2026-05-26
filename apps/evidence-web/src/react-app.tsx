@@ -33,6 +33,7 @@ import { JoinOrganizationPage } from "./join-org-page";
 import type { LoadedSession } from "./loader";
 import { OrganisationsPage } from "./organisations-page";
 import { createQueryClient, useRemoteEvidence, type RemoteEvidenceData } from "./queries";
+import { ToastProvider } from "./toast";
 import { useWebFileAdapter } from "./web-adapter";
 
 const queryClient = createQueryClient();
@@ -547,10 +548,12 @@ export function bootstrap(): void {
   if (!root) throw new Error("Evidence web root element was not found.");
   const app = (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <EvidenceWebRoutes />
-      </BrowserRouter>
-      <Analytics />
+      <ToastProvider>
+        <BrowserRouter>
+          <EvidenceWebRoutes />
+        </BrowserRouter>
+        <Analytics />
+      </ToastProvider>
     </QueryClientProvider>
   );
 

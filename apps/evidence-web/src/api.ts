@@ -163,6 +163,26 @@ export type ResolveShareLinkResponse = {
   };
 };
 
+export type ApiShareLinkSummary = {
+  id: string;
+  evidenceId: string;
+  orgId: string;
+  scope: "internal";
+  createdAt: number;
+  expiresAt: number;
+  revokedAt: number | null;
+  createdBy: string;
+};
+
+export type CreatedShareLink = {
+  id: string;
+  token: string;
+  evidenceId: string;
+  orgId: string;
+  expiresAt: number;
+  scope: "internal";
+};
+
 export const api = {
   resolveShareLink: (getToken: FetchToken, token: string) =>
     authedFetch<ResolveShareLinkResponse>(
@@ -195,6 +215,29 @@ export const api = {
       `/evidences/${encodeURIComponent(evidenceId)}/artifacts/${encodeURIComponent(artifactId)}/read-url${
         orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""
       }`
+    ),
+
+  listShareLinks: (getToken: FetchToken, evidenceId: string) =>
+    authedFetch<{ shareLinks: ApiShareLinkSummary[] }>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}/share-links`
+    ),
+
+  createShareLink: (getToken: FetchToken, evidenceId: string, expiresInMs?: number) =>
+    authedFetch<{ shareLink: CreatedShareLink }>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}/share-links`,
+      {
+        method: "POST",
+        body: JSON.stringify(expiresInMs !== undefined ? { expiresInMs } : {})
+      }
+    ),
+
+  revokeShareLink: (getToken: FetchToken, shareLinkId: string) =>
+    authedFetch<{ shareLink: { id: string; revokedAt: number } }>(
+      getToken,
+      `/share-links/${encodeURIComponent(shareLinkId)}/revoke`,
+      { method: "POST" }
     ),
 
   acceptInvitation: (getToken: FetchToken, token: string) =>
