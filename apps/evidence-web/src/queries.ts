@@ -6,7 +6,9 @@ import {
   type ApiAccountProfile,
   type ApiEvidenceSummary,
   type ApiOrganization,
+  type ApiShareLinkSummary,
   type ArtifactReadUrl,
+  type CreatedShareLink,
   type EvidenceArtifact,
   type FetchToken
 } from "./api";
@@ -32,6 +34,7 @@ export const queryKeys = {
   evidences: () => ["evidences"] as const,
   evidenceArtifacts: (evidenceId: string, orgId: string | undefined) =>
     ["evidence-artifacts", evidenceId, orgId ?? null] as const,
+  shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
   remoteEvidence: (key: { shareToken?: string; remoteEvidenceId?: string }) =>
     ["remote-evidence", key.shareToken ?? null, key.remoteEvidenceId ?? null] as const
 };
@@ -75,6 +78,40 @@ export function useDeleteEvidence() {
             : previous
       );
       queryClient.removeQueries({ queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }) });
+    }
+  });
+}
+
+export function useShareLinks(evidenceId: string | null) {
+  const auth = useAuth();
+  const getToken = useAuthToken();
+  return useQuery<{ shareLinks: ApiShareLinkSummary[] }>({
+    queryKey: queryKeys.shareLinks(evidenceId ?? "none"),
+    queryFn: () => api.listShareLinks(getToken, evidenceId ?? ""),
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(evidenceId)
+  });
+}
+
+export function useCreateShareLink() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { evidenceId: string; expiresInMs?: number }) =>
+      api.createShareLink(getToken, input.evidenceId, input.expiresInMs),
+    onSuccess: (_data: { shareLink: CreatedShareLink }, input) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shareLinks(input.evidenceId) });
+    }
+  });
+}
+
+export function useRevokeShareLink() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { shareLinkId: string; evidenceId: string }) =>
+      api.revokeShareLink(getToken, input.shareLinkId),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shareLinks(input.evidenceId) });
     }
   });
 }

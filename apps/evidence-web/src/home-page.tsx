@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "@jittle-lamp/ui";
 import {
   ClerkDegraded,
   ClerkFailed,
@@ -6,33 +7,19 @@ import {
   ClerkLoading,
   SignInButton,
   SignedIn,
-  SignedOut
+  SignedOut,
+  useAuth
 } from "@clerk/clerk-react";
+import { ChevronDown, MoreVertical } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
 import { AuthenticatedWebLayout } from "./auth-layout";
+import { downloadEvidenceAsZip } from "./download-evidence";
+import type { ApiEvidenceSummary, FetchToken } from "./api";
 import { useAccountProfile, useDeleteEvidence, useEvidences } from "./queries";
-
-function formatRelativeTime(value: number | string): string {
-  const ms = typeof value === "string" ? Date.parse(value) : value;
-  if (!Number.isFinite(ms)) return "—";
-  const diff = Date.now() - ms;
-  const abs = Math.abs(diff);
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (abs < minute) return diff >= 0 ? "just now" : "in moments";
-  if (abs < hour) {
-    const mins = Math.round(abs / minute);
-    return diff >= 0 ? `${mins}m ago` : `in ${mins}m`;
-  }
-  if (abs < day) {
-    const hours = Math.round(abs / hour);
-    return diff >= 0 ? `${hours}h ago` : `in ${hours}h`;
-  }
-  const days = Math.round(abs / day);
-  return diff >= 0 ? `${days}d ago` : `in ${days}d`;
-}
+import { ShareDialog } from "./share-dialog";
+import { useToast } from "./toast";
+import { formatRelativeTime } from "./utils";
 
 export function HomePage(): React.JSX.Element {
   return (
@@ -158,10 +145,17 @@ export function PublicHomePage(): React.JSX.Element {
 
 function AuthenticatedHome(): React.JSX.Element {
   const navigate = useNavigate();
+  const auth = useAuth();
   const profileQuery = useAccountProfile();
   const evidencesQuery = useEvidences();
   const deleteEvidence = useDeleteEvidence();
+  const toast = useToast();
   const [search, setSearch] = useState("");
+  const [shareTarget, setShareTarget] = useState<ApiEvidenceSummary | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ApiEvidenceSummary | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const getToken: FetchToken = () => auth.getToken();
 
   const evidences = evidencesQuery.data?.evidences ?? [];
   const orgId = evidencesQuery.data?.orgId ?? null;
@@ -186,6 +180,43 @@ function AuthenticatedHome(): React.JSX.Element {
         : deleteEvidence.error instanceof Error
           ? deleteEvidence.error.message
         : null;
+
+  const handleDownload = async (evidence: ApiEvidenceSummary): Promise<void> => {
+    setDownloadingId(evidence.id);
+    try {
+      await downloadEvidenceAsZip({
+        getToken,
+        evidenceId: evidence.id,
+        orgId: evidence.orgId,
+        title: evidence.title
+      });
+      toast.success("Download started", "ZIP saved to your downloads folder.");
+    } catch (downloadError) {
+      toast.error(
+        "Download failed",
+        downloadError instanceof Error ? downloadError.message : undefined
+      );
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const confirmDelete = (): void => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    deleteEvidence.mutate(target.id, {
+      onSuccess: () => {
+        toast.success("Evidence deleted", target.title);
+        setPendingDelete(null);
+      },
+      onError: (mutationError) => {
+        toast.error(
+          "Delete failed",
+          mutationError instanceof Error ? mutationError.message : undefined
+        );
+      }
+    });
+  };
 
   return (
     <AuthenticatedWebLayout evidenceCount={evidences.length}>
@@ -217,7 +248,7 @@ function AuthenticatedHome(): React.JSX.Element {
             </span>
             <button
               type="button"
-              className="ed-link-action ed-link-action-quiet ed-link-action-sm"
+              className="button ghost sm"
               onClick={() => void evidencesQuery.refetch()}
               disabled={loading}
             >
@@ -239,72 +270,150 @@ function AuthenticatedHome(): React.JSX.Element {
             </p>
             <button
               type="button"
-              className="ed-link-action"
+              className="button secondary sm"
               onClick={() => navigate("/quick-view")}
             >
               Open a local archive
-              <span aria-hidden="true" className="ed-arrow">
-                →
-              </span>
             </button>
           </div>
         ) : (
           <ul className="ed-list" aria-label="Evidence records">
             {filtered.map((evidence) => (
-              <li key={evidence.id} className="ed-row">
-                <button
-                  type="button"
-                  className="ed-row-main"
-                  onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
-                >
-                  <span className="ed-row-title">{evidence.title}</span>
-                  <span className="ed-row-meta">
-                    <span className="ed-row-type">{evidence.sourceType}</span>
-                    <span className="ed-row-sep" aria-hidden="true">·</span>
-                    <span className="ed-row-id">{evidence.id.slice(0, 12)}</span>
-                    <span className="ed-row-sep" aria-hidden="true">·</span>
-                    <span
-                      className="ed-row-time"
-                      title={new Date(evidence.updatedAt).toISOString()}
-                    >
-                      {formatRelativeTime(evidence.updatedAt)}
-                    </span>
-                  </span>
-                </button>
-                <div className="ed-row-actions">
-                  <button
-                    type="button"
-                    className="ed-link-action ed-link-action-sm"
-                    onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
-                  >
-                    View
-                    <span aria-hidden="true" className="ed-arrow">
-                      →
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="ed-link-action ed-link-action-sm ed-link-action-danger"
-                    disabled={deleteEvidence.isPending}
-                    onClick={() => {
-                      if (
-                        !window.confirm(
-                          `Delete ${evidence.title}? This removes the cloud evidence and share links.`
-                        )
-                      ) {
-                        return;
-                      }
-                      deleteEvidence.mutate(evidence.id);
-                    }}
-                  >
-                    {deletingId === evidence.id ? "Deleting…" : "Delete"}
-                  </button>
-                </div>
-              </li>
+              <EvidenceRow
+                key={evidence.id}
+                evidence={evidence}
+                downloading={downloadingId === evidence.id}
+                deleting={deletingId === evidence.id}
+                onReview={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+                onShare={() => setShareTarget(evidence)}
+                onDownload={() => void handleDownload(evidence)}
+                onDelete={() => setPendingDelete(evidence)}
+              />
             ))}
           </ul>
         )}
       </div>
+
+      {shareTarget ? (
+        <ShareDialog evidence={shareTarget} onClose={() => setShareTarget(null)} />
+      ) : null}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this evidence?"
+        description={
+          pendingDelete
+            ? `This permanently removes ${pendingDelete.title} from the workspace. Active share links will stop working.`
+            : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={deleteEvidence.isPending}
+        onConfirm={confirmDelete}
+        onCancel={() => (deleteEvidence.isPending ? null : setPendingDelete(null))}
+      />
     </AuthenticatedWebLayout>
+  );
+}
+
+function EvidenceRow(props: {
+  evidence: ApiEvidenceSummary;
+  downloading: boolean;
+  deleting: boolean;
+  onReview: () => void;
+  onShare: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+}): React.JSX.Element {
+  const { evidence, downloading, deleting, onReview, onShare, onDownload, onDelete } = props;
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handleClickOutside = (event: MouseEvent): void => {
+      if (!overflowRef.current?.contains(event.target as Node)) {
+        setOverflowOpen(false);
+      }
+    };
+    const handleKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setOverflowOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [overflowOpen]);
+
+  const busy = downloading || deleting;
+
+  return (
+    <li className="ed-row">
+      <button type="button" className="ed-row-main" onClick={onReview}>
+        <span className="ed-row-title">{evidence.title}</span>
+        <span className="ed-row-meta">
+          <span className="ed-row-type">{evidence.sourceType}</span>
+          <span className="ed-row-sep" aria-hidden="true">·</span>
+          <span className="ed-row-id">{evidence.id.slice(0, 12)}</span>
+          <span className="ed-row-sep" aria-hidden="true">·</span>
+          <span className="ed-row-time" title={new Date(evidence.updatedAt).toISOString()}>
+            {formatRelativeTime(evidence.updatedAt)}
+          </span>
+        </span>
+      </button>
+      <div className="ed-row-actions">
+        <button className="button primary sm" type="button" onClick={onReview}>
+          Review
+        </button>
+        <button className="button ghost sm" type="button" onClick={onShare} disabled={busy}>
+          <span className="button-label-with-icon">
+            Share <ChevronDown aria-hidden size={14} strokeWidth={2} />
+          </span>
+        </button>
+        <div className="share-menu-wrap" ref={overflowRef}>
+          <button
+            className="button ghost sm icon-only"
+            type="button"
+            aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={overflowOpen}
+            disabled={busy}
+            onClick={() => setOverflowOpen((prev) => !prev)}
+          >
+            <MoreVertical aria-hidden size={16} strokeWidth={2} />
+          </button>
+          {overflowOpen ? (
+            <div className="share-menu session-overflow-menu" role="menu">
+              <button
+                className="share-menu-item"
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => {
+                  setOverflowOpen(false);
+                  onDownload();
+                }}
+              >
+                {downloading ? "Downloading…" : "Download as ZIP"}
+              </button>
+              <button
+                className="share-menu-item danger"
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => {
+                  setOverflowOpen(false);
+                  onDelete();
+                }}
+              >
+                {deleting ? "Deleting…" : "Delete from cloud"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </li>
   );
 }
