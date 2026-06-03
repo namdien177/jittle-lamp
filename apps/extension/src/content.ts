@@ -1,6 +1,13 @@
-import { backgroundToContentMessageSchema, sanitizeCapturedUrl } from "@jittle-lamp/shared";
+import {
+  backgroundToContentMessageSchema,
+  popupResponseSchema,
+  sanitizeCapturedUrl,
+  type PopupResponse,
+  type PopupState
+} from "@jittle-lamp/shared";
 
 let activeSessionId: string | null = null;
+let floatingWidget: FloatingWidgetController | null = null;
 
 type NetworkProbeBody = {
   disposition: "captured" | "truncated" | "omitted" | "unavailable";
@@ -52,6 +59,7 @@ function bootContentBridge(): void {
     switch (parsed.data.type) {
       case "jl/content-begin-capture":
         activeSessionId = parsed.data.sessionId;
+        showFloatingWidget();
         void announceContentReady(parsed.data.sessionId);
         return;
 
@@ -59,6 +67,11 @@ function bootContentBridge(): void {
         if (activeSessionId === parsed.data.sessionId) {
           activeSessionId = null;
         }
+        floatingWidget?.refresh();
+        return;
+
+      case "jl/content-toggle-widget":
+        toggleFloatingWidget();
         return;
     }
   });
@@ -66,6 +79,10 @@ function bootContentBridge(): void {
   window.addEventListener(
     "click",
     (event) => {
+      if (isFloatingWidgetEvent(event)) {
+        return;
+      }
+
       const target = event.target instanceof Element ? event.target : null;
       const descriptor = describeElementTarget(target);
       const page = collectPageMetrics();
@@ -95,6 +112,10 @@ function bootContentBridge(): void {
   window.addEventListener(
     "input",
     (event) => {
+      if (isFloatingWidgetEvent(event)) {
+        return;
+      }
+
       const target = event.target instanceof Element ? event.target : null;
       const field = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
         ? target
@@ -124,6 +145,10 @@ function bootContentBridge(): void {
   window.addEventListener(
     "keydown",
     (event) => {
+      if (isFloatingWidgetEvent(event)) {
+        return;
+      }
+
       if (shouldSkipKeyboardEvent(event)) {
         return;
       }
@@ -148,6 +173,10 @@ function bootContentBridge(): void {
   window.addEventListener(
     "keyup",
     (event) => {
+      if (isFloatingWidgetEvent(event)) {
+        return;
+      }
+
       if (shouldSkipKeyboardEvent(event)) {
         return;
       }
@@ -172,6 +201,10 @@ function bootContentBridge(): void {
   window.addEventListener(
     "submit",
     (event) => {
+      if (isFloatingWidgetEvent(event)) {
+        return;
+      }
+
       const form = event.target instanceof HTMLFormElement ? event.target : null;
       const descriptor = describeElementTarget(form);
       const submitter = event instanceof SubmitEvent && event.submitter instanceof Element
@@ -280,6 +313,540 @@ async function sendNetworkEvent(payload: NetworkProbePayload): Promise<void> {
       ...(payload.failureText ? { failureText: payload.failureText } : {})
     }
   });
+}
+
+const floatingWidgetHostId = "jittle-lamp-floating-widget";
+const floatingWidgetRefreshMs = 1_200;
+
+class FloatingWidgetController {
+  private readonly host: HTMLDivElement;
+  private readonly shadow: ShadowRoot;
+  private readonly titleInput: HTMLInputElement;
+  private readonly statusText: HTMLSpanElement;
+  private readonly routeText: HTMLSpanElement;
+  private readonly phasePill: HTMLSpanElement;
+  private readonly eventText: HTMLSpanElement;
+  private readonly startButton: HTMLButtonElement;
+  private readonly stopButton: HTMLButtonElement;
+  private readonly collapseButton: HTMLButtonElement;
+  private readonly closeButton: HTMLButtonElement;
+  private readonly dragHandle: HTMLElement;
+  private refreshTimer: number | null = null;
+  private lastTitle = "";
+  private collapsed = false;
+
+  constructor() {
+    const existing = document.getElementById(floatingWidgetHostId);
+    if (existing) {
+      existing.remove();
+    }
+
+    this.host = document.createElement("div");
+    this.host.id = floatingWidgetHostId;
+    this.host.dataset.jittleLampWidget = "true";
+    this.host.style.position = "fixed";
+    this.host.style.top = "20px";
+    this.host.style.right = "20px";
+    this.host.style.zIndex = "2147483647";
+    this.host.style.width = "286px";
+    this.host.style.maxWidth = "calc(100vw - 24px)";
+    this.host.style.pointerEvents = "auto";
+
+    this.shadow = this.host.attachShadow({ mode: "closed" });
+    this.shadow.innerHTML = floatingWidgetTemplate();
+    document.documentElement.append(this.host);
+
+    this.titleInput = this.require<HTMLInputElement>("[data-role='title']");
+    this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
+    this.routeText = this.require<HTMLSpanElement>("[data-role='route']");
+    this.phasePill = this.require<HTMLSpanElement>("[data-role='phase']");
+    this.eventText = this.require<HTMLSpanElement>("[data-role='events']");
+    this.startButton = this.require<HTMLButtonElement>("[data-role='start']");
+    this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
+    this.collapseButton = this.require<HTMLButtonElement>("[data-role='collapse']");
+    this.closeButton = this.require<HTMLButtonElement>("[data-role='close']");
+    this.dragHandle = this.require<HTMLElement>("[data-role='drag']");
+
+    this.bind();
+  }
+
+  show(): void {
+    this.host.hidden = false;
+    void this.refresh();
+
+    if (this.refreshTimer === null) {
+      this.refreshTimer = window.setInterval(() => {
+        void this.refresh();
+      }, floatingWidgetRefreshMs);
+    }
+  }
+
+  toggle(): void {
+    if (this.host.hidden) {
+      this.show();
+      return;
+    }
+
+    this.hide();
+  }
+
+  hide(): void {
+    this.host.hidden = true;
+
+    if (this.refreshTimer !== null) {
+      window.clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  async refresh(error?: string): Promise<void> {
+    try {
+      const response = await sendPopupRequest("jl/popup-get-state");
+      this.render(response.state, error ?? response.error);
+    } catch (refreshError: unknown) {
+      this.renderError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+    }
+  }
+
+  private bind(): void {
+    this.startButton.addEventListener("click", () => {
+      void this.performAction("jl/popup-start-recording");
+    });
+
+    this.stopButton.addEventListener("click", () => {
+      void this.performAction("jl/popup-stop-recording");
+    });
+
+    this.closeButton.addEventListener("click", () => {
+      this.hide();
+    });
+
+    this.collapseButton.addEventListener("click", () => {
+      this.collapsed = !this.collapsed;
+      this.host.dataset.collapsed = String(this.collapsed);
+      this.collapseButton.textContent = this.collapsed ? "▣" : "−";
+      this.collapseButton.title = this.collapsed ? "Expand" : "Minimize";
+    });
+
+    this.titleInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        this.titleInput.blur();
+      }
+
+      if (event.key === "Escape") {
+        this.titleInput.value = this.lastTitle;
+        this.titleInput.blur();
+      }
+    });
+
+    this.titleInput.addEventListener("blur", () => {
+      void this.persistTitle();
+    });
+
+    this.dragHandle.addEventListener("pointerdown", (event) => {
+      this.beginDrag(event);
+    });
+  }
+
+  private async performAction(type: "jl/popup-start-recording" | "jl/popup-stop-recording"): Promise<void> {
+    this.setBusy(true);
+    try {
+      const response = await sendPopupRequest(type);
+      this.render(response.state, response.error);
+    } catch (error: unknown) {
+      await this.refresh(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private async persistTitle(): Promise<void> {
+    const nextTitle = this.titleInput.value.trim();
+
+    if (!nextTitle || nextTitle === this.lastTitle) {
+      this.titleInput.value = this.lastTitle;
+      return;
+    }
+
+    this.setBusy(true);
+    try {
+      const response = popupResponseSchema.parse(
+        await chrome.runtime.sendMessage({
+          type: "jl/popup-update-session-name",
+          name: nextTitle
+        })
+      );
+      this.render(response.state, response.error);
+    } catch (error: unknown) {
+      await this.refresh(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private render(state: PopupState, error?: string): void {
+    const activeSession = state.activeSession;
+    const phase = activeSession?.phase ?? "idle";
+    const title = activeSession?.name ?? pageFallbackTitle();
+    const route = state.cloud.status === "signed-in"
+      ? "Cloud upload ready"
+      : state.companion.status === "online"
+        ? "Desktop companion ready"
+        : "Companion app recommended";
+
+    this.lastTitle = title;
+
+    if (this.shadow.activeElement !== this.titleInput) {
+      this.titleInput.value = title;
+    }
+
+    this.titleInput.disabled = !activeSession || phase === "processing";
+    this.phasePill.textContent = phase;
+    this.phasePill.dataset.phase = phase;
+    this.eventText.textContent = `${activeSession?.eventCount ?? 0} events`;
+    this.routeText.textContent = route;
+    this.statusText.textContent = error ?? activeSession?.statusText ?? widgetStatusText(state);
+    this.statusText.dataset.tone = error ? "error" : "neutral";
+
+    this.startButton.hidden = !state.canStart;
+    this.stopButton.hidden = !state.canStop;
+    this.startButton.disabled = !state.canStart;
+    this.stopButton.disabled = !state.canStop;
+  }
+
+  private renderError(message: string): void {
+    this.statusText.textContent = message;
+    this.statusText.dataset.tone = "error";
+    this.phasePill.textContent = "offline";
+    this.phasePill.dataset.phase = "failed";
+  }
+
+  private setBusy(busy: boolean): void {
+    this.startButton.disabled = busy || this.startButton.hidden === true;
+    this.stopButton.disabled = busy || this.stopButton.hidden === true;
+    this.host.dataset.busy = String(busy);
+  }
+
+  private beginDrag(event: PointerEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const rect = this.host.getBoundingClientRect();
+    const pointerOffset = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+
+    this.dragHandle.setPointerCapture(event.pointerId);
+    this.host.style.right = "auto";
+    this.host.style.left = `${rect.left}px`;
+    this.host.style.top = `${rect.top}px`;
+
+    const move = (moveEvent: PointerEvent): void => {
+      const nextLeft = clamp(moveEvent.clientX - pointerOffset.x, 8, window.innerWidth - rect.width - 8);
+      const nextTop = clamp(moveEvent.clientY - pointerOffset.y, 8, window.innerHeight - rect.height - 8);
+      this.host.style.left = `${nextLeft}px`;
+      this.host.style.top = `${nextTop}px`;
+    };
+
+    const stop = (upEvent: PointerEvent): void => {
+      this.dragHandle.releasePointerCapture(upEvent.pointerId);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", stop, true);
+    };
+
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", stop, true);
+  }
+
+  private require<ElementType extends Element>(selector: string): ElementType {
+    const element = this.shadow.querySelector<ElementType>(selector);
+
+    if (!element) {
+      throw new Error(`Missing floating widget element: ${selector}`);
+    }
+
+    return element;
+  }
+}
+
+async function sendPopupRequest(
+  type: "jl/popup-get-state" | "jl/popup-start-recording" | "jl/popup-stop-recording"
+): Promise<PopupResponse> {
+  return popupResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      type
+    })
+  );
+}
+
+function showFloatingWidget(): void {
+  floatingWidget ??= new FloatingWidgetController();
+  floatingWidget.show();
+}
+
+function toggleFloatingWidget(): void {
+  floatingWidget ??= new FloatingWidgetController();
+  floatingWidget.toggle();
+}
+
+function isFloatingWidgetEvent(event: Event): boolean {
+  return event.composedPath().some(
+    (target) => target instanceof HTMLElement && target.dataset.jittleLampWidget === "true"
+  );
+}
+
+function widgetStatusText(state: PopupState): string {
+  if (state.activeSession?.phase === "recording") {
+    return state.cloud.status === "signed-in"
+      ? "Recording. Stop to upload directly to cloud."
+      : state.companion.status === "online"
+        ? "Recording. Stop to save through the companion."
+        : "Recording. Stop to download locally.";
+  }
+
+  if (state.cloud.status === "signed-in") {
+    return "Signed in on web. Cloud upload is enabled.";
+  }
+
+  if (state.companion.status === "online") {
+    return "Desktop companion is available.";
+  }
+
+  return "Sign in on web for cloud upload, or install the companion app.";
+}
+
+function pageFallbackTitle(): string {
+  return document.title.trim() || new URL(window.location.href).hostname || "Jittle Lamp session";
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function floatingWidgetTemplate(): string {
+  return `
+    <style>
+      :host {
+        all: initial;
+      }
+
+      .jl-float {
+        box-sizing: border-box;
+        width: 286px;
+        max-width: calc(100vw - 24px);
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+        background: #101211;
+        color: #f2f4f0;
+        box-shadow: 0 20px 54px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(0, 0, 0, 0.2);
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .jl-head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 10px 10px 8px;
+        background: linear-gradient(180deg, #151816, #101211);
+        cursor: grab;
+        user-select: none;
+      }
+
+      .jl-head:active {
+        cursor: grabbing;
+      }
+
+      .jl-brand {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 7px;
+        color: #8a938b;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .jl-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #22c55e;
+        box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+      }
+
+      .jl-tools {
+        display: flex;
+        gap: 4px;
+      }
+
+      .jl-icon {
+        width: 22px;
+        height: 22px;
+        border: 0;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.06);
+        color: #abb2ac;
+        cursor: pointer;
+        font: inherit;
+        line-height: 1;
+      }
+
+      .jl-icon:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #f2f4f0;
+      }
+
+      .jl-body {
+        display: grid;
+        gap: 8px;
+        padding: 0 10px 10px;
+      }
+
+      :host([data-collapsed="true"]) .jl-body,
+      :host([data-collapsed="true"]) .jl-route,
+      :host([data-collapsed="true"]) .jl-status {
+        display: none;
+      }
+
+      .jl-title {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid transparent;
+        border-radius: 5px;
+        padding: 5px 6px;
+        background: rgba(255, 255, 255, 0.05);
+        color: #f2f4f0;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 650;
+        outline: none;
+      }
+
+      .jl-title:focus {
+        border-color: rgba(34, 197, 94, 0.55);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .jl-title:disabled {
+        color: #8a938b;
+      }
+
+      .jl-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .jl-pill {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 5px;
+        padding: 3px 7px;
+        background: rgba(255, 255, 255, 0.06);
+        color: #aab1ac;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .jl-pill[data-phase="recording"],
+      .jl-pill[data-phase="ready"] {
+        border-color: rgba(34, 197, 94, 0.24);
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+      }
+
+      .jl-pill[data-phase="processing"],
+      .jl-pill[data-phase="armed"] {
+        border-color: rgba(245, 158, 11, 0.26);
+        background: rgba(245, 158, 11, 0.12);
+        color: #f59e0b;
+      }
+
+      .jl-pill[data-phase="failed"] {
+        border-color: rgba(239, 68, 68, 0.26);
+        background: rgba(239, 68, 68, 0.12);
+        color: #ef4444;
+      }
+
+      .jl-muted,
+      .jl-route,
+      .jl-status {
+        color: #8a938b;
+        overflow-wrap: anywhere;
+      }
+
+      .jl-status[data-tone="error"] {
+        color: #ef4444;
+      }
+
+      .jl-actions {
+        display: flex;
+        gap: 7px;
+      }
+
+      .jl-button {
+        flex: 1;
+        min-height: 34px;
+        border: 0;
+        border-radius: 6px;
+        padding: 7px 10px;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 750;
+      }
+
+      .jl-button:disabled {
+        cursor: default;
+        opacity: 0.45;
+      }
+
+      .jl-start {
+        background: #22c55e;
+        color: #07100a;
+      }
+
+      .jl-stop {
+        background: #262a27;
+        color: #f2f4f0;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .jl-button[hidden] {
+        display: none;
+      }
+    </style>
+    <section class="jl-float" aria-label="Jittle Lamp recorder">
+      <header class="jl-head" data-role="drag">
+        <div class="jl-brand"><span class="jl-dot"></span><span>Jittle Lamp</span></div>
+        <div class="jl-tools">
+          <button class="jl-icon" data-role="collapse" type="button" title="Minimize">−</button>
+          <button class="jl-icon" data-role="close" type="button" title="Hide">×</button>
+        </div>
+      </header>
+      <div class="jl-body">
+        <input class="jl-title" data-role="title" type="text" maxlength="160" />
+        <div class="jl-meta">
+          <span class="jl-pill" data-role="phase" data-phase="idle">idle</span>
+          <span class="jl-muted" data-role="events">0 events</span>
+        </div>
+        <span class="jl-route" data-role="route">Checking route…</span>
+        <span class="jl-status" data-role="status">Ready.</span>
+        <div class="jl-actions">
+          <button class="jl-button jl-start" data-role="start" type="button">Start capture</button>
+          <button class="jl-button jl-stop" data-role="stop" type="button" hidden>Stop</button>
+        </div>
+      </div>
+    </section>
+  `;
 }
 
 function isNetworkProbeMessage(value: unknown): value is { source: "jittle-lamp-network-probe"; payload: NetworkProbePayload } {

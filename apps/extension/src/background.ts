@@ -254,6 +254,12 @@ chrome.runtime.onMessage.addListener((rawMessage, sender, sendResponse) => {
   return true;
 });
 
+chrome.action?.onClicked?.addListener((tab) => {
+  void toggleFloatingWidget(tab).catch((error: unknown) => {
+    console.warn(`[jittle-lamp] Unable to toggle floating widget: ${errorMessage(error)}`);
+  });
+});
+
 chrome.debugger.onEvent.addListener((source, method, params) => {
   void queueDraftMutation(() => handleDebuggerEvent(source, method, params));
 });
@@ -399,6 +405,29 @@ async function startRecordingSession(): Promise<void> {
 
     throw error;
   }
+}
+
+async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
+  const tab = isRecordableTab(tabHint) ? tabHint : await getActiveRecordableTabForWidget();
+
+  await ensureWidgetBridge(tab.id);
+  await chrome.tabs.sendMessage(tab.id, {
+    type: "jl/content-toggle-widget"
+  });
+}
+
+async function getActiveRecordableTabForWidget(): Promise<chrome.tabs.Tab & { id: number; url: string }> {
+  const candidates = [
+    ...(await chrome.tabs.query({ active: true, lastFocusedWindow: true, url: ["http://*/*", "https://*/*"] })),
+    ...(await chrome.tabs.query({ active: true, currentWindow: true, url: ["http://*/*", "https://*/*"] }))
+  ];
+  const tab = candidates.find((candidate) => isRecordableTab(candidate));
+
+  if (!tab) {
+    throw new Error("Open an http(s) page before opening the floating recorder.");
+  }
+
+  return tab;
 }
 
 async function stopRecordingSession(detail: string): Promise<void> {
@@ -1458,6 +1487,26 @@ async function ensureContentBridge(tabId: number, sessionId: string): Promise<vo
   await chrome.tabs.sendMessage(tabId, {
     type: "jl/content-begin-capture",
     sessionId
+  });
+}
+
+async function ensureWidgetBridge(tabId: number): Promise<void> {
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: "jl/content-widget-ping"
+    });
+    return;
+  } catch (error: unknown) {
+    const message = rawErrorMessage(error);
+
+    if (!message.includes("Receiving end does not exist")) {
+      throw error;
+    }
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"]
   });
 }
 
@@ -2630,6 +2679,10 @@ function isSessionBusy(draft: CaptureSessionDraft): boolean {
 
 function isHttpUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
+}
+
+function isRecordableTab(tab: chrome.tabs.Tab | undefined): tab is chrome.tabs.Tab & { id: number; url: string } {
+  return typeof tab?.id === "number" && typeof tab.url === "string" && isHttpUrl(tab.url);
 }
 
 function isRecordableStartupUrl(url: string): boolean {

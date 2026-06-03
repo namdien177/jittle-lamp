@@ -91,9 +91,14 @@ export const contentEndCaptureMessageSchema = z.object({
   sessionId: sessionIdSchema
 });
 
+export const contentToggleWidgetMessageSchema = z.object({
+  type: z.literal("jl/content-toggle-widget")
+});
+
 export const backgroundToContentMessageSchema = z.discriminatedUnion("type", [
   contentBeginCaptureMessageSchema,
-  contentEndCaptureMessageSchema
+  contentEndCaptureMessageSchema,
+  contentToggleWidgetMessageSchema
 ]);
 
 export const contentReadyMessageSchema = z.object({

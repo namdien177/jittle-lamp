@@ -17,7 +17,6 @@ export const extensionManifest = {
   minimum_chrome_version: "123",
   action: {
     default_title: "jittle-lamp",
-    default_popup: "popup.html",
     default_icon: {
       "16": "icon.jpeg",
       "32": "icon.jpeg",
