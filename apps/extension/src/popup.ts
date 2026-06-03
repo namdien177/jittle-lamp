@@ -8,7 +8,10 @@ const companionStatus = requireElement<HTMLElement>("[data-role='companion-statu
 const companionRoute = requireElement<HTMLParagraphElement>("[data-role='companion-route']");
 const companionPill = requireElement<HTMLSpanElement>("[data-role='companion-pill']");
 const companionDownload = requireElement<HTMLAnchorElement>("[data-role='companion-download']");
-const titleValue = requireElement<HTMLSpanElement>("[data-role='title-value']");
+const cloudStatus = requireElement<HTMLElement>("[data-role='cloud-status']");
+const cloudRoute = requireElement<HTMLParagraphElement>("[data-role='cloud-route']");
+const cloudPill = requireElement<HTMLSpanElement>("[data-role='cloud-pill']");
+const titleValue = requireElement<HTMLInputElement>("[data-role='title-value']");
 const urlValue = requireElement<HTMLSpanElement>("[data-role='url-value']");
 const sessionValue = requireElement<HTMLSpanElement>("[data-role='session-value']");
 const eventsValue = requireElement<HTMLSpanElement>("[data-role='events-value']");
@@ -18,6 +21,7 @@ const startButton = requireElement<HTMLButtonElement>("[data-role='start-button'
 const stopButton = requireElement<HTMLButtonElement>("[data-role='stop-button']");
 
 let requestInFlight = false;
+let lastRenderedTitle = "";
 
 createIcons({ icons: { CircleStop, Play } });
 void refreshState();
@@ -33,7 +37,24 @@ stopButton.addEventListener("click", () => {
   void performAction("jl/popup-stop-recording");
 });
 
-async function performAction(type: "jl/popup-start-recording" | "jl/popup-stop-recording"): Promise<void> {
+titleValue.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    titleValue.blur();
+  }
+
+  if (event.key === "Escape") {
+    titleValue.value = lastRenderedTitle;
+    titleValue.blur();
+  }
+});
+
+titleValue.addEventListener("blur", () => {
+  void persistTitleEdit();
+});
+
+async function performAction(
+  type: "jl/popup-start-recording" | "jl/popup-stop-recording"
+): Promise<void> {
   if (requestInFlight) {
     return;
   }
@@ -91,11 +112,58 @@ async function sendPopupMessage(
   );
 }
 
+async function persistTitleEdit(): Promise<void> {
+  const nextName = titleValue.value.trim();
+
+  if (!nextName || nextName === lastRenderedTitle || requestInFlight) {
+    titleValue.value = lastRenderedTitle;
+    return;
+  }
+
+  requestInFlight = true;
+  setButtonsDisabled(true);
+  let transientError: string | undefined;
+
+  try {
+    const response = popupResponseSchema.parse(
+      await chrome.runtime.sendMessage({
+        type: "jl/popup-update-session-name",
+        name: nextName
+      })
+    );
+
+    if (response.error) {
+      transientError = response.error;
+    }
+  } catch (error: unknown) {
+    transientError = error instanceof Error ? error.message : String(error);
+  } finally {
+    requestInFlight = false;
+  }
+
+  await refreshState(transientError);
+}
+
 function renderState(state: PopupState, error?: string): void {
   const activeSession = state.activeSession;
 
   statusBadge.textContent = activeSession?.phase ?? "idle";
   statusBadge.dataset.phase = activeSession?.phase ?? "idle";
+
+  cloudStatus.textContent =
+    state.cloud.status === "signed-in"
+      ? "Web session signed in"
+      : state.cloud.status === "signed-out"
+        ? "Web sign-in not detected"
+        : "Cloud auth unknown";
+  const cloudRouteText =
+    state.cloud.status === "signed-in"
+      ? state.cloud.origin ?? "Jittle Lamp web"
+      : state.cloud.error ?? "Open Jittle Lamp web and sign in for direct cloud uploads.";
+  cloudRoute.textContent = cloudRouteText;
+  cloudRoute.title = cloudRouteText;
+  cloudPill.textContent = state.cloud.status;
+  cloudPill.dataset.status = state.cloud.status;
 
   companionStatus.textContent =
     state.companion.status === "online" ? "Desktop companion online" : "Desktop companion offline";
@@ -105,14 +173,18 @@ function renderState(state: PopupState, error?: string): void {
       : `${state.companion.origin} unavailable`;
   companionRoute.textContent = companionRouteText;
   companionRoute.title = companionRouteText;
-  companionDownload.hidden = state.companion.status === "online";
+  companionDownload.hidden = state.companion.status === "online" || state.cloud.status === "signed-in";
   companionPill.textContent = state.companion.status;
   companionPill.dataset.status = state.companion.status;
 
   const titleText = activeSession?.name ?? "No session yet";
   const urlText = activeSession?.page.url ?? "Open an http(s) page to start recording.";
-  titleValue.textContent = titleText;
+  lastRenderedTitle = titleText;
+  if (document.activeElement !== titleValue) {
+    titleValue.value = titleText;
+  }
   titleValue.title = titleText;
+  titleValue.disabled = !activeSession || activeSession.phase === "processing";
   urlValue.textContent = urlText;
   urlValue.title = urlText;
   sessionValue.textContent = activeSession?.sessionId ?? "—";
@@ -131,10 +203,15 @@ function renderState(state: PopupState, error?: string): void {
     messageValue.dataset.tone = "neutral";
   } else if (activeSession?.phase === "recording") {
     setStatusMessage(
-      state.companion.status === "online"
+      state.cloud.status === "signed-in"
+        ? "Recording the active tab. Stop to upload directly to cloud."
+        : state.companion.status === "online"
         ? `Recording the active tab. Stop to save directly into ${state.companion.outputDir ?? "the desktop companion folder"}.`
         : "Recording the active tab. Stop to download the session through Chromium."
     );
+    messageValue.dataset.tone = "neutral";
+  } else if (state.cloud.status === "signed-in") {
+    setStatusMessage("Cloud upload ready. New stopped sessions upload directly from the extension.");
     messageValue.dataset.tone = "neutral";
   } else if (state.companion.status === "online") {
     setStatusMessage(
@@ -198,6 +275,10 @@ function emptyPopupState(): PopupState {
     companion: {
       status: "offline",
       origin: "http://127.0.0.1:48115",
+      checkedAt: new Date().toISOString()
+    },
+    cloud: {
+      status: "unknown",
       checkedAt: new Date().toISOString()
     },
     canStart: true,

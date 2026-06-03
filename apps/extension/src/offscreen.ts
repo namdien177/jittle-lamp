@@ -3,7 +3,11 @@ import { offscreenRequestSchema, type SessionArchive } from "@jittle-lamp/shared
 declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
 
 const companionServerOrigin = "http://127.0.0.1:48115";
-const cloudApiOrigin = (__JITTLE_LAMP_API_ORIGIN__?.trim() || "https://jl-api.monthlyparty.com").replace(/\/+$/, "");
+const cloudApiOrigin = (
+  typeof __JITTLE_LAMP_API_ORIGIN__ === "string"
+    ? __JITTLE_LAMP_API_ORIGIN__.trim()
+    : "https://jl-api.monthlyparty.com"
+).replace(/\/+$/, "");
 
 type ChromeTabCaptureTrackConstraints = MediaTrackConstraints & {
   mandatory: {
@@ -90,7 +94,8 @@ async function handleRequest(
       const cloudUploadResult = await tryWriteArtifactsToCloud(
         finalized.archive,
         recordingBlob,
-        finalized.jsonBlob
+        finalized.jsonBlob,
+        request.cloudAuthToken
       );
 
       const companionResult = cloudUploadResult.saved
@@ -130,11 +135,13 @@ async function handleRequest(
 async function tryWriteArtifactsToCloud(
   archive: SessionArchive,
   recordingBlob: Blob,
-  jsonBlob: Blob
+  jsonBlob: Blob,
+  authToken?: string
 ): Promise<CompanionWriteResult> {
   try {
     const meResponse = await fetch(`${cloudApiOrigin}/protected/me`, {
       method: "GET",
+      headers: authToken ? { authorization: `Bearer ${authToken}` } : {},
       credentials: "include"
     });
 
@@ -149,6 +156,7 @@ async function tryWriteArtifactsToCloud(
       method: "POST",
       credentials: "include",
       headers: {
+        ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
         "content-type": "application/json"
       },
       body: JSON.stringify({
@@ -173,7 +181,10 @@ async function tryWriteArtifactsToCloud(
       const putResponse = await fetch(session.uploadUrl, {
         method: "PUT",
         credentials: "include",
-        headers: { "content-type": session.headers["content-type"] },
+        headers: {
+          ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+          "content-type": session.headers["content-type"]
+        },
         body: blob
       });
       if (!putResponse.ok) {
@@ -184,7 +195,10 @@ async function tryWriteArtifactsToCloud(
       const completeResponse = await fetch(`${cloudApiOrigin}/evidences/uploads/${encodeURIComponent(session.uploadId)}/complete`, {
         method: "POST",
         credentials: "include",
-        headers: { "content-type": "application/json" },
+        headers: {
+          ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+          "content-type": "application/json"
+        },
         body: JSON.stringify({
           bytes: blob.size,
           checksum,

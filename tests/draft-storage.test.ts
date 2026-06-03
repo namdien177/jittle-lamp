@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { appendDraftEvent, createSessionDraft, type CaptureSessionDraft } from "@jittle-lamp/shared";
+import {
+  appendDraftEvent,
+  createSessionDraft,
+  renameSessionDraft,
+  updateDraftPage,
+  type CaptureSessionDraft
+} from "@jittle-lamp/shared";
 
 import { createDraftStorageCheckpoint, estimateSerializedBytes } from "../apps/extension/src/draft-storage";
 
@@ -90,5 +96,31 @@ describe("createDraftStorageCheckpoint", () => {
         (event) => event.payload.kind === "lifecycle" && event.payload.phase === "recording"
       )
     ).toBeTrue();
+  });
+});
+
+describe("session draft naming", () => {
+  test("preserves edited session names across page updates", () => {
+    const draft = createSessionDraft({
+      page: {
+        title: "Initial page",
+        url: "https://example.com/initial"
+      },
+      now: new Date("2026-01-01T00:00:00.000Z")
+    });
+
+    const renamed = renameSessionDraft(draft, "Checkout regression", new Date("2026-01-01T00:00:01.000Z"));
+    const updated = updateDraftPage(
+      renamed,
+      {
+        title: "Updated page",
+        url: "https://example.com/updated"
+      },
+      new Date("2026-01-01T00:00:02.000Z")
+    );
+
+    expect(updated.name).toBe("Checkout regression");
+    expect(updated.nameEdited).toBeTrue();
+    expect(updated.page.title).toBe("Updated page");
   });
 });

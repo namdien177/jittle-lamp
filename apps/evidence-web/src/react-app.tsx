@@ -28,6 +28,7 @@ import { api, type ArtifactReadUrl, type FetchToken } from "./api";
 import { DesktopAuthApprovalPage } from "./desktop-auth-page";
 import { clerkPublishableKey } from "./env";
 import { EvidenceViewerContent } from "./evidence-viewer-content";
+import { startExtensionAuthBridge } from "./extension-auth-bridge";
 import { HomePage, PublicHomePage } from "./home-page";
 import { JoinOrganizationPage } from "./join-org-page";
 import type { LoadedSession } from "./loader";
@@ -546,6 +547,10 @@ function EvidenceWebRoutes(): React.JSX.Element {
 export function bootstrap(): void {
   const root = document.getElementById("app");
   if (!root) throw new Error("Evidence web root element was not found.");
+  if (clerkPublishableKey) {
+    startExtensionAuthBridge();
+  }
+
   const app = (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>

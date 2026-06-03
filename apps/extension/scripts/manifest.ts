@@ -1,5 +1,14 @@
 import { getWorkspaceVersion } from "../../../scripts/release/workspace-version";
 
+const configuredWebOrigin = (process.env.JITTLE_LAMP_WEB_ORIGIN?.trim() || "https://jittlelamp.dev").replace(/\/+$/, "");
+const webHostPermissions = [
+  configuredWebOrigin,
+  "http://127.0.0.1:3000",
+  "http://localhost:3000"
+]
+  .filter(Boolean)
+  .map((origin) => `${origin}/*`);
+
 export const extensionManifest = {
   manifest_version: 3,
   name: "jittle-lamp",
@@ -40,7 +49,8 @@ export const extensionManifest = {
   host_permissions: [
     "http://127.0.0.1/*",
     "http://127.0.0.1:3001/*",
-    "https://jl-api.monthlyparty.com/*"
+    "https://jl-api.monthlyparty.com/*",
+    ...webHostPermissions
   ],
   optional_host_permissions: ["<all_urls>"]
 } satisfies chrome.runtime.ManifestV3;

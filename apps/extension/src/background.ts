@@ -7,10 +7,12 @@ import {
   createSessionDraft,
   offscreenResponseSchema,
   popupRequestSchema,
+  renameSessionDraft,
   sanitizeCapturedUrl,
   transitionDraftPhase,
   updateDraftPage,
   type CaptureSessionDraft,
+  type CloudAuthState,
   type CompanionState,
   type ContentRuntimeMessage,
   type NetworkSubtype,
@@ -21,12 +23,20 @@ import {
 
 import { createDraftStorageCheckpoint } from "./draft-storage";
 
+declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
+
 const sessionStorageKey = "jittle-lamp.active-session";
 const sessionStorageMetaKey = "jittle-lamp.active-session-meta";
 const debuggerProtocolVersion = "1.3";
 const offscreenDocumentPath = "offscreen.html";
 const companionServerOrigin = "http://127.0.0.1:48115";
 const companionHealthTimeoutMs = 1_200;
+const cloudAuthProbeTimeoutMs = 800;
+const configuredCloudWebOrigin = (
+  typeof __JITTLE_LAMP_WEB_ORIGIN__ === "string" ? __JITTLE_LAMP_WEB_ORIGIN__.trim() : ""
+).replace(/\/+$/, "");
+const fallbackCloudWebOrigins = ["https://jittlelamp.dev", "http://127.0.0.1:3000", "http://localhost:3000"];
+const cloudWebOrigins = [...new Set([configuredCloudWebOrigin, ...fallbackCloudWebOrigins].filter(Boolean))];
 const networkBodyCaptureByteLimit = 64 * 1024;
 const networkBodyFetchByteLimit = 512 * 1024;
 const pendingRecoveryTimeoutMs = 15_000;
@@ -300,6 +310,17 @@ async function handleIncomingMessage(
             return buildPopupResponse(false, errorMessage(error));
           }
         });
+
+      case "jl/popup-update-session-name":
+        const nextSessionName = popupRequest.data.name;
+        return queueDraftMutation(async () => {
+          try {
+            await updateActiveSessionName(nextSessionName);
+            return buildPopupResponse(true);
+          } catch (error: unknown) {
+            return buildPopupResponse(false, errorMessage(error));
+          }
+        });
     }
   }
 
@@ -408,10 +429,12 @@ async function stopRecordingSession(detail: string): Promise<void> {
     await signalContentCaptureEnded(tabId, processingDraft.sessionId);
     await safeDetachDebugger(tabId);
 
+    const cloudAuthSession = await resolveCloudAuthToken();
     const offscreenResponse = await sendOffscreenMessage({
       type: "jl/offscreen-stop-and-export",
       sessionId: processingDraft.sessionId,
-      archive: createSessionArchive(processingDraft)
+      archive: createSessionArchive(processingDraft),
+      ...(cloudAuthSession?.token ? { cloudAuthToken: cloudAuthSession.token } : {})
     });
 
     if (!offscreenResponse.ok) {
@@ -445,6 +468,20 @@ async function stopRecordingSession(detail: string): Promise<void> {
     networkRequestsByTab.delete(tabId);
     await closeOffscreenDocumentIfPresent();
   }
+}
+
+async function updateActiveSessionName(name: string): Promise<void> {
+  const currentDraft = await readDraft();
+
+  if (!currentDraft) {
+    throw new Error("Start a recording session before renaming it.");
+  }
+
+  if (currentDraft.phase === "processing") {
+    throw new Error("Session name cannot be changed while export is processing.");
+  }
+
+  await saveDraft(renameSessionDraft(currentDraft, name));
 }
 
 async function autoStopIfCapturedTabCloses(tabId: number): Promise<void> {
@@ -2343,20 +2380,29 @@ function isPendingRecoveryState(value: unknown): value is PendingRecoveryState {
 }
 
 async function buildPopupResponse(ok: boolean, error?: string): Promise<PopupResponse> {
-  const [activeSession, companion] = await Promise.all([readDraft(), readCompanionState()]);
+  const [activeSession, companion, cloud] = await Promise.all([
+    readDraft(),
+    readCompanionState(),
+    readCloudAuthState()
+  ]);
 
   return {
     ok,
-    state: toPopupState(activeSession, companion),
+    state: toPopupState(activeSession, companion, cloud),
     error
   };
 }
 
-function toPopupState(activeSession: CaptureSessionDraft | null, companion: CompanionState): PopupState {
+function toPopupState(
+  activeSession: CaptureSessionDraft | null,
+  companion: CompanionState,
+  cloud: CloudAuthState
+): PopupState {
   if (!activeSession) {
     return {
       activeSession: null,
       companion,
+      cloud,
       canStart: true,
       canStop: false
     };
@@ -2367,6 +2413,7 @@ function toPopupState(activeSession: CaptureSessionDraft | null, companion: Comp
   return {
     activeSession: toPopupSessionSummary(activeSession),
     companion,
+    cloud,
     canStart: !canStop,
     canStop
   };
@@ -2439,6 +2486,142 @@ async function readCompanionState(): Promise<CompanionState> {
       error: errorMessage(error)
     });
   }
+}
+
+async function readCloudAuthState(): Promise<CloudAuthState> {
+  const checkedAt = new Date().toISOString();
+
+  try {
+    const session = await resolveCloudAuthToken();
+
+    if (!session) {
+      return {
+        status: "signed-out",
+        checkedAt
+      };
+    }
+
+    return {
+      status: "signed-in",
+      origin: session.origin,
+      checkedAt
+    };
+  } catch (error: unknown) {
+    return {
+      status: "unknown",
+      checkedAt,
+      error: errorMessage(error)
+    };
+  }
+}
+
+type CloudAuthSession = {
+  token: string;
+  origin: string;
+};
+
+async function resolveCloudAuthToken(): Promise<CloudAuthSession | null> {
+  for (const origin of cloudWebOrigins) {
+    const token = await requestCloudAuthTokenFromOrigin(origin);
+
+    if (token) {
+      return {
+        token,
+        origin
+      };
+    }
+  }
+
+  return null;
+}
+
+async function requestCloudAuthTokenFromOrigin(origin: string): Promise<string | null> {
+  const pattern = `${origin}/*`;
+  const tabs = await chrome.tabs.query({ url: pattern }).catch(() => []);
+
+  for (const tab of tabs) {
+    if (typeof tab.id !== "number") {
+      continue;
+    }
+
+    const token = await requestCloudAuthTokenFromTab(tab.id).catch(() => null);
+
+    if (token) {
+      return token;
+    }
+  }
+
+  return null;
+}
+
+async function requestCloudAuthTokenFromTab(tabId: number): Promise<string | null> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: requestJittleLampCloudAuthTokenInPage,
+    args: [cloudAuthProbeTimeoutMs]
+  });
+
+  const value = results[0]?.result;
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as { token?: unknown };
+  return typeof payload.token === "string" && payload.token.trim().length > 0
+    ? payload.token
+    : null;
+}
+
+async function requestJittleLampCloudAuthTokenInPage(
+  timeoutMs: number
+): Promise<{ token: string | null }> {
+  const nonce = crypto.randomUUID();
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", listener);
+      resolve({ token: null });
+    }, timeoutMs);
+
+    const listener = (event: MessageEvent): void => {
+      if (event.source !== window || event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data as {
+        source?: unknown;
+        type?: unknown;
+        nonce?: unknown;
+        token?: unknown;
+      };
+
+      if (
+        data?.source !== "jittle-lamp-web-auth-bridge" ||
+        data.type !== "jittle-lamp-extension-auth-token-response" ||
+        data.nonce !== nonce
+      ) {
+        return;
+      }
+
+      clearTimeout(timer);
+      window.removeEventListener("message", listener);
+      resolve({
+        token: typeof data.token === "string" && data.token.length > 0 ? data.token : null
+      });
+    };
+
+    window.addEventListener("message", listener);
+    window.postMessage(
+      {
+        source: "jittle-lamp-extension",
+        type: "jittle-lamp-extension-auth-token-request",
+        nonce
+      },
+      window.location.origin
+    );
+  });
 }
 
 function isSessionBusy(draft: CaptureSessionDraft): boolean {

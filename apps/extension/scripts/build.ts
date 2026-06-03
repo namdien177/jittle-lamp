@@ -2,6 +2,7 @@ import { extensionManifest } from "./manifest";
 
 const outdir = new URL("../dist/", import.meta.url);
 const apiOrigin = (process.env.JITTLE_LAMP_API_ORIGIN?.trim() || "https://jl-api.monthlyparty.com").replace(/\/+$/, "");
+const webOrigin = (process.env.JITTLE_LAMP_WEB_ORIGIN?.trim() || "https://jittlelamp.dev").replace(/\/+$/, "");
 
 const result = await Bun.build({
   entrypoints: [
@@ -17,7 +18,8 @@ const result = await Bun.build({
   sourcemap: "linked",
   naming: "[name].js",
   define: {
-    __JITTLE_LAMP_API_ORIGIN__: JSON.stringify(apiOrigin)
+    __JITTLE_LAMP_API_ORIGIN__: JSON.stringify(apiOrigin),
+    __JITTLE_LAMP_WEB_ORIGIN__: JSON.stringify(webOrigin)
   }
 });
 

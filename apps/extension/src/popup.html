@@ -17,6 +17,15 @@
         <p class="summary" data-role="message-value"></p>
       </header>
 
+      <section class="cloud-strip">
+        <div class="companion-copy">
+          <p class="label">Cloud upload</p>
+          <strong class="companion-title" data-role="cloud-status">Checking…</strong>
+          <p class="value mono wrap" data-role="cloud-route">Open Jittle Lamp web and sign in.</p>
+        </div>
+        <span class="companion-pill" data-role="cloud-pill" data-status="unknown">unknown</span>
+      </section>
+
       <section class="companion-strip">
         <div class="companion-copy">
           <p class="label">Desktop companion</p>
@@ -43,7 +52,14 @@
         </div>
         <div class="detail-row">
           <span class="label">Title</span>
-          <span class="value" data-role="title-value">No session yet</span>
+          <input
+            class="value title-input"
+            data-role="title-value"
+            type="text"
+            maxlength="160"
+            value="No session yet"
+            disabled
+          />
         </div>
         <div class="detail-row">
           <span class="label">URL</span>

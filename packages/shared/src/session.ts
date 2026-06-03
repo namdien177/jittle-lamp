@@ -327,6 +327,7 @@ export const sessionArchiveSchema = z.object({
 export const captureSessionDraftSchema = z.object({
   sessionId: sessionIdSchema,
   name: z.string().min(1),
+  nameEdited: z.boolean().default(false),
   phase: capturePhaseSchema,
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema,
@@ -409,6 +410,7 @@ export function createSessionDraft(input: {
       title: input.page.title,
       url: sanitizedUrl
     }),
+    nameEdited: false,
     phase: "armed",
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -461,10 +463,12 @@ export function updateDraftPage(
 
   return {
     ...draft,
-    name: createSessionName({
-      title: page.title,
-      url: sanitizedUrl
-    }),
+    name: draft.nameEdited
+      ? draft.name
+      : createSessionName({
+          title: page.title,
+          url: sanitizedUrl
+        }),
     updatedAt: now.toISOString(),
     page: {
       tabId: page.tabId,
@@ -493,6 +497,25 @@ export function transitionDraftPhase(
     },
     now
   );
+}
+
+export function renameSessionDraft(
+  draft: CaptureSessionDraft,
+  name: string,
+  now: Date = new Date()
+): CaptureSessionDraft {
+  const trimmed = name.trim();
+
+  if (trimmed.length === 0) {
+    throw new Error("Session name cannot be empty.");
+  }
+
+  return {
+    ...draft,
+    name: trimmed,
+    nameEdited: true,
+    updatedAt: now.toISOString()
+  };
 }
 
 export function generateArchiveEntryId(

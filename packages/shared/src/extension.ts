@@ -22,10 +22,16 @@ export const popupStopRecordingRequestSchema = z.object({
   type: z.literal("jl/popup-stop-recording")
 });
 
+export const popupUpdateSessionNameRequestSchema = z.object({
+  type: z.literal("jl/popup-update-session-name"),
+  name: z.string().trim().min(1).max(160)
+});
+
 export const popupRequestSchema = z.discriminatedUnion("type", [
   popupGetStateRequestSchema,
   popupStartRecordingRequestSchema,
-  popupStopRecordingRequestSchema
+  popupStopRecordingRequestSchema,
+  popupUpdateSessionNameRequestSchema
 ]);
 
 export const popupSessionSummarySchema = captureSessionDraftSchema
@@ -51,9 +57,20 @@ export const companionStateSchema = z.object({
   error: z.string().min(1).optional()
 });
 
+export const cloudAuthStateSchema = z.object({
+  status: z.enum(["signed-in", "signed-out", "unknown"]),
+  origin: z.string().url().optional(),
+  checkedAt: isoTimestampSchema,
+  error: z.string().min(1).optional()
+});
+
 export const popupStateSchema = z.object({
   activeSession: popupSessionSummarySchema.nullable(),
   companion: companionStateSchema,
+  cloud: cloudAuthStateSchema.default({
+    status: "unknown",
+    checkedAt: "1970-01-01T00:00:00.000Z"
+  }),
   canStart: z.boolean(),
   canStop: z.boolean()
 });
@@ -113,7 +130,8 @@ export const offscreenStartRecordingRequestSchema = z.object({
 export const offscreenStopAndExportRequestSchema = z.object({
   type: z.literal("jl/offscreen-stop-and-export"),
   sessionId: sessionIdSchema,
-  archive: sessionArchiveSchema
+  archive: sessionArchiveSchema,
+  cloudAuthToken: z.string().min(1).optional()
 });
 
 export const offscreenRequestSchema = z.discriminatedUnion("type", [
@@ -134,6 +152,7 @@ export type PopupRequest = z.infer<typeof popupRequestSchema>;
 export type PopupResponse = z.infer<typeof popupResponseSchema>;
 export type PopupSessionSummary = z.infer<typeof popupSessionSummarySchema>;
 export type CompanionState = z.infer<typeof companionStateSchema>;
+export type CloudAuthState = z.infer<typeof cloudAuthStateSchema>;
 export type PopupState = z.infer<typeof popupStateSchema>;
 export type BackgroundToContentMessage = z.infer<typeof backgroundToContentMessageSchema>;
 export type ContentRuntimeMessage = z.infer<typeof contentRuntimeMessageSchema>;
