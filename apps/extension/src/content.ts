@@ -9,6 +9,7 @@ import {
   BookOpen,
   CircleStop,
   Cloud,
+  Copy,
   Download,
   ExternalLink,
   Maximize2,
@@ -361,6 +362,8 @@ class FloatingWidgetController {
   private readonly stopButton: HTMLButtonElement;
   private readonly signInButton: HTMLButtonElement;
   private readonly linkChip: HTMLButtonElement;
+  private readonly linkChipLabel: HTMLSpanElement;
+  private readonly openLinkButton: HTMLButtonElement;
   private readonly collapseButton: HTMLButtonElement;
   private readonly closeButton: HTMLButtonElement;
   private readonly dragHandle: HTMLElement;
@@ -407,6 +410,8 @@ class FloatingWidgetController {
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
     this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
     this.linkChip = this.require<HTMLButtonElement>("[data-role='link-chip']");
+    this.linkChipLabel = this.require<HTMLSpanElement>("[data-role='link-label']");
+    this.openLinkButton = this.require<HTMLButtonElement>("[data-role='open-link']");
     this.collapseButton = this.require<HTMLButtonElement>("[data-role='collapse']");
     this.closeButton = this.require<HTMLButtonElement>("[data-role='close']");
     this.dragHandle = this.require<HTMLElement>("[data-role='drag']");
@@ -486,7 +491,23 @@ class FloatingWidgetController {
         return;
       }
 
-      void navigator.clipboard?.writeText(cloudUrl).catch(() => undefined);
+      void copyTextToClipboard(cloudUrl).then((copied) => {
+        this.linkChipLabel.textContent = copied ? "Copied" : "Copy failed";
+        window.setTimeout(() => {
+          if (this.linkChip.dataset.cloudUrl === cloudUrl) {
+            this.linkChipLabel.textContent = "Copy URL";
+          }
+        }, 1_200);
+      });
+    });
+
+    this.openLinkButton.addEventListener("click", () => {
+      const cloudUrl = this.openLinkButton.dataset.cloudUrl;
+
+      if (!cloudUrl) {
+        return;
+      }
+
       window.open(cloudUrl, "_blank", "noopener,noreferrer");
     });
 
@@ -575,9 +596,15 @@ class FloatingWidgetController {
     const cloudUrl = activeSession?.statusText ? extractFirstUrl(activeSession.statusText) : undefined;
     this.linkChip.hidden = state.cloud.status !== "signed-in";
     this.linkChip.disabled = !cloudUrl;
-    this.linkChip.textContent = cloudUrl ? "Open link" : "Link after stop";
-    this.linkChip.title = cloudUrl ? `Open and copy ${cloudUrl}` : "A cloud link appears after upload.";
+    this.linkChipLabel.textContent = cloudUrl ? "Copy URL" : "Link after stop";
+    this.linkChip.title = cloudUrl ? `Copy ${cloudUrl}` : "A cloud link appears after upload.";
+    this.linkChip.setAttribute("aria-label", cloudUrl ? "Copy evidence URL" : "Evidence URL appears after upload");
     this.linkChip.dataset.cloudUrl = cloudUrl ?? "";
+    this.openLinkButton.hidden = state.cloud.status !== "signed-in" || !cloudUrl;
+    this.openLinkButton.disabled = !cloudUrl;
+    this.openLinkButton.title = cloudUrl ? `Open ${cloudUrl}` : "Evidence URL appears after upload.";
+    this.openLinkButton.setAttribute("aria-label", cloudUrl ? "Open evidence link" : "Evidence URL appears after upload");
+    this.openLinkButton.dataset.cloudUrl = cloudUrl ?? "";
 
     this.startButton.hidden = !state.canStart;
     this.stopButton.hidden = !state.canStop;
@@ -744,6 +771,7 @@ const floatingWidgetIcons = {
   BookOpen,
   CircleStop,
   Cloud,
+  Copy,
   Download,
   ExternalLink,
   Maximize2,
@@ -812,6 +840,30 @@ function outputIconName(kind: DestinationKind): FloatingWidgetIconName {
 function openJittleLampWeb(path: string): void {
   const url = new URL(path, `${configuredCloudWebOrigin}/`);
   window.open(url.toString(), "_blank", "noopener,noreferrer");
+}
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard?.writeText(text);
+    return true;
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "true");
+    input.style.position = "fixed";
+    input.style.top = "-1000px";
+    input.style.left = "-1000px";
+    document.body.append(input);
+    input.select();
+
+    try {
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    } finally {
+      input.remove();
+    }
+  }
 }
 
 function extractFirstUrl(message: string): string | undefined {
@@ -1173,9 +1225,9 @@ function floatingWidgetTemplate(): string {
 
       .jl-request {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr) auto auto;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
         min-height: 42px;
         padding: 8px 10px;
         border: 1px solid rgba(255, 255, 255, 0.07);
@@ -1203,6 +1255,11 @@ function floatingWidgetTemplate(): string {
         background: #181818;
         color: #efefef;
         font-weight: 700;
+      }
+
+      .jl-request-chip .jl-action-icon {
+        width: 14px;
+        height: 14px;
       }
 
       .jl-request-chip:not(:disabled) {
@@ -1234,6 +1291,12 @@ function floatingWidgetTemplate(): string {
       .jl-request-chip:disabled {
         cursor: default;
         opacity: 0.75;
+      }
+
+      .jl-open-link {
+        width: 30px;
+        min-width: 30px;
+        padding: 0;
       }
     </style>
     <section class="jl-float" aria-label="Jittle Lamp recorder">
@@ -1296,7 +1359,13 @@ function floatingWidgetTemplate(): string {
         </div>
         <div class="jl-request">
           <span class="jl-request-label">Developer evidence</span>
-          <button class="jl-request-chip" data-role="link-chip" type="button" disabled>Link after stop</button>
+          <button class="jl-request-chip" data-role="link-chip" type="button" disabled>
+            <span class="jl-action-icon" data-icon="Copy"></span>
+            <span data-role="link-label">Link after stop</span>
+          </button>
+          <button class="jl-request-chip jl-open-link" data-role="open-link" type="button" hidden disabled aria-label="Open evidence link">
+            <span class="jl-action-icon" data-icon="ExternalLink"></span>
+          </button>
           <button class="jl-request-chip jl-sign-in" data-role="sign-in" type="button">Sign in</button>
         </div>
       </div>
