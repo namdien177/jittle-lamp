@@ -29,6 +29,8 @@ declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
 const sessionStorageKey = "jittle-lamp.active-session";
 const sessionStorageMetaKey = "jittle-lamp.active-session-meta";
 const cloudAuthStorageKey = "jittle-lamp.cloud-auth-session";
+const cloudAuthDurableStorageKey = "jittle-lamp.cloud-auth-extension-session";
+const cloudAuthFlowStorageKey = "jittle-lamp.cloud-auth-pending-flow";
 const debuggerProtocolVersion = "1.3";
 const offscreenDocumentPath = "offscreen.html";
 const companionServerOrigin = "http://127.0.0.1:48115";
@@ -65,6 +67,10 @@ let pendingCloudAuthFlow: PendingCloudAuthFlow | null = null;
 let companionStateCache: CompanionState | null = null;
 let companionStateCacheExpiresAt = 0;
 let companionStateProbePromise: Promise<CompanionState> | null = null;
+
+function authDebugLog(event: string, details: Record<string, unknown> = {}): void {
+  console.debug("[jittle-lamp/auth]", event, details);
+}
 
 type PendingRecoveryState = {
   tabId: number;
@@ -249,8 +255,11 @@ type CdpExceptionThrownParams = {
   };
 };
 
+void restrictStorageAccessToExtensionContexts();
+
 chrome.runtime.onInstalled.addListener(() => {
   console.info("jittle-lamp recorder installed.");
+  void restrictStorageAccessToExtensionContexts();
 });
 
 chrome.runtime.onMessage.addListener((rawMessage, sender, sendResponse) => {
@@ -435,10 +444,12 @@ async function startRecordingSession(): Promise<void> {
 async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
   try {
     const tab = await resolveRecordableTabForWidget(tabHint);
+    const response = await buildPopupResponse(true);
 
     await ensureWidgetBridge(tab.id);
     await chrome.tabs.sendMessage(tab.id, {
-      type: "jl/content-toggle-widget"
+      type: "jl/content-toggle-widget",
+      state: response.state
     });
     await setActionFeedback(tab.id, "");
   } catch (error: unknown) {
@@ -539,7 +550,7 @@ async function stopRecordingSession(detail: string): Promise<void> {
     await signalContentCaptureEnded(tabId, processingDraft.sessionId);
     await safeDetachDebugger(tabId);
 
-    const cloudAuthSession = await resolveCloudAuthToken();
+    const cloudAuthSession = await readStoredCloudAuthSession();
     const offscreenResponse = await sendOffscreenMessage({
       type: "jl/offscreen-stop-and-export",
       sessionId: processingDraft.sessionId,
@@ -556,7 +567,7 @@ async function stopRecordingSession(detail: string): Promise<void> {
         processingDraft,
         "ready",
         offscreenResponse.destination === "cloud"
-          ? "Saved session directly to cloud because you are signed in on web."
+          ? `Saved session directly to cloud${offscreenResponse.cloudUrl ? `: ${offscreenResponse.cloudUrl}` : "."}`
           : offscreenResponse.destination === "companion"
           ? `Saved session to the desktop companion folder at ${offscreenResponse.outputDir ?? "the configured output directory"}.`
           : "Saved session with browser downloads because the desktop companion was unavailable."
@@ -2663,19 +2674,14 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
   const checkedAt = new Date().toISOString();
 
   try {
-    const cachedSession = await readStoredCloudAuthSession();
-    const session = await resolveCloudAuthToken();
+    let session = await readStoredCloudAuthSession();
 
     if (!session) {
-      if (cachedSession) {
-        return {
-          status: "signed-in",
-          origin: cachedSession.origin,
-          ...(cachedSession.accountLabel ? { accountLabel: cachedSession.accountLabel } : {}),
-          checkedAt
-        };
-      }
+      await resumePendingCloudAuthFlow();
+      session = await readStoredCloudAuthSession();
+    }
 
+    if (!session) {
       return {
         status: "signed-out",
         checkedAt,
@@ -2683,12 +2689,14 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
       };
     }
 
-    const accountLabel = await readCloudAccountLabel(session.token) ?? session.accountLabel ?? cachedSession?.accountLabel;
+    const accountLabel = await readCloudAccountLabel(session.token) ?? session.accountLabel;
     await saveCloudAuthSession({
       token: session.token,
       origin: session.origin,
       ...(accountLabel ? { accountLabel } : {}),
-      expiresAt: session.expiresAt ?? getJwtExpirationMs(session.token) ?? Date.now() + 45 * 60 * 1000,
+      expiresAt: normalizeExpirationMs(session.expiresAt) ??
+        getJwtExpirationMs(session.token) ??
+        Date.now() + 45 * 60 * 1000,
       checkedAt
     });
 
@@ -2699,16 +2707,6 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
       checkedAt
     };
   } catch (error: unknown) {
-    const cachedSession = await readStoredCloudAuthSession();
-    if (cachedSession) {
-      return {
-        status: "signed-in",
-        origin: cachedSession.origin,
-        ...(cachedSession.accountLabel ? { accountLabel: cachedSession.accountLabel } : {}),
-        checkedAt
-      };
-    }
-
     return {
       status: "unknown",
       checkedAt,
@@ -2754,15 +2752,38 @@ async function startCloudSignInFlow(): Promise<void> {
     startedAt: new Date().toISOString()
   };
 
+  await savePendingCloudAuthFlow(pendingCloudAuthFlow);
   await chrome.tabs.create({ url: payload.verificationUriComplete });
   void pollCloudSignInFlow(pendingCloudAuthFlow);
 }
 
-async function pollCloudSignInFlow(flow: PendingCloudAuthFlow): Promise<void> {
+async function resumePendingCloudAuthFlow(): Promise<void> {
+  if (pendingCloudAuthFlow) {
+    await pollCloudSignInFlow(pendingCloudAuthFlow, { scheduleNext: false });
+    return;
+  }
+
+  const stored = await readPendingCloudAuthFlow();
+
+  if (!stored) {
+    return;
+  }
+
+  pendingCloudAuthFlow = stored;
+  await pollCloudSignInFlow(stored, { scheduleNext: false });
+}
+
+async function pollCloudSignInFlow(
+  flow: PendingCloudAuthFlow,
+  options: { scheduleNext?: boolean } = {}
+): Promise<void> {
+  const scheduleNext = options.scheduleNext ?? true;
+
   if (flow.expiresAt <= Date.now()) {
     if (pendingCloudAuthFlow?.deviceCode === flow.deviceCode) {
       pendingCloudAuthFlow = null;
     }
+    await clearPendingCloudAuthFlow(flow.deviceCode);
     return;
   }
 
@@ -2784,14 +2805,15 @@ async function pollCloudSignInFlow(flow: PendingCloudAuthFlow): Promise<void> {
       token: payload.accessToken,
       origin: configuredCloudApiOrigin,
       ...(accountLabel ? { accountLabel } : {}),
-      expiresAt: typeof payload.expiresAt === "number"
-        ? payload.expiresAt
-        : getJwtExpirationMs(payload.accessToken) ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
+      expiresAt: normalizeExpirationMs(payload.expiresAt) ??
+        getJwtExpirationMs(payload.accessToken) ??
+        Date.now() + 30 * 24 * 60 * 60 * 1000,
       checkedAt: new Date().toISOString()
     });
     if (pendingCloudAuthFlow?.deviceCode === flow.deviceCode) {
       pendingCloudAuthFlow = null;
     }
+    await clearPendingCloudAuthFlow(flow.deviceCode);
     return;
   }
 
@@ -2799,6 +2821,11 @@ async function pollCloudSignInFlow(flow: PendingCloudAuthFlow): Promise<void> {
     if (pendingCloudAuthFlow?.deviceCode === flow.deviceCode) {
       pendingCloudAuthFlow = null;
     }
+    await clearPendingCloudAuthFlow(flow.deviceCode);
+    return;
+  }
+
+  if (!scheduleNext) {
     return;
   }
 
@@ -2853,15 +2880,54 @@ async function readCloudAccountLabel(token: string): Promise<string | undefined>
 }
 
 async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | null> {
-  const stored = await chrome.storage.local.get(cloudAuthStorageKey);
-  const value = stored[cloudAuthStorageKey];
+  const stored = await chrome.storage.local.get([cloudAuthStorageKey, cloudAuthDurableStorageKey]);
+  const primary = parseStoredCloudAuthSession(stored[cloudAuthStorageKey], cloudAuthStorageKey);
+  const durable = parseStoredCloudAuthSession(stored[cloudAuthDurableStorageKey], cloudAuthDurableStorageKey);
+
+  authDebugLog("read-stored-session", {
+    hasPrimary: stored[cloudAuthStorageKey] !== undefined,
+    primaryAccepted: Boolean(primary),
+    hasDurable: stored[cloudAuthDurableStorageKey] !== undefined,
+    durableAccepted: Boolean(durable)
+  });
+
+  if (durable && (!primary || durable.expiresAt >= primary.expiresAt)) {
+    authDebugLog("restore-session", { source: cloudAuthDurableStorageKey, expiresInMs: durable.expiresAt - Date.now() });
+    return durable;
+  }
+
+  if (primary) {
+    authDebugLog("restore-session", { source: cloudAuthStorageKey, expiresInMs: primary.expiresAt - Date.now() });
+    return primary;
+  }
+
+  try {
+    const allStored = await chrome.storage.local.get(null);
+    const fallbackDurable = parseStoredCloudAuthSession(allStored[cloudAuthDurableStorageKey], `${cloudAuthDurableStorageKey}:fallback`);
+    const fallbackPrimary = parseStoredCloudAuthSession(allStored[cloudAuthStorageKey], `${cloudAuthStorageKey}:fallback`);
+    authDebugLog("read-stored-session-fallback", {
+      keyCount: Object.keys(allStored).length,
+      durableAccepted: Boolean(fallbackDurable),
+      primaryAccepted: Boolean(fallbackPrimary)
+    });
+    return fallbackDurable ?? fallbackPrimary;
+  } catch {
+    authDebugLog("read-stored-session-fallback-failed");
+    return null;
+  }
+}
+
+function parseStoredCloudAuthSession(rawValue: unknown, source = "unknown"): StoredCloudAuthSession | null {
+  const value = parseStoredObject(rawValue);
 
   if (!value || typeof value !== "object") {
+    authDebugLog("reject-stored-session", { source, reason: "missing-object", valueType: typeof rawValue });
     return null;
   }
 
   const candidate = value as Partial<StoredCloudAuthSession>;
   const expiresAt = typeof candidate.expiresAt === "number" ? candidate.expiresAt : 0;
+  const tokenSummary = summarizeAuthToken(candidate.token);
 
   if (
     typeof candidate.token !== "string" ||
@@ -2869,11 +2935,29 @@ async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | nu
     typeof candidate.checkedAt !== "string" ||
     !candidate.token.trim() ||
     !candidate.origin.trim() ||
+    candidate.origin !== configuredCloudApiOrigin ||
+    !isExtensionSessionToken(candidate.token) ||
     expiresAt <= Date.now() + 30_000
   ) {
-    await chrome.storage.local.remove(cloudAuthStorageKey);
+    authDebugLog("reject-stored-session", {
+      source,
+      reason: summarizeStoredSessionRejection(candidate, expiresAt),
+      hasToken: typeof candidate.token === "string" && Boolean(candidate.token.trim()),
+      tokenType: tokenSummary.tokenType,
+      tokenScope: tokenSummary.scope,
+      originMatches: candidate.origin === configuredCloudApiOrigin,
+      expiresInMs: expiresAt ? expiresAt - Date.now() : undefined
+    });
     return null;
   }
+
+  authDebugLog("accept-stored-session", {
+    source,
+    tokenType: tokenSummary.tokenType,
+    tokenScope: tokenSummary.scope,
+    expiresInMs: expiresAt - Date.now(),
+    hasAccountLabel: typeof candidate.accountLabel === "string" && Boolean(candidate.accountLabel.trim())
+  });
 
   return {
     token: candidate.token,
@@ -2886,33 +2970,191 @@ async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | nu
   };
 }
 
-async function saveCloudAuthSession(session: StoredCloudAuthSession): Promise<void> {
-  if (session.expiresAt <= Date.now() + 30_000) {
-    await chrome.storage.local.remove(cloudAuthStorageKey);
-    return;
+async function readPendingCloudAuthFlow(): Promise<PendingCloudAuthFlow | null> {
+  const stored = await chrome.storage.local.get(cloudAuthFlowStorageKey);
+  const value = parseStoredObject(stored[cloudAuthFlowStorageKey]);
+
+  if (!value || typeof value !== "object") {
+    return null;
   }
 
-  await chrome.storage.local.set({
-    [cloudAuthStorageKey]: session
-  });
+  const candidate = value as Partial<PendingCloudAuthFlow>;
+
+  if (
+    typeof candidate.deviceCode !== "string" ||
+    typeof candidate.verificationUriComplete !== "string" ||
+    typeof candidate.expiresAt !== "number" ||
+    typeof candidate.intervalSeconds !== "number" ||
+    typeof candidate.startedAt !== "string" ||
+    !candidate.deviceCode.trim() ||
+    !candidate.verificationUriComplete.trim() ||
+    candidate.expiresAt <= Date.now()
+  ) {
+    await chrome.storage.local.remove(cloudAuthFlowStorageKey);
+    return null;
+  }
+
+  return {
+    deviceCode: candidate.deviceCode,
+    verificationUriComplete: candidate.verificationUriComplete,
+    expiresAt: candidate.expiresAt,
+    intervalSeconds: candidate.intervalSeconds,
+    startedAt: candidate.startedAt
+  };
 }
 
-function getJwtExpirationMs(token: string): number | undefined {
+function parseStoredObject(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function readJwtPayload(token: string): Record<string, unknown> | null {
   const payloadSegment = token.split(".")[1];
 
   if (!payloadSegment) {
-    return undefined;
+    return null;
   }
 
   try {
     const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    const payload = JSON.parse(atob(padded)) as { exp?: unknown };
+    const payload = JSON.parse(atob(padded));
 
-    return typeof payload.exp === "number" ? payload.exp * 1000 : undefined;
+    return payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
   } catch {
+    return null;
+  }
+}
+
+function summarizeAuthToken(token: unknown): { tokenType?: unknown; scope?: unknown; expiresInMs?: number } {
+  if (typeof token !== "string") {
+    return {};
+  }
+
+  const payload = readJwtPayload(token);
+  const exp = typeof payload?.exp === "number" ? payload.exp * 1000 : undefined;
+
+  return {
+    tokenType: payload?.token_type,
+    scope: payload?.scope,
+    ...(typeof exp === "number" ? { expiresInMs: exp - Date.now() } : {})
+  };
+}
+
+function isExtensionSessionToken(token: string): boolean {
+  const payload = readJwtPayload(token);
+
+  return payload?.token_type === "extension_session" && payload.scope === "extension";
+}
+
+function isPersistentCloudAuthSession(session: CloudAuthSession): boolean {
+  return session.origin === configuredCloudApiOrigin && isExtensionSessionToken(session.token);
+}
+
+function summarizeStoredSessionRejection(candidate: Partial<StoredCloudAuthSession>, expiresAt: number): string {
+  if (typeof candidate.token !== "string" || !candidate.token.trim()) {
+    return "missing-token";
+  }
+  if (typeof candidate.origin !== "string" || !candidate.origin.trim()) {
+    return "missing-origin";
+  }
+  if (typeof candidate.checkedAt !== "string") {
+    return "missing-checked-at";
+  }
+  if (candidate.origin !== configuredCloudApiOrigin) {
+    return "origin-mismatch";
+  }
+  if (!isExtensionSessionToken(candidate.token)) {
+    return "token-not-extension-session";
+  }
+  if (expiresAt <= Date.now() + 30_000) {
+    return "expired";
+  }
+
+  return "invalid";
+}
+
+async function restrictStorageAccessToExtensionContexts(): Promise<void> {
+  try {
+    await chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" });
+    authDebugLog("storage-access-level", { accessLevel: "TRUSTED_CONTEXTS" });
+  } catch (error: unknown) {
+    authDebugLog("storage-access-level-failed", { error: errorMessage(error) });
+  }
+}
+
+async function savePendingCloudAuthFlow(flow: PendingCloudAuthFlow): Promise<void> {
+  if (flow.expiresAt <= Date.now()) {
+    await chrome.storage.local.remove(cloudAuthFlowStorageKey);
+    return;
+  }
+
+  await chrome.storage.local.set({
+    [cloudAuthFlowStorageKey]: flow
+  });
+}
+
+async function clearPendingCloudAuthFlow(deviceCode?: string): Promise<void> {
+  if (!deviceCode) {
+    await chrome.storage.local.remove(cloudAuthFlowStorageKey);
+    return;
+  }
+
+  const stored = await readPendingCloudAuthFlow();
+
+  if (!stored || stored.deviceCode === deviceCode) {
+    await chrome.storage.local.remove(cloudAuthFlowStorageKey);
+  }
+}
+
+async function saveCloudAuthSession(session: StoredCloudAuthSession): Promise<void> {
+  if (!isPersistentCloudAuthSession(session)) {
+    const tokenSummary = summarizeAuthToken(session.token);
+    authDebugLog("skip-save-session", {
+      reason: "not-persistent-extension-session",
+      originMatches: session.origin === configuredCloudApiOrigin,
+      tokenType: tokenSummary.tokenType,
+      tokenScope: tokenSummary.scope
+    });
+    return;
+  }
+
+  if (session.expiresAt <= Date.now() + 30_000) {
+    authDebugLog("clear-expired-session", { expiresInMs: session.expiresAt - Date.now() });
+    await chrome.storage.local.remove([cloudAuthStorageKey, cloudAuthDurableStorageKey]);
+    return;
+  }
+
+  await chrome.storage.local.set({
+    [cloudAuthStorageKey]: session,
+    [cloudAuthDurableStorageKey]: session
+  });
+  authDebugLog("save-session", {
+    keys: [cloudAuthStorageKey, cloudAuthDurableStorageKey],
+    expiresInMs: session.expiresAt - Date.now(),
+    hasAccountLabel: Boolean(session.accountLabel)
+  });
+}
+
+function getJwtExpirationMs(token: string): number | undefined {
+  const payload = readJwtPayload(token);
+
+  return typeof payload?.exp === "number" ? payload.exp * 1000 : undefined;
+}
+
+function normalizeExpirationMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return undefined;
   }
+
+  return value < 10_000_000_000 ? value * 1000 : value;
 }
 
 type CloudAuthSession = {

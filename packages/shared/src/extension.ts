@@ -98,7 +98,8 @@ export const contentEndCaptureMessageSchema = z.object({
 });
 
 export const contentToggleWidgetMessageSchema = z.object({
-  type: z.literal("jl/content-toggle-widget")
+  type: z.literal("jl/content-toggle-widget"),
+  state: popupStateSchema.optional()
 });
 
 export const backgroundToContentMessageSchema = z.discriminatedUnion("type", [
@@ -156,6 +157,7 @@ export const offscreenResponseSchema = z.object({
   eventBytes: z.number().int().nonnegative().optional(),
   destination: z.enum(["cloud", "companion", "downloads"]).optional(),
   outputDir: z.string().min(1).optional(),
+  cloudUrl: z.string().url().optional(),
   error: z.string().min(1).optional()
 });
 

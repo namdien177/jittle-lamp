@@ -1,12 +1,18 @@
 import { offscreenRequestSchema, type SessionArchive } from "@jittle-lamp/shared";
 
 declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
+declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
 
 const companionServerOrigin = "http://127.0.0.1:48115";
 const cloudApiOrigin = (
   typeof __JITTLE_LAMP_API_ORIGIN__ === "string"
     ? __JITTLE_LAMP_API_ORIGIN__.trim()
     : "https://jl-api.monthlyparty.com"
+).replace(/\/+$/, "");
+const cloudWebOrigin = (
+  typeof __JITTLE_LAMP_WEB_ORIGIN__ === "string"
+    ? __JITTLE_LAMP_WEB_ORIGIN__.trim()
+    : "https://jittlelamp.dev"
 ).replace(/\/+$/, "");
 
 type ChromeTabCaptureTrackConstraints = MediaTrackConstraints & {
@@ -28,11 +34,23 @@ type ActiveRecorderState = {
 type CompanionWriteResult =
   | {
       saved: true;
-      destination: "cloud" | "companion";
+      destination: "companion";
       outputDir: string;
     }
   | {
       saved: false;
+    };
+
+type CloudWriteResult =
+  | {
+      saved: true;
+      destination: "cloud";
+      evidenceId: string;
+      cloudUrl: string;
+    }
+  | {
+      saved: false;
+      error: string;
     };
 
 type CompanionHealthPayload = {
@@ -80,6 +98,7 @@ async function handleRequest(
   eventBytes?: number;
   destination?: "cloud" | "companion" | "downloads";
   outputDir?: string;
+  cloudUrl?: string;
   error?: string;
 }> {
   switch (request.type) {
@@ -97,6 +116,10 @@ async function handleRequest(
         finalized.jsonBlob,
         request.cloudAuthToken
       );
+
+      if (!cloudUploadResult.saved && request.cloudAuthToken) {
+        throw new Error(cloudUploadResult.error);
+      }
 
       const companionResult = cloudUploadResult.saved
         ? cloudUploadResult
@@ -126,7 +149,8 @@ async function handleRequest(
         recordingBytes: recordingBlob.size,
         eventBytes: finalized.jsonBlob.size,
         destination: companionResult.saved ? companionResult.destination : "downloads",
-        ...(companionResult.saved ? { outputDir: companionResult.outputDir } : {})
+        ...(companionResult.saved && companionResult.destination === "cloud" ? { cloudUrl: companionResult.cloudUrl } : {}),
+        ...(companionResult.saved && companionResult.destination === "companion" ? { outputDir: companionResult.outputDir } : {})
       };
     }
   }
@@ -137,16 +161,20 @@ async function tryWriteArtifactsToCloud(
   recordingBlob: Blob,
   jsonBlob: Blob,
   authToken?: string
-): Promise<CompanionWriteResult> {
+): Promise<CloudWriteResult> {
+  if (!authToken) {
+    return { saved: false, error: "Cloud upload skipped because no extension auth token was available." };
+  }
+
   try {
     const meResponse = await fetch(`${cloudApiOrigin}/protected/me`, {
       method: "GET",
-      headers: authToken ? { authorization: `Bearer ${authToken}` } : {},
+      headers: { authorization: `Bearer ${authToken}` },
       credentials: "include"
     });
 
     if (!meResponse.ok) {
-      return { saved: false };
+      return { saved: false, error: `Cloud auth check failed with HTTP ${meResponse.status}.` };
     }
 
     const recordingChecksum = await sha256Hex(await recordingBlob.arrayBuffer());
@@ -156,7 +184,7 @@ async function tryWriteArtifactsToCloud(
       method: "POST",
       credentials: "include",
       headers: {
-        ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+        authorization: `Bearer ${authToken}`,
         "content-type": "application/json"
       },
       body: JSON.stringify({
@@ -171,7 +199,7 @@ async function tryWriteArtifactsToCloud(
     });
 
     if (!startResponse.ok) {
-      return { saved: false };
+      return { saved: false, error: `Cloud upload start failed with HTTP ${startResponse.status}.` };
     }
 
     const payload = (await startResponse.json()) as CloudUploadStartPayload;
@@ -182,13 +210,13 @@ async function tryWriteArtifactsToCloud(
         method: "PUT",
         credentials: "include",
         headers: {
-          ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+          authorization: `Bearer ${authToken}`,
           "content-type": session.headers["content-type"]
         },
         body: blob
       });
       if (!putResponse.ok) {
-        return { saved: false };
+        return { saved: false, error: `Cloud artifact upload failed with HTTP ${putResponse.status}.` };
       }
 
       const checksum = session.key === "recording" ? recordingChecksum : archiveChecksum;
@@ -196,7 +224,7 @@ async function tryWriteArtifactsToCloud(
         method: "POST",
         credentials: "include",
         headers: {
-          ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+          authorization: `Bearer ${authToken}`,
           "content-type": "application/json"
         },
         body: JSON.stringify({
@@ -207,17 +235,18 @@ async function tryWriteArtifactsToCloud(
       });
 
       if (!completeResponse.ok) {
-        return { saved: false };
+        return { saved: false, error: `Cloud artifact completion failed with HTTP ${completeResponse.status}.` };
       }
     }
 
     return {
       saved: true,
       destination: "cloud",
-      outputDir: "cloud"
+      evidenceId: payload.evidenceId,
+      cloudUrl: `${cloudWebOrigin}/evidence/${encodeURIComponent(payload.evidenceId)}`
     };
-  } catch {
-    return { saved: false };
+  } catch (error: unknown) {
+    return { saved: false, error: errorMessage(error) };
   }
 }
 

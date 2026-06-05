@@ -90,7 +90,7 @@ function bootContentBridge(): void {
         return;
 
       case "jl/content-toggle-widget":
-        toggleFloatingWidget();
+        toggleFloatingWidget(parsed.data.state);
         return;
     }
   });
@@ -356,7 +356,7 @@ class FloatingWidgetController {
   private readonly startButton: HTMLButtonElement;
   private readonly stopButton: HTMLButtonElement;
   private readonly signInButton: HTMLButtonElement;
-  private readonly linkChip: HTMLSpanElement;
+  private readonly linkChip: HTMLButtonElement;
   private readonly collapseButton: HTMLButtonElement;
   private readonly closeButton: HTMLButtonElement;
   private readonly dragHandle: HTMLElement;
@@ -402,7 +402,7 @@ class FloatingWidgetController {
     this.startButton = this.require<HTMLButtonElement>("[data-role='start']");
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
     this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
-    this.linkChip = this.require<HTMLSpanElement>("[data-role='link-chip']");
+    this.linkChip = this.require<HTMLButtonElement>("[data-role='link-chip']");
     this.collapseButton = this.require<HTMLButtonElement>("[data-role='collapse']");
     this.closeButton = this.require<HTMLButtonElement>("[data-role='close']");
     this.dragHandle = this.require<HTMLElement>("[data-role='drag']");
@@ -411,8 +411,11 @@ class FloatingWidgetController {
     this.bind();
   }
 
-  show(): void {
+  show(initialState?: PopupState): void {
     this.host.hidden = false;
+    if (initialState) {
+      this.render(initialState);
+    }
     void this.refresh();
 
     if (this.refreshTimer === null) {
@@ -422,9 +425,9 @@ class FloatingWidgetController {
     }
   }
 
-  toggle(): void {
+  toggle(initialState?: PopupState): void {
     if (this.host.hidden) {
-      this.show();
+      this.show(initialState);
       return;
     }
 
@@ -470,6 +473,17 @@ class FloatingWidgetController {
       if (this.outputButton.dataset.destination === "cloud") {
         openJittleLampWeb("/");
       }
+    });
+
+    this.linkChip.addEventListener("click", () => {
+      const cloudUrl = this.linkChip.dataset.cloudUrl;
+
+      if (!cloudUrl) {
+        return;
+      }
+
+      void navigator.clipboard?.writeText(cloudUrl).catch(() => undefined);
+      window.open(cloudUrl, "_blank", "noopener,noreferrer");
     });
 
     this.closeButton.addEventListener("click", (event) => {
@@ -554,10 +568,16 @@ class FloatingWidgetController {
     this.outputButton.setAttribute("aria-label", this.outputButton.title);
     hydrateIconSlot(this.outputIconSlot, outputIconName(outputKind));
 
+    const cloudUrl = activeSession?.statusText ? extractFirstUrl(activeSession.statusText) : undefined;
+    this.linkChip.hidden = state.cloud.status !== "signed-in";
+    this.linkChip.disabled = !cloudUrl;
+    this.linkChip.textContent = cloudUrl ? "Open link" : "Link after stop";
+    this.linkChip.title = cloudUrl ? `Open and copy ${cloudUrl}` : "A cloud link appears after upload.";
+    this.linkChip.dataset.cloudUrl = cloudUrl ?? "";
+
     this.startButton.hidden = !state.canStart;
     this.stopButton.hidden = !state.canStop;
     this.signInButton.hidden = state.cloud.status === "signed-in";
-    this.linkChip.hidden = state.cloud.status !== "signed-in";
     this.startButton.disabled = !state.canStart;
     this.stopButton.disabled = !state.canStop;
   }
@@ -642,14 +662,14 @@ async function sendPopupRequest(
   );
 }
 
-function showFloatingWidget(): void {
+function showFloatingWidget(initialState?: PopupState): void {
   floatingWidget ??= new FloatingWidgetController();
-  floatingWidget.show();
+  floatingWidget.show(initialState);
 }
 
-function toggleFloatingWidget(): void {
+function toggleFloatingWidget(initialState?: PopupState): void {
   floatingWidget ??= new FloatingWidgetController();
-  floatingWidget.toggle();
+  floatingWidget.toggle(initialState);
 }
 
 function isFloatingWidgetEvent(event: Event): boolean {
@@ -788,6 +808,10 @@ function outputIconName(kind: DestinationKind): FloatingWidgetIconName {
 function openJittleLampWeb(path: string): void {
   const url = new URL(path, `${configuredCloudWebOrigin}/`);
   window.open(url.toString(), "_blank", "noopener,noreferrer");
+}
+
+function extractFirstUrl(message: string): string | undefined {
+  return message.match(/https?:\/\/[^\s)]+/)?.[0];
 }
 
 function floatingWidgetTemplate(): string {
@@ -1177,6 +1201,15 @@ function floatingWidgetTemplate(): string {
         font-weight: 700;
       }
 
+      .jl-request-chip:not(:disabled) {
+        cursor: pointer;
+      }
+
+      .jl-request-chip:hover:not(:disabled) {
+        border-color: rgba(34, 197, 94, 0.4);
+        color: #22c55e;
+      }
+
       .jl-sign-in {
         cursor: pointer;
       }
@@ -1192,6 +1225,11 @@ function floatingWidgetTemplate(): string {
 
       .jl-request-chip[hidden] {
         display: none;
+      }
+
+      .jl-request-chip:disabled {
+        cursor: default;
+        opacity: 0.75;
       }
     </style>
     <section class="jl-float" aria-label="Jittle Lamp recorder">
@@ -1254,7 +1292,7 @@ function floatingWidgetTemplate(): string {
         </div>
         <div class="jl-request">
           <span class="jl-request-label">Developer evidence</span>
-          <span class="jl-request-chip" data-role="link-chip">Link after stop</span>
+          <button class="jl-request-chip" data-role="link-chip" type="button" disabled>Link after stop</button>
           <button class="jl-request-chip jl-sign-in" data-role="sign-in" type="button">Sign in</button>
         </div>
       </div>

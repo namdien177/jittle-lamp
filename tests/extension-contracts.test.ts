@@ -269,7 +269,7 @@ describe("extension contracts", () => {
   });
 
   test("parses richer offscreen export responses", () => {
-    const response = offscreenResponseSchema.parse({
+    const companionResponse = offscreenResponseSchema.parse({
       ok: true,
       recordingBytes: 1024,
       eventBytes: 512,
@@ -277,7 +277,17 @@ describe("extension contracts", () => {
       outputDir: "/tmp/jittle-lamp"
     });
 
-    expect(response.destination).toBe("companion");
-    expect(response.outputDir).toBe("/tmp/jittle-lamp");
+    const cloudResponse = offscreenResponseSchema.parse({
+      ok: true,
+      recordingBytes: 1024,
+      eventBytes: 512,
+      destination: "cloud",
+      cloudUrl: "https://jittlelamp.dev/evidence/ev_123"
+    });
+
+    expect(companionResponse.destination).toBe("companion");
+    expect(companionResponse.outputDir).toBe("/tmp/jittle-lamp");
+    expect(cloudResponse.destination).toBe("cloud");
+    expect(cloudResponse.cloudUrl).toBe("https://jittlelamp.dev/evidence/ev_123");
   });
 });
