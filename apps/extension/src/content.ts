@@ -352,19 +352,16 @@ class FloatingWidgetController {
   private readonly accountButton: HTMLButtonElement;
   private readonly outputButton: HTMLButtonElement;
   private readonly outputIconSlot: HTMLSpanElement;
+  private readonly collapseButton: HTMLButtonElement;
   private readonly compactPhasePill: HTMLSpanElement;
-  private readonly compactEventText: HTMLSpanElement;
-  private readonly compactStatusText: HTMLSpanElement;
   private readonly statusText: HTMLSpanElement;
   private readonly phasePill: HTMLSpanElement;
-  private readonly eventText: HTMLSpanElement;
   private readonly startButton: HTMLButtonElement;
   private readonly stopButton: HTMLButtonElement;
   private readonly signInButton: HTMLButtonElement;
   private readonly linkChip: HTMLButtonElement;
   private readonly linkChipLabel: HTMLSpanElement;
   private readonly openLinkButton: HTMLButtonElement;
-  private readonly collapseButton: HTMLButtonElement;
   private readonly closeButton: HTMLButtonElement;
   private readonly dragHandle: HTMLElement;
   private refreshTimer: number | null = null;
@@ -381,11 +378,14 @@ class FloatingWidgetController {
     this.host.id = floatingWidgetHostId;
     this.host.dataset.jittleLampWidget = "true";
     this.host.style.position = "fixed";
-    this.host.style.top = "20px";
-    this.host.style.right = "20px";
+    this.host.style.left = "50%";
+    this.host.style.right = "auto";
+    this.host.style.bottom = "18px";
+    this.host.style.top = "auto";
+    this.host.style.transform = "translateX(-50%)";
     this.host.style.zIndex = "2147483647";
-    this.host.style.width = "360px";
-    this.host.style.maxWidth = "calc(100vw - 24px)";
+    this.host.style.width = "560px";
+    this.host.style.maxWidth = "calc(100vw - 16px)";
     this.host.style.pointerEvents = "auto";
 
     this.shadow = this.host.attachShadow({ mode: "closed" });
@@ -400,22 +400,20 @@ class FloatingWidgetController {
     this.accountButton = this.require<HTMLButtonElement>("[data-role='account-link']");
     this.outputButton = this.require<HTMLButtonElement>("[data-role='output-link']");
     this.outputIconSlot = this.require<HTMLSpanElement>("[data-role='output-icon']");
+    this.collapseButton = this.require<HTMLButtonElement>("[data-role='collapse']");
     this.compactPhasePill = this.require<HTMLSpanElement>("[data-role='compact-phase']");
-    this.compactEventText = this.require<HTMLSpanElement>("[data-role='compact-events']");
-    this.compactStatusText = this.require<HTMLSpanElement>("[data-role='compact-status']");
     this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
     this.phasePill = this.require<HTMLSpanElement>("[data-role='phase']");
-    this.eventText = this.require<HTMLSpanElement>("[data-role='events']");
     this.startButton = this.require<HTMLButtonElement>("[data-role='start']");
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
     this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
     this.linkChip = this.require<HTMLButtonElement>("[data-role='link-chip']");
     this.linkChipLabel = this.require<HTMLSpanElement>("[data-role='link-label']");
     this.openLinkButton = this.require<HTMLButtonElement>("[data-role='open-link']");
-    this.collapseButton = this.require<HTMLButtonElement>("[data-role='collapse']");
     this.closeButton = this.require<HTMLButtonElement>("[data-role='close']");
     this.dragHandle = this.require<HTMLElement>("[data-role='drag']");
     this.host.dataset.compact = "true";
+    this.syncCollapseButton();
 
     this.bind();
   }
@@ -511,6 +509,18 @@ class FloatingWidgetController {
       window.open(cloudUrl, "_blank", "noopener,noreferrer");
     });
 
+    this.collapseButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.compact = !this.compact;
+      this.host.dataset.compact = String(this.compact);
+      this.syncCollapseButton();
+    });
+    this.collapseButton.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
     this.closeButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -518,19 +528,6 @@ class FloatingWidgetController {
       floatingWidget = null;
     });
     this.closeButton.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-
-    this.collapseButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.compact = !this.compact;
-      this.host.dataset.compact = String(this.compact);
-      this.collapseButton.title = this.compact ? "Expand details" : "Compact menu";
-      hydrateButtonIcon(this.collapseButton, this.compact ? "Maximize2" : "Minimize2");
-    });
-    this.collapseButton.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       event.stopPropagation();
     });
@@ -560,9 +557,7 @@ class FloatingWidgetController {
     const title = activeSession?.name ?? pageFallbackTitle();
     const account = describeAccount(state);
     const destination = describeDestination(state);
-    const session = activeSession
-      ? `${shortSessionId(activeSession.sessionId)} · ${activeSession.page.title || new URL(activeSession.page.url).hostname}`
-      : "No active session";
+    const session = activeSession?.name ?? "No active session";
 
     this.lastTitle = title;
     this.titleText.textContent = title;
@@ -575,16 +570,13 @@ class FloatingWidgetController {
     this.destinationText.title = destination;
     this.phasePill.textContent = phase;
     this.phasePill.dataset.phase = phase;
-    this.compactPhasePill.textContent = phase;
+    this.compactPhasePill.textContent = "";
     this.compactPhasePill.dataset.phase = phase;
-    this.eventText.textContent = `${activeSession?.eventCount ?? 0}`;
-    this.compactEventText.textContent = `${activeSession?.eventCount ?? 0}`;
-    const status = error ?? activeSession?.statusText ?? widgetStatusText(state);
+    this.compactPhasePill.title = phase;
+    this.compactPhasePill.setAttribute("aria-label", phase);
+    const status = error ?? widgetStatusText(state);
     this.statusText.textContent = status;
     this.statusText.dataset.tone = error ? "error" : "neutral";
-    this.compactStatusText.textContent = status;
-    this.compactStatusText.title = status;
-    this.compactStatusText.dataset.tone = error ? "error" : "neutral";
     this.accountButton.title = account;
     this.accountButton.setAttribute("aria-label", `${account}. Open Jittle Lamp.`);
     const outputKind = getDestinationKind(state);
@@ -594,16 +586,16 @@ class FloatingWidgetController {
     hydrateIconSlot(this.outputIconSlot, outputIconName(outputKind));
 
     const cloudUrl = activeSession?.statusText ? extractFirstUrl(activeSession.statusText) : undefined;
-    this.linkChip.hidden = state.cloud.status !== "signed-in";
+    this.linkChip.hidden = false;
     this.linkChip.disabled = !cloudUrl;
-    this.linkChipLabel.textContent = cloudUrl ? "Copy URL" : "Link after stop";
-    this.linkChip.title = cloudUrl ? `Copy ${cloudUrl}` : "A cloud link appears after upload.";
-    this.linkChip.setAttribute("aria-label", cloudUrl ? "Copy evidence URL" : "Evidence URL appears after upload");
+    this.linkChipLabel.textContent = cloudUrl ? "Copy URL" : "No recent session";
+    this.linkChip.title = cloudUrl ? `Copy ${cloudUrl}` : "No recent evidence session.";
+    this.linkChip.setAttribute("aria-label", cloudUrl ? "Copy evidence URL" : "No recent evidence session");
     this.linkChip.dataset.cloudUrl = cloudUrl ?? "";
-    this.openLinkButton.hidden = state.cloud.status !== "signed-in" || !cloudUrl;
+    this.openLinkButton.hidden = !cloudUrl;
     this.openLinkButton.disabled = !cloudUrl;
-    this.openLinkButton.title = cloudUrl ? `Open ${cloudUrl}` : "Evidence URL appears after upload.";
-    this.openLinkButton.setAttribute("aria-label", cloudUrl ? "Open evidence link" : "Evidence URL appears after upload");
+    this.openLinkButton.title = cloudUrl ? `Open ${cloudUrl}` : "No recent evidence session.";
+    this.openLinkButton.setAttribute("aria-label", cloudUrl ? "Open evidence link" : "No recent evidence session");
     this.openLinkButton.dataset.cloudUrl = cloudUrl ?? "";
 
     this.startButton.hidden = !state.canStart;
@@ -616,11 +608,12 @@ class FloatingWidgetController {
   private renderError(message: string): void {
     this.statusText.textContent = message;
     this.statusText.dataset.tone = "error";
-    this.compactStatusText.textContent = message;
-    this.compactStatusText.title = message;
-    this.compactStatusText.dataset.tone = "error";
     this.phasePill.textContent = "offline";
     this.phasePill.dataset.phase = "failed";
+    this.compactPhasePill.textContent = "";
+    this.compactPhasePill.dataset.phase = "failed";
+    this.compactPhasePill.title = "failed";
+    this.compactPhasePill.setAttribute("aria-label", "failed");
   }
 
   private setBusy(busy: boolean): void {
@@ -628,6 +621,13 @@ class FloatingWidgetController {
     this.stopButton.disabled = busy || this.stopButton.hidden === true;
     this.signInButton.disabled = busy || this.signInButton.hidden === true;
     this.host.dataset.busy = String(busy);
+  }
+
+  private syncCollapseButton(): void {
+    const title = this.compact ? "Expand details" : "Minimize";
+    this.collapseButton.title = title;
+    this.collapseButton.setAttribute("aria-label", title);
+    hydrateButtonIcon(this.collapseButton, this.compact ? "Maximize2" : "Minimize2");
   }
 
   private destroy(): void {
@@ -879,7 +879,7 @@ function floatingWidgetTemplate(): string {
 
       .jl-float {
         box-sizing: border-box;
-        width: 300px;
+        width: 100%;
         max-width: calc(100vw - 24px);
         overflow: hidden;
         border: 1px solid rgba(255, 255, 255, 0.13);
@@ -893,12 +893,9 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-head {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-        padding: 12px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-        background: #0a0a0a;
+        display: none;
+        justify-content: flex-end;
+        padding: 4px 6px 0;
         cursor: grab;
         user-select: none;
       }
@@ -908,7 +905,7 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-brand {
-        display: flex;
+        display: none;
         align-items: center;
         min-width: 0;
         gap: 8px;
@@ -931,8 +928,8 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-icon {
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         border: 0;
         border-radius: 3px;
         background: transparent;
@@ -950,31 +947,22 @@ function floatingWidgetTemplate(): string {
 
       .jl-body {
         display: grid;
-        gap: 10px;
-        padding: 12px;
+        gap: 8px;
+        padding: 8px;
       }
 
-      :host([data-compact="true"]) .jl-expanded {
+      [hidden] {
+        display: none !important;
+      }
+
+      .jl-compact-status {
         display: none;
-      }
-
-      :host([data-compact="false"]) .jl-compact {
-        display: none;
-      }
-
-      :host([data-compact="false"]) .jl-compact-only {
-        display: none;
-      }
-
-      :host([data-compact="false"]) .jl-float {
-        width: 360px;
       }
 
       .jl-compact {
-        display: grid;
-        grid-template-columns: auto auto 1fr auto;
+        display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
       }
 
       .jl-tool-button {
@@ -1011,73 +999,75 @@ function floatingWidgetTemplate(): string {
         stroke-width: 2.2;
       }
 
-      .jl-compact-stats {
-        display: flex;
-        align-items: center;
-        min-width: 0;
-        gap: 6px;
-      }
-
-      .jl-compact-status {
-        min-width: 0;
-        overflow: hidden;
-        color: #888888;
-        font-size: 11px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .jl-compact-status[data-tone="error"] {
-        color: #ef4444;
-      }
-
       .jl-title {
-        min-width: 0;
-        overflow: hidden;
-        color: #efefef;
-        font-size: 14px;
-        font-weight: 700;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        display: none;
       }
 
       .jl-meta {
-        display: flex;
+        display: none;
         align-items: center;
         justify-content: space-between;
         gap: 8px;
       }
 
       .jl-pill {
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 2px;
-        padding: 3px 7px;
+        display: inline-grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 4px;
+        padding: 0;
         background: #181818;
-        color: #888888;
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        color: transparent;
+        font-size: 0;
+      }
+
+      .jl-pill::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #888888;
       }
 
       .jl-pill[data-phase="recording"],
       .jl-pill[data-phase="ready"] {
         border-color: rgba(34, 197, 94, 0.4);
         background: rgba(34, 197, 94, 0.16);
-        color: #22c55e;
+      }
+
+      .jl-pill[data-phase="recording"]::before,
+      .jl-pill[data-phase="ready"]::before {
+        background: #22c55e;
+        animation: jl-status-blink 1.15s ease-in-out infinite;
       }
 
       .jl-pill[data-phase="processing"],
       .jl-pill[data-phase="armed"] {
         border-color: rgba(245, 158, 11, 0.34);
         background: rgba(245, 158, 11, 0.14);
-        color: #f59e0b;
+      }
+
+      .jl-pill[data-phase="processing"]::before,
+      .jl-pill[data-phase="armed"]::before {
+        background: #f59e0b;
+        animation: jl-status-blink 0.75s ease-in-out infinite;
       }
 
       .jl-pill[data-phase="failed"] {
         border-color: rgba(239, 68, 68, 0.32);
         background: rgba(239, 68, 68, 0.14);
-        color: #ef4444;
+      }
+
+      .jl-pill[data-phase="failed"]::before {
+        background: #ef4444;
+        animation: jl-status-blink 0.55s ease-in-out infinite;
+      }
+
+      @keyframes jl-status-blink {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.35; transform: scale(0.82); }
       }
 
       .jl-muted {
@@ -1086,20 +1076,16 @@ function floatingWidgetTemplate(): string {
 
       .jl-grid {
         display: grid;
-        gap: 1px;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 4px;
-        background: rgba(255, 255, 255, 0.07);
+        gap: 6px;
       }
 
       .jl-row {
         display: grid;
-        grid-template-columns: 70px minmax(0, 1fr);
-        gap: 10px;
+        grid-template-columns: 82px minmax(0, 1fr);
+        gap: 12px;
         align-items: baseline;
-        padding: 8px 10px;
-        background: #131313;
+        padding: 2px 0;
+        background: transparent;
       }
 
       .jl-label {
@@ -1149,7 +1135,7 @@ function floatingWidgetTemplate(): string {
       .jl-start {
         position: relative;
         display: grid;
-        grid-template-columns: 34px minmax(0, 1fr) auto;
+        grid-template-columns: 34px minmax(0, 1fr);
         align-items: center;
         gap: 10px;
         background: #181818;
@@ -1174,21 +1160,12 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-start::after {
-        content: "Mic on";
-        display: inline-flex;
-        align-items: center;
-        min-height: 26px;
-        padding: 0 9px;
-        border-radius: 3px;
-        background: rgba(34, 197, 94, 0.16);
-        color: #22c55e;
-        font-size: 12px;
-        font-weight: 700;
+        content: none;
       }
 
       .jl-stop {
         display: grid;
-        grid-template-columns: 34px minmax(0, 1fr) auto;
+        grid-template-columns: 34px minmax(0, 1fr);
         align-items: center;
         gap: 10px;
         background: rgba(239, 68, 68, 0.14);
@@ -1202,16 +1179,7 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-stop::after {
-        content: "Recording";
-        display: inline-flex;
-        align-items: center;
-        min-height: 26px;
-        padding: 0 9px;
-        border-radius: 3px;
-        background: rgba(239, 68, 68, 0.14);
-        color: #ef4444;
-        font-size: 12px;
-        font-weight: 700;
+        content: none;
       }
 
       .jl-button[hidden] {
@@ -1220,27 +1188,7 @@ function floatingWidgetTemplate(): string {
 
       .jl-expanded {
         display: grid;
-        gap: 10px;
-      }
-
-      .jl-request {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto auto;
-        align-items: center;
         gap: 8px;
-        min-height: 42px;
-        padding: 8px 10px;
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 4px;
-        background: #131313;
-      }
-
-      .jl-request-label {
-        min-width: 0;
-        overflow: hidden;
-        color: #888888;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
 
       .jl-request-chip {
@@ -1248,13 +1196,18 @@ function floatingWidgetTemplate(): string {
         align-items: center;
         justify-content: center;
         gap: 6px;
-        min-height: 28px;
+        min-height: 32px;
         padding: 0 10px;
         border: 1px solid rgba(255, 255, 255, 0.13);
         border-radius: 4px;
         background: #181818;
         color: #efefef;
         font-weight: 700;
+      }
+
+      .jl-link-copy {
+        flex: 1 1 0;
+        min-width: 96px;
       }
 
       .jl-request-chip .jl-action-icon {
@@ -1294,18 +1247,31 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-open-link {
-        width: 30px;
-        min-width: 30px;
+        width: 32px;
+        min-width: 32px;
         padding: 0;
+      }
+
+      :host([data-compact="true"]) .jl-expanded {
+        display: none;
+      }
+
+      :host([data-compact="false"]) {
+        width: min(420px, calc(100vw - 16px));
+      }
+
+      :host([data-compact="false"]) .jl-compact {
+        justify-content: flex-end;
+      }
+
+      :host([data-compact="false"]) .jl-compact > :not([data-role="collapse"]) {
+        display: none;
       }
     </style>
     <section class="jl-float" aria-label="Jittle Lamp recorder">
       <header class="jl-head" data-role="drag">
         <div class="jl-brand"><span class="jl-dot"></span><span>Jittle Lamp</span></div>
         <div class="jl-tools">
-          <button class="jl-icon" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
-            <span data-icon="Maximize2"></span>
-          </button>
           <button class="jl-icon" data-role="close" type="button" title="Hide" aria-label="Hide">
             <span data-icon="X"></span>
           </button>
@@ -1313,18 +1279,24 @@ function floatingWidgetTemplate(): string {
       </header>
       <div class="jl-body">
         <div class="jl-compact">
+          <button class="jl-tool-button" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
+            <span data-icon="Maximize2"></span>
+          </button>
           <button class="jl-tool-button" data-role="account-link" type="button" title="Open Jittle Lamp" aria-label="Open Jittle Lamp account">
             <span data-icon="User"></span>
           </button>
           <button class="jl-tool-button" data-role="output-link" type="button" title="Output" aria-label="Output">
             <span data-role="output-icon" data-icon="Download"></span>
           </button>
-          <div class="jl-compact-stats">
-            <span class="jl-pill" data-role="compact-phase" data-phase="idle">idle</span>
-            <span class="jl-muted"><span data-role="compact-events">0</span> events</span>
-          </div>
+          <span class="jl-pill" data-role="compact-phase" data-phase="idle">idle</span>
+          <button class="jl-request-chip jl-open-link" data-role="open-link" type="button" disabled aria-label="No recent evidence session">
+            <span class="jl-action-icon" data-icon="ExternalLink"></span>
+          </button>
+          <button class="jl-request-chip jl-link-copy" data-role="link-chip" type="button" disabled>
+            <span class="jl-action-icon" data-icon="Copy"></span>
+            <span data-role="link-label">No recent session</span>
+          </button>
         </div>
-        <span class="jl-compact-only jl-compact-status" data-role="compact-status">Ready.</span>
         <div class="jl-actions">
           <button class="jl-button jl-start" data-role="start" type="button">
             <span class="jl-action-icon" data-icon="Play"></span>
@@ -1337,10 +1309,7 @@ function floatingWidgetTemplate(): string {
         </div>
         <div class="jl-expanded">
           <span class="jl-title" data-role="title">Jittle Lamp session</span>
-          <div class="jl-meta">
-            <span class="jl-pill" data-role="phase" data-phase="idle">idle</span>
-            <span class="jl-muted"><span data-role="events">0</span> events</span>
-          </div>
+          <span class="jl-pill" data-role="phase" data-phase="idle" hidden>idle</span>
           <div class="jl-grid">
             <div class="jl-row">
               <span class="jl-label">Account</span>
@@ -1355,19 +1324,9 @@ function floatingWidgetTemplate(): string {
               <span class="jl-value" data-role="destination">Browser download</span>
             </div>
           </div>
-          <span class="jl-status" data-role="status">Ready.</span>
+          <span class="jl-status" data-role="status" hidden>Ready.</span>
         </div>
-        <div class="jl-request">
-          <span class="jl-request-label">Developer evidence</span>
-          <button class="jl-request-chip" data-role="link-chip" type="button" disabled>
-            <span class="jl-action-icon" data-icon="Copy"></span>
-            <span data-role="link-label">Link after stop</span>
-          </button>
-          <button class="jl-request-chip jl-open-link" data-role="open-link" type="button" hidden disabled aria-label="Open evidence link">
-            <span class="jl-action-icon" data-icon="ExternalLink"></span>
-          </button>
-          <button class="jl-request-chip jl-sign-in" data-role="sign-in" type="button">Sign in</button>
-        </div>
+        <button class="jl-request-chip jl-sign-in" data-role="sign-in" type="button">Sign in</button>
       </div>
     </section>
   `;
