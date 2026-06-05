@@ -2361,9 +2361,17 @@ async function readDraft(): Promise<CaptureSessionDraft | null> {
     return activeDraftCache;
   }
 
-  const stored = await chrome.storage.session.get([sessionStorageKey, sessionStorageMetaKey]);
-  const rawDraft = stored[sessionStorageKey];
-  const meta = parseSessionStorageMeta(stored[sessionStorageMetaKey]);
+  const stored = await chrome.storage.local.get([sessionStorageKey, sessionStorageMetaKey]);
+  let rawDraft = stored[sessionStorageKey];
+  let meta = parseSessionStorageMeta(stored[sessionStorageMetaKey]);
+  let shouldMigrateSessionDraft = false;
+
+  if (!rawDraft) {
+    const legacyStored = await chrome.storage.session.get([sessionStorageKey, sessionStorageMetaKey]);
+    rawDraft = legacyStored[sessionStorageKey];
+    meta = parseSessionStorageMeta(legacyStored[sessionStorageMetaKey]);
+    shouldMigrateSessionDraft = Boolean(rawDraft);
+  }
 
   activeRecoveryState = meta.recovery ?? null;
 
@@ -2384,6 +2392,11 @@ async function readDraft(): Promise<CaptureSessionDraft | null> {
       ? Math.max(meta.eventCount, parsed.data.events.length)
       : parsed.data.events.length;
 
+  if (shouldMigrateSessionDraft) {
+    await saveDraft(activeDraftCache);
+    await chrome.storage.session.remove([sessionStorageKey, sessionStorageMetaKey]);
+  }
+
   if (meta.recovery && typeof parsed.data.page.tabId === "number") {
     schedulePendingRecoveryCheck(parsed.data.page.tabId);
   }
@@ -2398,7 +2411,7 @@ async function saveDraft(draft: CaptureSessionDraft): Promise<void> {
   const checkpoint = createDraftStorageCheckpoint(draft);
 
   try {
-    await chrome.storage.session.set({
+    await chrome.storage.local.set({
       [sessionStorageKey]: checkpoint,
       [sessionStorageMetaKey]: {
         eventCount: draft.events.length,
@@ -2406,7 +2419,7 @@ async function saveDraft(draft: CaptureSessionDraft): Promise<void> {
       } satisfies SessionStorageMeta
     });
   } catch (error: unknown) {
-    console.warn(`Unable to checkpoint active session in session storage: ${errorMessage(error)}`);
+    console.warn(`Unable to checkpoint active session in local storage: ${errorMessage(error)}`);
   }
 }
 
@@ -2421,7 +2434,10 @@ async function clearDraft(): Promise<void> {
     await clearPendingRecoveryAlarm(recoveryTabId);
   }
 
-  await chrome.storage.session.remove([sessionStorageKey, sessionStorageMetaKey]);
+  await Promise.all([
+    chrome.storage.local.remove([sessionStorageKey, sessionStorageMetaKey]),
+    chrome.storage.session.remove([sessionStorageKey, sessionStorageMetaKey])
+  ]);
 }
 
 function schedulePendingRecoveryCheck(tabId: number): void {
@@ -3176,7 +3192,10 @@ async function resetForTests(options?: { preserveStorage?: boolean }): Promise<v
   }
 
   if (!options?.preserveStorage) {
-    await chrome.storage.session.remove([sessionStorageKey, sessionStorageMetaKey]);
+    await Promise.all([
+      chrome.storage.local.remove([sessionStorageKey, sessionStorageMetaKey]),
+      chrome.storage.session.remove([sessionStorageKey, sessionStorageMetaKey])
+    ]);
   }
 }
 

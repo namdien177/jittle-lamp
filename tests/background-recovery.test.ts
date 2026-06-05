@@ -385,6 +385,7 @@ function createChromeHarness() {
   const alarmListeners: Array<(alarm: chrome.alarms.Alarm) => void> = [];
 
   const sessionStorage = new Map<string, unknown>();
+  const localStorage = new Map<string, unknown>();
   const tabsById = new Map<number, chrome.tabs.Tab>();
   const alarms = new Map<string, chrome.alarms.AlarmCreateInfo>();
   const runtimeMessages: unknown[] = [];
@@ -496,6 +497,7 @@ function createChromeHarness() {
       }
     },
     storage: {
+      local: createStorageArea(localStorage),
       session: {
         async get(keys?: string | string[] | Record<string, unknown>): Promise<Record<string, unknown>> {
           if (keys === undefined) {
@@ -585,7 +587,7 @@ function createChromeHarness() {
       tabsById.set(tab.id, createTab(tab));
     },
     getSessionValue(key: string): unknown {
-      return sessionStorage.get(key);
+      return localStorage.get(key);
     },
     getAlarmInfo(name: string): chrome.alarms.AlarmCreateInfo | undefined {
       return alarms.get(name);
@@ -672,9 +674,47 @@ function createChromeHarness() {
 
       if (!options?.preserveStorage) {
         sessionStorage.clear();
+        localStorage.clear();
       }
     }
   };
+}
+
+function createStorageArea(storage: Map<string, unknown>): chrome.storage.StorageArea {
+  return {
+    async get(keys?: string | string[] | Record<string, unknown>): Promise<Record<string, unknown>> {
+      if (keys === undefined) {
+        return Object.fromEntries(storage.entries());
+      }
+
+      if (typeof keys === "string") {
+        return storage.has(keys) ? { [keys]: storage.get(keys) } : {};
+      }
+
+      if (Array.isArray(keys)) {
+        return Object.fromEntries(keys.filter((key) => storage.has(key)).map((key) => [key, storage.get(key)]));
+      }
+
+      return Object.fromEntries(
+        Object.keys(keys).map((key) => [key, storage.has(key) ? storage.get(key) : keys[key]])
+      );
+    },
+    async set(items: Record<string, unknown>): Promise<void> {
+      for (const [key, value] of Object.entries(items)) {
+        storage.set(key, value);
+      }
+    },
+    async remove(keys: string | string[]): Promise<void> {
+      const normalizedKeys = Array.isArray(keys) ? keys : [keys];
+
+      for (const key of normalizedKeys) {
+        storage.delete(key);
+      }
+    },
+    async clear(): Promise<void> {
+      storage.clear();
+    }
+  } as chrome.storage.StorageArea;
 }
 
 function createTab(tab: StubTab): chrome.tabs.Tab {
