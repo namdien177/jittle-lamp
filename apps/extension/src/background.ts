@@ -429,7 +429,7 @@ async function startRecordingSession(): Promise<void> {
 
 async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
   try {
-    const tab = isRecordableTab(tabHint) ? tabHint : await getActiveRecordableTabForWidget();
+    const tab = await resolveRecordableTabForWidget(tabHint);
 
     await ensureWidgetBridge(tab.id);
     await chrome.tabs.sendMessage(tab.id, {
@@ -442,6 +442,23 @@ async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
     console.warn(`[jittle-lamp] Unable to toggle floating widget: ${message}`);
     await setActionFeedback(tabId, "ERR");
   }
+}
+
+async function resolveRecordableTabForWidget(
+  tabHint?: chrome.tabs.Tab
+): Promise<chrome.tabs.Tab & { id: number; url: string }> {
+  if (isRecordableTab(tabHint)) {
+    return tabHint;
+  }
+
+  if (typeof tabHint?.id === "number") {
+    const hydratedTab = await chrome.tabs.get(tabHint.id).catch(() => undefined);
+    if (isRecordableTab(hydratedTab)) {
+      return hydratedTab;
+    }
+  }
+
+  return getActiveRecordableTabForWidget();
 }
 
 async function setActionFeedback(tabId: number | undefined, text: string): Promise<void> {
@@ -459,10 +476,7 @@ async function setActionFeedback(tabId: number | undefined, text: string): Promi
 }
 
 async function getActiveRecordableTabForWidget(): Promise<chrome.tabs.Tab & { id: number; url: string }> {
-  const candidates = [
-    ...(await chrome.tabs.query({ active: true, lastFocusedWindow: true, url: ["http://*/*", "https://*/*"] })),
-    ...(await chrome.tabs.query({ active: true, currentWindow: true, url: ["http://*/*", "https://*/*"] }))
-  ];
+  const candidates = await collectActiveTabs();
   const tab = candidates.find((candidate) => isRecordableTab(candidate));
 
   if (!tab) {
@@ -470,6 +484,26 @@ async function getActiveRecordableTabForWidget(): Promise<chrome.tabs.Tab & { id
   }
 
   return tab;
+}
+
+async function collectActiveTabs(): Promise<chrome.tabs.Tab[]> {
+  const tabById = new Map<number, chrome.tabs.Tab>();
+  const queries: chrome.tabs.QueryInfo[] = [
+    { active: true, currentWindow: true },
+    { active: true, lastFocusedWindow: true },
+    { active: true, windowType: "normal" }
+  ];
+
+  for (const query of queries) {
+    const tabs = await chrome.tabs.query(query).catch(() => []);
+    for (const tab of tabs) {
+      if (typeof tab.id === "number") {
+        tabById.set(tab.id, tab);
+      }
+    }
+  }
+
+  return [...tabById.values()];
 }
 
 async function stopRecordingSession(detail: string): Promise<void> {
@@ -2970,7 +3004,8 @@ function isHttpUrl(url: string): boolean {
 }
 
 function isRecordableTab(tab: chrome.tabs.Tab | undefined): tab is chrome.tabs.Tab & { id: number; url: string } {
-  return typeof tab?.id === "number" && typeof tab.url === "string" && isHttpUrl(tab.url);
+  const url = typeof tab?.url === "string" ? tab.url : typeof tab?.pendingUrl === "string" ? tab.pendingUrl : undefined;
+  return typeof tab?.id === "number" && typeof url === "string" && isHttpUrl(url);
 }
 
 function isRecordableStartupUrl(url: string): boolean {
