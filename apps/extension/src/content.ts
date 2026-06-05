@@ -352,7 +352,7 @@ class FloatingWidgetController {
   private readonly accountButton: HTMLButtonElement;
   private readonly outputButton: HTMLButtonElement;
   private readonly outputIconSlot: HTMLSpanElement;
-  private readonly collapseButton: HTMLButtonElement;
+  private readonly collapseButtons: HTMLButtonElement[];
   private readonly compactPhasePill: HTMLSpanElement;
   private readonly statusText: HTMLSpanElement;
   private readonly phasePill: HTMLSpanElement;
@@ -400,7 +400,7 @@ class FloatingWidgetController {
     this.accountButton = this.require<HTMLButtonElement>("[data-role='account-link']");
     this.outputButton = this.require<HTMLButtonElement>("[data-role='output-link']");
     this.outputIconSlot = this.require<HTMLSpanElement>("[data-role='output-icon']");
-    this.collapseButton = this.require<HTMLButtonElement>("[data-role='collapse']");
+    this.collapseButtons = this.requireAll<HTMLButtonElement>("[data-role='collapse']");
     this.compactPhasePill = this.require<HTMLSpanElement>("[data-role='compact-phase']");
     this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
     this.phasePill = this.require<HTMLSpanElement>("[data-role='phase']");
@@ -509,17 +509,19 @@ class FloatingWidgetController {
       window.open(cloudUrl, "_blank", "noopener,noreferrer");
     });
 
-    this.collapseButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.compact = !this.compact;
-      this.host.dataset.compact = String(this.compact);
-      this.syncCollapseButton();
-    });
-    this.collapseButton.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
+    for (const collapseButton of this.collapseButtons) {
+      collapseButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.compact = !this.compact;
+        this.host.dataset.compact = String(this.compact);
+        this.syncCollapseButton();
+      });
+      collapseButton.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+    }
 
     this.closeButton.addEventListener("click", (event) => {
       event.preventDefault();
@@ -568,12 +570,15 @@ class FloatingWidgetController {
     this.sessionText.title = session;
     this.destinationText.textContent = destination;
     this.destinationText.title = destination;
-    this.phasePill.textContent = phase;
+    const phaseLabel = statusPhaseLabel(phase, error);
+    this.phasePill.textContent = phaseLabel;
     this.phasePill.dataset.phase = phase;
-    this.compactPhasePill.textContent = "";
+    this.phasePill.title = phaseLabel;
+    this.phasePill.setAttribute("aria-label", phaseLabel);
+    this.compactPhasePill.textContent = phaseLabel;
     this.compactPhasePill.dataset.phase = phase;
-    this.compactPhasePill.title = phase;
-    this.compactPhasePill.setAttribute("aria-label", phase);
+    this.compactPhasePill.title = phaseLabel;
+    this.compactPhasePill.setAttribute("aria-label", phaseLabel);
     const status = error ?? widgetStatusText(state);
     this.statusText.textContent = status;
     this.statusText.dataset.tone = error ? "error" : "neutral";
@@ -608,12 +613,14 @@ class FloatingWidgetController {
   private renderError(message: string): void {
     this.statusText.textContent = message;
     this.statusText.dataset.tone = "error";
-    this.phasePill.textContent = "offline";
+    this.phasePill.textContent = "FAILED";
     this.phasePill.dataset.phase = "failed";
-    this.compactPhasePill.textContent = "";
+    this.phasePill.title = "FAILED";
+    this.phasePill.setAttribute("aria-label", "FAILED");
+    this.compactPhasePill.textContent = "FAILED";
     this.compactPhasePill.dataset.phase = "failed";
-    this.compactPhasePill.title = "failed";
-    this.compactPhasePill.setAttribute("aria-label", "failed");
+    this.compactPhasePill.title = "FAILED";
+    this.compactPhasePill.setAttribute("aria-label", "FAILED");
   }
 
   private setBusy(busy: boolean): void {
@@ -625,9 +632,11 @@ class FloatingWidgetController {
 
   private syncCollapseButton(): void {
     const title = this.compact ? "Expand details" : "Minimize";
-    this.collapseButton.title = title;
-    this.collapseButton.setAttribute("aria-label", title);
-    hydrateButtonIcon(this.collapseButton, this.compact ? "Maximize2" : "Minimize2");
+    for (const collapseButton of this.collapseButtons) {
+      collapseButton.title = title;
+      collapseButton.setAttribute("aria-label", title);
+      hydrateButtonIcon(collapseButton, this.compact ? "Maximize2" : "Minimize2");
+    }
   }
 
   private destroy(): void {
@@ -676,6 +685,16 @@ class FloatingWidgetController {
     }
 
     return element;
+  }
+
+  private requireAll<ElementType extends Element>(selector: string): ElementType[] {
+    const elements = Array.from(this.shadow.querySelectorAll<ElementType>(selector));
+
+    if (elements.length === 0) {
+      throw new Error(`Missing floating widget elements: ${selector}`);
+    }
+
+    return elements;
   }
 }
 
@@ -727,6 +746,22 @@ function widgetStatusText(state: PopupState): string {
   }
 
   return "Ready to record. Output will download in the browser.";
+}
+
+function statusPhaseLabel(phase: string, error?: string): string {
+  if (error || phase === "failed") {
+    return "FAILED";
+  }
+
+  if (phase === "processing" || phase === "armed") {
+    return "UPLOADING";
+  }
+
+  if (phase === "recording") {
+    return "RECORDING";
+  }
+
+  return "READY";
 }
 
 function describeAccount(state: PopupState): string {
@@ -905,7 +940,7 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-brand {
-        display: none;
+        display: flex;
         align-items: center;
         min-width: 0;
         gap: 8px;
@@ -915,9 +950,9 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-dot {
-        width: 18px;
-        height: 18px;
-        border-radius: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
         background: #22c55e;
         box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(34, 197, 94, 0.35);
       }
@@ -1011,20 +1046,29 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-pill {
-        display: inline-grid;
-        place-items: center;
-        width: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex: 0 0 92px;
+        width: 92px;
         height: 32px;
         border: 1px solid rgba(255, 255, 255, 0.13);
         border-radius: 4px;
-        padding: 0;
+        padding: 0 8px;
         background: #181818;
-        color: transparent;
-        font-size: 0;
+        color: #888888;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0;
+        line-height: 1;
+        text-align: center;
+        white-space: nowrap;
       }
 
       .jl-pill::before {
         content: "";
+        flex: 0 0 auto;
         width: 10px;
         height: 10px;
         border-radius: 999px;
@@ -1035,6 +1079,7 @@ function floatingWidgetTemplate(): string {
       .jl-pill[data-phase="ready"] {
         border-color: rgba(34, 197, 94, 0.4);
         background: rgba(34, 197, 94, 0.16);
+        color: #22c55e;
       }
 
       .jl-pill[data-phase="recording"]::before,
@@ -1047,6 +1092,7 @@ function floatingWidgetTemplate(): string {
       .jl-pill[data-phase="armed"] {
         border-color: rgba(245, 158, 11, 0.34);
         background: rgba(245, 158, 11, 0.14);
+        color: #f59e0b;
       }
 
       .jl-pill[data-phase="processing"]::before,
@@ -1058,6 +1104,7 @@ function floatingWidgetTemplate(): string {
       .jl-pill[data-phase="failed"] {
         border-color: rgba(239, 68, 68, 0.32);
         background: rgba(239, 68, 68, 0.14);
+        color: #ef4444;
       }
 
       .jl-pill[data-phase="failed"]::before {
@@ -1191,6 +1238,20 @@ function floatingWidgetTemplate(): string {
         gap: 8px;
       }
 
+      .jl-expanded-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .jl-expanded-brand {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 8px;
+      }
+
       .jl-request-chip {
         display: inline-flex;
         align-items: center;
@@ -1256,15 +1317,15 @@ function floatingWidgetTemplate(): string {
         display: none;
       }
 
+      :host([data-compact="true"]) .jl-expanded-head {
+        display: none;
+      }
+
       :host([data-compact="false"]) {
         width: min(420px, calc(100vw - 16px));
       }
 
       :host([data-compact="false"]) .jl-compact {
-        justify-content: flex-end;
-      }
-
-      :host([data-compact="false"]) .jl-compact > :not([data-role="collapse"]) {
         display: none;
       }
     </style>
@@ -1279,22 +1340,32 @@ function floatingWidgetTemplate(): string {
       </header>
       <div class="jl-body">
         <div class="jl-compact">
-          <button class="jl-tool-button" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
-            <span data-icon="Maximize2"></span>
-          </button>
+          <span class="jl-pill" data-role="compact-phase" data-phase="idle">READY</span>
           <button class="jl-tool-button" data-role="account-link" type="button" title="Open Jittle Lamp" aria-label="Open Jittle Lamp account">
             <span data-icon="User"></span>
           </button>
           <button class="jl-tool-button" data-role="output-link" type="button" title="Output" aria-label="Output">
             <span data-role="output-icon" data-icon="Download"></span>
           </button>
-          <span class="jl-pill" data-role="compact-phase" data-phase="idle">idle</span>
           <button class="jl-request-chip jl-open-link" data-role="open-link" type="button" disabled aria-label="No recent evidence session">
             <span class="jl-action-icon" data-icon="ExternalLink"></span>
           </button>
           <button class="jl-request-chip jl-link-copy" data-role="link-chip" type="button" disabled>
             <span class="jl-action-icon" data-icon="Copy"></span>
             <span data-role="link-label">No recent session</span>
+          </button>
+          <button class="jl-tool-button" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
+            <span data-icon="Maximize2"></span>
+          </button>
+        </div>
+        <div class="jl-expanded-head" data-role="drag">
+          <div class="jl-expanded-brand">
+            <span class="jl-dot"></span>
+            <span class="jl-brand">Jittle Lamp</span>
+            <span class="jl-pill" data-role="phase" data-phase="idle">READY</span>
+          </div>
+          <button class="jl-tool-button" data-role="collapse" type="button" title="Minimize" aria-label="Minimize">
+            <span data-icon="Minimize2"></span>
           </button>
         </div>
         <div class="jl-actions">
@@ -1309,7 +1380,6 @@ function floatingWidgetTemplate(): string {
         </div>
         <div class="jl-expanded">
           <span class="jl-title" data-role="title">Jittle Lamp session</span>
-          <span class="jl-pill" data-role="phase" data-phase="idle" hidden>idle</span>
           <div class="jl-grid">
             <div class="jl-row">
               <span class="jl-label">Account</span>
