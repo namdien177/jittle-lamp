@@ -59,6 +59,11 @@ async function resolveCurrentToken(): Promise<string | null> {
     return null;
   }
 
+  const cachedToken = await clerk.session.getToken().catch(() => null);
+  if (cachedToken) {
+    return cachedToken;
+  }
+
   return clerk.session.getToken({ skipCache: true }).catch(() => null);
 }
 

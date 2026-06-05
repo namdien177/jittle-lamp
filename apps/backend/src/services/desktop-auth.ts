@@ -11,9 +11,13 @@ import type { BackendDb } from "./user-provisioning";
 
 export const desktopAuthIssuer = "jittle-lamp-api";
 export const desktopAuthAudience = "jittle-lamp-desktop";
+export const extensionAuthAudience = "jittle-lamp-extension";
 export const desktopAuthPollIntervalSeconds = 5;
 export const desktopAuthFlowTtlMs = 10 * 60 * 1000;
 export const desktopAuthTokenTtlSeconds = 8 * 60 * 60;
+export const extensionAuthTokenTtlSeconds = 30 * 24 * 60 * 60;
+
+export type DeviceAuthClient = "desktop" | "extension";
 
 const userCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -31,6 +35,7 @@ export type DesktopAuthSessionClaims = {
 	clerkUserId: string;
 	sessionId: string;
 	scope: string;
+	client: DeviceAuthClient;
 };
 
 export type PolledDesktopAuthFlow =
@@ -84,8 +89,12 @@ const getTokenKey = (runtime: RuntimeConfig) => {
 const getWebAppOrigin = (runtime: RuntimeConfig) =>
 	(runtime.webAppOrigin ?? "http://127.0.0.1:4173").replace(/\/+$/, "");
 
-const buildVerificationUris = (runtime: RuntimeConfig, userCode: string) => {
-	const verificationUri = `${getWebAppOrigin(runtime)}/desktop-auth`;
+const buildVerificationUris = (
+	runtime: RuntimeConfig,
+	userCode: string,
+	client: DeviceAuthClient,
+) => {
+	const verificationUri = `${getWebAppOrigin(runtime)}/${client}-auth`;
 	const verificationUrl = new URL(verificationUri);
 	verificationUrl.searchParams.set("user_code", userCode);
 
@@ -95,6 +104,33 @@ const buildVerificationUris = (runtime: RuntimeConfig, userCode: string) => {
 	};
 };
 
+export const createDeviceAuthSessionToken = async (
+	runtime: RuntimeConfig,
+	input: {
+		clerkUserId: string;
+		sessionId: string;
+		client: DeviceAuthClient;
+	},
+) =>
+	new SignJWT({
+		token_type: `${input.client}_session`,
+		scope: input.client,
+	})
+		.setProtectedHeader({ alg: "HS256", typ: "JWT" })
+		.setIssuer(desktopAuthIssuer)
+		.setAudience(
+			input.client === "extension"
+				? extensionAuthAudience
+				: desktopAuthAudience,
+		)
+		.setSubject(input.clerkUserId)
+		.setJti(input.sessionId)
+		.setIssuedAt()
+		.setExpirationTime(
+			`${input.client === "extension" ? extensionAuthTokenTtlSeconds : desktopAuthTokenTtlSeconds}s`,
+		)
+		.sign(getTokenKey(runtime));
+
 export const createDesktopAuthSessionToken = async (
 	runtime: RuntimeConfig,
 	input: {
@@ -102,18 +138,10 @@ export const createDesktopAuthSessionToken = async (
 		sessionId: string;
 	},
 ) =>
-	new SignJWT({
-		token_type: "desktop_session",
-		scope: "desktop",
-	})
-		.setProtectedHeader({ alg: "HS256", typ: "JWT" })
-		.setIssuer(desktopAuthIssuer)
-		.setAudience(desktopAuthAudience)
-		.setSubject(input.clerkUserId)
-		.setJti(input.sessionId)
-		.setIssuedAt()
-		.setExpirationTime(`${desktopAuthTokenTtlSeconds}s`)
-		.sign(getTokenKey(runtime));
+	createDeviceAuthSessionToken(runtime, {
+		...input,
+		client: "desktop",
+	});
 
 export const verifyDesktopAuthSessionToken = async (
 	runtime: RuntimeConfig,
@@ -125,15 +153,21 @@ export const verifyDesktopAuthSessionToken = async (
 
 	const verified = await jwtVerify(token, getTokenKey(runtime), {
 		issuer: desktopAuthIssuer,
-		audience: desktopAuthAudience,
+		audience: [desktopAuthAudience, extensionAuthAudience],
 	});
 	const clerkUserId = verified.payload.sub;
 	const sessionId = verified.payload.jti;
+	const client =
+		verified.payload.token_type === "extension_session"
+			? "extension"
+			: verified.payload.token_type === "desktop_session"
+				? "desktop"
+				: null;
 
 	if (
 		typeof clerkUserId !== "string" ||
 		typeof sessionId !== "string" ||
-		verified.payload.token_type !== "desktop_session"
+		!client
 	) {
 		return null;
 	}
@@ -141,6 +175,7 @@ export const verifyDesktopAuthSessionToken = async (
 	return {
 		clerkUserId,
 		sessionId,
+		client,
 		scope:
 			typeof verified.payload.scope === "string" ? verified.payload.scope : "",
 	};
@@ -149,6 +184,7 @@ export const verifyDesktopAuthSessionToken = async (
 export const startDesktopAuthFlow = async (
 	db: BackendDb,
 	runtime: RuntimeConfig,
+	client: DeviceAuthClient = "desktop",
 ): Promise<StartedDesktopAuthFlow> => {
 	const deviceCode = createBase64UrlSecret(32);
 	const userCode = createUserCode();
@@ -169,7 +205,7 @@ export const startDesktopAuthFlow = async (
 	return {
 		deviceCode,
 		userCode,
-		...buildVerificationUris(runtime, userCode),
+		...buildVerificationUris(runtime, userCode, client),
 		expiresAt,
 		expiresInSeconds: Math.floor(desktopAuthFlowTtlMs / 1000),
 		intervalSeconds: desktopAuthPollIntervalSeconds,
@@ -233,6 +269,7 @@ export const pollDesktopAuthFlow = async (
 	db: BackendDb,
 	runtime: RuntimeConfig,
 	deviceCode: string,
+	client: DeviceAuthClient = "desktop",
 ): Promise<PolledDesktopAuthFlow> => {
 	const deviceCodeHash = hashSecret(runtime, deviceCode);
 	const flow = await db.query.desktopAuthFlows.findFirst({
@@ -285,12 +322,21 @@ export const pollDesktopAuthFlow = async (
 	return {
 		status: "approved",
 		tokenType: "Bearer",
-		accessToken: await createDesktopAuthSessionToken(runtime, {
+		accessToken: await createDeviceAuthSessionToken(runtime, {
 			clerkUserId: flow.clerkUserId,
 			sessionId: flow.id,
+			client,
 		}),
-		expiresAt: now + desktopAuthTokenTtlSeconds * 1000,
-		expiresInSeconds: desktopAuthTokenTtlSeconds,
+		expiresAt:
+			now +
+			(client === "extension"
+				? extensionAuthTokenTtlSeconds
+				: desktopAuthTokenTtlSeconds) *
+				1000,
+		expiresInSeconds:
+			client === "extension"
+				? extensionAuthTokenTtlSeconds
+				: desktopAuthTokenTtlSeconds,
 		clerkUserId: flow.clerkUserId,
 	};
 };

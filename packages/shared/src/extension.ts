@@ -22,6 +22,10 @@ export const popupStopRecordingRequestSchema = z.object({
   type: z.literal("jl/popup-stop-recording")
 });
 
+export const popupStartCloudSignInRequestSchema = z.object({
+  type: z.literal("jl/popup-start-cloud-sign-in")
+});
+
 export const popupUpdateSessionNameRequestSchema = z.object({
   type: z.literal("jl/popup-update-session-name"),
   name: z.string().trim().min(1).max(160)
@@ -31,6 +35,7 @@ export const popupRequestSchema = z.discriminatedUnion("type", [
   popupGetStateRequestSchema,
   popupStartRecordingRequestSchema,
   popupStopRecordingRequestSchema,
+  popupStartCloudSignInRequestSchema,
   popupUpdateSessionNameRequestSchema
 ]);
 
@@ -60,6 +65,7 @@ export const companionStateSchema = z.object({
 export const cloudAuthStateSchema = z.object({
   status: z.enum(["signed-in", "signed-out", "unknown"]),
   origin: z.string().url().optional(),
+  accountLabel: z.string().min(1).optional(),
   checkedAt: isoTimestampSchema,
   error: z.string().min(1).optional()
 });

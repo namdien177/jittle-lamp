@@ -5,9 +5,28 @@ import {
   type PopupResponse,
   type PopupState
 } from "@jittle-lamp/shared";
+import {
+  BookOpen,
+  CircleStop,
+  Cloud,
+  Download,
+  ExternalLink,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  Play,
+  User,
+  X,
+  createElement
+} from "lucide";
+
+declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
 
 let activeSessionId: string | null = null;
 let floatingWidget: FloatingWidgetController | null = null;
+const configuredCloudWebOrigin = (
+  typeof __JITTLE_LAMP_WEB_ORIGIN__ === "string" ? __JITTLE_LAMP_WEB_ORIGIN__.trim() : "https://jittlelamp.dev"
+).replace(/\/+$/, "");
 
 type NetworkProbeBody = {
   disposition: "captured" | "truncated" | "omitted" | "unavailable";
@@ -321,19 +340,28 @@ const floatingWidgetRefreshMs = 1_200;
 class FloatingWidgetController {
   private readonly host: HTMLDivElement;
   private readonly shadow: ShadowRoot;
-  private readonly titleInput: HTMLInputElement;
+  private readonly titleText: HTMLSpanElement;
+  private readonly accountText: HTMLSpanElement;
+  private readonly sessionText: HTMLSpanElement;
+  private readonly destinationText: HTMLSpanElement;
+  private readonly accountButton: HTMLButtonElement;
+  private readonly outputButton: HTMLButtonElement;
+  private readonly outputIconSlot: HTMLSpanElement;
+  private readonly compactPhasePill: HTMLSpanElement;
+  private readonly compactEventText: HTMLSpanElement;
   private readonly statusText: HTMLSpanElement;
-  private readonly routeText: HTMLSpanElement;
   private readonly phasePill: HTMLSpanElement;
   private readonly eventText: HTMLSpanElement;
   private readonly startButton: HTMLButtonElement;
   private readonly stopButton: HTMLButtonElement;
+  private readonly signInButton: HTMLButtonElement;
+  private readonly linkChip: HTMLSpanElement;
   private readonly collapseButton: HTMLButtonElement;
   private readonly closeButton: HTMLButtonElement;
   private readonly dragHandle: HTMLElement;
   private refreshTimer: number | null = null;
   private lastTitle = "";
-  private collapsed = false;
+  private compact = true;
 
   constructor() {
     const existing = document.getElementById(floatingWidgetHostId);
@@ -348,24 +376,35 @@ class FloatingWidgetController {
     this.host.style.top = "20px";
     this.host.style.right = "20px";
     this.host.style.zIndex = "2147483647";
-    this.host.style.width = "286px";
+    this.host.style.width = "360px";
     this.host.style.maxWidth = "calc(100vw - 24px)";
     this.host.style.pointerEvents = "auto";
 
     this.shadow = this.host.attachShadow({ mode: "closed" });
     this.shadow.innerHTML = floatingWidgetTemplate();
+    hydrateFloatingWidgetIcons(this.shadow);
     document.documentElement.append(this.host);
 
-    this.titleInput = this.require<HTMLInputElement>("[data-role='title']");
+    this.titleText = this.require<HTMLSpanElement>("[data-role='title']");
+    this.accountText = this.require<HTMLSpanElement>("[data-role='account']");
+    this.sessionText = this.require<HTMLSpanElement>("[data-role='session']");
+    this.destinationText = this.require<HTMLSpanElement>("[data-role='destination']");
+    this.accountButton = this.require<HTMLButtonElement>("[data-role='account-link']");
+    this.outputButton = this.require<HTMLButtonElement>("[data-role='output-link']");
+    this.outputIconSlot = this.require<HTMLSpanElement>("[data-role='output-icon']");
+    this.compactPhasePill = this.require<HTMLSpanElement>("[data-role='compact-phase']");
+    this.compactEventText = this.require<HTMLSpanElement>("[data-role='compact-events']");
     this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
-    this.routeText = this.require<HTMLSpanElement>("[data-role='route']");
     this.phasePill = this.require<HTMLSpanElement>("[data-role='phase']");
     this.eventText = this.require<HTMLSpanElement>("[data-role='events']");
     this.startButton = this.require<HTMLButtonElement>("[data-role='start']");
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
+    this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
+    this.linkChip = this.require<HTMLSpanElement>("[data-role='link-chip']");
     this.collapseButton = this.require<HTMLButtonElement>("[data-role='collapse']");
     this.closeButton = this.require<HTMLButtonElement>("[data-role='close']");
     this.dragHandle = this.require<HTMLElement>("[data-role='drag']");
+    this.host.dataset.compact = "true";
 
     this.bind();
   }
@@ -417,30 +456,42 @@ class FloatingWidgetController {
       void this.performAction("jl/popup-stop-recording");
     });
 
-    this.closeButton.addEventListener("click", () => {
-      this.hide();
+    this.signInButton.addEventListener("click", () => {
+      void this.performAction("jl/popup-start-cloud-sign-in");
     });
 
-    this.collapseButton.addEventListener("click", () => {
-      this.collapsed = !this.collapsed;
-      this.host.dataset.collapsed = String(this.collapsed);
-      this.collapseButton.textContent = this.collapsed ? "▣" : "−";
-      this.collapseButton.title = this.collapsed ? "Expand" : "Minimize";
+    this.accountButton.addEventListener("click", () => {
+      openJittleLampWeb("/");
     });
 
-    this.titleInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        this.titleInput.blur();
-      }
-
-      if (event.key === "Escape") {
-        this.titleInput.value = this.lastTitle;
-        this.titleInput.blur();
+    this.outputButton.addEventListener("click", () => {
+      if (this.outputButton.dataset.destination === "cloud") {
+        openJittleLampWeb("/");
       }
     });
 
-    this.titleInput.addEventListener("blur", () => {
-      void this.persistTitle();
+    this.closeButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.destroy();
+      floatingWidget = null;
+    });
+    this.closeButton.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    this.collapseButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.compact = !this.compact;
+      this.host.dataset.compact = String(this.compact);
+      this.collapseButton.title = this.compact ? "Expand details" : "Compact menu";
+      hydrateButtonIcon(this.collapseButton, this.compact ? "Maximize2" : "Minimize2");
+    });
+    this.collapseButton.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
     });
 
     this.dragHandle.addEventListener("pointerdown", (event) => {
@@ -448,34 +499,12 @@ class FloatingWidgetController {
     });
   }
 
-  private async performAction(type: "jl/popup-start-recording" | "jl/popup-stop-recording"): Promise<void> {
+  private async performAction(
+    type: "jl/popup-start-recording" | "jl/popup-stop-recording" | "jl/popup-start-cloud-sign-in"
+  ): Promise<void> {
     this.setBusy(true);
     try {
       const response = await sendPopupRequest(type);
-      this.render(response.state, response.error);
-    } catch (error: unknown) {
-      await this.refresh(error instanceof Error ? error.message : String(error));
-    } finally {
-      this.setBusy(false);
-    }
-  }
-
-  private async persistTitle(): Promise<void> {
-    const nextTitle = this.titleInput.value.trim();
-
-    if (!nextTitle || nextTitle === this.lastTitle) {
-      this.titleInput.value = this.lastTitle;
-      return;
-    }
-
-    this.setBusy(true);
-    try {
-      const response = popupResponseSchema.parse(
-        await chrome.runtime.sendMessage({
-          type: "jl/popup-update-session-name",
-          name: nextTitle
-        })
-      );
       this.render(response.state, response.error);
     } catch (error: unknown) {
       await this.refresh(error instanceof Error ? error.message : String(error));
@@ -488,28 +517,41 @@ class FloatingWidgetController {
     const activeSession = state.activeSession;
     const phase = activeSession?.phase ?? "idle";
     const title = activeSession?.name ?? pageFallbackTitle();
-    const route = state.cloud.status === "signed-in"
-      ? "Cloud upload ready"
-      : state.companion.status === "online"
-        ? "Desktop companion ready"
-        : "Companion app recommended";
+    const account = describeAccount(state);
+    const destination = describeDestination(state);
+    const session = activeSession
+      ? `${shortSessionId(activeSession.sessionId)} · ${activeSession.page.title || new URL(activeSession.page.url).hostname}`
+      : "No active session";
 
     this.lastTitle = title;
-
-    if (this.shadow.activeElement !== this.titleInput) {
-      this.titleInput.value = title;
-    }
-
-    this.titleInput.disabled = !activeSession || phase === "processing";
+    this.titleText.textContent = title;
+    this.titleText.title = title;
+    this.accountText.textContent = account;
+    this.accountText.title = account;
+    this.sessionText.textContent = session;
+    this.sessionText.title = session;
+    this.destinationText.textContent = destination;
+    this.destinationText.title = destination;
     this.phasePill.textContent = phase;
     this.phasePill.dataset.phase = phase;
-    this.eventText.textContent = `${activeSession?.eventCount ?? 0} events`;
-    this.routeText.textContent = route;
+    this.compactPhasePill.textContent = phase;
+    this.compactPhasePill.dataset.phase = phase;
+    this.eventText.textContent = `${activeSession?.eventCount ?? 0}`;
+    this.compactEventText.textContent = `${activeSession?.eventCount ?? 0}`;
     this.statusText.textContent = error ?? activeSession?.statusText ?? widgetStatusText(state);
     this.statusText.dataset.tone = error ? "error" : "neutral";
+    this.accountButton.title = account;
+    this.accountButton.setAttribute("aria-label", `${account}. Open Jittle Lamp.`);
+    const outputKind = getDestinationKind(state);
+    this.outputButton.dataset.destination = outputKind;
+    this.outputButton.title = `${destination}${outputKind === "cloud" ? ". Open cloud library." : ""}`;
+    this.outputButton.setAttribute("aria-label", this.outputButton.title);
+    hydrateIconSlot(this.outputIconSlot, outputIconName(outputKind));
 
     this.startButton.hidden = !state.canStart;
     this.stopButton.hidden = !state.canStop;
+    this.signInButton.hidden = state.cloud.status === "signed-in";
+    this.linkChip.hidden = state.cloud.status !== "signed-in";
     this.startButton.disabled = !state.canStart;
     this.stopButton.disabled = !state.canStop;
   }
@@ -524,7 +566,13 @@ class FloatingWidgetController {
   private setBusy(busy: boolean): void {
     this.startButton.disabled = busy || this.startButton.hidden === true;
     this.stopButton.disabled = busy || this.stopButton.hidden === true;
+    this.signInButton.disabled = busy || this.signInButton.hidden === true;
     this.host.dataset.busy = String(busy);
+  }
+
+  private destroy(): void {
+    this.hide();
+    this.host.remove();
   }
 
   private beginDrag(event: PointerEvent): void {
@@ -572,7 +620,11 @@ class FloatingWidgetController {
 }
 
 async function sendPopupRequest(
-  type: "jl/popup-get-state" | "jl/popup-start-recording" | "jl/popup-stop-recording"
+  type:
+    | "jl/popup-get-state"
+    | "jl/popup-start-recording"
+    | "jl/popup-stop-recording"
+    | "jl/popup-start-cloud-sign-in"
 ): Promise<PopupResponse> {
   return popupResponseSchema.parse(
     await chrome.runtime.sendMessage({
@@ -600,21 +652,51 @@ function isFloatingWidgetEvent(event: Event): boolean {
 function widgetStatusText(state: PopupState): string {
   if (state.activeSession?.phase === "recording") {
     return state.cloud.status === "signed-in"
-      ? "Recording. Stop to upload directly to cloud."
+      ? "Recording. Stop to upload to cloud."
       : state.companion.status === "online"
-        ? "Recording. Stop to save through the companion."
+        ? "Recording. Stop to save locally."
         : "Recording. Stop to download locally.";
   }
 
   if (state.cloud.status === "signed-in") {
-    return "Signed in on web. Cloud upload is enabled.";
+    return "Ready to record. Cloud upload is enabled.";
   }
 
   if (state.companion.status === "online") {
-    return "Desktop companion is available.";
+    return "Ready to record. Companion save is enabled.";
   }
 
-  return "Sign in on web for cloud upload, or install the companion app.";
+  return "Ready to record. Output will download in the browser.";
+}
+
+function describeAccount(state: PopupState): string {
+  if (state.cloud.status === "signed-in") {
+    return state.cloud.accountLabel
+      ? `Signed in · ${state.cloud.accountLabel}`
+      : `Signed in · ${state.cloud.origin ? new URL(state.cloud.origin).host : "Jittle Lamp web"}`;
+  }
+
+  if (state.cloud.status === "signed-out") {
+    return state.cloud.error ?? "Not signed in";
+  }
+
+  return state.cloud.error ?? "Checking sign-in";
+}
+
+function describeDestination(state: PopupState): string {
+  if (state.cloud.status === "signed-in") {
+    return "Cloud upload";
+  }
+
+  if (state.companion.status === "online") {
+    return state.companion.outputDir ? `Companion · ${state.companion.outputDir}` : "Desktop companion";
+  }
+
+  return "Browser download";
+}
+
+function shortSessionId(sessionId: string): string {
+  return sessionId.length > 14 ? `${sessionId.slice(0, 7)}…${sessionId.slice(-4)}` : sessionId;
 }
 
 function pageFallbackTitle(): string {
@@ -623,6 +705,80 @@ function pageFallbackTitle(): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+const floatingWidgetIcons = {
+  BookOpen,
+  CircleStop,
+  Cloud,
+  Download,
+  ExternalLink,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  Play,
+  User,
+  X
+};
+
+type FloatingWidgetIconName = keyof typeof floatingWidgetIcons;
+type DestinationKind = "cloud" | "desktop" | "download";
+
+function hydrateFloatingWidgetIcons(root: ShadowRoot): void {
+  for (const slot of root.querySelectorAll<HTMLElement>("[data-icon]")) {
+    const iconName = slot.dataset.icon;
+    if (isFloatingWidgetIconName(iconName)) {
+      hydrateIconSlot(slot, iconName);
+    }
+  }
+}
+
+function hydrateButtonIcon(button: HTMLButtonElement, iconName: FloatingWidgetIconName): void {
+  const slot = button.querySelector<HTMLElement>("[data-icon]");
+  if (slot) {
+    hydrateIconSlot(slot, iconName);
+  }
+}
+
+function hydrateIconSlot(slot: HTMLElement, iconName: FloatingWidgetIconName): void {
+  slot.dataset.icon = iconName;
+  const svg = createElement(floatingWidgetIcons[iconName]);
+  svg.classList.add("jl-icon-svg");
+  svg.setAttribute("aria-hidden", "true");
+  slot.replaceChildren(svg);
+}
+
+function isFloatingWidgetIconName(value: unknown): value is FloatingWidgetIconName {
+  return typeof value === "string" && value in floatingWidgetIcons;
+}
+
+function getDestinationKind(state: PopupState): DestinationKind {
+  if (state.cloud.status === "signed-in") {
+    return "cloud";
+  }
+
+  if (state.companion.status === "online") {
+    return "desktop";
+  }
+
+  return "download";
+}
+
+function outputIconName(kind: DestinationKind): FloatingWidgetIconName {
+  if (kind === "cloud") {
+    return "Cloud";
+  }
+
+  if (kind === "desktop") {
+    return "Monitor";
+  }
+
+  return "Download";
+}
+
+function openJittleLampWeb(path: string): void {
+  const url = new URL(path, `${configuredCloudWebOrigin}/`);
+  window.open(url.toString(), "_blank", "noopener,noreferrer");
 }
 
 function floatingWidgetTemplate(): string {
@@ -634,14 +790,14 @@ function floatingWidgetTemplate(): string {
 
       .jl-float {
         box-sizing: border-box;
-        width: 286px;
+        width: 300px;
         max-width: calc(100vw - 24px);
         overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 8px;
-        background: #101211;
-        color: #f2f4f0;
-        box-shadow: 0 20px 54px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 6px;
+        background: #0f0f0f;
+        color: #efefef;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(0, 0, 0, 0.42);
         font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-size: 12px;
         line-height: 1.4;
@@ -650,9 +806,10 @@ function floatingWidgetTemplate(): string {
       .jl-head {
         display: grid;
         grid-template-columns: 1fr auto;
-        gap: 8px;
-        padding: 10px 10px 8px;
-        background: linear-gradient(180deg, #151816, #101211);
+        gap: 10px;
+        padding: 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        background: #0a0a0a;
         cursor: grab;
         user-select: none;
       }
@@ -665,20 +822,18 @@ function floatingWidgetTemplate(): string {
         display: flex;
         align-items: center;
         min-width: 0;
-        gap: 7px;
-        color: #8a938b;
-        font-size: 10px;
+        gap: 8px;
+        color: #efefef;
+        font-size: 12px;
         font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
       }
 
       .jl-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+        border-radius: 3px;
         background: #22c55e;
-        box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+        box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(34, 197, 94, 0.35);
       }
 
       .jl-tools {
@@ -687,55 +842,97 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-icon {
-        width: 22px;
-        height: 22px;
+        width: 28px;
+        height: 28px;
         border: 0;
-        border-radius: 5px;
-        background: rgba(255, 255, 255, 0.06);
-        color: #abb2ac;
+        border-radius: 3px;
+        background: transparent;
+        color: #888888;
         cursor: pointer;
         font: inherit;
+        font-size: 15px;
         line-height: 1;
       }
 
       .jl-icon:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: #f2f4f0;
+        background: #181818;
+        color: #efefef;
       }
 
       .jl-body {
         display: grid;
-        gap: 8px;
-        padding: 0 10px 10px;
+        gap: 10px;
+        padding: 12px;
       }
 
-      :host([data-collapsed="true"]) .jl-body,
-      :host([data-collapsed="true"]) .jl-route,
-      :host([data-collapsed="true"]) .jl-status {
+      :host([data-compact="true"]) .jl-expanded {
         display: none;
       }
 
+      :host([data-compact="false"]) .jl-compact {
+        display: none;
+      }
+
+      :host([data-compact="false"]) .jl-float {
+        width: 360px;
+      }
+
+      .jl-compact {
+        display: grid;
+        grid-template-columns: auto auto 1fr auto;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .jl-tool-button {
+        display: inline-grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 4px;
+        background: #181818;
+        color: #888888;
+        cursor: pointer;
+      }
+
+      .jl-tool-button:hover {
+        border-color: rgba(34, 197, 94, 0.4);
+        color: #22c55e;
+      }
+
+      .jl-tool-button[data-destination="desktop"],
+      .jl-tool-button[data-destination="download"] {
+        cursor: default;
+      }
+
+      .jl-tool-button[data-destination="desktop"]:hover,
+      .jl-tool-button[data-destination="download"]:hover {
+        border-color: rgba(255, 255, 255, 0.13);
+        color: #888888;
+      }
+
+      .jl-icon-svg {
+        width: 16px;
+        height: 16px;
+        stroke-width: 2.2;
+      }
+
+      .jl-compact-stats {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 6px;
+      }
+
       .jl-title {
-        width: 100%;
-        box-sizing: border-box;
-        border: 1px solid transparent;
-        border-radius: 5px;
-        padding: 5px 6px;
-        background: rgba(255, 255, 255, 0.05);
-        color: #f2f4f0;
-        font: inherit;
-        font-size: 13px;
-        font-weight: 650;
-        outline: none;
-      }
-
-      .jl-title:focus {
-        border-color: rgba(34, 197, 94, 0.55);
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .jl-title:disabled {
-        color: #8a938b;
+        min-width: 0;
+        overflow: hidden;
+        color: #efefef;
+        font-size: 14px;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .jl-meta {
@@ -746,11 +943,11 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-pill {
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 2px;
         padding: 3px 7px;
-        background: rgba(255, 255, 255, 0.06);
-        color: #aab1ac;
+        background: #181818;
+        color: #888888;
         font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.08em;
@@ -759,29 +956,60 @@ function floatingWidgetTemplate(): string {
 
       .jl-pill[data-phase="recording"],
       .jl-pill[data-phase="ready"] {
-        border-color: rgba(34, 197, 94, 0.24);
-        background: rgba(34, 197, 94, 0.12);
+        border-color: rgba(34, 197, 94, 0.4);
+        background: rgba(34, 197, 94, 0.16);
         color: #22c55e;
       }
 
       .jl-pill[data-phase="processing"],
       .jl-pill[data-phase="armed"] {
-        border-color: rgba(245, 158, 11, 0.26);
-        background: rgba(245, 158, 11, 0.12);
+        border-color: rgba(245, 158, 11, 0.34);
+        background: rgba(245, 158, 11, 0.14);
         color: #f59e0b;
       }
 
       .jl-pill[data-phase="failed"] {
-        border-color: rgba(239, 68, 68, 0.26);
-        background: rgba(239, 68, 68, 0.12);
+        border-color: rgba(239, 68, 68, 0.32);
+        background: rgba(239, 68, 68, 0.14);
         color: #ef4444;
       }
 
-      .jl-muted,
-      .jl-route,
+      .jl-muted {
+        color: #888888;
+      }
+
+      .jl-grid {
+        display: grid;
+        gap: 1px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.07);
+      }
+
+      .jl-row {
+        display: grid;
+        grid-template-columns: 70px minmax(0, 1fr);
+        gap: 10px;
+        align-items: baseline;
+        padding: 8px 10px;
+        background: #131313;
+      }
+
+      .jl-label {
+        color: #888888;
+        font-size: 11px;
+      }
+
+      .jl-value,
       .jl-status {
-        color: #8a938b;
+        min-width: 0;
+        color: #efefef;
         overflow-wrap: anywhere;
+      }
+
+      .jl-status {
+        color: #888888;
       }
 
       .jl-status[data-tone="error"] {
@@ -789,19 +1017,22 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-actions {
-        display: flex;
-        gap: 7px;
+        display: grid;
+        gap: 8px;
       }
 
       .jl-button {
-        flex: 1;
-        min-height: 34px;
-        border: 0;
+        width: 100%;
+        min-height: 56px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
         border-radius: 6px;
-        padding: 7px 10px;
+        padding: 0 12px;
         cursor: pointer;
         font: inherit;
-        font-weight: 750;
+        font-size: 16px;
+        font-weight: 700;
+        text-align: left;
+        transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
       }
 
       .jl-button:disabled {
@@ -810,17 +1041,130 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-start {
-        background: #22c55e;
-        color: #07100a;
+        position: relative;
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        background: #181818;
+        color: #efefef;
+      }
+
+      .jl-start:hover:not(:disabled) {
+        border-color: rgba(34, 197, 94, 0.4);
+        background: #1f1f1f;
+      }
+
+      .jl-action-icon {
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 3px;
+        background: rgba(34, 197, 94, 0.16);
+        color: #22c55e;
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .jl-start::after {
+        content: "Mic on";
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 9px;
+        border-radius: 3px;
+        background: rgba(34, 197, 94, 0.16);
+        color: #22c55e;
+        font-size: 12px;
+        font-weight: 700;
       }
 
       .jl-stop {
-        background: #262a27;
-        color: #f2f4f0;
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        background: rgba(239, 68, 68, 0.14);
+        color: #efefef;
+        border-color: rgba(239, 68, 68, 0.32);
+      }
+
+      .jl-stop .jl-action-icon {
+        background: rgba(239, 68, 68, 0.14);
+        color: #ef4444;
+      }
+
+      .jl-stop::after {
+        content: "Recording";
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 9px;
+        border-radius: 3px;
+        background: rgba(239, 68, 68, 0.14);
+        color: #ef4444;
+        font-size: 12px;
+        font-weight: 700;
       }
 
       .jl-button[hidden] {
+        display: none;
+      }
+
+      .jl-expanded {
+        display: grid;
+        gap: 10px;
+      }
+
+      .jl-request {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 42px;
+        padding: 8px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 4px;
+        background: #131313;
+      }
+
+      .jl-request-label {
+        min-width: 0;
+        overflow: hidden;
+        color: #888888;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .jl-request-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 4px;
+        background: #181818;
+        color: #efefef;
+        font-weight: 700;
+      }
+
+      .jl-sign-in {
+        cursor: pointer;
+      }
+
+      .jl-sign-in:hover:not(:disabled) {
+        border-color: rgba(34, 197, 94, 0.4);
+        color: #22c55e;
+      }
+
+      .jl-sign-in[hidden] {
+        display: none;
+      }
+
+      .jl-request-chip[hidden] {
         display: none;
       }
     </style>
@@ -828,21 +1172,63 @@ function floatingWidgetTemplate(): string {
       <header class="jl-head" data-role="drag">
         <div class="jl-brand"><span class="jl-dot"></span><span>Jittle Lamp</span></div>
         <div class="jl-tools">
-          <button class="jl-icon" data-role="collapse" type="button" title="Minimize">−</button>
-          <button class="jl-icon" data-role="close" type="button" title="Hide">×</button>
+          <button class="jl-icon" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
+            <span data-icon="Maximize2"></span>
+          </button>
+          <button class="jl-icon" data-role="close" type="button" title="Hide" aria-label="Hide">
+            <span data-icon="X"></span>
+          </button>
         </div>
       </header>
       <div class="jl-body">
-        <input class="jl-title" data-role="title" type="text" maxlength="160" />
-        <div class="jl-meta">
-          <span class="jl-pill" data-role="phase" data-phase="idle">idle</span>
-          <span class="jl-muted" data-role="events">0 events</span>
+        <div class="jl-compact">
+          <button class="jl-tool-button" data-role="account-link" type="button" title="Open Jittle Lamp" aria-label="Open Jittle Lamp account">
+            <span data-icon="User"></span>
+          </button>
+          <button class="jl-tool-button" data-role="output-link" type="button" title="Output" aria-label="Output">
+            <span data-role="output-icon" data-icon="Download"></span>
+          </button>
+          <div class="jl-compact-stats">
+            <span class="jl-pill" data-role="compact-phase" data-phase="idle">idle</span>
+            <span class="jl-muted"><span data-role="compact-events">0</span> events</span>
+          </div>
         </div>
-        <span class="jl-route" data-role="route">Checking route…</span>
-        <span class="jl-status" data-role="status">Ready.</span>
         <div class="jl-actions">
-          <button class="jl-button jl-start" data-role="start" type="button">Start capture</button>
-          <button class="jl-button jl-stop" data-role="stop" type="button" hidden>Stop</button>
+          <button class="jl-button jl-start" data-role="start" type="button">
+            <span class="jl-action-icon" data-icon="Play"></span>
+            <span>Record tab</span>
+          </button>
+          <button class="jl-button jl-stop" data-role="stop" type="button" hidden>
+            <span class="jl-action-icon" data-icon="CircleStop"></span>
+            <span>Stop recording</span>
+          </button>
+        </div>
+        <div class="jl-expanded">
+          <span class="jl-title" data-role="title">Jittle Lamp session</span>
+          <div class="jl-meta">
+            <span class="jl-pill" data-role="phase" data-phase="idle">idle</span>
+            <span class="jl-muted"><span data-role="events">0</span> events</span>
+          </div>
+          <div class="jl-grid">
+            <div class="jl-row">
+              <span class="jl-label">Account</span>
+              <span class="jl-value" data-role="account">Checking sign-in</span>
+            </div>
+            <div class="jl-row">
+              <span class="jl-label">Session</span>
+              <span class="jl-value" data-role="session">No active session</span>
+            </div>
+            <div class="jl-row">
+              <span class="jl-label">Output</span>
+              <span class="jl-value" data-role="destination">Browser download</span>
+            </div>
+          </div>
+          <span class="jl-status" data-role="status">Ready.</span>
+        </div>
+        <div class="jl-request">
+          <span class="jl-request-label">Developer evidence</span>
+          <span class="jl-request-chip" data-role="link-chip">Link after stop</span>
+          <button class="jl-request-chip jl-sign-in" data-role="sign-in" type="button">Sign in</button>
         </div>
       </div>
     </section>

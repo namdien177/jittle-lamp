@@ -18,21 +18,29 @@ export const extensionManifest = {
   action: {
     default_title: "jittle-lamp",
     default_icon: {
-      "16": "icon.jpeg",
-      "32": "icon.jpeg",
-      "48": "icon.jpeg",
-      "128": "icon.jpeg"
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
     }
   },
   icons: {
-    "16": "icon.jpeg",
-    "32": "icon.jpeg",
-    "48": "icon.jpeg",
-    "128": "icon.jpeg"
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
   },
   background: {
     service_worker: "background.js",
     type: "module"
+  },
+  commands: {
+    _execute_action: {
+      suggested_key: {
+        default: "Alt+L"
+      },
+      description: "Toggle the Jittle Lamp recorder"
+    }
   },
   permissions: [
     "activeTab",
@@ -46,10 +54,10 @@ export const extensionManifest = {
     "webRequest"
   ],
   host_permissions: [
+    "<all_urls>",
     "http://127.0.0.1/*",
     "http://127.0.0.1:3001/*",
     "https://jl-api.monthlyparty.com/*",
     ...webHostPermissions
-  ],
-  optional_host_permissions: ["<all_urls>"]
+  ]
 } satisfies chrome.runtime.ManifestV3;

@@ -19,8 +19,10 @@ type ApprovalState =
 
 const readUserCode = () => new URL(window.location.href).searchParams.get("user_code")?.trim() ?? "";
 
-const completeDesktopAuth = (input: { token: string; userCode: string }) =>
-  fetch(`${apiOrigin}/desktop-auth/flows/complete`, {
+type DeviceAuthClient = "desktop" | "extension";
+
+const completeDeviceAuth = (input: { token: string; userCode: string; client: DeviceAuthClient }) =>
+  fetch(`${apiOrigin}/${input.client}-auth/flows/complete`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${input.token}`,
@@ -29,12 +31,13 @@ const completeDesktopAuth = (input: { token: string; userCode: string }) =>
     body: JSON.stringify({ userCode: input.userCode })
   });
 
-function DesktopAuthApprovalInner(): React.JSX.Element {
+function DeviceAuthApprovalInner(props: { client: DeviceAuthClient }): React.JSX.Element {
   const { getToken } = useAuth();
   const submittedRef = useRef(false);
   const userCode = useMemo(() => readUserCode(), []);
+  const clientLabel = props.client === "extension" ? "extension" : "desktop";
   const [approval, setApproval] = useState<ApprovalState>(
-    userCode ? { status: "idle" } : { status: "error", message: "Missing desktop sign-in code." }
+    userCode ? { status: "idle" } : { status: "error", message: `Missing ${clientLabel} sign-in code.` }
   );
 
   useEffect(() => {
@@ -49,17 +52,17 @@ function DesktopAuthApprovalInner(): React.JSX.Element {
           throw new Error("Your browser session is missing a Clerk token.");
         }
 
-        let response = await completeDesktopAuth({ token, userCode });
+        let response = await completeDeviceAuth({ token, userCode, client: props.client });
         if (response.status === 401) {
           const retryToken = await getToken({ skipCache: true });
           if (retryToken && retryToken !== token) {
-            response = await completeDesktopAuth({ token: retryToken, userCode });
+            response = await completeDeviceAuth({ token: retryToken, userCode, client: props.client });
           }
         }
 
         if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-          throw new Error(payload?.error?.message ?? "Unable to approve the desktop sign-in request.");
+          throw new Error(payload?.error?.message ?? `Unable to approve the ${clientLabel} sign-in request.`);
         }
 
         setApproval({ status: "approved" });
@@ -67,19 +70,19 @@ function DesktopAuthApprovalInner(): React.JSX.Element {
         submittedRef.current = false;
         setApproval({
           status: "error",
-          message: error instanceof Error ? error.message : "Unable to approve the desktop sign-in request."
+          message: error instanceof Error ? error.message : `Unable to approve the ${clientLabel} sign-in request.`
         });
       }
     };
 
     void approve();
-  }, [getToken, userCode]);
+  }, [clientLabel, getToken, props.client, userCode]);
 
   if (approval.status === "approved") {
     return (
       <main className="desktop-auth-page">
         <section className="desktop-auth-panel" aria-live="polite">
-          <h1>Desktop sign-in approved</h1>
+          <h1>{props.client === "extension" ? "Extension" : "Desktop"} sign-in approved</h1>
           <p>You can return to Jittle Lamp.</p>
         </section>
       </main>
@@ -92,7 +95,7 @@ function DesktopAuthApprovalInner(): React.JSX.Element {
         <h1>Connect Jittle Lamp</h1>
         <p>
           {approval.status === "submitting"
-            ? "Approving your desktop sign-in..."
+            ? `Approving your ${clientLabel} sign-in...`
             : approval.status === "error"
               ? approval.message
               : "Waiting for browser sign-in..."}
@@ -102,15 +105,16 @@ function DesktopAuthApprovalInner(): React.JSX.Element {
   );
 }
 
-export function DesktopAuthApprovalPage(): React.JSX.Element {
+function DeviceAuthApprovalPage(props: { client: DeviceAuthClient }): React.JSX.Element {
   const currentUrl = window.location.href;
+  const clientLabel = props.client === "extension" ? "extension" : "desktop";
 
   if (!clerkPublishableKey) {
     return (
       <main className="desktop-auth-page">
         <section className="desktop-auth-panel">
           <h1>Clerk is not configured</h1>
-          <p>Set CLERK_PUBLISHABLE_KEY before using browser sign-in.</p>
+          <p>Set CLERK_PUBLISHABLE_KEY before using {clientLabel} browser sign-in.</p>
         </section>
       </main>
     );
@@ -143,7 +147,7 @@ export function DesktopAuthApprovalPage(): React.JSX.Element {
       </ClerkLoading>
       <ClerkLoaded>
         <SignedIn>
-          <DesktopAuthApprovalInner />
+          <DeviceAuthApprovalInner client={props.client} />
         </SignedIn>
         <SignedOut>
           <main className="desktop-auth-page">
@@ -159,4 +163,12 @@ export function DesktopAuthApprovalPage(): React.JSX.Element {
       </ClerkLoaded>
     </>
   );
+}
+
+export function DesktopAuthApprovalPage(): React.JSX.Element {
+  return <DeviceAuthApprovalPage client="desktop" />;
+}
+
+export function ExtensionAuthApprovalPage(): React.JSX.Element {
+  return <DeviceAuthApprovalPage client="extension" />;
 }

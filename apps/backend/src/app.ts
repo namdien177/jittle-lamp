@@ -10,6 +10,7 @@ import { createClerkRoutes } from "./routes/clerk";
 import { createDesktopAuthRoutes } from "./routes/desktop-auth";
 import { createEvidenceUploadRoutes } from "./routes/evidence-uploads";
 import { createEvidenceRoutes } from "./routes/evidences";
+import { createExtensionAuthRoutes } from "./routes/extension-auth";
 import { createHealthRoutes } from "./routes/health";
 import { createOrganizationRoutes } from "./routes/orgs";
 import { createProtectedRoutes } from "./routes/protected";
@@ -61,6 +62,7 @@ export const createApp = (
 		.use(createHealthRoutes(core))
 		.use(createClerkRoutes(auth))
 		.use(createDesktopAuthRoutes(auth))
+		.use(createExtensionAuthRoutes(auth))
 		.use(createEvidenceUploadRoutes(auth))
 		.use(createEvidenceRoutes(auth))
 		.use(createShareLinkRoutes(auth))

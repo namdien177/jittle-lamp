@@ -25,7 +25,7 @@ import {
   createWebStorageAdapter
 } from "./adapters";
 import { api, type ArtifactReadUrl, type FetchToken } from "./api";
-import { DesktopAuthApprovalPage } from "./desktop-auth-page";
+import { DesktopAuthApprovalPage, ExtensionAuthApprovalPage } from "./desktop-auth-page";
 import { clerkPublishableKey } from "./env";
 import { EvidenceViewerContent } from "./evidence-viewer-content";
 import { startExtensionAuthBridge } from "./extension-auth-bridge";
@@ -485,6 +485,7 @@ const evidenceWebRoutes: JittleRouteObject[] = [
     )
   },
   { path: "/desktop-auth", element: <DesktopAuthApprovalPage /> },
+  { path: "/extension-auth", element: <ExtensionAuthApprovalPage /> },
   {
     path: "/organisations",
     element: clerkPublishableKey ? (

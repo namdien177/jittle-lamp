@@ -24,16 +24,21 @@ import {
 import { createDraftStorageCheckpoint } from "./draft-storage";
 
 declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
+declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
 
 const sessionStorageKey = "jittle-lamp.active-session";
 const sessionStorageMetaKey = "jittle-lamp.active-session-meta";
+const cloudAuthStorageKey = "jittle-lamp.cloud-auth-session";
 const debuggerProtocolVersion = "1.3";
 const offscreenDocumentPath = "offscreen.html";
 const companionServerOrigin = "http://127.0.0.1:48115";
 const companionHealthTimeoutMs = 1_200;
-const cloudAuthProbeTimeoutMs = 800;
+const cloudAuthProbeTimeoutMs = 1_800;
 const configuredCloudWebOrigin = (
   typeof __JITTLE_LAMP_WEB_ORIGIN__ === "string" ? __JITTLE_LAMP_WEB_ORIGIN__.trim() : ""
+).replace(/\/+$/, "");
+const configuredCloudApiOrigin = (
+  typeof __JITTLE_LAMP_API_ORIGIN__ === "string" ? __JITTLE_LAMP_API_ORIGIN__.trim() : "https://jl-api.monthlyparty.com"
 ).replace(/\/+$/, "");
 const fallbackCloudWebOrigins = ["https://jittlelamp.dev", "http://127.0.0.1:3000", "http://localhost:3000"];
 const cloudWebOrigins = [...new Set([configuredCloudWebOrigin, ...fallbackCloudWebOrigins].filter(Boolean))];
@@ -54,11 +59,19 @@ let activeDraftCache: CaptureSessionDraft | null = null;
 let activeDraftEventCount = 0;
 let activeRecoveryState: PendingRecoveryState | null = null;
 let pendingRecoveryCheckScheduled = false;
+let pendingCloudAuthFlow: PendingCloudAuthFlow | null = null;
 
 type PendingRecoveryState = {
   tabId: number;
   startedAt: string;
   detachReason: string;
+};
+
+type PendingCloudAuthFlow = {
+  deviceCode: string;
+  expiresAt: number;
+  intervalSeconds: number;
+  startedAt: string;
 };
 
 type SessionStorageMeta = {
@@ -255,9 +268,7 @@ chrome.runtime.onMessage.addListener((rawMessage, sender, sendResponse) => {
 });
 
 chrome.action?.onClicked?.addListener((tab) => {
-  void toggleFloatingWidget(tab).catch((error: unknown) => {
-    console.warn(`[jittle-lamp] Unable to toggle floating widget: ${errorMessage(error)}`);
-  });
+  void toggleFloatingWidget(tab);
 });
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -307,17 +318,25 @@ async function handleIncomingMessage(
           }
         });
 
-      case "jl/popup-stop-recording":
-        return queueDraftMutation(async () => {
-          try {
-            await stopRecordingSession("Stopped recording from the popup.");
-            return buildPopupResponse(true);
-          } catch (error: unknown) {
-            return buildPopupResponse(false, errorMessage(error));
-          }
-        });
+	      case "jl/popup-stop-recording":
+	        return queueDraftMutation(async () => {
+	          try {
+	            await stopRecordingSession("Stopped recording from the popup.");
+	            return buildPopupResponse(true);
+	          } catch (error: unknown) {
+	            return buildPopupResponse(false, errorMessage(error));
+	          }
+	        });
 
-      case "jl/popup-update-session-name":
+      case "jl/popup-start-cloud-sign-in":
+        try {
+          await startCloudSignInFlow();
+          return buildPopupResponse(true, "Opened browser sign-in. Approve the extension connection to keep Jittle Lamp signed in.");
+        } catch (error: unknown) {
+          return buildPopupResponse(false, errorMessage(error));
+        }
+
+	      case "jl/popup-update-session-name":
         const nextSessionName = popupRequest.data.name;
         return queueDraftMutation(async () => {
           try {
@@ -408,11 +427,33 @@ async function startRecordingSession(): Promise<void> {
 }
 
 async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
-  const tab = isRecordableTab(tabHint) ? tabHint : await getActiveRecordableTabForWidget();
+  try {
+    const tab = isRecordableTab(tabHint) ? tabHint : await getActiveRecordableTabForWidget();
 
-  await ensureWidgetBridge(tab.id);
-  await chrome.tabs.sendMessage(tab.id, {
-    type: "jl/content-toggle-widget"
+    await ensureWidgetBridge(tab.id);
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "jl/content-toggle-widget"
+    });
+    await setActionFeedback(tab.id, "");
+  } catch (error: unknown) {
+    const message = errorMessage(error);
+    const tabId = typeof tabHint?.id === "number" ? tabHint.id : undefined;
+    console.warn(`[jittle-lamp] Unable to toggle floating widget: ${message}`);
+    await setActionFeedback(tabId, "ERR");
+  }
+}
+
+async function setActionFeedback(tabId: number | undefined, text: string): Promise<void> {
+  await chrome.action.setBadgeBackgroundColor({ color: "#dc2626", ...(tabId ? { tabId } : {}) });
+  await chrome.action.setBadgeText({ text, ...(tabId ? { tabId } : {}) });
+
+  if (!text) {
+    return;
+  }
+
+  await chrome.action.setTitle({
+    title: "Open an http(s) page to show the Jittle Lamp recorder.",
+    ...(tabId ? { tabId } : {})
   });
 }
 
@@ -2541,21 +2582,52 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
   const checkedAt = new Date().toISOString();
 
   try {
+    const cachedSession = await readStoredCloudAuthSession();
     const session = await resolveCloudAuthToken();
 
     if (!session) {
+      if (cachedSession) {
+        return {
+          status: "signed-in",
+          origin: cachedSession.origin,
+          ...(cachedSession.accountLabel ? { accountLabel: cachedSession.accountLabel } : {}),
+          checkedAt
+        };
+      }
+
       return {
         status: "signed-out",
-        checkedAt
+        checkedAt,
+        ...(pendingCloudAuthFlow ? { error: "Waiting for browser sign-in" } : {})
       };
     }
+
+    const accountLabel = await readCloudAccountLabel(session.token) ?? session.accountLabel ?? cachedSession?.accountLabel;
+    await saveCloudAuthSession({
+      token: session.token,
+      origin: session.origin,
+      ...(accountLabel ? { accountLabel } : {}),
+      expiresAt: session.expiresAt ?? getJwtExpirationMs(session.token) ?? Date.now() + 45 * 60 * 1000,
+      checkedAt
+    });
 
     return {
       status: "signed-in",
       origin: session.origin,
+      ...(accountLabel ? { accountLabel } : {}),
       checkedAt
     };
   } catch (error: unknown) {
+    const cachedSession = await readStoredCloudAuthSession();
+    if (cachedSession) {
+      return {
+        status: "signed-in",
+        origin: cachedSession.origin,
+        ...(cachedSession.accountLabel ? { accountLabel: cachedSession.accountLabel } : {}),
+        checkedAt
+      };
+    }
+
     return {
       status: "unknown",
       checkedAt,
@@ -2564,19 +2636,232 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
   }
 }
 
+async function startCloudSignInFlow(): Promise<void> {
+  if (pendingCloudAuthFlow && pendingCloudAuthFlow.expiresAt > Date.now()) {
+    return;
+  }
+
+  const response = await fetch(`${configuredCloudApiOrigin}/extension-auth/flows`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to start extension sign-in (${response.status}).`);
+  }
+
+  const payload = await response.json() as {
+    deviceCode?: unknown;
+    verificationUriComplete?: unknown;
+    expiresAt?: unknown;
+    intervalSeconds?: unknown;
+  };
+
+  if (
+    typeof payload.deviceCode !== "string" ||
+    typeof payload.verificationUriComplete !== "string" ||
+    typeof payload.expiresAt !== "number"
+  ) {
+    throw new Error("Extension sign-in response was invalid.");
+  }
+
+  pendingCloudAuthFlow = {
+    deviceCode: payload.deviceCode,
+    expiresAt: payload.expiresAt,
+    intervalSeconds: typeof payload.intervalSeconds === "number" ? payload.intervalSeconds : 5,
+    startedAt: new Date().toISOString()
+  };
+
+  await chrome.tabs.create({ url: payload.verificationUriComplete });
+  void pollCloudSignInFlow(pendingCloudAuthFlow);
+}
+
+async function pollCloudSignInFlow(flow: PendingCloudAuthFlow): Promise<void> {
+  if (flow.expiresAt <= Date.now()) {
+    if (pendingCloudAuthFlow?.deviceCode === flow.deviceCode) {
+      pendingCloudAuthFlow = null;
+    }
+    return;
+  }
+
+  const response = await fetch(`${configuredCloudApiOrigin}/extension-auth/flows/${encodeURIComponent(flow.deviceCode)}`);
+
+  if (!response.ok) {
+    throw new Error(`Unable to poll extension sign-in (${response.status}).`);
+  }
+
+  const payload = await response.json() as {
+    status?: unknown;
+    accessToken?: unknown;
+    expiresAt?: unknown;
+  };
+
+  if (payload.status === "approved" && typeof payload.accessToken === "string") {
+    const accountLabel = await readCloudAccountLabel(payload.accessToken);
+    await saveCloudAuthSession({
+      token: payload.accessToken,
+      origin: configuredCloudApiOrigin,
+      ...(accountLabel ? { accountLabel } : {}),
+      expiresAt: typeof payload.expiresAt === "number"
+        ? payload.expiresAt
+        : getJwtExpirationMs(payload.accessToken) ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
+      checkedAt: new Date().toISOString()
+    });
+    if (pendingCloudAuthFlow?.deviceCode === flow.deviceCode) {
+      pendingCloudAuthFlow = null;
+    }
+    return;
+  }
+
+  if (payload.status === "expired" || payload.status === "denied") {
+    if (pendingCloudAuthFlow?.deviceCode === flow.deviceCode) {
+      pendingCloudAuthFlow = null;
+    }
+    return;
+  }
+
+  globalThis.setTimeout(() => {
+    if (pendingCloudAuthFlow?.deviceCode === flow.deviceCode) {
+      void pollCloudSignInFlow(flow).catch((error: unknown) => {
+        console.warn(`[jittle-lamp] Unable to poll extension sign-in: ${errorMessage(error)}`);
+      });
+    }
+  }, Math.max(1, flow.intervalSeconds) * 1000);
+}
+
+async function readCloudAccountLabel(token: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(`${configuredCloudApiOrigin}/protected/me`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${token}` },
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const payload = await response.json() as {
+      user?: {
+        displayName?: unknown;
+        email?: unknown;
+      };
+      activeOrgId?: unknown;
+      organizations?: Array<{
+        id?: unknown;
+        name?: unknown;
+        isActive?: unknown;
+      }>;
+    };
+    const userLabel = typeof payload.user?.email === "string" && payload.user.email.trim()
+      ? payload.user.email.trim()
+      : typeof payload.user?.displayName === "string" && payload.user.displayName.trim()
+        ? payload.user.displayName.trim()
+        : undefined;
+    const activeOrg = payload.organizations?.find((organization) =>
+      organization.isActive === true ||
+      (typeof payload.activeOrgId === "string" && organization.id === payload.activeOrgId)
+    );
+    const orgLabel = typeof activeOrg?.name === "string" && activeOrg.name.trim() ? activeOrg.name.trim() : undefined;
+
+    return [userLabel, orgLabel].filter(Boolean).join(" · ") || userLabel;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | null> {
+  const stored = await chrome.storage.local.get(cloudAuthStorageKey);
+  const value = stored[cloudAuthStorageKey];
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<StoredCloudAuthSession>;
+  const expiresAt = typeof candidate.expiresAt === "number" ? candidate.expiresAt : 0;
+
+  if (
+    typeof candidate.token !== "string" ||
+    typeof candidate.origin !== "string" ||
+    typeof candidate.checkedAt !== "string" ||
+    !candidate.token.trim() ||
+    !candidate.origin.trim() ||
+    expiresAt <= Date.now() + 30_000
+  ) {
+    await chrome.storage.local.remove(cloudAuthStorageKey);
+    return null;
+  }
+
+  return {
+    token: candidate.token,
+    origin: candidate.origin,
+    expiresAt,
+    checkedAt: candidate.checkedAt,
+    ...(typeof candidate.accountLabel === "string" && candidate.accountLabel.trim()
+      ? { accountLabel: candidate.accountLabel.trim() }
+      : {})
+  };
+}
+
+async function saveCloudAuthSession(session: StoredCloudAuthSession): Promise<void> {
+  if (session.expiresAt <= Date.now() + 30_000) {
+    await chrome.storage.local.remove(cloudAuthStorageKey);
+    return;
+  }
+
+  await chrome.storage.local.set({
+    [cloudAuthStorageKey]: session
+  });
+}
+
+function getJwtExpirationMs(token: string): number | undefined {
+  const payloadSegment = token.split(".")[1];
+
+  if (!payloadSegment) {
+    return undefined;
+  }
+
+  try {
+    const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded)) as { exp?: unknown };
+
+    return typeof payload.exp === "number" ? payload.exp * 1000 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 type CloudAuthSession = {
   token: string;
   origin: string;
+  accountLabel?: string;
+  expiresAt?: number;
+  checkedAt?: string;
+};
+
+type StoredCloudAuthSession = CloudAuthSession & {
+  token: string;
+  origin: string;
+  expiresAt: number;
+  checkedAt: string;
 };
 
 async function resolveCloudAuthToken(): Promise<CloudAuthSession | null> {
+  const storedSession = await readStoredCloudAuthSession();
+  if (storedSession) {
+    return storedSession;
+  }
+
   for (const origin of cloudWebOrigins) {
     const token = await requestCloudAuthTokenFromOrigin(origin);
 
     if (token) {
+      const expiresAt = getJwtExpirationMs(token);
       return {
         token,
-        origin
+        origin,
+        ...(expiresAt ? { expiresAt } : {})
       };
     }
   }
