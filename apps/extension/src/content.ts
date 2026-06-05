@@ -349,6 +349,7 @@ class FloatingWidgetController {
   private readonly outputIconSlot: HTMLSpanElement;
   private readonly compactPhasePill: HTMLSpanElement;
   private readonly compactEventText: HTMLSpanElement;
+  private readonly compactStatusText: HTMLSpanElement;
   private readonly statusText: HTMLSpanElement;
   private readonly phasePill: HTMLSpanElement;
   private readonly eventText: HTMLSpanElement;
@@ -394,6 +395,7 @@ class FloatingWidgetController {
     this.outputIconSlot = this.require<HTMLSpanElement>("[data-role='output-icon']");
     this.compactPhasePill = this.require<HTMLSpanElement>("[data-role='compact-phase']");
     this.compactEventText = this.require<HTMLSpanElement>("[data-role='compact-events']");
+    this.compactStatusText = this.require<HTMLSpanElement>("[data-role='compact-status']");
     this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
     this.phasePill = this.require<HTMLSpanElement>("[data-role='phase']");
     this.eventText = this.require<HTMLSpanElement>("[data-role='events']");
@@ -538,8 +540,12 @@ class FloatingWidgetController {
     this.compactPhasePill.dataset.phase = phase;
     this.eventText.textContent = `${activeSession?.eventCount ?? 0}`;
     this.compactEventText.textContent = `${activeSession?.eventCount ?? 0}`;
-    this.statusText.textContent = error ?? activeSession?.statusText ?? widgetStatusText(state);
+    const status = error ?? activeSession?.statusText ?? widgetStatusText(state);
+    this.statusText.textContent = status;
     this.statusText.dataset.tone = error ? "error" : "neutral";
+    this.compactStatusText.textContent = status;
+    this.compactStatusText.title = status;
+    this.compactStatusText.dataset.tone = error ? "error" : "neutral";
     this.accountButton.title = account;
     this.accountButton.setAttribute("aria-label", `${account}. Open Jittle Lamp.`);
     const outputKind = getDestinationKind(state);
@@ -559,6 +565,9 @@ class FloatingWidgetController {
   private renderError(message: string): void {
     this.statusText.textContent = message;
     this.statusText.dataset.tone = "error";
+    this.compactStatusText.textContent = message;
+    this.compactStatusText.title = message;
+    this.compactStatusText.dataset.tone = "error";
     this.phasePill.textContent = "offline";
     this.phasePill.dataset.phase = "failed";
   }
@@ -873,6 +882,10 @@ function floatingWidgetTemplate(): string {
         display: none;
       }
 
+      :host([data-compact="false"]) .jl-compact-only {
+        display: none;
+      }
+
       :host([data-compact="false"]) .jl-float {
         width: 360px;
       }
@@ -923,6 +936,19 @@ function floatingWidgetTemplate(): string {
         align-items: center;
         min-width: 0;
         gap: 6px;
+      }
+
+      .jl-compact-status {
+        min-width: 0;
+        overflow: hidden;
+        color: #888888;
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .jl-compact-status[data-tone="error"] {
+        color: #ef4444;
       }
 
       .jl-title {
@@ -1193,6 +1219,7 @@ function floatingWidgetTemplate(): string {
             <span class="jl-muted"><span data-role="compact-events">0</span> events</span>
           </div>
         </div>
+        <span class="jl-compact-only jl-compact-status" data-role="compact-status">Ready.</span>
         <div class="jl-actions">
           <button class="jl-button jl-start" data-role="start" type="button">
             <span class="jl-action-icon" data-icon="Play"></span>

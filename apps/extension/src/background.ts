@@ -69,6 +69,7 @@ type PendingRecoveryState = {
 
 type PendingCloudAuthFlow = {
   deviceCode: string;
+  verificationUriComplete: string;
   expiresAt: number;
   intervalSeconds: number;
   startedAt: string;
@@ -2638,6 +2639,7 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
 
 async function startCloudSignInFlow(): Promise<void> {
   if (pendingCloudAuthFlow && pendingCloudAuthFlow.expiresAt > Date.now()) {
+    await chrome.tabs.create({ url: pendingCloudAuthFlow.verificationUriComplete });
     return;
   }
 
@@ -2666,6 +2668,7 @@ async function startCloudSignInFlow(): Promise<void> {
 
   pendingCloudAuthFlow = {
     deviceCode: payload.deviceCode,
+    verificationUriComplete: payload.verificationUriComplete,
     expiresAt: payload.expiresAt,
     intervalSeconds: typeof payload.intervalSeconds === "number" ? payload.intervalSeconds : 5,
     startedAt: new Date().toISOString()
