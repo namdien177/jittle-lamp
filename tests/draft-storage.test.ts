@@ -73,9 +73,9 @@ describe("createDraftStorageCheckpoint", () => {
   test("trims oversized drafts below the requested budget", () => {
     const draft = buildLargeDraft();
 
-    const checkpoint = createDraftStorageCheckpoint(draft, 24 * 1024);
+    const checkpoint = createDraftStorageCheckpoint(draft, 1200);
 
-    expect(estimateSerializedBytes(checkpoint)).toBeLessThanOrEqual(24 * 1024);
+    expect(estimateSerializedBytes(checkpoint)).toBeLessThanOrEqual(1200);
     expect(checkpoint.events.length).toBeLessThan(draft.events.length);
   });
 
@@ -96,6 +96,82 @@ describe("createDraftStorageCheckpoint", () => {
         (event) => event.payload.kind === "lifecycle" && event.payload.phase === "recording"
       )
     ).toBeTrue();
+  });
+
+  test("redacts sensitive network details before persistent storage", () => {
+    let draft = createSessionDraft({
+      page: {
+        title: "Example",
+        url: "https://example.com"
+      },
+      now: new Date("2026-01-01T00:00:00.000Z")
+    });
+
+    draft = appendDraftEvent(
+      draft,
+      {
+        kind: "network",
+        method: "POST",
+        url: "https://example.com/api/login",
+        status: 200,
+        request: {
+          headers: [{ name: "authorization", value: "Bearer secret-token" }],
+          cookies: [
+            {
+              cookie: {
+                name: "session",
+                value: "secret-cookie"
+              },
+              blockedReasons: []
+            }
+          ],
+          body: {
+            disposition: "captured",
+            encoding: "utf8",
+            mimeType: "application/json",
+            value: "{\"password\":\"secret\"}",
+            byteLength: 21
+          }
+        },
+        response: {
+          headers: [{ name: "content-type", value: "application/json" }],
+          setCookieHeaders: ["session=secret-cookie; HttpOnly"],
+          setCookies: [
+            {
+              name: "session",
+              value: "secret-cookie",
+              raw: "session=secret-cookie; HttpOnly"
+            }
+          ],
+          body: {
+            disposition: "captured",
+            encoding: "utf8",
+            mimeType: "application/json",
+            value: "{\"ok\":true}",
+            byteLength: 11
+          }
+        }
+      },
+      new Date("2026-01-01T00:00:01.000Z")
+    );
+
+    const checkpoint = createDraftStorageCheckpoint(draft, 1024 * 1024);
+    const networkPayload = checkpoint.events.find((event) => event.payload.kind === "network")?.payload;
+
+    if (!networkPayload || networkPayload.kind !== "network") {
+      throw new Error("Expected a persisted network event.");
+    }
+
+    expect(networkPayload.method).toBe("POST");
+    expect(networkPayload.url).toBe("https://example.com/api/login");
+    expect(networkPayload.status).toBe(200);
+    expect(networkPayload.request.headers).toEqual([]);
+    expect(networkPayload.request.cookies).toEqual([]);
+    expect(networkPayload.request.body).toBeUndefined();
+    expect(networkPayload.response?.headers).toEqual([]);
+    expect(networkPayload.response?.setCookieHeaders).toEqual([]);
+    expect(networkPayload.response?.setCookies).toEqual([]);
+    expect(networkPayload.response?.body).toBeUndefined();
   });
 });
 

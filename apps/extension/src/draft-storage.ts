@@ -1,4 +1,4 @@
-import type { CaptureSessionDraft } from "@jittle-lamp/shared";
+import type { CaptureSessionDraft, SessionEvent } from "@jittle-lamp/shared";
 
 export const defaultDraftStorageBudgetBytes = 256 * 1024;
 
@@ -10,25 +10,27 @@ export function createDraftStorageCheckpoint(
   draft: CaptureSessionDraft,
   maxBytes: number = defaultDraftStorageBudgetBytes
 ): CaptureSessionDraft {
-  if (estimateSerializedBytes(draft) <= maxBytes) {
-    return draft;
+  const redactedDraft = redactDurableDraft(draft);
+
+  if (estimateSerializedBytes(redactedDraft) <= maxBytes) {
+    return redactedDraft;
   }
 
-  const selectedIndices = collectAnchorEventIndices(draft);
-  let bestCheckpoint = checkpointFromIndices(draft, selectedIndices);
+  const selectedIndices = collectAnchorEventIndices(redactedDraft);
+  let bestCheckpoint = checkpointFromIndices(redactedDraft, selectedIndices);
 
   if (estimateSerializedBytes(bestCheckpoint) > maxBytes) {
-    bestCheckpoint = reduceAnchorEventsToFit(draft, selectedIndices, maxBytes);
+    bestCheckpoint = reduceAnchorEventsToFit(redactedDraft, selectedIndices, maxBytes);
   } else {
     const growingSelection = new Set(selectedIndices);
 
-    for (let index = draft.events.length - 1; index >= 0; index -= 1) {
+    for (let index = redactedDraft.events.length - 1; index >= 0; index -= 1) {
       if (growingSelection.has(index)) {
         continue;
       }
 
       growingSelection.add(index);
-      const candidate = checkpointFromIndices(draft, Array.from(growingSelection));
+      const candidate = checkpointFromIndices(redactedDraft, Array.from(growingSelection));
 
       if (estimateSerializedBytes(candidate) <= maxBytes) {
         bestCheckpoint = candidate;
@@ -44,11 +46,52 @@ export function createDraftStorageCheckpoint(
     return bestCheckpoint;
   }
 
-  const latestEvent = draft.events.at(-1);
+  const latestEvent = redactedDraft.events.at(-1);
 
   return {
-    ...draft,
+    ...redactedDraft,
     events: latestEvent ? [latestEvent] : []
+  };
+}
+
+function redactDurableDraft(draft: CaptureSessionDraft): CaptureSessionDraft {
+  return {
+    ...draft,
+    events: draft.events.map(redactDurableEvent)
+  };
+}
+
+function redactDurableEvent(event: SessionEvent): SessionEvent {
+  if (event.payload.kind !== "network") {
+    return event;
+  }
+
+  return {
+    ...event,
+    payload: {
+      kind: "network",
+      method: event.payload.method,
+      url: event.payload.url,
+      ...(event.payload.subtype ? { subtype: event.payload.subtype } : {}),
+      ...(typeof event.payload.status === "number" ? { status: event.payload.status } : {}),
+      ...(event.payload.statusText ? { statusText: event.payload.statusText } : {}),
+      ...(typeof event.payload.durationMs === "number" ? { durationMs: event.payload.durationMs } : {}),
+      ...(event.payload.requestId ? { requestId: event.payload.requestId } : {}),
+      request: {
+        headers: [],
+        cookies: []
+      },
+      ...(event.payload.response
+        ? {
+            response: {
+              headers: [],
+              setCookieHeaders: [],
+              setCookies: []
+            }
+          }
+        : {}),
+      ...(event.payload.failureText ? { failureText: event.payload.failureText } : {})
+    }
   };
 }
 
