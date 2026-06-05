@@ -43,6 +43,7 @@ const browserDefines = {
     "REACT_APP_VERCEL_OBSERVABILITY_CLIENT_CONFIG",
     "VERCEL_OBSERVABILITY_CLIENT_CONFIG"
   ])),
+  "process.env.VERCEL": JSON.stringify(process.env.VERCEL ?? ""),
   "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV ?? "production")
 };
 

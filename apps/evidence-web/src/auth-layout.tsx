@@ -1,5 +1,6 @@
 import React from "react";
 import { UserButton } from "@clerk/clerk-react";
+import { Archive, Building2, Cloud } from "lucide-react";
 import { NavLink } from "react-router";
 
 import { useAccountProfile } from "./queries";
@@ -23,7 +24,7 @@ export function AuthSidebar(props: { evidenceCount?: number }): React.JSX.Elemen
           end
           className={({ isActive }) => `ed-side-link${isActive ? " is-active" : ""}`}
         >
-          <span className="ed-side-link-mark" aria-hidden="true" />
+          <Cloud className="ed-side-link-icon" aria-hidden="true" size={15} strokeWidth={2} />
           <span className="ed-side-link-label">Cloud evidences</span>
           {props.evidenceCount !== undefined ? (
             <span className="ed-side-link-count">{props.evidenceCount}</span>
@@ -33,14 +34,14 @@ export function AuthSidebar(props: { evidenceCount?: number }): React.JSX.Elemen
           to="/quick-view"
           className={({ isActive }) => `ed-side-link${isActive ? " is-active" : ""}`}
         >
-          <span className="ed-side-link-mark" aria-hidden="true" />
+          <Archive className="ed-side-link-icon" aria-hidden="true" size={15} strokeWidth={2} />
           <span className="ed-side-link-label">Quick view (ZIP)</span>
         </NavLink>
         <NavLink
           to="/organisations"
           className={({ isActive }) => `ed-side-link${isActive ? " is-active" : ""}`}
         >
-          <span className="ed-side-link-mark" aria-hidden="true" />
+          <Building2 className="ed-side-link-icon" aria-hidden="true" size={15} strokeWidth={2} />
           <span className="ed-side-link-label">Organisations</span>
         </NavLink>
       </nav>

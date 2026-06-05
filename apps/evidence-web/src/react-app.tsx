@@ -38,6 +38,7 @@ import { ToastProvider } from "./toast";
 import { useWebFileAdapter } from "./web-adapter";
 
 const queryClient = createQueryClient();
+const isVercelDeployment = process.env.VERCEL === "1";
 
 function StatusScreen(props: { title: string; detail?: string }): React.JSX.Element {
   return (
@@ -558,7 +559,7 @@ export function bootstrap(): void {
         <BrowserRouter>
           <EvidenceWebRoutes />
         </BrowserRouter>
-        <Analytics />
+        {isVercelDeployment ? <Analytics mode="production" /> : null}
       </ToastProvider>
     </QueryClientProvider>
   );

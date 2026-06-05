@@ -1349,6 +1349,9 @@ select {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .auth-main-header {
@@ -1675,7 +1678,7 @@ select {
 }
 
 .org-web-main {
-  min-height: 100vh;
+  min-height: 0;
 }
 
 .org-web-actions {
@@ -2076,17 +2079,75 @@ select {
 /* --- Public landing (HomePage / PublicHomePage) -------------------------- */
 
 .ed-page {
+  --ed-page-pad: clamp(18px, 4vw, 56px);
+  --ed-container-width: 1120px;
+
   position: relative;
+  isolation: isolate;
   min-height: 100vh;
-  padding: 24px clamp(20px, 4vw, 40px) 40px;
-  background: var(--bg);
+  overflow-x: hidden;
+  padding: 22px var(--ed-page-pad) 38px;
+  background:
+    linear-gradient(180deg, rgba(34, 197, 94, 0.08) 0%, rgba(10, 10, 10, 0) 38%),
+    var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.55;
   display: flex;
   flex-direction: column;
-  gap: clamp(40px, 6vw, 72px);
+  gap: clamp(34px, 6vw, 74px);
+}
+
+.ed-topbar,
+.ed-hero,
+.ed-proof,
+.ed-footer {
+  width: min(100%, var(--ed-container-width));
+  margin-inline: auto;
+}
+
+.ed-page::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(34, 197, 94, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 197, 94, 0.18) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: 0.09;
+  transform: translate3d(0, 0, 0) rotate(-8deg);
+  animation: ed-grid-drift 28s linear infinite;
+  will-change: transform;
+}
+
+.ed-page::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(10, 10, 10, 0.92) 0%, rgba(10, 10, 10, 0.4) 52%, rgba(10, 10, 10, 0.88) 100%),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 6px);
+}
+
+@keyframes ed-grid-drift {
+  from {
+    transform: translate3d(0, 0, 0) rotate(-8deg);
+  }
+
+  to {
+    transform: translate3d(-72px, 72px, 0) rotate(-8deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ed-page::before {
+    animation: none;
+  }
 }
 
 .ed-page * {
@@ -2099,28 +2160,27 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 2;
 }
 
 .ed-wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   color: var(--text);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 
-.ed-wordmark::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background: var(--accent);
-  border-radius: var(--radius-sm);
+.ed-wordmark-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  filter: invert(1) brightness(1.6) sepia(1) saturate(7) hue-rotate(74deg);
+  mix-blend-mode: screen;
 }
 
 .ed-topnav {
@@ -2133,40 +2193,44 @@ select {
   appearance: none;
   background: transparent;
   border: 0;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
+  padding: 6px 0;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
+  transition: color 120ms ease;
 }
 
 .ed-topnav-link:hover {
-  background: var(--surface-raised);
-  color: var(--text);
+  color: var(--accent);
 }
 
 .ed-topnav-link-action {
-  background: var(--accent);
-  color: #06120a;
-  border: 1px solid var(--accent);
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 5px;
 }
 
 .ed-topnav-link-action:hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
-  color: #06120a;
+  color: var(--accent);
 }
 
 /* Hero block */
 .ed-hero {
-  max-width: 920px;
+  min-height: min(560px, calc(100vh - 92px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 260px);
+  align-items: center;
+  gap: clamp(24px, 5vw, 72px);
+}
+
+.ed-hero-copy {
+  max-width: 720px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: 14px;
 }
 
 .ed-eyebrow {
@@ -2182,29 +2246,58 @@ select {
 .ed-headline {
   margin: 0;
   font-family: var(--font-sans);
-  font-weight: 700;
-  font-size: clamp(28px, 4.2vw, 44px);
-  line-height: 1.08;
-  letter-spacing: -0.02em;
+  font-weight: 800;
+  font-size: clamp(42px, 7.2vw, 88px);
+  line-height: 0.96;
+  letter-spacing: 0;
   color: var(--text);
+  text-wrap: balance;
 }
 
 .ed-headline br {
-  display: none;
-}
-
-@media (min-width: 760px) {
-  .ed-headline br {
-    display: inline;
-  }
+  display: inline;
 }
 
 .ed-lede {
   margin: 0;
-  max-width: 64ch;
-  font-size: 13.5px;
-  line-height: 1.65;
+  max-width: 46ch;
+  font-size: clamp(14px, 1.2vw, 17px);
+  line-height: 1.55;
   color: var(--text-muted);
+}
+
+.ed-hero-mark {
+  position: relative;
+  justify-self: center;
+  width: min(24vw, 240px);
+  min-width: 150px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.ed-hero-mark::before,
+.ed-hero-mark::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border-top: 1px solid rgba(34, 197, 94, 0.55);
+  border-bottom: 1px solid rgba(34, 197, 94, 0.18);
+  transform: rotate(-18deg);
+}
+
+.ed-hero-mark::after {
+  inset: 28%;
+  opacity: 0.45;
+  transform: rotate(18deg);
+}
+
+.ed-hero-mark img {
+  width: 72%;
+  height: 72%;
+  object-fit: cover;
+  filter: invert(1) brightness(1.55) sepia(1) saturate(7) hue-rotate(74deg) drop-shadow(0 0 28px rgba(34, 197, 94, 0.28));
+  mix-blend-mode: screen;
 }
 
 /* Hero action row — real buttons (matches desktop's .button language) */
@@ -2221,14 +2314,14 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 var(--space-4);
+  min-height: 42px;
+  padding: 0 18px;
   background: var(--accent);
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 800;
   color: #06120a;
   text-decoration: none;
   cursor: pointer;
@@ -2248,13 +2341,13 @@ select {
 }
 
 .ed-link-action-quiet {
-  background: var(--surface-raised);
-  border-color: var(--border-strong);
+  background: transparent;
+  border-color: rgba(34, 197, 94, 0.32);
   color: var(--text);
 }
 
 .ed-link-action-quiet:hover:not(:disabled) {
-  background: var(--surface-high);
+  background: rgba(34, 197, 94, 0.08);
   border-color: var(--accent);
   color: var(--text);
 }
@@ -2288,42 +2381,93 @@ select {
   transform: translateX(2px);
 }
 
-.ed-actions-sep {
-  display: none; /* desktop language uses gap instead of vertical rules */
-}
-
-/* Three numbered points — laid out as desktop-style cards */
-.ed-points {
+.ed-install {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-4);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: clamp(10px, 1.8vw, 18px);
+  margin-inline: calc(var(--ed-page-pad) * -1);
+  padding-block: 10px;
+  padding-inline: max(
+    var(--ed-page-pad),
+    calc((100vw - var(--ed-container-width)) / 2 + var(--ed-page-pad))
+  );
+  border-top: 1px solid rgba(34, 197, 94, 0.28);
+  border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+  background: rgba(10, 10, 10, 0.82);
+  backdrop-filter: blur(14px);
 }
 
-@media (min-width: 780px) {
-  .ed-points {
-    grid-template-columns: repeat(3, 1fr);
-  }
+.ed-install-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
-.ed-point {
+.ed-install code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(239, 239, 239, 0.78);
+}
+
+.ed-install-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #06120a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.ed-install-button:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+/* Three proof lines — minimal, no boxed cards */
+.ed-proof {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px 20px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  gap: clamp(18px, 4vw, 36px);
 }
 
-.ed-point:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+.ed-proof-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 0.82fr) minmax(180px, 0.6fr);
+  gap: clamp(14px, 3vw, 36px);
+  align-items: baseline;
+  padding-top: clamp(14px, 2.6vw, 22px);
+  border-top: 1px solid rgba(34, 197, 94, 0.22);
 }
 
 .ed-point-num {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--accent);
@@ -2332,26 +2476,26 @@ select {
 
 .ed-point-title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
+  font-size: clamp(19px, 2.4vw, 30px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: 0;
   color: var(--text);
 }
 
 .ed-point-body {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--text-muted);
-  max-width: 42ch;
+  max-width: 44ch;
 }
 
 /* Public landing footer */
 .ed-footer {
   margin-top: auto;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
+  padding-top: 22px;
+  border-top: 1px solid rgba(34, 197, 94, 0.16);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2374,12 +2518,115 @@ select {
   text-decoration: underline;
 }
 
+@media (max-width: 1040px) {
+  .ed-hero {
+    min-height: auto;
+    grid-template-columns: 1fr;
+    padding-top: clamp(28px, 8vw, 58px);
+  }
+
+  .ed-hero-mark {
+    justify-self: start;
+    width: min(180px, 42vw);
+    opacity: 0.78;
+  }
+
+  .ed-install {
+    grid-template-columns: 1fr auto;
+  }
+
+  .ed-install code {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .ed-proof-line {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .ed-point-body {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 620px) {
+  .ed-page {
+    --ed-page-pad: 18px;
+
+    gap: 34px;
+  }
+
+  .ed-topbar {
+    align-items: flex-start;
+  }
+
+  .ed-topnav {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+
+  .ed-wordmark {
+    font-size: 0;
+  }
+
+  .ed-wordmark-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .ed-headline {
+    font-size: clamp(40px, 13.5vw, 58px);
+    letter-spacing: 0;
+  }
+
+  .ed-lede {
+    font-size: 14px;
+  }
+
+  .ed-link-action {
+    min-height: 38px;
+    padding-inline: 14px;
+    justify-content: center;
+  }
+
+  .ed-install {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    margin-inline: calc(var(--ed-page-pad) * -1);
+    padding: 9px var(--ed-page-pad);
+    background: rgba(10, 10, 10, 0.9);
+    backdrop-filter: blur(12px);
+  }
+
+  .ed-install code {
+    grid-column: auto;
+    grid-row: auto;
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .ed-install-button {
+    min-width: 72px;
+  }
+
+  .ed-proof-line {
+    grid-template-columns: 1fr;
+  }
+
+  .ed-point-body {
+    grid-column: auto;
+  }
+}
+
 /* --- Authenticated shell: sidebar + main column -------------------------- */
 
 .ed-shell {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  min-height: 100vh;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
@@ -2388,10 +2635,19 @@ select {
 .ed-side {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   background: var(--bg-soft);
   border-right: 1px solid var(--border);
   padding: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ed-shell > .ed-app-main,
+.ed-shell > .auth-main {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .ed-side-brand {
@@ -2438,7 +2694,7 @@ select {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 10px;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
@@ -2458,25 +2714,18 @@ select {
   color: var(--accent);
 }
 
-/* Old dot indicator becomes a small accent square for the active item */
-.ed-side-link-mark {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: transparent;
-  border: 1px solid var(--text-faint);
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-  transition: background-color 120ms ease, border-color 120ms ease;
+.ed-side-link-icon {
+  color: var(--text-faint);
+  flex: 0 0 auto;
+  transition: color 120ms ease;
 }
 
-.ed-side-link:hover .ed-side-link-mark {
-  border-color: var(--text-muted);
+.ed-side-link:hover .ed-side-link-icon {
+  color: var(--text-muted);
 }
 
-.ed-side-link.is-active .ed-side-link-mark {
-  background: var(--accent);
-  border-color: var(--accent);
+.ed-side-link.is-active .ed-side-link-icon {
+  color: var(--accent);
 }
 
 .ed-side-link-label {
@@ -2537,8 +2786,10 @@ select {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .ed-app-header {
@@ -2996,6 +3247,7 @@ select {
 @media (max-width: 640px) {
   .ed-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .ed-side {

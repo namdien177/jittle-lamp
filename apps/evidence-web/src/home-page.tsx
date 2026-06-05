@@ -10,7 +10,7 @@ import {
   SignedOut,
   useAuth
 } from "@clerk/clerk-react";
-import { ChevronDown, MoreVertical } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, MoreVertical } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
 import { AuthenticatedWebLayout } from "./auth-layout";
@@ -20,6 +20,10 @@ import { useAccountProfile, useDeleteEvidence, useEvidences } from "./queries";
 import { ShareDialog } from "./share-dialog";
 import { useToast } from "./toast";
 import { formatRelativeTime } from "./utils";
+
+const companionInstallCommand =
+  "curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash";
+const companionInstallPreview = "curl ... | bash";
 
 export function HomePage(): React.JSX.Element {
   return (
@@ -51,11 +55,36 @@ export function HomePage(): React.JSX.Element {
 
 export function PublicHomePage(): React.JSX.Element {
   const navigate = useNavigate();
+  const [installCopied, setInstallCopied] = useState(false);
+
+  const copyInstallCommand = async (): Promise<void> => {
+    setInstallCopied(true);
+    window.setTimeout(() => setInstallCopied(false), 1800);
+
+    try {
+      await navigator.clipboard.writeText(companionInstallCommand);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = companionInstallCommand;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-1000px";
+      document.body.append(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+      } catch {
+        // Clipboard access can be denied in embedded or automated browsers.
+      }
+      textarea.remove();
+    }
+  };
 
   return (
     <main className="ed-page">
       <header className="ed-topbar">
         <Link to="/" className="ed-wordmark">
+          <img src="/logo.jpg" alt="" className="ed-wordmark-icon" aria-hidden="true" />
           Jittle Lamp
         </Link>
         <nav className="ed-topnav" aria-label="Primary">
@@ -76,58 +105,79 @@ export function PublicHomePage(): React.JSX.Element {
       </header>
 
       <section className="ed-hero" aria-label="Jittle Lamp evidence review">
-        <p className="ed-eyebrow">Session evidence review</p>
-        <h1 className="ed-headline">
-          See the whole session,
-          <br />
-          not just the screen.
-        </h1>
-        <p className="ed-lede">
-          Video, network, console, and timeline — one synced view. Open a local archive, or move
-          it to a workspace when you need to share.
-        </p>
-        <div className="ed-actions">
-          <button type="button" className="ed-link-action" onClick={() => navigate("/quick-view")}>
-            Open quick view
-            <span aria-hidden="true" className="ed-arrow">
-              →
-            </span>
-          </button>
-          <span className="ed-actions-sep" aria-hidden="true" />
-          <button
-            type="button"
-            className="ed-link-action ed-link-action-quiet"
-            onClick={() => navigate("/organisations")}
-          >
-            Go to workspace
-          </button>
+        <div className="ed-hero-copy">
+          <p className="ed-eyebrow">Evidence when bugs happen</p>
+          <h1 className="ed-headline">
+            Capture.
+            <br />
+            Replay.
+            <br />
+            Fix.
+          </h1>
+          <p className="ed-lede">
+            Browser video, timeline, console, and network logs bundled into one shareable trail.
+          </p>
+          <div className="ed-actions">
+            <button type="button" className="ed-link-action" onClick={() => navigate("/quick-view")}>
+              Quick view
+              <span aria-hidden="true" className="ed-arrow">
+                →
+              </span>
+            </button>
+            <span className="ed-actions-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className="ed-link-action ed-link-action-quiet"
+              onClick={() => navigate("/organisations")}
+            >
+              Workspace
+            </button>
+          </div>
+        </div>
+
+        <div className="ed-hero-mark" aria-hidden="true">
+          <img src="/logo.jpg" alt="" />
         </div>
       </section>
 
-      <section className="ed-points" aria-label="What Jittle Lamp does">
-        <article className="ed-point">
+      <section className="ed-install" aria-label="Install desktop companion">
+        <div className="ed-install-copy">
+          <Download aria-hidden="true" size={18} strokeWidth={2} />
+          <span>Install app</span>
+        </div>
+        <code title={companionInstallCommand}>{companionInstallPreview}</code>
+        <button type="button" className="ed-install-button" onClick={() => void copyInstallCommand()}>
+          {installCopied ? (
+            <Check aria-hidden="true" size={15} strokeWidth={2.3} />
+          ) : (
+            <Copy aria-hidden="true" size={15} strokeWidth={2.3} />
+          )}
+          {installCopied ? "Copied" : "Copy"}
+        </button>
+      </section>
+
+      <section className="ed-proof" aria-label="What Jittle Lamp does">
+        <div className="ed-proof-line">
           <span className="ed-point-num">01</span>
-          <h2 className="ed-point-title">One timeline.</h2>
+          <h2 className="ed-point-title">Everything stays synced.</h2>
           <p className="ed-point-body">
-            Playback stays in sync with network calls, console events, and pinned markers. Spot the
-            symptom, see the cause.
+            Video, logs, and requests read in order.
           </p>
-        </article>
-        <article className="ed-point">
+        </div>
+        <div className="ed-proof-line">
           <span className="ed-point-num">02</span>
-          <h2 className="ed-point-title">Open in seconds.</h2>
+          <h2 className="ed-point-title">ZIPs stay local.</h2>
           <p className="ed-point-body">
-            Drop a session ZIP into quick view and review it on your machine. No upload, no setup.
+            Review privately before you upload.
           </p>
-        </article>
-        <article className="ed-point">
+        </div>
+        <div className="ed-proof-line">
           <span className="ed-point-num">03</span>
-          <h2 className="ed-point-title">Share when ready.</h2>
+          <h2 className="ed-point-title">Handoffs stay clear.</h2>
           <p className="ed-point-body">
-            Move evidence into a workspace and hand teammates a stable link. Searchable and scoped
-            to your organisation.
+            Share a scoped link with the team.
           </p>
-        </article>
+        </div>
       </section>
 
       <footer className="ed-footer">
