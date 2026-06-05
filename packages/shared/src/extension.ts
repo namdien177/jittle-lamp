@@ -143,6 +143,7 @@ export const offscreenStopAndExportRequestSchema = z.object({
   type: z.literal("jl/offscreen-stop-and-export"),
   sessionId: sessionIdSchema,
   archive: sessionArchiveSchema,
+  cloudRequired: z.boolean().optional(),
   cloudAuthToken: z.string().min(1).optional()
 });
 

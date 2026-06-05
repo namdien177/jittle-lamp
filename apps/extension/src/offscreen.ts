@@ -117,7 +117,11 @@ async function handleRequest(
         request.cloudAuthToken
       );
 
-      if (!cloudUploadResult.saved && request.cloudAuthToken) {
+      if (request.cloudRequired && !request.cloudAuthToken) {
+        throw new Error("Cloud upload was required, but no extension auth token was available.");
+      }
+
+      if (!cloudUploadResult.saved && (request.cloudAuthToken || request.cloudRequired)) {
         throw new Error(cloudUploadResult.error);
       }
 

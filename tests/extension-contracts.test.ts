@@ -239,7 +239,9 @@ describe("extension contracts", () => {
     const request = offscreenRequestSchema.parse({
       type: "jl/offscreen-stop-and-export",
       sessionId: draft.sessionId,
-      archive: createSessionArchive(draft)
+      archive: createSessionArchive(draft),
+      cloudRequired: true,
+      cloudAuthToken: "extension-session-token"
     });
 
     if (!("archive" in request)) {
@@ -248,6 +250,7 @@ describe("extension contracts", () => {
 
     expect(request.archive.phase).toBe("ready");
     expect(request.archive.artifacts).toHaveLength(2);
+    expect(request.cloudRequired).toBe(true);
   });
 
   test("resolves companion artifact destinations inside the configured output directory", () => {

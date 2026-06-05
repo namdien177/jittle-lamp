@@ -132,10 +132,11 @@ describe("background recovery", () => {
 
     const stopMessage = chromeHarness.runtimeMessages.find((message) =>
       hasMessageType(message, "jl/offscreen-stop-and-export")
-    ) as { cloudAuthToken?: string } | undefined;
+    ) as { cloudAuthToken?: string; cloudRequired?: boolean } | undefined;
     const activeDraft = await backgroundTest.readDraft();
 
     expect(stopMessage?.cloudAuthToken).toBe(token);
+    expect(stopMessage?.cloudRequired).toBe(true);
     expect(activeDraft?.phase).toBe("ready");
     expect(lastLifecycleDetail(activeDraft)).toContain("Saved session directly to cloud");
   });
@@ -173,10 +174,55 @@ describe("background recovery", () => {
 
     const stopMessage = chromeHarness.runtimeMessages.find((message) =>
       hasMessageType(message, "jl/offscreen-stop-and-export")
-    ) as { cloudAuthToken?: string } | undefined;
+    ) as { cloudAuthToken?: string; cloudRequired?: boolean } | undefined;
 
     expect(stopMessage?.cloudAuthToken).toBe(token);
+    expect(stopMessage?.cloudRequired).toBe(true);
     expect(chromeHarness.getLocalValue("jittle-lamp.cloud-auth-extension-session")).toBeTruthy();
+  });
+
+  test("uses the validated extension auth cache when storage briefly disappears during stop export", async () => {
+    const token = createExtensionSessionToken();
+    await chrome.storage.local.set({
+      "jittle-lamp.cloud-auth-session": {
+        token,
+        origin: "https://jl-api.monthlyparty.com",
+        checkedAt: new Date().toISOString(),
+        expiresAt: Date.now() + 60 * 60 * 1000
+      },
+      "jittle-lamp.cloud-auth-extension-session": {
+        token,
+        origin: "https://jl-api.monthlyparty.com",
+        checkedAt: new Date().toISOString(),
+        expiresAt: Date.now() + 60 * 60 * 1000
+      }
+    });
+    chromeHarness.queueFetchResponse("https://jl-api.monthlyparty.com/protected/me", {
+      user: { email: "nam.do@littlelives.com" },
+      organizations: [{ id: "org_1", name: "LittleLives", isActive: true }]
+    });
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-get-state" });
+    await chrome.storage.local.remove([
+      "jittle-lamp.cloud-auth-session",
+      "jittle-lamp.cloud-auth-extension-session"
+    ]);
+    chromeHarness.setOffscreenStopResponse({
+      ok: true,
+      destination: "cloud",
+      recordingBytes: 128,
+      eventBytes: 64,
+      cloudUrl: "https://jittlelamp.dev/evidence/ev_cached"
+    });
+    await backgroundTest.saveDraft(createRecordingDraft());
+
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+
+    const stopMessage = chromeHarness.runtimeMessages.find((message) =>
+      hasMessageType(message, "jl/offscreen-stop-and-export")
+    ) as { cloudAuthToken?: string; cloudRequired?: boolean } | undefined;
+
+    expect(stopMessage?.cloudAuthToken).toBe(token);
+    expect(stopMessage?.cloudRequired).toBe(true);
   });
 
   test("marks pending recovery and schedules an alarm when debugger detaches during loading", async () => {

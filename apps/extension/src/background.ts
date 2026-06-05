@@ -64,6 +64,7 @@ let activeDraftEventCount = 0;
 let activeRecoveryState: PendingRecoveryState | null = null;
 let pendingRecoveryCheckScheduled = false;
 let pendingCloudAuthFlow: PendingCloudAuthFlow | null = null;
+let cloudAuthSessionCache: StoredCloudAuthSession | null = null;
 let companionStateCache: CompanionState | null = null;
 let companionStateCacheExpiresAt = 0;
 let companionStateProbePromise: Promise<CompanionState> | null = null;
@@ -553,12 +554,14 @@ async function stopRecordingSession(detail: string): Promise<void> {
     const cloudAuthSession = await resolveCloudUploadSession();
     authDebugLog("stop-cloud-auth", {
       hasToken: Boolean(cloudAuthSession?.token),
-      source: cloudAuthSession ? "extension-session" : "none"
+      source: cloudAuthSession ? "extension-session" : "none",
+      expiresInMs: cloudAuthSession ? cloudAuthSession.expiresAt - Date.now() : undefined
     });
     const offscreenResponse = await sendOffscreenMessage({
       type: "jl/offscreen-stop-and-export",
       sessionId: processingDraft.sessionId,
       archive: createSessionArchive(processingDraft),
+      cloudRequired: Boolean(cloudAuthSession?.token),
       ...(cloudAuthSession?.token ? { cloudAuthToken: cloudAuthSession.token } : {})
     });
 
@@ -2897,11 +2900,13 @@ async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | nu
 
   if (durable && (!primary || durable.expiresAt >= primary.expiresAt)) {
     authDebugLog("restore-session", { source: cloudAuthDurableStorageKey, expiresInMs: durable.expiresAt - Date.now() });
+    cloudAuthSessionCache = durable;
     return durable;
   }
 
   if (primary) {
     authDebugLog("restore-session", { source: cloudAuthStorageKey, expiresInMs: primary.expiresAt - Date.now() });
+    cloudAuthSessionCache = primary;
     return primary;
   }
 
@@ -2914,7 +2919,11 @@ async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | nu
       durableAccepted: Boolean(fallbackDurable),
       primaryAccepted: Boolean(fallbackPrimary)
     });
-    return fallbackDurable ?? fallbackPrimary;
+    const fallbackSession = fallbackDurable ?? fallbackPrimary;
+    if (fallbackSession) {
+      cloudAuthSessionCache = fallbackSession;
+    }
+    return fallbackSession;
   } catch {
     authDebugLog("read-stored-session-fallback-failed");
     return null;
@@ -2929,7 +2938,39 @@ async function resolveCloudUploadSession(): Promise<StoredCloudAuthSession | nul
   }
 
   await resumePendingCloudAuthFlow();
-  return await readStoredCloudAuthSession();
+  const resumedSession = await readStoredCloudAuthSession();
+
+  if (resumedSession) {
+    return resumedSession;
+  }
+
+  return readCachedCloudAuthSession("stop-export");
+}
+
+function readCachedCloudAuthSession(reason: string): StoredCloudAuthSession | null {
+  if (!cloudAuthSessionCache) {
+    authDebugLog("read-cached-session", { reason, accepted: false, cachePresent: false });
+    return null;
+  }
+
+  if (cloudAuthSessionCache.expiresAt <= Date.now() + 30_000) {
+    authDebugLog("read-cached-session", {
+      reason,
+      accepted: false,
+      cachePresent: true,
+      expiresInMs: cloudAuthSessionCache.expiresAt - Date.now()
+    });
+    cloudAuthSessionCache = null;
+    return null;
+  }
+
+  authDebugLog("read-cached-session", {
+    reason,
+    accepted: true,
+    expiresInMs: cloudAuthSessionCache.expiresAt - Date.now(),
+    hasAccountLabel: Boolean(cloudAuthSessionCache.accountLabel)
+  });
+  return cloudAuthSessionCache;
 }
 
 function parseStoredCloudAuthSession(rawValue: unknown, source = "unknown"): StoredCloudAuthSession | null {
@@ -3143,6 +3184,7 @@ async function saveCloudAuthSession(session: StoredCloudAuthSession): Promise<vo
 
   if (session.expiresAt <= Date.now() + 30_000) {
     authDebugLog("clear-expired-session", { expiresInMs: session.expiresAt - Date.now() });
+    cloudAuthSessionCache = null;
     await chrome.storage.local.remove([cloudAuthStorageKey, cloudAuthDurableStorageKey]);
     return;
   }
@@ -3156,6 +3198,7 @@ async function saveCloudAuthSession(session: StoredCloudAuthSession): Promise<vo
     expiresInMs: session.expiresAt - Date.now(),
     hasAccountLabel: Boolean(session.accountLabel)
   });
+  cloudAuthSessionCache = session;
 }
 
 function getJwtExpirationMs(token: string): number | undefined {
@@ -3407,6 +3450,8 @@ async function sendOffscreenMessage(
         type: "jl/offscreen-stop-and-export";
         sessionId: string;
         archive: ReturnType<typeof createSessionArchive>;
+        cloudRequired?: boolean;
+        cloudAuthToken?: string;
       }
 ) {
   const rawResponse = await chrome.runtime.sendMessage(message);
@@ -3439,6 +3484,7 @@ async function resetForTests(options?: { preserveStorage?: boolean }): Promise<v
   activeDraftCache = null;
   activeDraftEventCount = 0;
   pendingRecoveryCheckScheduled = false;
+  cloudAuthSessionCache = null;
 
   const recoveryTabId = activeRecoveryState?.tabId;
   activeRecoveryState = null;
