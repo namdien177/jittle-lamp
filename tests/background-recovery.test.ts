@@ -27,6 +27,10 @@ beforeAll(async () => {
       matchAll: async () => chromeHarness.getClientMatches()
     }
   });
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: chromeHarness.fetch
+  });
 
   const backgroundModule = await import("../apps/extension/src/background");
   backgroundTest = backgroundModule.__backgroundTest;
@@ -102,6 +106,77 @@ describe("background recovery", () => {
     expect(
       chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-stop-and-export"))
     ).toBeTrue();
+  });
+
+  test("passes the persisted extension auth token to offscreen exports", async () => {
+    const token = createExtensionSessionToken();
+    await chrome.storage.local.set({
+      "jittle-lamp.cloud-auth-extension-session": {
+        token,
+        origin: "https://jl-api.monthlyparty.com",
+        expiresAt: Date.now() + 60 * 60 * 1000,
+        checkedAt: new Date().toISOString(),
+        accountLabel: "nam.do@littlelives.com · LittleLives"
+      }
+    });
+    chromeHarness.setOffscreenStopResponse({
+      ok: true,
+      destination: "cloud",
+      recordingBytes: 128,
+      eventBytes: 64,
+      cloudUrl: "https://jittlelamp.dev/evidence/ev_123"
+    });
+    await backgroundTest.saveDraft(createRecordingDraft());
+
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+
+    const stopMessage = chromeHarness.runtimeMessages.find((message) =>
+      hasMessageType(message, "jl/offscreen-stop-and-export")
+    ) as { cloudAuthToken?: string } | undefined;
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(stopMessage?.cloudAuthToken).toBe(token);
+    expect(activeDraft?.phase).toBe("ready");
+    expect(lastLifecycleDetail(activeDraft)).toContain("Saved session directly to cloud");
+  });
+
+  test("polls a pending approved extension auth flow before stop export falls back to downloads", async () => {
+    const token = createExtensionSessionToken();
+    chromeHarness.queueFetchResponse("https://jl-api.monthlyparty.com/extension-auth/flows/device-stop", {
+      status: "approved",
+      accessToken: token,
+      expiresAt: Date.now() + 60 * 60 * 1000
+    });
+    chromeHarness.queueFetchResponse("https://jl-api.monthlyparty.com/protected/me", {
+      user: { email: "nam.do@littlelives.com" },
+      organizations: [{ id: "org_1", name: "LittleLives", isActive: true }]
+    });
+    await chrome.storage.local.set({
+      "jittle-lamp.cloud-auth-pending-flow": {
+        deviceCode: "device-stop",
+        verificationUriComplete: "https://jittlelamp.dev/extension-auth?user_code=STOP-1234",
+        expiresAt: Date.now() + 60 * 1000,
+        intervalSeconds: 5,
+        startedAt: new Date().toISOString()
+      }
+    });
+    chromeHarness.setOffscreenStopResponse({
+      ok: true,
+      destination: "cloud",
+      recordingBytes: 128,
+      eventBytes: 64,
+      cloudUrl: "https://jittlelamp.dev/evidence/ev_pending"
+    });
+    await backgroundTest.saveDraft(createRecordingDraft());
+
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+
+    const stopMessage = chromeHarness.runtimeMessages.find((message) =>
+      hasMessageType(message, "jl/offscreen-stop-and-export")
+    ) as { cloudAuthToken?: string } | undefined;
+
+    expect(stopMessage?.cloudAuthToken).toBe(token);
+    expect(chromeHarness.getLocalValue("jittle-lamp.cloud-auth-extension-session")).toBeTruthy();
   });
 
   test("marks pending recovery and schedules an alarm when debugger detaches during loading", async () => {
@@ -346,6 +421,27 @@ function hasMessageType(message: unknown, type: string): boolean {
   );
 }
 
+function createExtensionSessionToken(): string {
+  return [
+    base64UrlJson({ alg: "none", typ: "JWT" }),
+    base64UrlJson({
+      token_type: "extension_session",
+      scope: "extension",
+      sub: "user_test",
+      exp: Math.floor(Date.now() / 1000) + 60 * 60
+    }),
+    "signature"
+  ].join(".");
+}
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), "utf8")
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
 function freezeSystemTime(isoTimestamp: string): () => void {
   const fixedTimeMs = new Date(isoTimestamp).getTime();
   const realDate = Date;
@@ -395,6 +491,7 @@ function createChromeHarness() {
   const debuggerCommands: Array<{ tabId: number; method: string }> = [];
   const createdAlarms: string[] = [];
   const clearedAlarms: string[] = [];
+  const fetchResponses = new Map<string, unknown[]>();
 
   let offscreenPresent = false;
   let offscreenStartResponse: unknown = {
@@ -576,6 +673,21 @@ function createChromeHarness() {
 
   return {
     chrome,
+    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const queuedResponses = fetchResponses.get(url);
+      const payload = queuedResponses?.shift();
+
+      if (!queuedResponses?.length) {
+        fetchResponses.delete(url);
+      }
+
+      if (payload === undefined) {
+        return Response.json({ error: "not queued" }, { status: 404 });
+      }
+
+      return Response.json(payload);
+    },
     runtimeMessages,
     tabMessages,
     debuggerAttachTabs,
@@ -587,6 +699,9 @@ function createChromeHarness() {
       tabsById.set(tab.id, createTab(tab));
     },
     getSessionValue(key: string): unknown {
+      return localStorage.get(key);
+    },
+    getLocalValue(key: string): unknown {
       return localStorage.get(key);
     },
     getAlarmInfo(name: string): chrome.alarms.AlarmCreateInfo | undefined {
@@ -648,6 +763,11 @@ function createChromeHarness() {
     setOffscreenStopResponse(response: unknown): void {
       offscreenStopResponse = response;
     },
+    queueFetchResponse(url: string, response: unknown): void {
+      const queuedResponses = fetchResponses.get(url) ?? [];
+      queuedResponses.push(response);
+      fetchResponses.set(url, queuedResponses);
+    },
     getClientMatches(): Array<{ url: string }> {
       return offscreenPresent ? [{ url: chrome.runtime.getURL("offscreen.html") }] : [];
     },
@@ -659,6 +779,7 @@ function createChromeHarness() {
       debuggerCommands.length = 0;
       createdAlarms.length = 0;
       clearedAlarms.length = 0;
+      fetchResponses.clear();
       tabsById.clear();
       alarms.clear();
       offscreenPresent = false;

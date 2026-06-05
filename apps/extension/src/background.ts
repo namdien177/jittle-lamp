@@ -550,7 +550,11 @@ async function stopRecordingSession(detail: string): Promise<void> {
     await signalContentCaptureEnded(tabId, processingDraft.sessionId);
     await safeDetachDebugger(tabId);
 
-    const cloudAuthSession = await readStoredCloudAuthSession();
+    const cloudAuthSession = await resolveCloudUploadSession();
+    authDebugLog("stop-cloud-auth", {
+      hasToken: Boolean(cloudAuthSession?.token),
+      source: cloudAuthSession ? "extension-session" : "none"
+    });
     const offscreenResponse = await sendOffscreenMessage({
       type: "jl/offscreen-stop-and-export",
       sessionId: processingDraft.sessionId,
@@ -2915,6 +2919,17 @@ async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | nu
     authDebugLog("read-stored-session-fallback-failed");
     return null;
   }
+}
+
+async function resolveCloudUploadSession(): Promise<StoredCloudAuthSession | null> {
+  const storedSession = await readStoredCloudAuthSession();
+
+  if (storedSession) {
+    return storedSession;
+  }
+
+  await resumePendingCloudAuthFlow();
+  return await readStoredCloudAuthSession();
 }
 
 function parseStoredCloudAuthSession(rawValue: unknown, source = "unknown"): StoredCloudAuthSession | null {
