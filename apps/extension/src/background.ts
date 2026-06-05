@@ -33,6 +33,8 @@ const debuggerProtocolVersion = "1.3";
 const offscreenDocumentPath = "offscreen.html";
 const companionServerOrigin = "http://127.0.0.1:48115";
 const companionHealthTimeoutMs = 1_200;
+const companionOnlineRefreshMs = 3_000;
+const companionOfflineRefreshMs = 30_000;
 const cloudAuthProbeTimeoutMs = 1_800;
 const configuredCloudWebOrigin = (
   typeof __JITTLE_LAMP_WEB_ORIGIN__ === "string" ? __JITTLE_LAMP_WEB_ORIGIN__.trim() : ""
@@ -60,6 +62,9 @@ let activeDraftEventCount = 0;
 let activeRecoveryState: PendingRecoveryState | null = null;
 let pendingRecoveryCheckScheduled = false;
 let pendingCloudAuthFlow: PendingCloudAuthFlow | null = null;
+let companionStateCache: CompanionState | null = null;
+let companionStateCacheExpiresAt = 0;
+let companionStateProbePromise: Promise<CompanionState> | null = null;
 
 type PendingRecoveryState = {
   tabId: number;
@@ -2581,6 +2586,31 @@ function deriveSessionStatusText(activeSession: CaptureSessionDraft): string | u
 }
 
 async function readCompanionState(): Promise<CompanionState> {
+  const now = Date.now();
+
+  if (companionStateCache && companionStateCacheExpiresAt > now) {
+    return companionStateCache;
+  }
+
+  if (companionStateProbePromise) {
+    return companionStateProbePromise;
+  }
+
+  companionStateProbePromise = probeCompanionState().then((state) => {
+    companionStateCache = state;
+    companionStateCacheExpiresAt =
+      Date.now() + (state.status === "online" ? companionOnlineRefreshMs : companionOfflineRefreshMs);
+    return state;
+  });
+
+  try {
+    return await companionStateProbePromise;
+  } finally {
+    companionStateProbePromise = null;
+  }
+}
+
+async function probeCompanionState(): Promise<CompanionState> {
   const checkedAt = new Date().toISOString();
 
   try {
