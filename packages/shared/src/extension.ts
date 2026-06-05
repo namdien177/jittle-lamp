@@ -102,10 +102,16 @@ export const contentToggleWidgetMessageSchema = z.object({
   state: popupStateSchema.optional()
 });
 
+export const contentRefreshWidgetMessageSchema = z.object({
+  type: z.literal("jl/content-refresh-widget"),
+  state: popupStateSchema
+});
+
 export const backgroundToContentMessageSchema = z.discriminatedUnion("type", [
   contentBeginCaptureMessageSchema,
   contentEndCaptureMessageSchema,
-  contentToggleWidgetMessageSchema
+  contentToggleWidgetMessageSchema,
+  contentRefreshWidgetMessageSchema
 ]);
 
 export const contentReadyMessageSchema = z.object({

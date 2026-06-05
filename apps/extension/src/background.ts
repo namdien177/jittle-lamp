@@ -452,6 +452,7 @@ async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
       type: "jl/content-toggle-widget",
       state: response.state
     });
+    scheduleFloatingWidgetStateRefreshes(tab.id);
     await setActionFeedback(tab.id, "");
   } catch (error: unknown) {
     const message = errorMessage(error);
@@ -459,6 +460,24 @@ async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
     console.warn(`[jittle-lamp] Unable to toggle floating widget: ${message}`);
     await setActionFeedback(tabId, "ERR");
   }
+}
+
+function scheduleFloatingWidgetStateRefreshes(tabId: number): void {
+  for (const delayMs of [250, 1_200, 3_000]) {
+    globalThis.setTimeout(() => {
+      void refreshFloatingWidgetState(tabId).catch((error: unknown) => {
+        console.warn(`[jittle-lamp] Unable to refresh floating widget state: ${errorMessage(error)}`);
+      });
+    }, delayMs);
+  }
+}
+
+async function refreshFloatingWidgetState(tabId: number): Promise<void> {
+  const response = await buildPopupResponse(true);
+  await chrome.tabs.sendMessage(tabId, {
+    type: "jl/content-refresh-widget",
+    state: response.state
+  });
 }
 
 async function resolveRecordableTabForWidget(

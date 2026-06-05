@@ -7,6 +7,7 @@ import {
 } from "../apps/desktop/src/companion/config";
 
 import {
+  backgroundToContentMessageSchema,
   contentRuntimeMessageSchema,
   createSessionArchive,
   createSessionDraft,
@@ -220,6 +221,29 @@ describe("extension contracts", () => {
 
     expect(message.payload.request.body?.value).toContain("demo");
     expect(message.payload.response?.body?.value).toContain("true");
+  });
+
+  test("parses floating widget state refresh messages", () => {
+    const message = backgroundToContentMessageSchema.parse({
+      type: "jl/content-refresh-widget",
+      state: {
+        activeSession: null,
+        companion: {
+          status: "offline",
+          origin: "http://127.0.0.1:48115",
+          checkedAt: "2026-01-01T00:00:00.000Z"
+        },
+        cloud: {
+          status: "signed-in",
+          origin: "https://jl-api.monthlyparty.com",
+          checkedAt: "2026-01-01T00:00:00.000Z"
+        },
+        canStart: true,
+        canStop: false
+      }
+    });
+
+    expect(message.type).toBe("jl/content-refresh-widget");
   });
 
   test("parses offscreen export requests with full session archives", () => {

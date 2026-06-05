@@ -92,6 +92,10 @@ function bootContentBridge(): void {
       case "jl/content-toggle-widget":
         toggleFloatingWidget(parsed.data.state);
         return;
+
+      case "jl/content-refresh-widget":
+        floatingWidget?.show(parsed.data.state);
+        return;
     }
   });
 
