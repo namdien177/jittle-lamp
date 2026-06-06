@@ -448,6 +448,16 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							return createDbUnavailableError(requestId);
 						}
 
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:manage",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
+						}
+
 						if (!authContext.localUserId) {
 							set.status = 403;
 							return createApiError(

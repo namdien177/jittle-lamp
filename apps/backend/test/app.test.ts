@@ -2493,6 +2493,26 @@ describe("routes", () => {
 			}),
 		);
 		expect(uploadResponse.status).toBe(200);
+		const upload = (await uploadResponse.json()) as { evidenceId: string };
+
+		// Renaming evidence requires management scope, not just extension write scope.
+		const renameResponse = await app.handle(
+			new Request(`http://localhost/evidences/${upload.evidenceId}`, {
+				method: "PATCH",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${approved.accessToken}`,
+				},
+				body: JSON.stringify({ title: "Renamed by extension token" }),
+			}),
+		);
+		expect(renameResponse.status).toBe(403);
+		await expectApiError(renameResponse, {
+			code: "AUTH_INSUFFICIENT_SCOPE",
+			message:
+				"This session is not permitted to perform this action (requires 'evidence:manage')",
+			status: 403,
+		});
 	});
 
 	it("cleans up expired and revoked device auth state", async () => {
