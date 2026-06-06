@@ -162,10 +162,10 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* Tailwind preflight removes the legacy 13px root sizing; restore a
-     comfortable web base while the embedded viewer keeps its own density. */
+  /* Tailwind preflight removes the legacy 13px root sizing; restore the
+     browser-default web base while the embedded viewer keeps its own density. */
   :where(html) {
-    font-size: 15px;
+    font-size: 16px;
   }
 
   ::selection {
