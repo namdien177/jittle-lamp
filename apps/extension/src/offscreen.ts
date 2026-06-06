@@ -87,7 +87,7 @@ type VideoThumbnail = {
 const thumbnailMimeType = "image/jpeg";
 const thumbnailWidth = 240;
 const thumbnailHeight = 135;
-const thumbnailSeekSeconds = 2.5;
+const thumbnailCandidateSeconds = [2.5, 3, 4, 1, 0] as const;
 
 let activeRecorderState: ActiveRecorderState | null = null;
 let pendingCloudRetry: PendingCloudRetry | null = null;
@@ -432,28 +432,27 @@ async function createVideoThumbnail(recording: Blob): Promise<VideoThumbnail | n
       video.src = url;
     });
 
-    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : thumbnailSeekSeconds;
-    const targetTime = Math.max(0, Math.min(thumbnailSeekSeconds, Math.max(0, duration - 0.25)));
-    await seekVideoFrame(video, targetTime);
-
     const canvas = document.createElement("canvas");
     canvas.width = thumbnailWidth;
     canvas.height = thumbnailHeight;
     const context = canvas.getContext("2d");
     if (!context) return null;
 
-    const sourceWidth = video.videoWidth || thumbnailWidth;
-    const sourceHeight = video.videoHeight || thumbnailHeight;
-    const scale = Math.max(thumbnailWidth / sourceWidth, thumbnailHeight / sourceHeight);
-    const drawWidth = sourceWidth * scale;
-    const drawHeight = sourceHeight * scale;
-    context.drawImage(
-      video,
-      (thumbnailWidth - drawWidth) / 2,
-      (thumbnailHeight - drawHeight) / 2,
-      drawWidth,
-      drawHeight
-    );
+    const duration = mediaDuration(video);
+    let drewFrame = false;
+
+    for (const candidate of thumbnailCandidateSeconds) {
+      const targetTime = clampThumbnailTime(candidate, duration);
+      await seekVideoFrame(video, targetTime);
+      drawVideoThumbnailFrame(video, context);
+      drewFrame = true;
+
+      if (!isMostlyBlackFrame(context)) {
+        break;
+      }
+    }
+
+    if (!drewFrame) return null;
 
     const dataUrl = canvas.toDataURL(thumbnailMimeType, 0.72);
     return {
@@ -476,12 +475,11 @@ async function seekVideoFrame(video: HTMLVideoElement, targetTime: number): Prom
     const cleanup = (): void => {
       window.clearTimeout(timeout);
       video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("loadeddata", onSeeked);
       video.removeEventListener("error", onError);
     };
     const onSeeked = (): void => {
       cleanup();
-      resolve();
+      waitForDecodedVideoFrame(video).then(resolve, reject);
     };
     const onError = (): void => {
       cleanup();
@@ -489,10 +487,85 @@ async function seekVideoFrame(video: HTMLVideoElement, targetTime: number): Prom
     };
 
     video.addEventListener("seeked", onSeeked, { once: true });
-    video.addEventListener("loadeddata", onSeeked, { once: true });
     video.addEventListener("error", onError, { once: true });
+
+    if (Math.abs(video.currentTime - targetTime) < 0.05) {
+      onSeeked();
+      return;
+    }
+
     video.currentTime = targetTime;
   });
+}
+
+async function waitForDecodedVideoFrame(video: HTMLVideoElement): Promise<void> {
+  const requestVideoFrameCallback = video.requestVideoFrameCallback?.bind(video);
+
+  if (!requestVideoFrameCallback) {
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const timeout = window.setTimeout(resolve, 300);
+    requestVideoFrameCallback(() => {
+      window.clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+function mediaDuration(video: HTMLVideoElement): number {
+  if (Number.isFinite(video.duration) && video.duration > 0) {
+    return video.duration;
+  }
+
+  if (video.seekable.length > 0) {
+    const seekableEnd = video.seekable.end(video.seekable.length - 1);
+    if (Number.isFinite(seekableEnd) && seekableEnd > 0) {
+      return seekableEnd;
+    }
+  }
+
+  return 0;
+}
+
+function clampThumbnailTime(seconds: number, duration: number): number {
+  if (duration <= 0) {
+    return seconds;
+  }
+
+  return Math.max(0, Math.min(seconds, Math.max(0, duration - 0.25)));
+}
+
+function drawVideoThumbnailFrame(video: HTMLVideoElement, context: CanvasRenderingContext2D): void {
+  const sourceWidth = video.videoWidth || thumbnailWidth;
+  const sourceHeight = video.videoHeight || thumbnailHeight;
+  const scale = Math.max(thumbnailWidth / sourceWidth, thumbnailHeight / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(
+    video,
+    (thumbnailWidth - drawWidth) / 2,
+    (thumbnailHeight - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
+}
+
+function isMostlyBlackFrame(context: CanvasRenderingContext2D): boolean {
+  const sample = context.getImageData(0, 0, thumbnailWidth, thumbnailHeight).data;
+  let brightPixels = 0;
+  const pixelCount = sample.length / 4;
+
+  for (let index = 0; index < sample.length; index += 16) {
+    const brightness = sample[index]! + sample[index + 1]! + sample[index + 2]!;
+    if (brightness > 48) {
+      brightPixels += 1;
+    }
+  }
+
+  return brightPixels / Math.max(1, pixelCount / 4) < 0.015;
 }
 
 async function tryWriteArtifactsToCompanion(

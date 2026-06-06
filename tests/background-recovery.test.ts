@@ -108,6 +108,46 @@ describe("background recovery", () => {
     expect(chromeHarness.executeScriptCalls.some((call) => call.files?.includes("network-probe.js"))).toBeFalse();
   });
 
+  test("requests network capture permission before starting recording", async () => {
+    chromeHarness.setNetworkPermissionGranted(false);
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording"
+    });
+
+    expect(result.responded).toBeTrue();
+    expect(chromeHarness.permissionRequests).toContainEqual({
+      permissions: ["webRequest"],
+      origins: ["http://*/*", "https://*/*"]
+    });
+    expect(chromeHarness.debuggerAttachTabs).toContain(7);
+  });
+
+  test("does not start recording when network capture permission is denied", async () => {
+    chromeHarness.setNetworkPermissionGranted(false);
+    chromeHarness.setNextPermissionRequestResult(false);
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording"
+    });
+
+    expect(result.responded).toBeTrue();
+    expect(chromeHarness.debuggerAttachTabs).toEqual([]);
+    expect(chromeHarness.getAlarmInfo(backgroundTest.maxRecordingDurationAlarmName)).toBeUndefined();
+  });
+
   test("exports the partial session when the recording reaches five minutes", async () => {
     await backgroundTest.saveDraft(createRecordingDraft());
 
@@ -597,9 +637,12 @@ function createChromeHarness() {
   const executeScriptCalls: Array<{ tabId?: number; files?: string[]; hasFunc: boolean }> = [];
   const createdAlarms: string[] = [];
   const clearedAlarms: string[] = [];
+  const permissionRequests: chrome.permissions.Permissions[] = [];
   const fetchResponses = new Map<string, unknown[]>();
 
   let offscreenPresent = false;
+  let networkPermissionGranted = true;
+  let nextPermissionRequestResult = true;
   let offscreenStartResponse: unknown = {
     ok: true
   };
@@ -735,6 +778,20 @@ function createChromeHarness() {
         }
       }
     },
+    permissions: {
+      async contains(permissions: chrome.permissions.Permissions): Promise<boolean> {
+        return networkPermissionGranted && hasNetworkCapturePermission(permissions);
+      },
+      async request(permissions: chrome.permissions.Permissions): Promise<boolean> {
+        permissionRequests.push(permissions);
+        const granted = nextPermissionRequestResult;
+        nextPermissionRequestResult = true;
+        if (granted && hasNetworkCapturePermission(permissions)) {
+          networkPermissionGranted = true;
+        }
+        return granted;
+      }
+    },
     scripting: {
       async executeScript(input: {
         target?: { tabId?: number };
@@ -812,8 +869,15 @@ function createChromeHarness() {
     executeScriptCalls,
     createdAlarms,
     clearedAlarms,
+    permissionRequests,
     setTab(tab: StubTab): void {
       tabsById.set(tab.id, createTab(tab));
+    },
+    setNetworkPermissionGranted(granted: boolean): void {
+      networkPermissionGranted = granted;
+    },
+    setNextPermissionRequestResult(granted: boolean): void {
+      nextPermissionRequestResult = granted;
     },
     getSessionValue(key: string): unknown {
       return localStorage.get(key);
@@ -897,10 +961,13 @@ function createChromeHarness() {
       executeScriptCalls.length = 0;
       createdAlarms.length = 0;
       clearedAlarms.length = 0;
+      permissionRequests.length = 0;
       fetchResponses.clear();
       tabsById.clear();
       alarms.clear();
       offscreenPresent = false;
+      networkPermissionGranted = true;
+      nextPermissionRequestResult = true;
       offscreenStartResponse = {
         ok: true
       };
@@ -954,6 +1021,14 @@ function createStorageArea(storage: Map<string, unknown>): chrome.storage.Storag
       storage.clear();
     }
   } as chrome.storage.StorageArea;
+}
+
+function hasNetworkCapturePermission(permissions: chrome.permissions.Permissions): boolean {
+  return Boolean(
+    permissions.permissions?.includes("webRequest") &&
+      permissions.origins?.includes("http://*/*") &&
+      permissions.origins?.includes("https://*/*")
+  );
 }
 
 function createTab(tab: StubTab): chrome.tabs.Tab {

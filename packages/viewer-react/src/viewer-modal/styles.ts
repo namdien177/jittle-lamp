@@ -418,8 +418,11 @@ export const viewerModalStyles = `
 }
 
 .jl-vm-tab[data-active="true"] {
-  background: rgba(47, 129, 247, 0.18);
-  color: var(--accent, #2f81f7);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f7fb;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .jl-vm-search {
@@ -457,9 +460,10 @@ export const viewerModalStyles = `
 }
 
 .jl-vm-chip[data-active="true"] {
-  border-color: var(--accent, #2f81f7);
-  color: var(--accent, #2f81f7);
-  background: rgba(47, 129, 247, 0.12);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f5f7fb;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .jl-vm-list-wrap {

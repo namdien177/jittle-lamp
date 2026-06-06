@@ -354,10 +354,11 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
   const syncVideoState = (): void => {
     const videoEl = props.videoRef.current;
     if (!videoEl) return;
+    const nextDuration = mediaDuration(videoEl);
     setPaused(videoEl.paused);
     setMuted(videoEl.muted || videoEl.volume === 0);
     setCurrentTime(videoEl.currentTime || 0);
-    setDuration(Number.isFinite(videoEl.duration) ? videoEl.duration : 0);
+    setDuration(nextDuration);
   };
 
   const togglePlayback = (): void => {
@@ -458,6 +459,7 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
           value={durationValue > 0 ? Math.min(currentTime, durationValue) : 0}
           aria-label="Evidence video timeline"
           style={{ "--jl-vm-video-progress": `${progress}%` } as React.CSSProperties}
+          onInput={(event) => seekTo(event.currentTarget.value)}
           onChange={(event) => seekTo(event.currentTarget.value)}
         />
         <span className="jl-vm-video-time">{durationValue > 0 ? formatClockTime(durationValue) : "0:00"}</span>
@@ -470,6 +472,21 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+function mediaDuration(video: HTMLVideoElement): number {
+  if (Number.isFinite(video.duration) && video.duration > 0) {
+    return video.duration;
+  }
+
+  if (video.seekable.length > 0) {
+    const seekableEnd = video.seekable.end(video.seekable.length - 1);
+    if (Number.isFinite(seekableEnd) && seekableEnd > 0) {
+      return seekableEnd;
+    }
+  }
+
+  return 0;
 }
 
 function formatClockTime(totalSeconds: number): string {

@@ -417,6 +417,7 @@ async function startRecordingSession(): Promise<void> {
   await saveDraft(draft);
 
   try {
+    await ensureNetworkCapturePermission();
     registerWebRequestFallbackListeners();
     await ensureOffscreenDocument();
     await ensureRecordableTab(tab.id, "before content bridge");
@@ -459,6 +460,25 @@ async function startRecordingSession(): Promise<void> {
     await closeOffscreenDocumentIfPresent();
 
     throw error;
+  }
+}
+
+async function ensureNetworkCapturePermission(): Promise<void> {
+  const requiredPermissions: chrome.permissions.Permissions = {
+    permissions: ["webRequest"],
+    origins: ["http://*/*", "https://*/*"]
+  };
+
+  const hasPermission = await chrome.permissions.contains(requiredPermissions);
+
+  if (hasPermission) {
+    return;
+  }
+
+  const granted = await chrome.permissions.request(requiredPermissions);
+
+  if (!granted) {
+    throw new Error("Grant recording access to capture network evidence.");
   }
 }
 
