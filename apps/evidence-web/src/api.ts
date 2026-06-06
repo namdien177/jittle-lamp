@@ -203,6 +203,13 @@ export const api = {
       { method: "DELETE" }
     ),
 
+  renameEvidence: (getToken: FetchToken, evidenceId: string, title: string) =>
+    authedFetch<{ evidence: { id: string; orgId: string; title: string; updatedAt: number } }>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}`,
+      { method: "PATCH", body: JSON.stringify({ title }) }
+    ),
+
   listEvidenceArtifacts: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
     authedFetch<{ artifacts: EvidenceArtifact[] }>(
       getToken,

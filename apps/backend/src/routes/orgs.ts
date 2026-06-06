@@ -5,7 +5,10 @@ import {
 	createApiError,
 	createDbUnavailableError,
 } from "../http/api-error";
-import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
+import {
+	type ClerkAuthPlugin,
+	requireSessionScope,
+} from "../plugins/clerk-auth";
 import { selectActiveOrganizationForClerkUser } from "../services/active-organization";
 import {
 	fallbackClerkUserProfile,
@@ -144,6 +147,13 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 		.use(auth)
 		.guard({ auth: true }, (app) =>
 			app
+				.onBeforeHandle(
+					({ authContext, requestId, set }) =>
+						// Organization management is not a device-token capability; only
+						// human (Clerk) sessions and the desktop companion hold org scopes.
+						requireSessionScope(authContext, "org:read", requestId, set) ??
+						undefined,
+				)
 				.get(
 					"/orgs",
 					async ({ authContext, db, requestId, set }) => {

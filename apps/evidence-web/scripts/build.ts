@@ -92,12 +92,22 @@ const indexHtml = previewOrigin
   ? indexHtmlSource.replaceAll("/img-prev.png", `${previewOrigin}/img-prev.png`)
   : indexHtmlSource;
 
+// Compile Tailwind (v4). The entry imports the legacy viewer stylesheet, so the
+// emitted dist/index.css contains both the generated utilities and the styles
+// the embedded viewer depends on.
+const cssInput = new URL("../src/index.css", import.meta.url).pathname;
+const cssOutput = new URL("index.css", distRoot).pathname;
+const tailwind = Bun.spawnSync(
+  ["bunx", "@tailwindcss/cli", "--input", cssInput, "--output", cssOutput, "--minify"],
+  { cwd: new URL("../", import.meta.url).pathname, stdout: "inherit", stderr: "inherit" }
+);
+if (tailwind.exitCode !== 0) {
+  console.error("Tailwind CSS build failed.");
+  process.exit(1);
+}
+
 await Promise.all([
   Bun.write(new URL("index.html", distRoot), indexHtml),
-  Bun.write(
-    new URL("index.css", distRoot),
-    Bun.file(new URL("../src/index.css", import.meta.url))
-  ),
   Bun.write(
     new URL("img-prev.png", distRoot),
     Bun.file(new URL("../assets/img-prev.png", import.meta.url))

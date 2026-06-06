@@ -38,7 +38,10 @@ export type RuntimeConfig = {
 	clerkAudience: string | undefined;
 	clerkAuthorizedParties: string[] | undefined;
 	webAppOrigin: string | undefined;
+	apiOrigin: string | undefined;
 };
+
+const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, "");
 
 const parseAuthorizedParties = (
 	authorizedParties: string | undefined,
@@ -118,5 +121,8 @@ export const buildRuntimeConfig = (env: AppEnv): RuntimeConfig => {
 			env.CLERK_AUTHORIZED_PARTIES,
 		),
 		webAppOrigin: env.WEB_APP_ORIGIN,
+		apiOrigin: env.JITTLE_LAMP_API_ORIGIN
+			? normalizeOrigin(env.JITTLE_LAMP_API_ORIGIN)
+			: undefined,
 	};
 };

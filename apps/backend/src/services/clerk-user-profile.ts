@@ -1,5 +1,22 @@
 import { createClerkClient } from "@clerk/backend";
 
+type ClerkClient = ReturnType<typeof createClerkClient>;
+
+// Clerk clients are stateless and reusable; cache one per secret key so we do
+// not allocate a fresh client (and its internal fetchers) on every call.
+const clerkClientBySecretKey = new Map<string, ClerkClient>();
+
+const getClerkClient = (secretKey: string): ClerkClient => {
+	const existing = clerkClientBySecretKey.get(secretKey);
+	if (existing) {
+		return existing;
+	}
+
+	const client = createClerkClient({ secretKey });
+	clerkClientBySecretKey.set(secretKey, client);
+	return client;
+};
+
 export type ClerkUserProfile = {
 	id: string;
 	firstName: string | null;
@@ -60,7 +77,7 @@ export const resolveClerkUserProfile = async (
 		return fallbackClerkUserProfile(clerkUserId);
 	}
 
-	const clerkClient = createClerkClient({ secretKey: runtime.clerkSecretKey });
+	const clerkClient = getClerkClient(runtime.clerkSecretKey);
 	const user = await clerkClient.users.getUser(clerkUserId);
 	const primaryEmail =
 		user.emailAddresses.find((email) => email.id === user.primaryEmailAddressId)

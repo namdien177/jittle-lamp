@@ -69,7 +69,7 @@ export const createApp = (
 		.use(createOrganizationRoutes(auth))
 		.use(createProtectedRoutes(auth));
 
-	return { app, runtime, logger, db };
+	return { app, runtime, logger, db, artifactStorage };
 };
 
 export type App = ReturnType<typeof createApp>["app"];

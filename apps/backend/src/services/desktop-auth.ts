@@ -1,11 +1,12 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { jwtVerify, SignJWT } from "jose";
 
 import type { RuntimeConfig } from "../config/runtime";
 import {
 	createDesktopAuthFlowInputSchema,
 	desktopAuthFlows,
+	deviceSessions,
 } from "../db/schema";
 import type { BackendDb } from "./user-provisioning";
 
@@ -18,6 +19,25 @@ export const desktopAuthTokenTtlSeconds = 8 * 60 * 60;
 export const extensionAuthTokenTtlSeconds = 30 * 24 * 60 * 60;
 
 export type DeviceAuthClient = "desktop" | "extension";
+
+/**
+ * Capabilities granted to each device client. Clerk (human) sessions are
+ * treated as fully privileged elsewhere; device tokens only carry the scopes
+ * their client legitimately needs so a leaked long-lived token cannot perform
+ * sensitive organization or destructive operations.
+ */
+export const deviceScopesByClient: Record<DeviceAuthClient, string[]> = {
+	desktop: [
+		"evidence:read",
+		"evidence:write",
+		"evidence:manage",
+		"share:read",
+		"share:write",
+		"org:read",
+		"org:manage",
+	],
+	extension: ["evidence:read", "evidence:write"],
+};
 
 const userCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -86,6 +106,14 @@ const getTokenKey = (runtime: RuntimeConfig) => {
 	return new TextEncoder().encode(runtime.secret);
 };
 
+const tokenTtlSecondsForClient = (client: DeviceAuthClient) =>
+	client === "extension"
+		? extensionAuthTokenTtlSeconds
+		: desktopAuthTokenTtlSeconds;
+
+const audienceForClient = (client: DeviceAuthClient) =>
+	client === "extension" ? extensionAuthAudience : desktopAuthAudience;
+
 const getWebAppOrigin = (runtime: RuntimeConfig) =>
 	(runtime.webAppOrigin ?? "http://127.0.0.1:4173").replace(/\/+$/, "");
 
@@ -104,48 +132,65 @@ const buildVerificationUris = (
 	};
 };
 
-export const createDeviceAuthSessionToken = async (
+/**
+ * Persists a revocable device session and mints a JWT whose `jti` references
+ * that session row. Verification re-checks the row, so sessions can be expired
+ * or revoked server-side rather than living until the JWT's own expiry.
+ */
+const issueDeviceSessionToken = async (
+	db: BackendDb,
 	runtime: RuntimeConfig,
 	input: {
 		clerkUserId: string;
-		sessionId: string;
 		client: DeviceAuthClient;
+		flowId: string;
 	},
-) =>
-	new SignJWT({
+): Promise<{
+	accessToken: string;
+	expiresAt: number;
+	expiresInSeconds: number;
+}> => {
+	const ttlSeconds = tokenTtlSecondsForClient(input.client);
+	const now = Date.now();
+	const expiresAt = now + ttlSeconds * 1000;
+	const scope = deviceScopesByClient[input.client].join(" ");
+
+	const [session] = await db
+		.insert(deviceSessions)
+		.values({
+			clerkUserId: input.clerkUserId,
+			client: input.client,
+			flowId: input.flowId,
+			scope,
+			expiresAt,
+			updatedAt: now,
+		})
+		.returning({ id: deviceSessions.id });
+
+	if (!session) {
+		throw new Error("Failed to persist device session");
+	}
+
+	const accessToken = await new SignJWT({
 		token_type: `${input.client}_session`,
-		scope: input.client,
+		scope,
 	})
 		.setProtectedHeader({ alg: "HS256", typ: "JWT" })
 		.setIssuer(desktopAuthIssuer)
-		.setAudience(
-			input.client === "extension"
-				? extensionAuthAudience
-				: desktopAuthAudience,
-		)
+		.setAudience(audienceForClient(input.client))
 		.setSubject(input.clerkUserId)
-		.setJti(input.sessionId)
+		.setJti(session.id)
 		.setIssuedAt()
-		.setExpirationTime(
-			`${input.client === "extension" ? extensionAuthTokenTtlSeconds : desktopAuthTokenTtlSeconds}s`,
-		)
+		.setExpirationTime(`${ttlSeconds}s`)
 		.sign(getTokenKey(runtime));
 
-export const createDesktopAuthSessionToken = async (
-	runtime: RuntimeConfig,
-	input: {
-		clerkUserId: string;
-		sessionId: string;
-	},
-) =>
-	createDeviceAuthSessionToken(runtime, {
-		...input,
-		client: "desktop",
-	});
+	return { accessToken, expiresAt, expiresInSeconds: ttlSeconds };
+};
 
 export const verifyDesktopAuthSessionToken = async (
 	runtime: RuntimeConfig,
 	token: string,
+	db: BackendDb | null,
 ): Promise<DesktopAuthSessionClaims | null> => {
 	if (!runtime.secret) {
 		return null;
@@ -172,6 +217,41 @@ export const verifyDesktopAuthSessionToken = async (
 		return null;
 	}
 
+	// When a database is available the session must still exist, belong to the
+	// same user/client, and not be revoked or expired. This is what makes
+	// device tokens revocable instead of valid until their JWT expiry.
+	if (db) {
+		const now = Date.now();
+		const session = await db.query.deviceSessions.findFirst({
+			where: eq(deviceSessions.id, sessionId),
+			columns: {
+				id: true,
+				clerkUserId: true,
+				client: true,
+				scope: true,
+				expiresAt: true,
+				revokedAt: true,
+			},
+		});
+
+		if (
+			!session ||
+			session.revokedAt !== null ||
+			session.expiresAt <= now ||
+			session.clerkUserId !== clerkUserId ||
+			session.client !== client
+		) {
+			return null;
+		}
+
+		return {
+			clerkUserId,
+			sessionId,
+			client,
+			scope: session.scope,
+		};
+	}
+
 	return {
 		clerkUserId,
 		sessionId,
@@ -179,6 +259,45 @@ export const verifyDesktopAuthSessionToken = async (
 		scope:
 			typeof verified.payload.scope === "string" ? verified.payload.scope : "",
 	};
+};
+
+/**
+ * Removes device sessions that can no longer authenticate (expired or revoked)
+ * and desktop auth flows past their short TTL, so neither table grows
+ * unbounded. Verification already rejects these rows; this only reclaims space.
+ */
+export const cleanupExpiredDeviceAuthState = async (
+	db: BackendDb,
+	now = Date.now(),
+): Promise<number> => {
+	const removedSessions = await db
+		.delete(deviceSessions)
+		.where(
+			or(
+				lt(deviceSessions.expiresAt, now),
+				isNotNull(deviceSessions.revokedAt),
+			),
+		)
+		.returning({ id: deviceSessions.id });
+
+	await db.delete(desktopAuthFlows).where(lt(desktopAuthFlows.expiresAt, now));
+
+	return removedSessions.length;
+};
+
+export const revokeDeviceSession = async (
+	db: BackendDb,
+	sessionId: string,
+): Promise<boolean> => {
+	const now = Date.now();
+	const [updated] = await db
+		.update(deviceSessions)
+		.set({ revokedAt: now, updatedAt: now })
+		.where(
+			and(eq(deviceSessions.id, sessionId), isNull(deviceSessions.revokedAt)),
+		)
+		.returning({ id: deviceSessions.id });
+	return Boolean(updated);
 };
 
 export const startDesktopAuthFlow = async (
@@ -193,12 +312,14 @@ export const startDesktopAuthFlow = async (
 	const parsed = createDesktopAuthFlowInputSchema.parse({
 		deviceCodeHash: hashSecret(runtime, deviceCode),
 		userCodeHash: hashSecret(runtime, normalizeUserCode(userCode)),
+		client,
 		expiresAt,
 	});
 
 	await db.insert(desktopAuthFlows).values({
 		deviceCodeHash: parsed.deviceCodeHash,
 		userCodeHash: parsed.userCodeHash,
+		client: parsed.client,
 		expiresAt: parsed.expiresAt,
 	});
 
@@ -269,7 +390,6 @@ export const pollDesktopAuthFlow = async (
 	db: BackendDb,
 	runtime: RuntimeConfig,
 	deviceCode: string,
-	client: DeviceAuthClient = "desktop",
 ): Promise<PolledDesktopAuthFlow> => {
 	const deviceCodeHash = hashSecret(runtime, deviceCode);
 	const flow = await db.query.desktopAuthFlows.findFirst({
@@ -277,8 +397,10 @@ export const pollDesktopAuthFlow = async (
 		columns: {
 			id: true,
 			status: true,
+			client: true,
 			clerkUserId: true,
 			expiresAt: true,
+			completedAt: true,
 		},
 	});
 
@@ -306,6 +428,17 @@ export const pollDesktopAuthFlow = async (
 		};
 	}
 
+	// The approved flow is single-use: once a token has been minted the device
+	// code can no longer be exchanged, preventing minting multiple long-lived
+	// tokens from one approval.
+	if (flow.completedAt !== null) {
+		return {
+			status: "expired",
+			expiresAt: flow.expiresAt,
+			intervalSeconds: desktopAuthPollIntervalSeconds,
+		};
+	}
+
 	if (flow.status !== "approved" || !flow.clerkUserId) {
 		return {
 			status: flow.status === "denied" ? "denied" : "pending",
@@ -314,29 +447,38 @@ export const pollDesktopAuthFlow = async (
 		};
 	}
 
-	await db
+	// Consume the flow before issuing so a concurrent poll cannot also mint.
+	const [consumed] = await db
 		.update(desktopAuthFlows)
 		.set({ completedAt: now, updatedAt: now })
-		.where(eq(desktopAuthFlows.id, flow.id));
+		.where(
+			and(
+				eq(desktopAuthFlows.id, flow.id),
+				isNull(desktopAuthFlows.completedAt),
+			),
+		)
+		.returning({ id: desktopAuthFlows.id });
+
+	if (!consumed) {
+		return {
+			status: "expired",
+			expiresAt: flow.expiresAt,
+			intervalSeconds: desktopAuthPollIntervalSeconds,
+		};
+	}
+
+	const token = await issueDeviceSessionToken(db, runtime, {
+		clerkUserId: flow.clerkUserId,
+		client: flow.client,
+		flowId: flow.id,
+	});
 
 	return {
 		status: "approved",
 		tokenType: "Bearer",
-		accessToken: await createDeviceAuthSessionToken(runtime, {
-			clerkUserId: flow.clerkUserId,
-			sessionId: flow.id,
-			client,
-		}),
-		expiresAt:
-			now +
-			(client === "extension"
-				? extensionAuthTokenTtlSeconds
-				: desktopAuthTokenTtlSeconds) *
-				1000,
-		expiresInSeconds:
-			client === "extension"
-				? extensionAuthTokenTtlSeconds
-				: desktopAuthTokenTtlSeconds,
+		accessToken: token.accessToken,
+		expiresAt: token.expiresAt,
+		expiresInSeconds: token.expiresInSeconds,
 		clerkUserId: flow.clerkUserId,
 	};
 };

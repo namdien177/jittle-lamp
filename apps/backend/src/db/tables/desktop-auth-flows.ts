@@ -19,6 +19,9 @@ export const desktopAuthFlowStatusSchema = z.enum([
 ]);
 export type DesktopAuthFlowStatus = z.infer<typeof desktopAuthFlowStatusSchema>;
 
+export const deviceAuthClientSchema = z.enum(["desktop", "extension"]);
+export type DeviceAuthClient = z.infer<typeof deviceAuthClientSchema>;
+
 export const desktopAuthFlows = sqliteTable(
 	"desktop_auth_flows",
 	{
@@ -31,6 +34,10 @@ export const desktopAuthFlows = sqliteTable(
 			.$type<DesktopAuthFlowStatus>()
 			.notNull()
 			.default("pending"),
+		client: text("client")
+			.$type<DeviceAuthClient>()
+			.notNull()
+			.default("desktop"),
 		clerkUserId: text("clerk_user_id"),
 		expiresAt: integer("expires_at").notNull(),
 		approvedAt: integer("approved_at"),
@@ -55,11 +62,16 @@ export const desktopAuthFlows = sqliteTable(
 			"desktop_auth_flows_status_check",
 			sql`${table.status} in ('pending', 'approved', 'denied', 'expired')`,
 		),
+		check(
+			"desktop_auth_flows_client_check",
+			sql`${table.client} in ('desktop', 'extension')`,
+		),
 	],
 );
 
 export const createDesktopAuthFlowInputSchema = z.object({
 	deviceCodeHash: z.string().min(32),
 	userCodeHash: z.string().min(32),
+	client: deviceAuthClientSchema.default("desktop"),
 	expiresAt: z.number().int(),
 });

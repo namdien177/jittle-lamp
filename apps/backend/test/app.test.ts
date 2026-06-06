@@ -8,6 +8,8 @@ import { createApp } from "../src/app";
 import { parseEnv } from "../src/config/env";
 import { createDb } from "../src/db";
 import {
+	desktopAuthFlows,
+	deviceSessions,
 	evidenceArtifacts,
 	evidences,
 	organizationMembers,
@@ -16,6 +18,10 @@ import {
 	shareLinks,
 	users,
 } from "../src/db/schema";
+import {
+	cleanupExpiredDeviceAuthState,
+	revokeDeviceSession,
+} from "../src/services/desktop-auth";
 import {
 	acceptInvitationByToken,
 	createOrganizationInvitationCode,
@@ -818,6 +824,7 @@ describe("routes", () => {
 			APP_SECRET: TEST_APP_SECRET,
 			CLERK_JWT_KEY: jwtKey,
 			CLERK_AUDIENCE: "test-audience",
+			JITTLE_LAMP_API_ORIGIN: "https://jl-api.monthlyparty.com",
 		});
 
 		const startResponse = await app.handle(
@@ -893,6 +900,40 @@ describe("routes", () => {
 				"https://jl-api.monthlyparty.com/evidences/uploads/",
 			);
 		}
+
+		// An untrusted forwarded host must not be reflected into the upload URL;
+		// it falls back to the configured API origin instead.
+		const injectionResponse = await app.handle(
+			new Request("http://internal-service/evidences/uploads/start", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${token}`,
+					"x-forwarded-proto": "https",
+					"x-forwarded-host": "attacker.example.com",
+				},
+				body: JSON.stringify({
+					title: "Injection attempt upload draft",
+					sourceType: "browser",
+					artifact: {
+						kind: "recording",
+						mimeType: "video/webm",
+						bytes: 11,
+						checksum: `sha256:${await sha256Hex("hello world")}`,
+					},
+				}),
+			}),
+		);
+		expect(injectionResponse.status).toBe(200);
+		const injectionPayload = (await injectionResponse.json()) as {
+			uploadSession: { uploadUrl: string };
+		};
+		expect(injectionPayload.uploadSession.uploadUrl).toStartWith(
+			"https://jl-api.monthlyparty.com/evidences/uploads/",
+		);
+		expect(injectionPayload.uploadSession.uploadUrl).not.toContain(
+			"attacker.example.com",
+		);
 	});
 
 	it("replaces cloud artifacts when resyncing a desktop session", async () => {
@@ -2164,5 +2205,466 @@ describe("routes", () => {
 			columns: { id: true },
 		});
 		expect(remainingLinks).toHaveLength(0);
+	});
+
+	it("renames evidence for a workspace member", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const member = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_rename_member",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_rename_member" },
+		});
+
+		const [evidence] = await db
+			.insert(evidences)
+			.values({
+				orgId: member.organizationId,
+				createdBy: member.userId,
+				title: "Original title",
+				sourceType: "browser",
+				scopeType: "organization",
+				scopeId: member.organizationId,
+			})
+			.returning({ id: evidences.id });
+		if (!evidence) {
+			throw new Error("Expected evidence to be created");
+		}
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const memberToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_rename_member")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const response = await app.handle(
+			new Request(`http://localhost/evidences/${evidence.id}`, {
+				method: "PATCH",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${memberToken}`,
+				},
+				body: JSON.stringify({ title: "Renamed checkout regression" }),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const payload = (await response.json()) as {
+			evidence: { id: string; title: string };
+		};
+		expect(payload.evidence.title).toBe("Renamed checkout regression");
+
+		const renamed = await db.query.evidences.findFirst({
+			where: eq(evidences.id, evidence.id),
+			columns: { title: true },
+		});
+		expect(renamed?.title).toBe("Renamed checkout regression");
+	});
+
+	it("mints a desktop token only once per approved flow", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const clerkToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_desktop_single_use")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+		const { app } = createApp(
+			createTestEnv({
+				DATABASE_URL: databaseUrl,
+				CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZSQ",
+				CLERK_JWT_KEY: jwtKey,
+				CLERK_AUDIENCE: "test-audience",
+				WEB_APP_ORIGIN: "https://viewer.example.test",
+			}),
+		);
+
+		const started = (await (
+			await app.handle(
+				new Request("http://localhost/desktop-auth/flows", { method: "POST" }),
+			)
+		).json()) as { deviceCode: string; userCode: string };
+
+		await app.handle(
+			new Request("http://localhost/desktop-auth/flows/complete", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${clerkToken}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ userCode: started.userCode }),
+			}),
+		);
+
+		const firstPoll = (await (
+			await app.handle(
+				new Request(
+					`http://localhost/desktop-auth/flows/${encodeURIComponent(started.deviceCode)}`,
+				),
+			)
+		).json()) as { status: string; accessToken?: string };
+		expect(firstPoll.status).toBe("approved");
+		expect(firstPoll.accessToken).toBeString();
+
+		const secondPoll = (await (
+			await app.handle(
+				new Request(
+					`http://localhost/desktop-auth/flows/${encodeURIComponent(started.deviceCode)}`,
+				),
+			)
+		).json()) as { status: string; accessToken?: string };
+		expect(secondPoll.status).toBe("expired");
+		expect(secondPoll.accessToken).toBeUndefined();
+	});
+
+	it("rejects a revoked device session token", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const clerkToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_desktop_revoke")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+		const { app } = createApp(
+			createTestEnv({
+				DATABASE_URL: databaseUrl,
+				CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZSQ",
+				CLERK_JWT_KEY: jwtKey,
+				CLERK_AUDIENCE: "test-audience",
+				WEB_APP_ORIGIN: "https://viewer.example.test",
+			}),
+		);
+
+		const started = (await (
+			await app.handle(
+				new Request("http://localhost/desktop-auth/flows", { method: "POST" }),
+			)
+		).json()) as { deviceCode: string; userCode: string };
+		await app.handle(
+			new Request("http://localhost/desktop-auth/flows/complete", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${clerkToken}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ userCode: started.userCode }),
+			}),
+		);
+		const approved = (await (
+			await app.handle(
+				new Request(
+					`http://localhost/desktop-auth/flows/${encodeURIComponent(started.deviceCode)}`,
+				),
+			)
+		).json()) as { accessToken: string };
+
+		const beforeRevoke = await app.handle(
+			new Request("http://localhost/protected/me", {
+				headers: { authorization: `Bearer ${approved.accessToken}` },
+			}),
+		);
+		expect(beforeRevoke.status).toBe(200);
+
+		const session = await db.query.deviceSessions.findFirst({
+			where: eq(deviceSessions.clerkUserId, "user_desktop_revoke"),
+			columns: { id: true },
+		});
+		expect(session?.id).toBeString();
+		if (!session) {
+			throw new Error("Expected device session to exist");
+		}
+		expect(await revokeDeviceSession(db, session.id)).toBe(true);
+
+		const afterRevoke = await app.handle(
+			new Request("http://localhost/protected/me", {
+				headers: { authorization: `Bearer ${approved.accessToken}` },
+			}),
+		);
+		expect(afterRevoke.status).toBe(401);
+	});
+
+	it("confines extension tokens to evidence scopes", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const clerkToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_extension_scope")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+		const { app } = createApp(
+			createTestEnv({
+				DATABASE_URL: databaseUrl,
+				CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZSQ",
+				CLERK_JWT_KEY: jwtKey,
+				CLERK_AUDIENCE: "test-audience",
+				WEB_APP_ORIGIN: "https://viewer.example.test",
+			}),
+		);
+
+		const started = (await (
+			await app.handle(
+				new Request("http://localhost/extension-auth/flows", {
+					method: "POST",
+				}),
+			)
+		).json()) as { deviceCode: string; userCode: string };
+		await app.handle(
+			new Request("http://localhost/extension-auth/flows/complete", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${clerkToken}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ userCode: started.userCode }),
+			}),
+		);
+		const approved = (await (
+			await app.handle(
+				new Request(
+					`http://localhost/extension-auth/flows/${encodeURIComponent(started.deviceCode)}`,
+				),
+			)
+		).json()) as { accessToken: string };
+
+		// Organization management is outside the extension's granted scopes.
+		const orgsResponse = await app.handle(
+			new Request("http://localhost/orgs", {
+				headers: { authorization: `Bearer ${approved.accessToken}` },
+			}),
+		);
+		expect(orgsResponse.status).toBe(403);
+		await expectApiError(orgsResponse, {
+			code: "AUTH_INSUFFICIENT_SCOPE",
+			message:
+				"This session is not permitted to perform this action (requires 'org:read')",
+			status: 403,
+		});
+
+		// Uploading evidence is within scope and must still succeed.
+		const uploadResponse = await app.handle(
+			new Request("http://localhost/evidences/uploads/start", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${approved.accessToken}`,
+				},
+				body: JSON.stringify({
+					title: "Extension upload",
+					sourceType: "browser",
+					artifact: {
+						kind: "recording",
+						mimeType: "video/webm",
+						bytes: 11,
+						checksum: `sha256:${await sha256Hex("hello world")}`,
+					},
+				}),
+			}),
+		);
+		expect(uploadResponse.status).toBe(200);
+		const upload = (await uploadResponse.json()) as { evidenceId: string };
+
+		// Renaming evidence requires management scope, not just extension write scope.
+		const renameResponse = await app.handle(
+			new Request(`http://localhost/evidences/${upload.evidenceId}`, {
+				method: "PATCH",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${approved.accessToken}`,
+				},
+				body: JSON.stringify({ title: "Renamed by extension token" }),
+			}),
+		);
+		expect(renameResponse.status).toBe(403);
+		await expectApiError(renameResponse, {
+			code: "AUTH_INSUFFICIENT_SCOPE",
+			message:
+				"This session is not permitted to perform this action (requires 'evidence:manage')",
+			status: 403,
+		});
+	});
+
+	it("cleans up expired and revoked device auth state", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const now = 1_000_000_000_000;
+		const [validSession] = await db
+			.insert(deviceSessions)
+			.values([
+				{
+					clerkUserId: "user_gc_valid",
+					client: "desktop",
+					scope: "evidence:read",
+					expiresAt: now + 60_000,
+					updatedAt: now,
+				},
+				{
+					clerkUserId: "user_gc_expired",
+					client: "extension",
+					scope: "evidence:read",
+					expiresAt: now - 60_000,
+					updatedAt: now,
+				},
+				{
+					clerkUserId: "user_gc_revoked",
+					client: "desktop",
+					scope: "evidence:read",
+					expiresAt: now + 60_000,
+					revokedAt: now - 1,
+					updatedAt: now,
+				},
+			])
+			.returning({ id: deviceSessions.id });
+		if (!validSession) {
+			throw new Error("Expected device session to be created");
+		}
+
+		await db.insert(desktopAuthFlows).values([
+			{
+				deviceCodeHash: "a".repeat(64),
+				userCodeHash: "b".repeat(64),
+				expiresAt: now - 60_000,
+			},
+			{
+				deviceCodeHash: "c".repeat(64),
+				userCodeHash: "d".repeat(64),
+				expiresAt: now + 60_000,
+			},
+		]);
+
+		const removed = await cleanupExpiredDeviceAuthState(db, now);
+		expect(removed).toBe(2);
+
+		const remainingSessions = await db.query.deviceSessions.findMany({
+			columns: { id: true },
+		});
+		expect(remainingSessions.map((session) => session.id)).toEqual([
+			validSession.id,
+		]);
+
+		const remainingFlows = await db.query.desktopAuthFlows.findMany({
+			columns: { expiresAt: true },
+		});
+		expect(remainingFlows).toHaveLength(1);
+		expect(remainingFlows[0]?.expiresAt).toBe(now + 60_000);
+	});
+
+	it("returns 404 (not 403) when a non-member targets evidence in another org", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_enum_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_enum_owner" },
+		});
+		await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_enum_outsider",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_enum_outsider" },
+		});
+
+		const [evidence] = await db
+			.insert(evidences)
+			.values({
+				orgId: owner.organizationId,
+				createdBy: owner.userId,
+				title: "Private evidence",
+				sourceType: "browser",
+				scopeType: "organization",
+				scopeId: owner.organizationId,
+			})
+			.returning({ id: evidences.id });
+		if (!evidence) {
+			throw new Error("Expected evidence to be created");
+		}
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const outsiderToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_enum_outsider")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const renameResponse = await app.handle(
+			new Request(`http://localhost/evidences/${evidence.id}`, {
+				method: "PATCH",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${outsiderToken}`,
+				},
+				body: JSON.stringify({ title: "Renamed by outsider" }),
+			}),
+		);
+		expect(renameResponse.status).toBe(404);
+		await expectApiError(renameResponse, {
+			code: "EVIDENCE_NOT_FOUND",
+			message: "Evidence not found",
+			status: 404,
+		});
+
+		const deleteResponse = await app.handle(
+			new Request(`http://localhost/evidences/${evidence.id}`, {
+				method: "DELETE",
+				headers: { authorization: `Bearer ${outsiderToken}` },
+			}),
+		);
+		expect(deleteResponse.status).toBe(404);
+		await expectApiError(deleteResponse, {
+			code: "EVIDENCE_NOT_FOUND",
+			message: "Evidence not found",
+			status: 404,
+		});
 	});
 });

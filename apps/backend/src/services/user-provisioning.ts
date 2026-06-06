@@ -22,14 +22,23 @@ export type BackendDb = LibSQLDatabase<typeof appSchema>;
 
 type ProvisioningSource = "auth-middleware" | "clerk-callback";
 
+type ProvisioningUserProfile = Pick<
+	ClerkUserProfile,
+	"firstName" | "username" | "email"
+> | null;
+
 type ProvisioningInput = {
 	clerkUserId: string;
 	source: ProvisioningSource;
 	rawPayload: Record<string, unknown>;
-	userProfile?: Pick<
-		ClerkUserProfile,
-		"firstName" | "username" | "email"
-	> | null;
+	/**
+	 * The Clerk profile, or a resolver invoked only when a new user is actually
+	 * provisioned. Passing a resolver avoids a Clerk API round-trip on every
+	 * request for already-provisioned users (the common hot path).
+	 */
+	userProfile?:
+		| ProvisioningUserProfile
+		| (() => Promise<ProvisioningUserProfile>);
 };
 
 const findAlreadyProvisioned = async (db: BackendDb, clerkUserId: string) =>
@@ -51,13 +60,14 @@ const findAlreadyProvisioned = async (db: BackendDb, clerkUserId: string) =>
 const writeProvisioningEvent = async (
 	db: BackendDb,
 	input: ProvisioningInput,
+	userProfile: ProvisioningUserProfile,
 ) => {
 	const parsed = createProvisioningEventSchema.parse({
 		clerkUserId: input.clerkUserId,
 		source: input.source,
 		rawPayload: JSON.stringify({
 			...input.rawPayload,
-			userProfile: input.userProfile ?? null,
+			userProfile: userProfile ?? null,
 		}),
 	});
 
@@ -312,7 +322,11 @@ export const ensureUserAndPersonalOrganization = async (
 		}
 	}
 
-	const eventId = await writeProvisioningEvent(db, input);
+	const resolvedProfile =
+		typeof input.userProfile === "function"
+			? await input.userProfile()
+			: (input.userProfile ?? null);
+	const eventId = await writeProvisioningEvent(db, input, resolvedProfile);
 	return processProvisioningEvent(db, eventId);
 };
 

@@ -5,8 +5,13 @@ import { apiErrorSchema, createApiError } from "../http/api-error";
 import { resolveActiveOrganizationForClerkUser } from "../services/active-organization";
 import { resolveClerkUserProfile } from "../services/clerk-user-profile";
 import { verifyDesktopAuthSessionToken } from "../services/desktop-auth";
-import { ensureUserAndPersonalOrganization } from "../services/user-provisioning";
+import {
+	type BackendDb,
+	ensureUserAndPersonalOrganization,
+} from "../services/user-provisioning";
 import type { CorePlugin } from "./core";
+
+export type SessionTokenType = "clerk" | "desktop" | "extension";
 
 type ClerkSessionClaims = Record<string, unknown> & {
 	scope?: string;
@@ -27,6 +32,34 @@ export type AuthContext = {
 	activeOrgId: string | null;
 	roles: string[];
 	scopes: string[];
+	tokenType: SessionTokenType;
+};
+
+/**
+ * Clerk (human) sessions are fully privileged; device tokens (desktop /
+ * extension) only carry the scopes their client was granted, so this is how we
+ * keep the long-lived extension token away from sensitive operations.
+ */
+export const sessionHasScope = (auth: AuthContext, scope: string): boolean =>
+	auth.tokenType === "clerk" || auth.scopes.includes(scope);
+
+export const requireSessionScope = (
+	auth: AuthContext,
+	scope: string,
+	requestId: string,
+	set: { status?: number | string },
+): ReturnType<typeof createApiError> | null => {
+	if (sessionHasScope(auth, scope)) {
+		return null;
+	}
+
+	set.status = 403;
+	return createApiError(
+		requestId,
+		"AUTH_INSUFFICIENT_SCOPE",
+		`This session is not permitted to perform this action (requires '${scope}')`,
+		403,
+	);
 };
 
 const isDevelopmentRuntime = (runtime: RuntimeConfig) =>
@@ -59,6 +92,7 @@ const parseRoles = (claims: ClerkSessionClaims | undefined) =>
 
 const toAuthContext = (
 	auth: ClerkAuthObject,
+	tokenType: SessionTokenType,
 	localUserId: string | null = null,
 	activeOrgId: string | null = null,
 ): AuthContext => {
@@ -78,6 +112,7 @@ const toAuthContext = (
 		activeOrgId,
 		roles: parseRoles(auth.sessionClaims),
 		scopes: parseScopes(auth.sessionClaims),
+		tokenType,
 	};
 };
 
@@ -92,6 +127,27 @@ const createAuthOnlyRequest = (request: Request) => {
 	});
 };
 
+// Clerk clients are reusable; cache one per (publishableKey, secretKey) pair so
+// each authenticated request does not allocate a fresh client.
+const clerkClientCache = new Map<
+	string,
+	ReturnType<typeof createClerkClient>
+>();
+
+const getClerkClient = (publishableKey: string, secretKey?: string) => {
+	const cacheKey = `${publishableKey}::${secretKey ?? ""}`;
+	const existing = clerkClientCache.get(cacheKey);
+	if (existing) {
+		return existing;
+	}
+
+	const client = createClerkClient(
+		secretKey ? { publishableKey, secretKey } : { publishableKey },
+	);
+	clerkClientCache.set(cacheKey, client);
+	return client;
+};
+
 const authenticateWithRequestState = async (
 	request: Request,
 	runtime: RuntimeConfig,
@@ -100,22 +156,13 @@ const authenticateWithRequestState = async (
 		return null;
 	}
 
-	const clerkClientOptions: {
-		publishableKey: string;
-		secretKey?: string;
-	} = {
-		publishableKey: runtime.clerkPublishableKey,
-	};
 	const secretKey =
 		runtime.clerkSecretKey ??
 		(isDevelopmentRuntime(runtime) && runtime.clerkJwtKey
 			? "sk_test_local_placeholder"
 			: undefined);
-	if (secretKey) {
-		clerkClientOptions.secretKey = secretKey;
-	}
 
-	const clerkClient = createClerkClient(clerkClientOptions);
+	const clerkClient = getClerkClient(runtime.clerkPublishableKey, secretKey);
 	const authenticateOptions: {
 		audience?: string | string[];
 		authorizedParties?: string[];
@@ -138,11 +185,14 @@ const authenticateWithRequestState = async (
 	const auth = requestState.toAuth() as ClerkAuthObject | null;
 
 	return auth?.userId
-		? toAuthContext({
-				userId: auth.userId,
-				orgId: auth.orgId,
-				sessionClaims: auth.sessionClaims,
-			})
+		? toAuthContext(
+				{
+					userId: auth.userId,
+					orgId: auth.orgId,
+					sessionClaims: auth.sessionClaims,
+				},
+				"clerk",
+			)
 		: null;
 };
 
@@ -180,16 +230,20 @@ const authenticateWithVerifyToken = async (
 		verifyOptions,
 	)) as ClerkSessionClaims;
 
-	return toAuthContext({
-		userId: typeof claims.sub === "string" ? claims.sub : null,
-		orgId: typeof claims.org_id === "string" ? claims.org_id : null,
-		sessionClaims: claims,
-	});
+	return toAuthContext(
+		{
+			userId: typeof claims.sub === "string" ? claims.sub : null,
+			orgId: typeof claims.org_id === "string" ? claims.org_id : null,
+			sessionClaims: claims,
+		},
+		"clerk",
+	);
 };
 
 const authenticateWithDesktopSessionToken = async (
 	request: Request,
 	runtime: RuntimeConfig,
+	db: BackendDb | null,
 ) => {
 	const token = readSessionToken(request);
 	if (!token) {
@@ -199,25 +253,31 @@ const authenticateWithDesktopSessionToken = async (
 	const claims = await verifyDesktopAuthSessionToken(
 		runtime,
 		decodeURIComponent(token),
+		db,
 	);
 	if (!claims) {
 		return null;
 	}
 
-	return toAuthContext({
-		userId: claims.clerkUserId,
-		sessionClaims: { scope: claims.scope },
-	});
+	return toAuthContext(
+		{
+			userId: claims.clerkUserId,
+			sessionClaims: { scope: claims.scope },
+		},
+		claims.client,
+	);
 };
 
 const authenticateRequest = async (
 	request: Request,
 	runtime: RuntimeConfig,
+	db: BackendDb | null,
 ) => {
 	try {
 		const desktopAuth = await authenticateWithDesktopSessionToken(
 			request,
 			runtime,
+			db,
 		);
 		if (desktopAuth) {
 			return desktopAuth;
@@ -274,7 +334,7 @@ export const createClerkAuthPlugin = (core: CorePlugin) =>
 
 				let authContext: AuthContext | null;
 				try {
-					authContext = await authenticateRequest(request, runtime);
+					authContext = await authenticateRequest(request, runtime, db);
 				} catch (error) {
 					requestLogger.warn({ err: error }, "failed to authenticate request");
 					return status(
@@ -305,21 +365,22 @@ export const createClerkAuthPlugin = (core: CorePlugin) =>
 						return { authContext };
 					}
 
-					const userProfile = await resolveClerkUserProfile(
-						runtime,
-						authContext.userId,
-					).catch((error) => {
-						requestLogger.warn(
-							{ err: error, clerkUserId: authContext.userId },
-							"failed to resolve Clerk user profile during provisioning",
-						);
-						return null;
-					});
-
 					const provisioned = await ensureUserAndPersonalOrganization(db, {
 						clerkUserId: authContext.userId,
 						source: "auth-middleware",
-						userProfile,
+						// Resolved lazily: only a brand-new user triggers the Clerk
+						// profile lookup, so existing users avoid a per-request Clerk
+						// API round-trip.
+						userProfile: () =>
+							resolveClerkUserProfile(runtime, authContext.userId).catch(
+								(error) => {
+									requestLogger.warn(
+										{ err: error, clerkUserId: authContext.userId },
+										"failed to resolve Clerk user profile during provisioning",
+									);
+									return null;
+								},
+							),
 						rawPayload: {
 							userId: authContext.userId,
 							orgId: authContext.orgId,
