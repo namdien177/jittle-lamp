@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   Download,
@@ -58,7 +58,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const [shareTarget, setShareTarget] = useState<ApiEvidenceSummary | null>(null);
   const [renameTarget, setRenameTarget] = useState<ApiEvidenceSummary | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiEvidenceSummary | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const getToken: FetchToken = () => auth.getToken();
 
@@ -102,6 +106,22 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     return list;
   }, [evidences, search, typeFilter, sort]);
 
+  useEffect(() => {
+    const evidenceIds = new Set(evidences.map((evidence) => evidence.id));
+    setSelectedIds((previous) => {
+      const next = new Set([...previous].filter((id) => evidenceIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [evidences]);
+
+  const selectedEvidences = useMemo(
+    () => evidences.filter((evidence) => selectedIds.has(evidence.id)),
+    [evidences, selectedIds]
+  );
+  const filteredSelectedCount = filtered.filter((evidence) => selectedIds.has(evidence.id)).length;
+  const allFilteredSelected = filtered.length > 0 && filteredSelectedCount === filtered.length;
+  const hasSelection = selectedEvidences.length > 0;
+
   const loading = evidencesQuery.isLoading;
   const deletingId = deleteEvidence.variables ?? null;
   const error =
@@ -128,6 +148,47 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     }
   };
 
+  const setEvidenceSelected = (evidenceId: string, selected: boolean): void => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (selected) next.add(evidenceId);
+      else next.delete(evidenceId);
+      return next;
+    });
+  };
+
+  const toggleFilteredSelection = (): void => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (allFilteredSelected) {
+        for (const evidence of filtered) next.delete(evidence.id);
+      } else {
+        for (const evidence of filtered) next.add(evidence.id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDownload = async (): Promise<void> => {
+    if (selectedEvidences.length === 0) return;
+    setBulkDownloading(true);
+    try {
+      for (const evidence of selectedEvidences) {
+        await downloadEvidenceAsZip({
+          getToken,
+          evidenceId: evidence.id,
+          orgId: evidence.orgId,
+          title: evidence.title
+        });
+      }
+      toast.success("Downloads started", `${selectedEvidences.length} ZIP files saved to your downloads folder.`);
+    } catch (downloadError) {
+      toast.error("Bulk download failed", downloadError instanceof Error ? downloadError.message : undefined);
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
   const confirmDelete = (): void => {
     if (!pendingDelete) return;
     const target = pendingDelete;
@@ -139,6 +200,28 @@ export function EvidenceLibraryPage(): React.JSX.Element {
       onError: (mutationError) =>
         toast.error("Delete failed", mutationError instanceof Error ? mutationError.message : undefined)
     });
+  };
+
+  const confirmBulkDelete = async (): Promise<void> => {
+    if (selectedEvidences.length === 0) return;
+    const targets = selectedEvidences;
+    setBulkDeleting(true);
+    try {
+      for (const evidence of targets) {
+        await deleteEvidence.mutateAsync(evidence.id);
+      }
+      toast.success("Evidence deleted", `${targets.length} records removed from the workspace.`);
+      setSelectedIds((previous) => {
+        const next = new Set(previous);
+        for (const evidence of targets) next.delete(evidence.id);
+        return next;
+      });
+      setPendingBulkDelete(false);
+    } catch (mutationError) {
+      toast.error("Bulk delete failed", mutationError instanceof Error ? mutationError.message : undefined);
+    } finally {
+      setBulkDeleting(false);
+    }
   };
 
   const actions = (evidence: ApiEvidenceSummary, downloading: boolean, deleting: boolean): React.JSX.Element => (
@@ -258,9 +341,63 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           </div>
         ) : null}
 
-        <p className="text-xs text-muted-foreground">
-          {loading ? "Loading…" : `${filtered.length} of ${evidences.length} record${evidences.length === 1 ? "" : "s"}`}
-        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            {loading
+              ? "Loading…"
+              : `${filtered.length} of ${evidences.length} record${evidences.length === 1 ? "" : "s"}`}
+          </p>
+          {filtered.length > 0 ? (
+            <label className="inline-flex w-fit items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={allFilteredSelected}
+                ref={(element) => {
+                  if (element) element.indeterminate = filteredSelectedCount > 0 && !allFilteredSelected;
+                }}
+                onChange={toggleFilteredSelection}
+                className="size-4 accent-[var(--brand-500)]"
+              />
+              Select visible
+            </label>
+          ) : null}
+        </div>
+
+        {hasSelection ? (
+          <div className="flex flex-col gap-3 rounded-md border border-border-strong bg-secondary px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm font-medium text-foreground">
+              {selectedEvidences.length} selected
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleBulkDownload()}
+                disabled={bulkDownloading || bulkDeleting}
+              >
+                <Download aria-hidden />
+                {bulkDownloading ? "Downloading…" : "Download ZIPs"}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setPendingBulkDelete(true)}
+                disabled={bulkDownloading || bulkDeleting}
+              >
+                <Trash2 aria-hidden />
+                Delete
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+                disabled={bulkDownloading || bulkDeleting}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         {loading ? (
           view === "grid" ? (
@@ -301,10 +438,22 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 key={evidence.id}
                 className="group flex flex-col gap-3 p-4 transition-colors hover:border-border-strong"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-primary">
-                    <Video className="size-4" aria-hidden />
-                  </span>
+                <div className="flex items-start gap-2">
+                  <label className="mt-1 inline-flex shrink-0 items-center" aria-label={`Select ${evidence.title}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(evidence.id)}
+                      onChange={(event) => setEvidenceSelected(evidence.id, event.currentTarget.checked)}
+                      className="size-4 accent-[var(--brand-500)]"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+                    className="min-w-0 flex-1"
+                  >
+                    <EvidenceThumbnail evidence={evidence} className="aspect-video w-full" />
+                  </button>
                   {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
                 </div>
                 <button
@@ -320,9 +469,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   </span>
                 </button>
                 <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-                  <Badge variant="muted" className="capitalize">
-                    {evidence.sourceType}
-                  </Badge>
+                  <div className="flex min-w-0 flex-wrap gap-1.5">
+                    <Badge variant="muted" className="capitalize">
+                      {evidence.sourceType}
+                    </Badge>
+                    {evidence.status === "pending" ? <Badge variant="muted">Pending</Badge> : null}
+                  </div>
                   <span className="text-xs text-muted-foreground" title={new Date(evidence.updatedAt).toISOString()}>
                     {formatRelativeTime(evidence.updatedAt)}
                   </span>
@@ -349,6 +501,18 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select visible evidence"
+                      checked={allFilteredSelected}
+                      ref={(element) => {
+                        if (element) element.indeterminate = filteredSelectedCount > 0 && !allFilteredSelected;
+                      }}
+                      onChange={toggleFilteredSelection}
+                      className="size-4 accent-[var(--brand-500)]"
+                    />
+                  </TableHead>
                   <TableHead>Evidence</TableHead>
                   <TableHead className="hidden md:table-cell">Type</TableHead>
                   <TableHead className="hidden lg:table-cell">Updated</TableHead>
@@ -357,16 +521,23 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               </TableHeader>
               <TableBody>
                 {filtered.map((evidence) => (
-                  <TableRow key={evidence.id}>
+                  <TableRow key={evidence.id} data-active={selectedIds.has(evidence.id)}>
+                    <TableCell className="w-10 pr-0">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${evidence.title}`}
+                        checked={selectedIds.has(evidence.id)}
+                        onChange={(event) => setEvidenceSelected(evidence.id, event.currentTarget.checked)}
+                        className="size-4 accent-[var(--brand-500)]"
+                      />
+                    </TableCell>
                     <TableCell>
                       <button
                         type="button"
                         onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
                         className="flex min-w-0 items-center gap-3 text-left"
                       >
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-primary">
-                          <Video className="size-4" aria-hidden />
-                        </span>
+                        <EvidenceThumbnail evidence={evidence} className="h-10 w-16" />
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium text-foreground hover:text-primary">
                             {evidence.title}
@@ -378,9 +549,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       </button>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
-                      <Badge variant="muted" className="capitalize">
-                        {evidence.sourceType}
-                      </Badge>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge variant="muted" className="capitalize">
+                          {evidence.sourceType}
+                        </Badge>
+                        {evidence.status === "pending" ? <Badge variant="muted">Pending</Badge> : null}
+                      </div>
                     </TableCell>
                     <TableCell className="hidden whitespace-nowrap text-sm text-muted-foreground lg:table-cell">
                       {formatRelativeTime(evidence.updatedAt)}
@@ -425,7 +599,51 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         onConfirm={confirmDelete}
         onCancel={() => (deleteEvidence.isPending ? null : setPendingDelete(null))}
       />
+
+      <ConfirmDialog
+        open={pendingBulkDelete}
+        title="Delete selected evidence?"
+        description={`This permanently removes ${selectedEvidences.length} selected record${
+          selectedEvidences.length === 1 ? "" : "s"
+        } from the workspace. Active share links will stop working.`}
+        confirmLabel="Delete"
+        destructive
+        busy={bulkDeleting}
+        onConfirm={() => void confirmBulkDelete()}
+        onCancel={() => (bulkDeleting ? null : setPendingBulkDelete(false))}
+      />
     </>
+  );
+}
+
+function EvidenceThumbnail(props: {
+  evidence: ApiEvidenceSummary;
+  className?: string;
+}): React.JSX.Element {
+  const { evidence, className } = props;
+  const thumbnailSrc =
+    evidence.thumbnailBase64 && evidence.thumbnailMimeType
+      ? `data:${evidence.thumbnailMimeType};base64,${evidence.thumbnailBase64}`
+      : null;
+
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-secondary text-primary",
+        className
+      )}
+    >
+      {thumbnailSrc ? (
+        <img
+          src={thumbnailSrc}
+          alt=""
+          loading="lazy"
+          className="size-full object-cover"
+        />
+      ) : (
+        <Video className="size-4" aria-hidden />
+      )}
+    </span>
   );
 }
 

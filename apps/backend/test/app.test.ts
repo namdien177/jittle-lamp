@@ -1638,6 +1638,8 @@ describe("routes", () => {
 				createdBy: provisioned.userId,
 				title: "Personal evidence",
 				sourceType: "browser",
+				thumbnailBase64: "ZmFrZS10aHVtYg==",
+				thumbnailMimeType: "image/jpeg",
 				scopeType: "organization",
 				scopeId: provisioned.organizationId,
 			})
@@ -1683,12 +1685,20 @@ describe("routes", () => {
 		expect(defaultList.status).toBe(200);
 		const defaultListPayload = (await defaultList.json()) as {
 			orgId: string;
-			evidences: Array<{ id: string }>;
+			evidences: Array<{
+				id: string;
+				thumbnailBase64: string | null;
+				thumbnailMimeType: string | null;
+			}>;
 		};
 		expect(defaultListPayload.orgId).toBe(provisioned.organizationId);
 		expect(defaultListPayload.evidences.map((evidence) => evidence.id)).toEqual(
 			[personalEvidence.id],
 		);
+		expect(defaultListPayload.evidences[0]).toMatchObject({
+			thumbnailBase64: "ZmFrZS10aHVtYg==",
+			thumbnailMimeType: "image/jpeg",
+		});
 
 		const blockedLoad = await app.handle(
 			new Request(`http://localhost/evidences/${teamEvidence.id}`, {

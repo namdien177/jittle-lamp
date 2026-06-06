@@ -144,9 +144,12 @@ export type ApiEvidenceSummary = {
   sourceType: string;
   sourceExternalId?: string | null;
   sourceMetadata?: string | null;
+  thumbnailBase64?: string | null;
+  thumbnailMimeType?: string | null;
   createdBy: string;
   createdAt: number;
   updatedAt: number;
+  status?: "ready" | "pending";
 };
 
 export type ResolveShareLinkResponse = {

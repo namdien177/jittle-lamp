@@ -43,6 +43,8 @@ const startDesktopSessionSyncBodySchema = t.Object({
 	sessionId: t.String({ minLength: 1 }),
 	title: t.String({ minLength: 1 }),
 	sourceMetadata: t.Optional(t.String()),
+	thumbnailBase64: t.Optional(t.String({ maxLength: 20_000 })),
+	thumbnailMimeType: t.Optional(t.String({ minLength: 1 })),
 	replaceEvidenceId: t.Optional(t.String({ minLength: 1 })),
 	artifacts: t.Array(
 		t.Object({
@@ -123,6 +125,8 @@ const evidenceSummarySchema = t.Object({
 	sourceType: t.String({ minLength: 1 }),
 	sourceExternalId: t.Nullable(t.String()),
 	sourceMetadata: t.Nullable(t.String()),
+	thumbnailBase64: t.Nullable(t.String()),
+	thumbnailMimeType: t.Nullable(t.String()),
 	createdBy: t.String({ minLength: 1 }),
 	createdAt: t.Number(),
 	updatedAt: t.Number(),
@@ -484,6 +488,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 										.set({
 											title: body.title,
 											sourceMetadata: body.sourceMetadata,
+											thumbnailBase64: body.thumbnailBase64,
+											thumbnailMimeType: body.thumbnailMimeType,
 											updatedAt: now,
 										})
 										.where(eq(evidences.id, existingEvidence.id))
@@ -497,6 +503,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 											sourceType: "desktop-session",
 											sourceExternalId: body.sessionId,
 											sourceMetadata: body.sourceMetadata,
+											thumbnailBase64: body.thumbnailBase64,
+											thumbnailMimeType: body.thumbnailMimeType,
 											scopeType: "organization",
 											scopeId: workspace.activeOrgId,
 											updatedAt: now,
@@ -808,6 +816,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								sourceType: true,
 								sourceExternalId: true,
 								sourceMetadata: true,
+								thumbnailBase64: true,
+								thumbnailMimeType: true,
 								createdBy: true,
 								createdAt: true,
 								updatedAt: true,
@@ -873,6 +883,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								sourceType: true,
 								sourceExternalId: true,
 								sourceMetadata: true,
+								thumbnailBase64: true,
+								thumbnailMimeType: true,
 								createdBy: true,
 								createdAt: true,
 								updatedAt: true,

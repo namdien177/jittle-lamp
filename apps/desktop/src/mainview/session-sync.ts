@@ -1,4 +1,5 @@
 import { api, type ApiEvidenceSummary, type FetchToken } from "./api";
+import { createVideoThumbnail } from "./video-thumbnail";
 
 type PreparedSessionUpload = {
   sessionId: string;
@@ -21,6 +22,10 @@ export async function syncDesktopSessionToServer(input: {
   markSessionRemoteSynced: (input: { sessionId: string; evidenceId: string; orgId: string }) => Promise<void>;
 }): Promise<ApiEvidenceSummary> {
   const upload = await input.prepareSessionUpload(input.sessionId);
+  const recordingArtifact = upload.artifacts.find((artifact) => artifact.key === "recording");
+  const thumbnail = recordingArtifact
+    ? await createVideoThumbnail(new Blob([recordingArtifact.payload.slice().buffer as ArrayBuffer], { type: recordingArtifact.mimeType }))
+    : null;
   const sourceMetadata = JSON.stringify({
     localSessionId: upload.sessionId,
     artifactFormat: "split",
@@ -36,6 +41,12 @@ export async function syncDesktopSessionToServer(input: {
     sessionId: upload.sessionId,
     title: upload.title,
     sourceMetadata,
+    ...(thumbnail
+      ? {
+          thumbnailBase64: thumbnail.base64,
+          thumbnailMimeType: thumbnail.mimeType
+        }
+      : {}),
     ...(input.replaceEvidenceId ? { replaceEvidenceId: input.replaceEvidenceId } : {}),
     artifacts: upload.artifacts.map((artifact) => ({
       key: artifact.key,
@@ -70,6 +81,8 @@ export async function syncDesktopSessionToServer(input: {
     sourceType: "desktop-session",
     sourceExternalId: upload.sessionId,
     sourceMetadata,
+    thumbnailBase64: thumbnail?.base64 ?? null,
+    thumbnailMimeType: thumbnail?.mimeType ?? null,
     createdBy: "",
     createdAt: Date.now(),
     updatedAt: Date.now()

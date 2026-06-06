@@ -102,9 +102,12 @@ export type ApiEvidenceSummary = {
   sourceType: string;
   sourceExternalId?: string | null;
   sourceMetadata?: string | null;
+  thumbnailBase64?: string | null;
+  thumbnailMimeType?: string | null;
   createdBy: string;
   createdAt: number;
   updatedAt: number;
+  status?: "ready" | "pending";
 };
 
 export type ApiEvidenceArtifactSummary = {
@@ -387,6 +390,8 @@ export const api = {
       sessionId: string;
       title: string;
       sourceMetadata?: string;
+      thumbnailBase64?: string;
+      thumbnailMimeType?: string;
       replaceEvidenceId?: string;
       artifacts: Array<{
         key: "recording" | "archive";

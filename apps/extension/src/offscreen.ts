@@ -69,6 +69,15 @@ type CloudUploadStartPayload = {
   }>;
 };
 
+type VideoThumbnail = {
+  base64: string;
+  mimeType: string;
+};
+
+const thumbnailMimeType = "image/jpeg";
+const thumbnailWidth = 240;
+const thumbnailHeight = 135;
+
 let activeRecorderState: ActiveRecorderState | null = null;
 
 chrome.runtime.onMessage.addListener((rawMessage, _sender, sendResponse) => {
@@ -183,6 +192,7 @@ async function tryWriteArtifactsToCloud(
 
     const recordingChecksum = await sha256Hex(await recordingBlob.arrayBuffer());
     const archiveChecksum = await sha256Hex(await jsonBlob.arrayBuffer());
+    const thumbnail = await createVideoThumbnail(recordingBlob);
 
     const startResponse = await fetch(`${cloudApiOrigin}/evidences/desktop-sessions/sync/start`, {
       method: "POST",
@@ -195,6 +205,12 @@ async function tryWriteArtifactsToCloud(
         sessionId: archive.sessionId,
         title: archive.name,
         sourceMetadata: JSON.stringify({ source: "extension" }),
+        ...(thumbnail
+          ? {
+              thumbnailBase64: thumbnail.base64,
+              thumbnailMimeType: thumbnail.mimeType
+            }
+          : {}),
         artifacts: [
           { key: "recording", kind: "recording", mimeType: "video/webm", bytes: recordingBlob.size, checksum: recordingChecksum },
           { key: "archive", kind: "network-log", mimeType: "application/json", bytes: jsonBlob.size, checksum: archiveChecksum }
@@ -257,6 +273,65 @@ async function tryWriteArtifactsToCloud(
 async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function createVideoThumbnail(recording: Blob): Promise<VideoThumbnail | null> {
+  const url = URL.createObjectURL(recording);
+  try {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        video.removeEventListener("loadeddata", onLoadedData);
+        video.removeEventListener("error", onError);
+      };
+      const onLoadedData = (): void => {
+        cleanup();
+        resolve();
+      };
+      const onError = (): void => {
+        cleanup();
+        reject(new Error("Video metadata could not be loaded."));
+      };
+
+      video.addEventListener("loadeddata", onLoadedData, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      video.src = url;
+      video.currentTime = 0;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = thumbnailWidth;
+    canvas.height = thumbnailHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+
+    const sourceWidth = video.videoWidth || thumbnailWidth;
+    const sourceHeight = video.videoHeight || thumbnailHeight;
+    const scale = Math.max(thumbnailWidth / sourceWidth, thumbnailHeight / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    context.drawImage(
+      video,
+      (thumbnailWidth - drawWidth) / 2,
+      (thumbnailHeight - drawHeight) / 2,
+      drawWidth,
+      drawHeight
+    );
+
+    const dataUrl = canvas.toDataURL(thumbnailMimeType, 0.72);
+    return {
+      base64: dataUrl.slice(dataUrl.indexOf(",") + 1),
+      mimeType: thumbnailMimeType
+    };
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 async function tryWriteArtifactsToCompanion(
