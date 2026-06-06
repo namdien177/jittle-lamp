@@ -51,6 +51,7 @@ type CloudWriteResult =
   | {
       saved: false;
       error: string;
+      evidenceId?: string;
     };
 
 type CompanionHealthPayload = {
@@ -74,6 +75,7 @@ type PendingCloudRetry = {
   archive: SessionArchive;
   recordingBlob: Blob;
   jsonBlob: Blob;
+  evidenceId?: string;
 };
 
 type VideoThumbnail = {
@@ -143,7 +145,8 @@ async function handleRequest(
           sessionId: request.sessionId,
           archive: finalized.archive,
           recordingBlob,
-          jsonBlob: finalized.jsonBlob
+          jsonBlob: finalized.jsonBlob,
+          ...(cloudUploadResult.evidenceId ? { evidenceId: cloudUploadResult.evidenceId } : {})
         };
         throw new Error(cloudUploadResult.error);
       }
@@ -192,10 +195,17 @@ async function handleRequest(
         retry.archive,
         retry.recordingBlob,
         retry.jsonBlob,
-        request.cloudAuthToken
+        request.cloudAuthToken,
+        retry.evidenceId
       );
 
       if (!cloudUploadResult.saved) {
+        pendingCloudRetry = {
+          ...retry,
+          ...(cloudUploadResult.evidenceId || retry.evidenceId
+            ? { evidenceId: cloudUploadResult.evidenceId ?? retry.evidenceId }
+            : {})
+        };
         throw new Error(cloudUploadResult.error);
       }
 
@@ -215,30 +225,31 @@ async function tryWriteArtifactsToCloud(
   archive: SessionArchive,
   recordingBlob: Blob,
   jsonBlob: Blob,
-  authToken?: string
+  authToken?: string,
+  replaceEvidenceId?: string
 ): Promise<CloudWriteResult> {
   if (!authToken) {
     return { saved: false, error: "Cloud upload skipped because no extension auth token was available." };
   }
 
+  let startedEvidenceId: string | undefined;
+
   try {
-    const meResponse = await fetch(`${cloudApiOrigin}/protected/me`, {
+    const meResponse = await fetchCloud("Cloud auth check", `${cloudApiOrigin}/protected/me`, {
       method: "GET",
-      headers: { authorization: `Bearer ${authToken}` },
-      credentials: "include"
+      headers: { authorization: `Bearer ${authToken}` }
     });
 
     if (!meResponse.ok) {
-      return { saved: false, error: `Cloud auth check failed with HTTP ${meResponse.status}.` };
+      return { saved: false, error: await responseErrorSummary(meResponse, "Cloud auth check failed") };
     }
 
     const recordingChecksum = await sha256Hex(await recordingBlob.arrayBuffer());
     const archiveChecksum = await sha256Hex(await jsonBlob.arrayBuffer());
     const thumbnail = await createVideoThumbnail(recordingBlob);
 
-    const startResponse = await fetch(`${cloudApiOrigin}/evidences/desktop-sessions/sync/start`, {
+    const startResponse = await fetchCloud("Cloud upload start", `${cloudApiOrigin}/evidences/desktop-sessions/sync/start`, {
       method: "POST",
-      credentials: "include",
       headers: {
         authorization: `Bearer ${authToken}`,
         "content-type": "application/json"
@@ -247,6 +258,7 @@ async function tryWriteArtifactsToCloud(
         sessionId: archive.sessionId,
         title: archive.name,
         sourceMetadata: JSON.stringify({ source: "extension" }),
+        ...(replaceEvidenceId ? { replaceEvidenceId } : {}),
         ...(thumbnail
           ? {
               thumbnailBase64: thumbnail.base64,
@@ -261,16 +273,16 @@ async function tryWriteArtifactsToCloud(
     });
 
     if (!startResponse.ok) {
-      return { saved: false, error: `Cloud upload start failed with HTTP ${startResponse.status}.` };
+      return { saved: false, error: await responseErrorSummary(startResponse, "Cloud upload start failed") };
     }
 
     const payload = (await startResponse.json()) as CloudUploadStartPayload;
+    startedEvidenceId = payload.evidenceId;
 
     for (const session of payload.uploadSessions) {
       const blob = session.key === "recording" ? recordingBlob : jsonBlob;
-      const putResponse = await fetch(session.uploadUrl, {
+      const putResponse = await fetchCloud(`Cloud artifact upload (${session.key})`, normalizeCloudUploadUrl(session.uploadUrl), {
         method: "PUT",
-        credentials: "include",
         headers: {
           authorization: `Bearer ${authToken}`,
           "content-type": session.headers["content-type"]
@@ -278,13 +290,16 @@ async function tryWriteArtifactsToCloud(
         body: blob
       });
       if (!putResponse.ok) {
-        return { saved: false, error: `Cloud artifact upload failed with HTTP ${putResponse.status}.` };
+        return {
+          saved: false,
+          error: await responseErrorSummary(putResponse, "Cloud artifact upload failed"),
+          evidenceId: payload.evidenceId
+        };
       }
 
       const checksum = session.key === "recording" ? recordingChecksum : archiveChecksum;
-      const completeResponse = await fetch(`${cloudApiOrigin}/evidences/uploads/${encodeURIComponent(session.uploadId)}/complete`, {
+      const completeResponse = await fetchCloud(`Cloud artifact completion (${session.key})`, `${cloudApiOrigin}/evidences/uploads/${encodeURIComponent(session.uploadId)}/complete`, {
         method: "POST",
-        credentials: "include",
         headers: {
           authorization: `Bearer ${authToken}`,
           "content-type": "application/json"
@@ -297,7 +312,11 @@ async function tryWriteArtifactsToCloud(
       });
 
       if (!completeResponse.ok) {
-        return { saved: false, error: `Cloud artifact completion failed with HTTP ${completeResponse.status}.` };
+        return {
+          saved: false,
+          error: await responseErrorSummary(completeResponse, "Cloud artifact completion failed"),
+          evidenceId: payload.evidenceId
+        };
       }
     }
 
@@ -308,7 +327,74 @@ async function tryWriteArtifactsToCloud(
       cloudUrl: `${cloudWebOrigin}/evidence/${encodeURIComponent(payload.evidenceId)}`
     };
   } catch (error: unknown) {
-    return { saved: false, error: errorMessage(error) };
+    return {
+      saved: false,
+      error: errorMessage(error),
+      ...(startedEvidenceId ? { evidenceId: startedEvidenceId } : {})
+    };
+  }
+}
+
+async function fetchCloud(label: string, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error: unknown) {
+    throw new Error(`${label} failed: ${errorMessage(error)}`);
+  }
+}
+
+function normalizeCloudUploadUrl(uploadUrl: string): string {
+  try {
+    const url = new URL(uploadUrl);
+    const cloudOrigin = new URL(cloudApiOrigin);
+
+    if (url.protocol === "http:" && url.host === cloudOrigin.host && cloudOrigin.protocol === "https:") {
+      url.protocol = "https:";
+      return url.toString();
+    }
+  } catch {
+    return uploadUrl;
+  }
+
+  return uploadUrl;
+}
+
+async function responseErrorSummary(response: Response, label: string): Promise<string> {
+  const status = `HTTP ${response.status}`;
+
+  try {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const text = (await response.text()).trim();
+      return text ? `${label} with ${status}: ${text.slice(0, 240)}` : `${label} with ${status}.`;
+    }
+
+    const payload = (await response.json()) as {
+      error?: {
+        code?: unknown;
+        message?: unknown;
+      };
+      message?: unknown;
+    };
+    const code = typeof payload.error?.code === "string" ? payload.error.code : undefined;
+    const message =
+      typeof payload.error?.message === "string"
+        ? payload.error.message
+        : typeof payload.message === "string"
+          ? payload.message
+          : undefined;
+
+    if (code && message) {
+      return `${label} with ${status} (${code}): ${message}`;
+    }
+
+    if (message) {
+      return `${label} with ${status}: ${message}`;
+    }
+
+    return `${label} with ${status}.`;
+  } catch {
+    return `${label} with ${status}.`;
   }
 }
 

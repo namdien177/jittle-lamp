@@ -122,11 +122,16 @@ export const contentRefreshWidgetMessageSchema = z.object({
   state: popupStateSchema
 });
 
+export const contentWidgetPingMessageSchema = z.object({
+  type: z.literal("jl/content-widget-ping")
+});
+
 export const backgroundToContentMessageSchema = z.discriminatedUnion("type", [
   contentBeginCaptureMessageSchema,
   contentEndCaptureMessageSchema,
   contentToggleWidgetMessageSchema,
-  contentRefreshWidgetMessageSchema
+  contentRefreshWidgetMessageSchema,
+  contentWidgetPingMessageSchema
 ]);
 
 export const contentReadyMessageSchema = z.object({

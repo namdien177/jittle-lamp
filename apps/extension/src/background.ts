@@ -420,7 +420,7 @@ async function startRecordingSession(): Promise<void> {
     registerWebRequestFallbackListeners();
     await ensureOffscreenDocument();
     await ensureRecordableTab(tab.id, "before content bridge");
-    await ensureContentBridge(tab.id, draft.sessionId);
+    await ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: false });
     await ensureRecordableTab(tab.id, "before debugger attach");
     const debuggerAttached = await attachDebugger(tab.id);
 
@@ -762,7 +762,7 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
   if (pendingRecovery) {
     try {
       const debuggerAttached = await attachDebugger(tabId);
-      await ensureContentBridge(tabId, nextDraft.sessionId);
+      await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: false });
       clearPendingRecovery(tabId);
       await clearPendingRecoveryAlarm(tabId);
       await saveDraft(
@@ -783,7 +783,7 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
     }
   }
 
-  await ensureContentBridge(tabId, nextDraft.sessionId);
+  await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: false });
 }
 
 async function handleContentRuntimeMessage(
@@ -920,10 +920,6 @@ async function handleFallbackRequestStarted(details: chrome.webRequest.WebReques
     return;
   }
 
-  if (details.type === "xmlhttprequest") {
-    return;
-  }
-
   const requestState = createNetworkRequestState();
   requestState.hasBaseRequest = true;
   requestState.method = details.method;
@@ -944,10 +940,6 @@ async function handleFallbackRequestHeaders(details: chrome.webRequest.WebReques
     return;
   }
 
-  if (details.type === "xmlhttprequest") {
-    return;
-  }
-
   const requestState = getOrCreateNetworkRequestState(details.tabId, details.requestId);
   requestState.requestHeaders = headerEntriesFromWebRequestHeaders(details.requestHeaders);
 }
@@ -957,19 +949,11 @@ async function handleFallbackResponseHeaders(details: chrome.webRequest.WebRespo
     return;
   }
 
-  if (details.type === "xmlhttprequest") {
-    return;
-  }
-
   applyWebRequestResponseMetadata(details);
 }
 
 async function handleFallbackRequestCompleted(details: chrome.webRequest.WebResponseHeadersDetails): Promise<void> {
   if (!(await shouldCaptureFallbackNetwork(details.tabId))) {
-    return;
-  }
-
-  if (details.type === "xmlhttprequest") {
     return;
   }
 
@@ -1001,10 +985,6 @@ async function handleFallbackRequestCompleted(details: chrome.webRequest.WebResp
 
 async function handleFallbackRequestFailed(details: chrome.webRequest.WebResponseErrorDetails): Promise<void> {
   if (!(await shouldCaptureFallbackNetwork(details.tabId))) {
-    return;
-  }
-
-  if (details.type === "xmlhttprequest") {
     return;
   }
 
@@ -1649,14 +1629,21 @@ function shouldAttemptDetachRecovery(tab: chrome.tabs.Tab): boolean {
   return tab.status === "loading";
 }
 
-async function ensureContentBridge(tabId: number, sessionId: string): Promise<void> {
+async function ensureContentBridge(
+  tabId: number,
+  sessionId: string,
+  options: { injectNetworkProbe?: boolean } = {}
+): Promise<void> {
+  const injectNetworkProbe = options.injectNetworkProbe ?? false;
   console.debug("[jittle-lamp] Ensuring content bridge.", { tabId, sessionId });
   try {
     await chrome.tabs.sendMessage(tabId, {
       type: "jl/content-begin-capture",
       sessionId
     });
-    await ensureNetworkProbe(tabId);
+    if (injectNetworkProbe) {
+      await ensureNetworkProbe(tabId);
+    }
     return;
   } catch (error: unknown) {
     const message = rawErrorMessage(error);
@@ -1671,7 +1658,9 @@ async function ensureContentBridge(tabId: number, sessionId: string): Promise<vo
     files: ["content.js"]
   });
 
-  await ensureNetworkProbe(tabId);
+  if (injectNetworkProbe) {
+    await ensureNetworkProbe(tabId);
+  }
 
   await chrome.tabs.sendMessage(tabId, {
     type: "jl/content-begin-capture",
@@ -2945,8 +2934,7 @@ async function readCloudAccountLabel(token: string): Promise<string | undefined>
   try {
     const response = await fetch(`${configuredCloudApiOrigin}/protected/me`, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}` },
-      credentials: "include"
+      headers: { authorization: `Bearer ${token}` }
     });
 
     if (!response.ok) {

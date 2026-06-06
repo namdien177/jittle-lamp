@@ -8,13 +8,13 @@ import {
 import {
   BookOpen,
   CircleStop,
-  Cloud,
   Copy,
-  Download,
   ExternalLink,
+  LogOut,
   Maximize2,
   Minimize2,
   Monitor,
+  Move,
   Play,
   User,
   X,
@@ -96,6 +96,9 @@ function bootContentBridge(): void {
 
       case "jl/content-refresh-widget":
         floatingWidget?.renderIfVisible(parsed.data.state);
+        return;
+
+      case "jl/content-widget-ping":
         return;
     }
   });
@@ -350,8 +353,9 @@ class FloatingWidgetController {
   private readonly sessionText: HTMLSpanElement;
   private readonly destinationText: HTMLSpanElement;
   private readonly accountButton: HTMLButtonElement;
-  private readonly outputButton: HTMLButtonElement;
-  private readonly outputIconSlot: HTMLSpanElement;
+  private readonly accountIconSlot: HTMLSpanElement;
+  private readonly logoutButton: HTMLButtonElement;
+  private readonly outputCopyButton: HTMLButtonElement;
   private readonly collapseButtons: HTMLButtonElement[];
   private readonly compactPhasePill: HTMLSpanElement;
   private readonly statusText: HTMLSpanElement;
@@ -363,7 +367,7 @@ class FloatingWidgetController {
   private readonly linkChipLabel: HTMLSpanElement;
   private readonly openLinkButton: HTMLButtonElement;
   private readonly closeButton: HTMLButtonElement;
-  private readonly dragHandle: HTMLElement;
+  private readonly dragHandles: HTMLElement[];
   private refreshTimer: number | null = null;
   private lastTitle = "";
   private compact = true;
@@ -384,7 +388,7 @@ class FloatingWidgetController {
     this.host.style.top = "auto";
     this.host.style.transform = "translateX(-50%)";
     this.host.style.zIndex = "2147483647";
-    this.host.style.width = "560px";
+    this.host.style.width = "420px";
     this.host.style.maxWidth = "calc(100vw - 16px)";
     this.host.style.pointerEvents = "auto";
 
@@ -398,8 +402,9 @@ class FloatingWidgetController {
     this.sessionText = this.require<HTMLSpanElement>("[data-role='session']");
     this.destinationText = this.require<HTMLSpanElement>("[data-role='destination']");
     this.accountButton = this.require<HTMLButtonElement>("[data-role='account-link']");
-    this.outputButton = this.require<HTMLButtonElement>("[data-role='output-link']");
-    this.outputIconSlot = this.require<HTMLSpanElement>("[data-role='output-icon']");
+    this.accountIconSlot = this.require<HTMLSpanElement>("[data-role='account-icon']");
+    this.logoutButton = this.require<HTMLButtonElement>("[data-role='logout']");
+    this.outputCopyButton = this.require<HTMLButtonElement>("[data-role='output-copy']");
     this.collapseButtons = this.requireAll<HTMLButtonElement>("[data-role='collapse']");
     this.compactPhasePill = this.require<HTMLSpanElement>("[data-role='compact-phase']");
     this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
@@ -411,7 +416,7 @@ class FloatingWidgetController {
     this.linkChipLabel = this.require<HTMLSpanElement>("[data-role='link-label']");
     this.openLinkButton = this.require<HTMLButtonElement>("[data-role='open-link']");
     this.closeButton = this.require<HTMLButtonElement>("[data-role='close']");
-    this.dragHandle = this.require<HTMLElement>("[data-role='drag']");
+    this.dragHandles = this.requireAll<HTMLElement>("[data-role='drag']");
     this.host.dataset.compact = "true";
     this.syncCollapseButton();
 
@@ -481,13 +486,11 @@ class FloatingWidgetController {
     });
 
     this.accountButton.addEventListener("click", () => {
-      openJittleLampWeb("/");
+      openJittleLampWeb("/evidence");
     });
 
-    this.outputButton.addEventListener("click", () => {
-      if (this.outputButton.dataset.destination === "cloud") {
-        openJittleLampWeb("/");
-      }
+    this.logoutButton.addEventListener("click", () => {
+      void this.performAction("jl/popup-logout-cloud");
     });
 
     this.linkChip.addEventListener("click", () => {
@@ -517,6 +520,25 @@ class FloatingWidgetController {
       window.open(cloudUrl, "_blank", "noopener,noreferrer");
     });
 
+    this.outputCopyButton.addEventListener("click", () => {
+      const cloudUrl = this.outputCopyButton.dataset.cloudUrl;
+
+      if (!cloudUrl) {
+        return;
+      }
+
+      void copyTextToClipboard(cloudUrl).then((copied) => {
+        this.outputCopyButton.title = copied ? "Copied evidence link" : "Copy failed";
+        this.outputCopyButton.setAttribute("aria-label", copied ? "Copied evidence link" : "Copy failed");
+        window.setTimeout(() => {
+          if (this.outputCopyButton.dataset.cloudUrl === cloudUrl) {
+            this.outputCopyButton.title = `Copy ${cloudUrl}`;
+            this.outputCopyButton.setAttribute("aria-label", "Copy evidence link");
+          }
+        }, 1_200);
+      });
+    });
+
     for (const collapseButton of this.collapseButtons) {
       collapseButton.addEventListener("click", (event) => {
         event.preventDefault();
@@ -542,13 +564,21 @@ class FloatingWidgetController {
       event.stopPropagation();
     });
 
-    this.dragHandle.addEventListener("pointerdown", (event) => {
-      this.beginDrag(event);
-    });
+    for (const dragHandle of this.dragHandles) {
+      dragHandle.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.beginDrag(event, dragHandle);
+      });
+    }
   }
 
   private async performAction(
-    type: "jl/popup-start-recording" | "jl/popup-stop-recording" | "jl/popup-start-cloud-sign-in"
+    type:
+      | "jl/popup-start-recording"
+      | "jl/popup-stop-recording"
+      | "jl/popup-start-cloud-sign-in"
+      | "jl/popup-logout-cloud"
   ): Promise<void> {
     this.setBusy(true);
     try {
@@ -590,13 +620,9 @@ class FloatingWidgetController {
     const status = error ?? widgetStatusText(state);
     this.statusText.textContent = status;
     this.statusText.dataset.tone = error ? "error" : "neutral";
-    this.accountButton.title = account;
-    this.accountButton.setAttribute("aria-label", `${account}. Open Jittle Lamp.`);
-    const outputKind = getDestinationKind(state);
-    this.outputButton.dataset.destination = outputKind;
-    this.outputButton.title = `${destination}${outputKind === "cloud" ? ". Open cloud library." : ""}`;
-    this.outputButton.setAttribute("aria-label", this.outputButton.title);
-    hydrateIconSlot(this.outputIconSlot, outputIconName(outputKind));
+    this.accountButton.title = "Open evidence list";
+    this.accountButton.setAttribute("aria-label", "Open evidence list");
+    hydrateIconSlot(this.accountIconSlot, state.cloud.status === "signed-in" ? "User" : "Monitor");
 
     const cloudUrl = activeSession?.statusText ? extractFirstUrl(activeSession.statusText) : undefined;
     this.linkChip.hidden = false;
@@ -610,10 +636,17 @@ class FloatingWidgetController {
     this.openLinkButton.title = cloudUrl ? `Open ${cloudUrl}` : "No recent evidence session.";
     this.openLinkButton.setAttribute("aria-label", cloudUrl ? "Open evidence link" : "No recent evidence session");
     this.openLinkButton.dataset.cloudUrl = cloudUrl ?? "";
+    this.outputCopyButton.hidden = !cloudUrl;
+    this.outputCopyButton.disabled = !cloudUrl;
+    this.outputCopyButton.title = cloudUrl ? `Copy ${cloudUrl}` : "No recent evidence session.";
+    this.outputCopyButton.setAttribute("aria-label", cloudUrl ? "Copy evidence link" : "No recent evidence session");
+    this.outputCopyButton.dataset.cloudUrl = cloudUrl ?? "";
 
     this.startButton.hidden = !state.canStart;
     this.stopButton.hidden = !state.canStop;
     this.signInButton.hidden = state.cloud.status === "signed-in";
+    this.logoutButton.hidden = state.cloud.status !== "signed-in";
+    this.logoutButton.disabled = state.cloud.status !== "signed-in";
     this.startButton.disabled = !state.canStart;
     this.stopButton.disabled = !state.canStop;
   }
@@ -635,6 +668,8 @@ class FloatingWidgetController {
     this.startButton.disabled = busy || this.startButton.hidden === true;
     this.stopButton.disabled = busy || this.stopButton.hidden === true;
     this.signInButton.disabled = busy || this.signInButton.hidden === true;
+    this.logoutButton.disabled = busy || this.logoutButton.hidden === true;
+    this.outputCopyButton.disabled = busy || this.outputCopyButton.hidden === true;
     this.host.dataset.busy = String(busy);
   }
 
@@ -652,7 +687,7 @@ class FloatingWidgetController {
     this.host.remove();
   }
 
-  private beginDrag(event: PointerEvent): void {
+  private beginDrag(event: PointerEvent, dragHandle: HTMLElement): void {
     if (event.button !== 0) {
       return;
     }
@@ -663,8 +698,10 @@ class FloatingWidgetController {
       y: event.clientY - rect.top
     };
 
-    this.dragHandle.setPointerCapture(event.pointerId);
+    dragHandle.setPointerCapture(event.pointerId);
     this.host.style.right = "auto";
+    this.host.style.bottom = "auto";
+    this.host.style.transform = "none";
     this.host.style.left = `${rect.left}px`;
     this.host.style.top = `${rect.top}px`;
 
@@ -676,7 +713,7 @@ class FloatingWidgetController {
     };
 
     const stop = (upEvent: PointerEvent): void => {
-      this.dragHandle.releasePointerCapture(upEvent.pointerId);
+      dragHandle.releasePointerCapture(upEvent.pointerId);
       window.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerup", stop, true);
     };
@@ -712,6 +749,7 @@ async function sendPopupRequest(
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
     | "jl/popup-start-cloud-sign-in"
+    | "jl/popup-logout-cloud"
 ): Promise<PopupResponse> {
   return popupResponseSchema.parse(
     await chrome.runtime.sendMessage({
@@ -813,20 +851,19 @@ function clamp(value: number, min: number, max: number): number {
 const floatingWidgetIcons = {
   BookOpen,
   CircleStop,
-  Cloud,
   Copy,
-  Download,
   ExternalLink,
+  LogOut,
   Maximize2,
   Minimize2,
   Monitor,
+  Move,
   Play,
   User,
   X
 };
 
 type FloatingWidgetIconName = keyof typeof floatingWidgetIcons;
-type DestinationKind = "cloud" | "desktop" | "download";
 
 function hydrateFloatingWidgetIcons(root: ShadowRoot): void {
   for (const slot of root.querySelectorAll<HTMLElement>("[data-icon]")) {
@@ -854,30 +891,6 @@ function hydrateIconSlot(slot: HTMLElement, iconName: FloatingWidgetIconName): v
 
 function isFloatingWidgetIconName(value: unknown): value is FloatingWidgetIconName {
   return typeof value === "string" && value in floatingWidgetIcons;
-}
-
-function getDestinationKind(state: PopupState): DestinationKind {
-  if (state.cloud.status === "signed-in") {
-    return "cloud";
-  }
-
-  if (state.companion.status === "online") {
-    return "desktop";
-  }
-
-  return "download";
-}
-
-function outputIconName(kind: DestinationKind): FloatingWidgetIconName {
-  if (kind === "cloud") {
-    return "Cloud";
-  }
-
-  if (kind === "desktop") {
-    return "Monitor";
-  }
-
-  return "Download";
 }
 
 function openJittleLampWeb(path: string): void {
@@ -933,6 +946,13 @@ function floatingWidgetTemplate(): string {
         font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-size: 12px;
         line-height: 1.4;
+        opacity: 0.62;
+        transition: opacity 140ms ease, box-shadow 140ms ease;
+      }
+
+      .jl-float:hover,
+      .jl-float:focus-within {
+        opacity: 1;
       }
 
       .jl-head {
@@ -1008,6 +1028,39 @@ function floatingWidgetTemplate(): string {
         gap: 6px;
       }
 
+      .jl-widget-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+      }
+
+      .jl-drag-zone {
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 46px;
+        width: 46px;
+        height: 32px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        background: #151515;
+        color: #888888;
+        cursor: grab;
+        font: inherit;
+        user-select: none;
+      }
+
+      .jl-drag-zone:hover {
+        border-color: rgba(34, 197, 94, 0.28);
+        background: #181818;
+        color: #22c55e;
+      }
+
+      .jl-drag-zone:active {
+        cursor: grabbing;
+      }
+
       .jl-tool-button {
         display: inline-grid;
         place-items: center;
@@ -1023,17 +1076,6 @@ function floatingWidgetTemplate(): string {
       .jl-tool-button:hover {
         border-color: rgba(34, 197, 94, 0.4);
         color: #22c55e;
-      }
-
-      .jl-tool-button[data-destination="desktop"],
-      .jl-tool-button[data-destination="download"] {
-        cursor: default;
-      }
-
-      .jl-tool-button[data-destination="desktop"]:hover,
-      .jl-tool-button[data-destination="download"]:hover {
-        border-color: rgba(255, 255, 255, 0.13);
-        color: #888888;
       }
 
       .jl-icon-svg {
@@ -1143,6 +1185,18 @@ function floatingWidgetTemplate(): string {
         background: transparent;
       }
 
+      .jl-row-action {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .jl-row-action .jl-value {
+        flex: 1 1 auto;
+      }
+
       .jl-label {
         color: #888888;
         font-size: 11px;
@@ -1161,6 +1215,34 @@ function floatingWidgetTemplate(): string {
 
       .jl-status[data-tone="error"] {
         color: #ef4444;
+      }
+
+      .jl-inline-button {
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 4px;
+        background: #181818;
+        color: #888888;
+        cursor: pointer;
+      }
+
+      .jl-inline-button:hover:not(:disabled) {
+        border-color: rgba(239, 68, 68, 0.36);
+        color: #ef4444;
+      }
+
+      .jl-inline-button[data-role="output-copy"]:hover:not(:disabled) {
+        border-color: rgba(34, 197, 94, 0.4);
+        color: #22c55e;
+      }
+
+      .jl-inline-button:disabled {
+        cursor: default;
+        opacity: 0.45;
       }
 
       .jl-actions {
@@ -1321,6 +1403,10 @@ function floatingWidgetTemplate(): string {
         padding: 0;
       }
 
+      .jl-evidence-link {
+        flex: 0 0 32px;
+      }
+
       :host([data-compact="true"]) .jl-expanded {
         display: none;
       }
@@ -1349,11 +1435,8 @@ function floatingWidgetTemplate(): string {
       <div class="jl-body">
         <div class="jl-compact">
           <span class="jl-pill" data-role="compact-phase" data-phase="idle">READY</span>
-          <button class="jl-tool-button" data-role="account-link" type="button" title="Open Jittle Lamp" aria-label="Open Jittle Lamp account">
-            <span data-icon="User"></span>
-          </button>
-          <button class="jl-tool-button" data-role="output-link" type="button" title="Output" aria-label="Output">
-            <span data-role="output-icon" data-icon="Download"></span>
+          <button class="jl-tool-button jl-evidence-link" data-role="account-link" type="button" title="Open evidence list" aria-label="Open evidence list">
+            <span data-role="account-icon" data-icon="User"></span>
           </button>
           <button class="jl-request-chip jl-open-link" data-role="open-link" type="button" disabled aria-label="No recent evidence session">
             <span class="jl-action-icon" data-icon="ExternalLink"></span>
@@ -1362,19 +1445,29 @@ function floatingWidgetTemplate(): string {
             <span class="jl-action-icon" data-icon="Copy"></span>
             <span data-role="link-label">No recent session</span>
           </button>
-          <button class="jl-tool-button" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
-            <span data-icon="Maximize2"></span>
-          </button>
+          <div class="jl-widget-actions">
+            <button class="jl-drag-zone" data-role="drag" type="button" title="Drag recorder" aria-label="Drag recorder">
+              <span data-icon="Move"></span>
+            </button>
+            <button class="jl-tool-button" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
+              <span data-icon="Maximize2"></span>
+            </button>
+          </div>
         </div>
-        <div class="jl-expanded-head" data-role="drag">
+        <div class="jl-expanded-head">
           <div class="jl-expanded-brand">
             <span class="jl-dot"></span>
             <span class="jl-brand">Jittle Lamp</span>
-            <span class="jl-pill" data-role="phase" data-phase="idle">READY</span>
           </div>
-          <button class="jl-tool-button" data-role="collapse" type="button" title="Minimize" aria-label="Minimize">
-            <span data-icon="Minimize2"></span>
-          </button>
+          <div class="jl-widget-actions">
+            <span class="jl-pill" data-role="phase" data-phase="idle">READY</span>
+            <button class="jl-drag-zone" data-role="drag" type="button" title="Drag recorder" aria-label="Drag recorder">
+              <span data-icon="Move"></span>
+            </button>
+            <button class="jl-tool-button" data-role="collapse" type="button" title="Minimize" aria-label="Minimize">
+              <span data-icon="Minimize2"></span>
+            </button>
+          </div>
         </div>
         <div class="jl-actions">
           <button class="jl-button jl-start" data-role="start" type="button">
@@ -1391,7 +1484,12 @@ function floatingWidgetTemplate(): string {
           <div class="jl-grid">
             <div class="jl-row">
               <span class="jl-label">Account</span>
-              <span class="jl-value" data-role="account">Checking sign-in</span>
+              <div class="jl-row-action">
+                <span class="jl-value" data-role="account">Checking sign-in</span>
+                <button class="jl-inline-button" data-role="logout" type="button" title="Log out" aria-label="Log out" hidden>
+                  <span data-icon="LogOut"></span>
+                </button>
+              </div>
             </div>
             <div class="jl-row">
               <span class="jl-label">Session</span>
@@ -1399,7 +1497,12 @@ function floatingWidgetTemplate(): string {
             </div>
             <div class="jl-row">
               <span class="jl-label">Output</span>
-              <span class="jl-value" data-role="destination">Browser download</span>
+              <div class="jl-row-action">
+                <span class="jl-value" data-role="destination">Browser download</span>
+                <button class="jl-inline-button" data-role="output-copy" type="button" title="No recent evidence session." aria-label="No recent evidence session" hidden>
+                  <span data-icon="Copy"></span>
+                </button>
+              </div>
             </div>
           </div>
           <span class="jl-status" data-role="status" hidden>Ready.</span>
@@ -1600,9 +1703,10 @@ function describeElementText(element: Element): string | undefined {
 }
 
 function cssEscape(value: string): string {
+  const stringValue = String(value);
   return typeof CSS !== "undefined" && typeof CSS.escape === "function"
-    ? CSS.escape(value)
-    : value.replace(/[^a-zA-Z0-9_-]/g, (character) => `\\${character}`);
+    ? CSS.escape(stringValue)
+    : stringValue.replace(/[^a-zA-Z0-9_-]/g, (character) => `\\${character}`);
 }
 
 function escapeAttributeValue(value: string): string {

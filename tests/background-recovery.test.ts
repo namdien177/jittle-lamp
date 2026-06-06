@@ -91,6 +91,23 @@ describe("background recovery", () => {
     expect(alarmInfo?.when).toBe(new Date("2026-01-01T00:05:00.000Z").getTime());
   });
 
+  test("does not inject the page network probe when debugger capture starts", async () => {
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording"
+    });
+
+    expect(result.responded).toBeTrue();
+    expect(chromeHarness.debuggerAttachTabs).toContain(7);
+    expect(chromeHarness.executeScriptCalls.some((call) => call.files?.includes("network-probe.js"))).toBeFalse();
+  });
+
   test("exports the partial session when the recording reaches five minutes", async () => {
     await backgroundTest.saveDraft(createRecordingDraft());
 
@@ -577,6 +594,7 @@ function createChromeHarness() {
   const debuggerAttachTabs: number[] = [];
   const debuggerDetachTabs: number[] = [];
   const debuggerCommands: Array<{ tabId: number; method: string }> = [];
+  const executeScriptCalls: Array<{ tabId?: number; files?: string[]; hasFunc: boolean }> = [];
   const createdAlarms: string[] = [];
   const clearedAlarms: string[] = [];
   const fetchResponses = new Map<string, unknown[]>();
@@ -718,7 +736,17 @@ function createChromeHarness() {
       }
     },
     scripting: {
-      async executeScript(input: { func?: () => unknown }): Promise<Array<{ result?: unknown }>> {
+      async executeScript(input: {
+        target?: { tabId?: number };
+        files?: string[];
+        func?: () => unknown;
+      }): Promise<Array<{ result?: unknown }>> {
+        executeScriptCalls.push({
+          ...(input.target?.tabId !== undefined ? { tabId: input.target.tabId } : {}),
+          ...(input.files !== undefined ? { files: input.files } : {}),
+          hasFunc: typeof input.func === "function"
+        });
+
         if (typeof input.func === "function") {
           return [{ result: true }];
         }
@@ -781,6 +809,7 @@ function createChromeHarness() {
     debuggerAttachTabs,
     debuggerDetachTabs,
     debuggerCommands,
+    executeScriptCalls,
     createdAlarms,
     clearedAlarms,
     setTab(tab: StubTab): void {
@@ -865,6 +894,7 @@ function createChromeHarness() {
       debuggerAttachTabs.length = 0;
       debuggerDetachTabs.length = 0;
       debuggerCommands.length = 0;
+      executeScriptCalls.length = 0;
       createdAlarms.length = 0;
       clearedAlarms.length = 0;
       fetchResponses.clear();

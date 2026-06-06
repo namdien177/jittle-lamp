@@ -261,9 +261,9 @@ const buildAllowedOriginSet = (runtime: RuntimeConfig): Set<string> => {
  * clients. Proxy-forwarded host/proto headers are attacker-controllable, so we
  * only honor a forwarded origin when it matches a configured allowlist. This
  * prevents host-header injection from redirecting authenticated uploads (and
- * their bearer tokens) to an arbitrary host. When the forwarded origin is not
- * trusted we fall back to the configured API origin, then to the actual
- * connection origin.
+ * their bearer tokens) to an arbitrary host. When a public API origin is
+ * configured it wins over the connection origin because production requests may
+ * arrive from an internal HTTP hop behind a TLS-terminating proxy.
  */
 const resolveExternalRequestOrigin = (
 	request: Request,
@@ -271,6 +271,10 @@ const resolveExternalRequestOrigin = (
 ): string => {
 	const requestUrl = new URL(request.url);
 	const connectionOrigin = `${requestUrl.protocol.replace(/:$/, "")}://${requestUrl.host}`;
+	const secureConnectionOrigin =
+		!isDevelopmentRuntime(runtime) && requestUrl.protocol === "http:"
+			? `https://${requestUrl.host}`
+			: connectionOrigin;
 
 	const forwarded = request.headers.get("forwarded");
 	const forwardedHost =
@@ -291,7 +295,7 @@ const resolveExternalRequestOrigin = (
 		}
 	}
 
-	return runtime.apiOrigin ?? connectionOrigin;
+	return runtime.apiOrigin ?? secureConnectionOrigin;
 };
 
 const encodeSha256 = async (payload: ArrayBuffer): Promise<string> => {
