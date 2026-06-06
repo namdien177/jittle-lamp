@@ -2,6 +2,10 @@ import { popupResponseSchema, type PopupResponse, type PopupState } from "@jittl
 import { CircleStop, createIcons, Play } from "lucide";
 
 const refreshIntervalMs = 1_500;
+const networkFallbackPermissions: chrome.permissions.Permissions = {
+  permissions: ["webRequest"],
+  origins: ["http://*/*", "https://*/*"]
+};
 
 const statusBadge = requireElement<HTMLSpanElement>("[data-role='status-badge']");
 const companionStatus = requireElement<HTMLElement>("[data-role='companion-status']");
@@ -26,6 +30,8 @@ const stopButton = requireElement<HTMLButtonElement>("[data-role='stop-button']"
 
 let requestInFlight = false;
 let lastRenderedTitle = "";
+const targetTabId = parseTargetTabId();
+const targetPage = parseTargetPage();
 
 createIcons({ icons: { CircleStop, Play } });
 void refreshState();
@@ -109,15 +115,7 @@ async function performAction(
 
   try {
     if (type === "jl/popup-start-recording") {
-      const granted = await chrome.permissions.request({
-        permissions: ["webRequest"],
-        origins: ["http://*/*", "https://*/*"]
-      });
-
-      if (!granted) {
-        transientError = "Grant recording access to capture active-tab interactions, console output, and network evidence.";
-        return;
-      }
+      await requestOptionalNetworkFallbackPermission();
     }
 
     const response = await sendPopupMessage(type);
@@ -132,6 +130,18 @@ async function performAction(
   }
 
   await refreshState(transientError);
+}
+
+async function requestOptionalNetworkFallbackPermission(): Promise<void> {
+  if (!("permissions" in chrome) || !chrome.permissions?.request) {
+    return;
+  }
+
+  try {
+    await chrome.permissions.request(networkFallbackPermissions);
+  } catch (error: unknown) {
+    console.warn("Unable to request optional network fallback permission.", error);
+  }
 }
 
 async function refreshState(errorOverride?: string): Promise<void> {
@@ -156,11 +166,37 @@ async function sendPopupMessage(
     | "jl/popup-open-evidence-list"
     | "jl/popup-logout-cloud"
 ): Promise<PopupResponse> {
+  const message =
+    type === "jl/popup-start-recording" && typeof targetTabId === "number"
+      ? { type, tabId: targetTabId, page: targetPage }
+      : { type };
+
   return popupResponseSchema.parse(
-    await chrome.runtime.sendMessage({
-      type
-    })
+    await chrome.runtime.sendMessage(message)
   );
+}
+
+function parseTargetPage(): { title?: string; url?: string } | undefined {
+  const params = new URLSearchParams(window.location.search);
+  const title = params.get("targetTitle")?.trim();
+  const url = params.get("targetUrl")?.trim();
+  const page = {
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {})
+  };
+
+  return Object.keys(page).length > 0 ? page : undefined;
+}
+
+function parseTargetTabId(): number | undefined {
+  const rawValue = new URLSearchParams(window.location.search).get("targetTabId");
+
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 async function persistTitleEdit(): Promise<void> {

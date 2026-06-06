@@ -51,10 +51,16 @@ const networkBodyFetchByteLimit = 512 * 1024;
 const pendingRecoveryTimeoutMs = 15_000;
 const pendingRecoveryAlarmPrefix = "jittle-lamp.pending-recovery.";
 const maxRecordingDurationMs = 5 * 60 * 1000;
+const staleProcessingDraftTimeoutMs = maxRecordingDurationMs;
 const maxRecordingDurationAlarmName = "jittle-lamp.recording-duration-limit";
 
 const networkRequestsByTab = new Map<number, Map<string, NetworkRequestState>>();
 const webRequestFallbackTabIds = new Set<number>();
+
+type RecordingPageOverride = {
+  title?: string | undefined;
+  url?: string | undefined;
+};
 const stoppingTabIds = new Set<number>();
 
 let draftMutationQueue = Promise.resolve();
@@ -325,15 +331,18 @@ async function handleIncomingMessage(
       case "jl/popup-get-state":
         return buildPopupResponse(true);
 
-      case "jl/popup-start-recording":
+      case "jl/popup-start-recording": {
+        const targetTabId = popupRequest.data.tabId;
+        const targetPage = popupRequest.data.page;
         return queueDraftMutation(async () => {
           try {
-            await startRecordingSession();
+            await startRecordingSession(targetTabId, targetPage);
             return buildPopupResponse(true);
           } catch (error: unknown) {
             return buildPopupResponse(false, errorMessage(error));
           }
         });
+      }
 
       case "jl/popup-stop-recording":
         return queueDraftMutation(async () => {
@@ -394,10 +403,15 @@ async function handleIncomingMessage(
   return undefined;
 }
 
-async function startRecordingSession(): Promise<void> {
+async function startRecordingSession(
+  targetTabId?: number,
+  targetPage?: RecordingPageOverride
+): Promise<void> {
   const existingDraft = await readDraft();
 
-  if (existingDraft && isSessionBusy(existingDraft)) {
+  if (existingDraft?.phase === "processing" && isStaleProcessingDraft(existingDraft)) {
+    await clearDraft();
+  } else if (existingDraft && isSessionBusy(existingDraft)) {
     throw new Error("A jittle-lamp session is already active.");
   }
 
@@ -405,7 +419,7 @@ async function startRecordingSession(): Promise<void> {
     await clearDraft();
   }
 
-  const tab = await getActiveTab();
+  const tab = await resolveRecordingTab(targetTabId, targetPage);
   const draft = createSessionDraft({
     page: {
       tabId: tab.id,
@@ -417,15 +431,16 @@ async function startRecordingSession(): Promise<void> {
   await saveDraft(draft);
 
   try {
-    await ensureNetworkCapturePermission();
-    registerWebRequestFallbackListeners();
+    const canUseWebRequestFallback = await hasNetworkCapturePermission();
+    if (canUseWebRequestFallback) {
+      registerWebRequestFallbackListeners();
+    }
     await ensureOffscreenDocument();
-    await ensureRecordableTab(tab.id, "before content bridge");
-    await ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: false });
-    await ensureRecordableTab(tab.id, "before debugger attach");
-    const debuggerAttached = await attachDebugger(tab.id);
-
+    await ensureRecordableTab(tab.id, "before tab capture", targetPage);
     const streamId = await getTabMediaStreamId(tab.id);
+    await ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: false });
+    await ensureRecordableTab(tab.id, "before debugger attach", targetPage);
+    const debuggerAttached = await attachDebugger(tab.id, { canUseWebRequestFallback });
 
     const offscreenResponse = await sendOffscreenMessage({
       type: "jl/offscreen-start-recording",
@@ -444,7 +459,7 @@ async function startRecordingSession(): Promise<void> {
         "recording",
         debuggerAttached
           ? "Started active-tab recording in the offscreen document."
-          : debuggerUnavailableDetail()
+          : debuggerUnavailableDetail(canUseWebRequestFallback)
       )
     );
     scheduleMaxRecordingDurationAlarm();
@@ -463,22 +478,16 @@ async function startRecordingSession(): Promise<void> {
   }
 }
 
-async function ensureNetworkCapturePermission(): Promise<void> {
+async function hasNetworkCapturePermission(): Promise<boolean> {
   const requiredPermissions: chrome.permissions.Permissions = {
     permissions: ["webRequest"],
     origins: ["http://*/*", "https://*/*"]
   };
 
-  const hasPermission = await chrome.permissions.contains(requiredPermissions);
-
-  if (hasPermission) {
-    return;
-  }
-
-  const granted = await chrome.permissions.request(requiredPermissions);
-
-  if (!granted) {
-    throw new Error("Grant recording access to capture network evidence.");
+  try {
+    return await chrome.permissions.contains(requiredPermissions);
+  } catch {
+    return false;
   }
 }
 
@@ -781,7 +790,11 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
 
   if (pendingRecovery) {
     try {
-      const debuggerAttached = await attachDebugger(tabId);
+      const canUseWebRequestFallback = await hasNetworkCapturePermission();
+      if (canUseWebRequestFallback) {
+        registerWebRequestFallbackListeners();
+      }
+      const debuggerAttached = await attachDebugger(tabId, { canUseWebRequestFallback });
       await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: false });
       clearPendingRecovery(tabId);
       await clearPendingRecoveryAlarm(tabId);
@@ -791,7 +804,7 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
           phase: "recording",
           detail: debuggerAttached
             ? "Resumed capture after same-tab navigation."
-            : debuggerUnavailableDetail()
+            : debuggerUnavailableDetail(canUseWebRequestFallback)
         })
       );
       return;
@@ -1731,7 +1744,10 @@ async function signalContentCaptureEnded(tabId: number, sessionId: string): Prom
   }
 }
 
-async function attachDebugger(tabId: number): Promise<boolean> {
+async function attachDebugger(
+  tabId: number,
+  options: { canUseWebRequestFallback?: boolean } = {}
+): Promise<boolean> {
   const debuggee = { tabId };
 
   try {
@@ -1751,7 +1767,11 @@ async function attachDebugger(tabId: number): Promise<boolean> {
       reason: rawErrorMessage(error)
     });
     await safeDetachDebugger(tabId);
-    webRequestFallbackTabIds.add(tabId);
+    if (options.canUseWebRequestFallback ?? true) {
+      webRequestFallbackTabIds.add(tabId);
+    } else {
+      webRequestFallbackTabIds.delete(tabId);
+    }
     return false;
   }
 }
@@ -1869,28 +1889,48 @@ async function getActiveTab(): Promise<chrome.tabs.Tab & { id: number; url: stri
   return activeTab as chrome.tabs.Tab & { id: number; url: string };
 }
 
+async function resolveRecordingTab(
+  targetTabId?: number,
+  targetPage?: RecordingPageOverride
+): Promise<chrome.tabs.Tab & { id: number; url: string }> {
+  if (typeof targetTabId !== "number") {
+    return getActiveTab();
+  }
+
+  return ensureRecordableTab(targetTabId, "from extension recorder window", targetPage);
+}
+
 async function ensureRecordableTab(
   tabId: number,
-  stage: string
+  stage: string,
+  fallbackPage?: RecordingPageOverride
 ): Promise<chrome.tabs.Tab & { id: number; url: string }> {
   const tab = await getTabIfPresent(tabId);
+  const fallbackUrl = fallbackPage?.url;
 
-  if (!tab?.id || !tab.url) {
+  if (!tab?.id || (!tab.url && !fallbackUrl)) {
     throw new Error(`Recording startup could not find the selected tab (${stage}).`);
   }
 
-  if (!isRecordableStartupUrl(tab.url)) {
+  const url = tab.url ?? fallbackUrl;
+
+  if (!url || !isRecordableStartupUrl(url)) {
     console.warn("[jittle-lamp] Recording startup blocked because tab became non-http(s).", {
       stage,
       tabId,
-      url: tab.url
+      url
     });
     throw new Error(
-      `Recording tab changed to a non-web page before startup completed (${stage}): ${tab.url}`
+      `Recording tab changed to a non-web page before startup completed (${stage}): ${url}`
     );
   }
 
-  return tab as chrome.tabs.Tab & { id: number; url: string };
+  return {
+    ...tab,
+    id: tab.id,
+    title: tab.title ?? fallbackPage?.title,
+    url
+  } as chrome.tabs.Tab & { id: number; url: string };
 }
 
 function getNetworkRequests(tabId: number): Map<string, NetworkRequestState> {
@@ -2475,7 +2515,7 @@ async function getTabMediaStreamId(tabId: number): Promise<string> {
 
 async function readDraft(): Promise<CaptureSessionDraft | null> {
   if (activeDraftCache) {
-    return activeDraftCache;
+    return failStaleProcessingDraftIfNeeded(activeDraftCache);
   }
 
   const stored = await chrome.storage.local.get([sessionStorageKey, sessionStorageMetaKey]);
@@ -2509,6 +2549,8 @@ async function readDraft(): Promise<CaptureSessionDraft | null> {
       ? Math.max(meta.eventCount, parsed.data.events.length)
       : parsed.data.events.length;
 
+  activeDraftCache = await failStaleProcessingDraftIfNeeded(activeDraftCache);
+
   if (shouldMigrateSessionDraft) {
     await saveDraft(activeDraftCache);
     await chrome.storage.session.remove([sessionStorageKey, sessionStorageMetaKey]);
@@ -2519,6 +2561,20 @@ async function readDraft(): Promise<CaptureSessionDraft | null> {
   }
 
   return activeDraftCache;
+}
+
+async function failStaleProcessingDraftIfNeeded(draft: CaptureSessionDraft): Promise<CaptureSessionDraft> {
+  if (!isStaleProcessingDraft(draft)) {
+    return draft;
+  }
+
+  const staleDraft = transitionDraftPhase(
+    draft,
+    "failed",
+    "Previous upload did not complete. Start a new recording or retry upload from the failed status."
+  );
+  await saveDraft(staleDraft);
+  return staleDraft;
 }
 
 async function saveDraft(draft: CaptureSessionDraft): Promise<void> {
@@ -2672,12 +2728,13 @@ function toPopupState(
   }
 
   const canStop = activeSession.phase === "armed" || activeSession.phase === "recording";
+  const canStart = !isSessionBusy(activeSession);
 
   return {
     activeSession: toPopupSessionSummary(activeSession),
     companion,
     cloud,
-    canStart: !canStop,
+    canStart,
     canStop
   };
 }
@@ -3569,6 +3626,10 @@ function isSessionBusy(draft: CaptureSessionDraft): boolean {
   return draft.phase === "armed" || draft.phase === "recording" || draft.phase === "processing";
 }
 
+function isStaleProcessingDraft(draft: CaptureSessionDraft): boolean {
+  return draft.phase === "processing" && Date.now() - Date.parse(draft.updatedAt) > staleProcessingDraftTimeoutMs;
+}
+
 function isHttpUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
 }
@@ -3650,8 +3711,12 @@ function isCrossExtensionAccessMessage(message: string): boolean {
   return message.includes("Cannot access a chrome-extension:// URL of different extension");
 }
 
-function debuggerUnavailableDetail(): string {
-  return "Started active-tab recording. Edge blocked debugger access to an extension frame, so console capture and response-body capture are unavailable; network metadata will use the browser request observer.";
+function debuggerUnavailableDetail(canUseWebRequestFallback = true): string {
+  if (canUseWebRequestFallback) {
+    return "Started active-tab recording. Edge blocked debugger access to an extension frame, so console capture and response-body capture are unavailable; network metadata will use the browser request observer.";
+  }
+
+  return "Started active-tab recording. Edge blocked debugger access to an extension frame, so console capture, response-body capture, and fallback network metadata are unavailable until network recording permission is granted from the extension popup.";
 }
 
 function rawErrorMessage(error: unknown): string {

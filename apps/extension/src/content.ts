@@ -799,8 +799,12 @@ function statusPhaseLabel(phase: string, error?: string): string {
     return "FAILED";
   }
 
-  if (phase === "processing" || phase === "armed") {
+  if (phase === "processing") {
     return "UPLOADING";
+  }
+
+  if (phase === "armed") {
+    return "STARTING";
   }
 
   if (phase === "recording") {

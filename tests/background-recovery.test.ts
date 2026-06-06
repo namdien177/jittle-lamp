@@ -108,7 +108,7 @@ describe("background recovery", () => {
     expect(chromeHarness.executeScriptCalls.some((call) => call.files?.includes("network-probe.js"))).toBeFalse();
   });
 
-  test("requests network capture permission before starting recording", async () => {
+  test("does not request optional network permission from the background start path", async () => {
     chromeHarness.setNetworkPermissionGranted(false);
     chromeHarness.setTab({
       id: 7,
@@ -122,16 +122,12 @@ describe("background recovery", () => {
     });
 
     expect(result.responded).toBeTrue();
-    expect(chromeHarness.permissionRequests).toContainEqual({
-      permissions: ["webRequest"],
-      origins: ["http://*/*", "https://*/*"]
-    });
+    expect(chromeHarness.permissionRequests).toEqual([]);
     expect(chromeHarness.debuggerAttachTabs).toContain(7);
   });
 
-  test("does not start recording when network capture permission is denied", async () => {
+  test("still starts recording when optional network fallback permission is missing", async () => {
     chromeHarness.setNetworkPermissionGranted(false);
-    chromeHarness.setNextPermissionRequestResult(false);
     chromeHarness.setTab({
       id: 7,
       status: "complete",
@@ -144,8 +140,41 @@ describe("background recovery", () => {
     });
 
     expect(result.responded).toBeTrue();
-    expect(chromeHarness.debuggerAttachTabs).toEqual([]);
-    expect(chromeHarness.getAlarmInfo(backgroundTest.maxRecordingDurationAlarmName)).toBeUndefined();
+    expect(chromeHarness.debuggerAttachTabs).toContain(7);
+    expect(chromeHarness.getAlarmInfo(backgroundTest.maxRecordingDurationAlarmName)).toBeDefined();
+  });
+
+  test("marks stale processing drafts as failed so recording can restart", async () => {
+    await backgroundTest.saveDraft(
+      transitionDraftPhase(
+        createRecordingDraft(),
+        "processing",
+        "Captured tab closed; exported the partial session.",
+        new Date("2026-01-01T00:00:02.000Z")
+      )
+    );
+
+    const restoreStaleTime = freezeSystemTime("2026-01-01T00:06:00.000Z");
+    const result = await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-get-state" });
+    restoreStaleTime();
+
+    const response = result.response as {
+      state?: {
+        activeSession?: { phase?: string };
+        canStart?: boolean;
+        canStop?: boolean;
+      };
+    };
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(result.responded).toBeTrue();
+    expect(response.state?.activeSession?.phase).toBe("failed");
+    expect(response.state?.canStart).toBeTrue();
+    expect(response.state?.canStop).toBeFalse();
+    expect(activeDraft?.phase).toBe("failed");
+    expect(lastLifecycleDetail(activeDraft)).toBe(
+      "Previous upload did not complete. Start a new recording or retry upload from the failed status."
+    );
   });
 
   test("exports the partial session when the recording reaches five minutes", async () => {

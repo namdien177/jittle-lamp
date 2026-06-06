@@ -15,7 +15,9 @@ export const popupGetStateRequestSchema = z.object({
 });
 
 export const popupStartRecordingRequestSchema = z.object({
-  type: z.literal("jl/popup-start-recording")
+  type: z.literal("jl/popup-start-recording"),
+  tabId: z.number().int().nonnegative().optional(),
+  page: pageContextSchema.pick({ title: true, url: true }).partial().optional()
 });
 
 export const popupStopRecordingRequestSchema = z.object({
