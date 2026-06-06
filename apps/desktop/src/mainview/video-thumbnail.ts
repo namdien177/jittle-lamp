@@ -6,6 +6,7 @@ export type VideoThumbnail = {
 const THUMBNAIL_MIME_TYPE = "image/jpeg";
 const THUMBNAIL_WIDTH = 240;
 const THUMBNAIL_HEIGHT = 135;
+const THUMBNAIL_SEEK_SECONDS = 2.5;
 
 export async function createVideoThumbnail(
   recording: Blob,
@@ -19,10 +20,10 @@ export async function createVideoThumbnail(
 
     await new Promise<void>((resolve, reject) => {
       const cleanup = (): void => {
-        video.removeEventListener("loadeddata", onLoadedData);
+        video.removeEventListener("loadedmetadata", onLoadedMetadata);
         video.removeEventListener("error", onError);
       };
-      const onLoadedData = (): void => {
+      const onLoadedMetadata = (): void => {
         cleanup();
         resolve();
       };
@@ -31,11 +32,14 @@ export async function createVideoThumbnail(
         reject(new Error("Video metadata could not be loaded."));
       };
 
-      video.addEventListener("loadeddata", onLoadedData, { once: true });
+      video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
       video.addEventListener("error", onError, { once: true });
       video.src = url;
-      video.currentTime = 0;
     });
+
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : THUMBNAIL_SEEK_SECONDS;
+    const targetTime = Math.max(0, Math.min(THUMBNAIL_SEEK_SECONDS, Math.max(0, duration - 0.25)));
+    await seekVideoFrame(video, targetTime);
 
     const canvas = document.createElement("canvas");
     canvas.width = THUMBNAIL_WIDTH;
@@ -69,4 +73,35 @@ export async function createVideoThumbnail(
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+async function seekVideoFrame(
+  video: HTMLVideoElement,
+  targetTime: number,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, 2500);
+    const cleanup = (): void => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("loadeddata", onSeeked);
+      video.removeEventListener("error", onError);
+    };
+    const onSeeked = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onError = (): void => {
+      cleanup();
+      reject(new Error("Video thumbnail seek failed."));
+    };
+
+    video.addEventListener("seeked", onSeeked, { once: true });
+    video.addEventListener("loadeddata", onSeeked, { once: true });
+    video.addEventListener("error", onError, { once: true });
+    video.currentTime = targetTime;
+  });
 }

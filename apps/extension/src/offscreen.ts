@@ -29,6 +29,7 @@ type ActiveRecorderState = {
   recorder: MediaRecorder;
   chunks: Blob[];
   stopPromise: Promise<Blob>;
+  audioContext: AudioContext | null;
 };
 
 type CompanionWriteResult =
@@ -86,6 +87,7 @@ type VideoThumbnail = {
 const thumbnailMimeType = "image/jpeg";
 const thumbnailWidth = 240;
 const thumbnailHeight = 135;
+const thumbnailSeekSeconds = 2.5;
 
 let activeRecorderState: ActiveRecorderState | null = null;
 let pendingCloudRetry: PendingCloudRetry | null = null;
@@ -413,10 +415,10 @@ async function createVideoThumbnail(recording: Blob): Promise<VideoThumbnail | n
 
     await new Promise<void>((resolve, reject) => {
       const cleanup = (): void => {
-        video.removeEventListener("loadeddata", onLoadedData);
+        video.removeEventListener("loadedmetadata", onLoadedMetadata);
         video.removeEventListener("error", onError);
       };
-      const onLoadedData = (): void => {
+      const onLoadedMetadata = (): void => {
         cleanup();
         resolve();
       };
@@ -425,11 +427,14 @@ async function createVideoThumbnail(recording: Blob): Promise<VideoThumbnail | n
         reject(new Error("Video metadata could not be loaded."));
       };
 
-      video.addEventListener("loadeddata", onLoadedData, { once: true });
+      video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
       video.addEventListener("error", onError, { once: true });
       video.src = url;
-      video.currentTime = 0;
     });
+
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : thumbnailSeekSeconds;
+    const targetTime = Math.max(0, Math.min(thumbnailSeekSeconds, Math.max(0, duration - 0.25)));
+    await seekVideoFrame(video, targetTime);
 
     const canvas = document.createElement("canvas");
     canvas.width = thumbnailWidth;
@@ -460,6 +465,34 @@ async function createVideoThumbnail(recording: Blob): Promise<VideoThumbnail | n
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+async function seekVideoFrame(video: HTMLVideoElement, targetTime: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, 2500);
+    const cleanup = (): void => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("loadeddata", onSeeked);
+      video.removeEventListener("error", onError);
+    };
+    const onSeeked = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onError = (): void => {
+      cleanup();
+      reject(new Error("Video thumbnail seek failed."));
+    };
+
+    video.addEventListener("seeked", onSeeked, { once: true });
+    video.addEventListener("loadeddata", onSeeked, { once: true });
+    video.addEventListener("error", onError, { once: true });
+    video.currentTime = targetTime;
+  });
 }
 
 async function tryWriteArtifactsToCompanion(
@@ -542,8 +575,14 @@ async function startRecorder(sessionId: string, streamId: string): Promise<void>
         maxFrameRate: 30
       }
     } as ChromeTabCaptureTrackConstraints,
-    audio: false
+    audio: {
+      mandatory: {
+        chromeMediaSource: "tab",
+        chromeMediaSourceId: streamId
+      }
+    } as MediaTrackConstraints
   });
+  const audioContext = keepCapturedTabAudioAudible(stream);
 
   const mimeType = preferredMimeType();
   const chunks: Blob[] = [];
@@ -581,7 +620,8 @@ async function startRecorder(sessionId: string, streamId: string): Promise<void>
     stream,
     recorder,
     chunks,
-    stopPromise
+    stopPromise,
+    audioContext
   };
 }
 
@@ -604,17 +644,35 @@ async function stopRecorder(sessionId: string): Promise<Blob> {
     recorderState.stream.getTracks().forEach((track) => {
       track.stop();
     });
+    void recorderState.audioContext?.close().catch(() => undefined);
   }
 }
 
 function preferredMimeType(): string | undefined {
   const candidates = [
-    "video/webm;codecs=vp8",
     "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8",
     "video/webm"
   ];
 
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+}
+
+function keepCapturedTabAudioAudible(stream: MediaStream): AudioContext | null {
+  if (stream.getAudioTracks().length === 0) {
+    return null;
+  }
+
+  try {
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(audioContext.destination);
+    void audioContext.resume().catch(() => undefined);
+    return audioContext;
+  } catch {
+    return null;
+  }
 }
 
 function finalizeArchiveForExport(

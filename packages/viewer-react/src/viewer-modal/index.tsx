@@ -1,5 +1,14 @@
-import React, { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Maximize2,
+  Pause,
+  Play,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  VolumeX,
+  X
+} from "lucide-react";
 
 import {
   formatOffset,
@@ -299,17 +308,7 @@ function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
 function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
   return (
     <div className="jl-vm-left">
-      <div className="jl-vm-video-wrap">
-        <div className="jl-vm-video-inner">
-          <video
-            ref={props.videoRef}
-            controls
-            src={props.videoSrc ?? undefined}
-            onTimeUpdate={props.onVideoTimeUpdate}
-            onError={props.onVideoError}
-          />
-        </div>
-      </div>
+      <EvidenceVideoPlayer {...props} />
       <div className="jl-vm-notes">
         <div className="jl-vm-notes-label">
           <span>Session notes</span>
@@ -335,6 +334,155 @@ function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
+  const [paused, setPaused] = useState(true);
+  const [muted, setMuted] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const durationValue = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const progress = durationValue > 0 ? (currentTime / durationValue) * 100 : 0;
+
+  const resetVideoState = (): void => {
+    setPaused(true);
+    setCurrentTime(0);
+    setDuration(0);
+  };
+
+  const syncVideoState = (): void => {
+    const videoEl = props.videoRef.current;
+    if (!videoEl) return;
+    setPaused(videoEl.paused);
+    setMuted(videoEl.muted || videoEl.volume === 0);
+    setCurrentTime(videoEl.currentTime || 0);
+    setDuration(Number.isFinite(videoEl.duration) ? videoEl.duration : 0);
+  };
+
+  const togglePlayback = (): void => {
+    const videoEl = props.videoRef.current;
+    if (!videoEl) return;
+
+    if (videoEl.paused) {
+      void videoEl.play().catch(() => undefined);
+    } else {
+      videoEl.pause();
+    }
+    syncVideoState();
+  };
+
+  const seekBy = (deltaSeconds: number): void => {
+    const videoEl = props.videoRef.current;
+    if (!videoEl) return;
+    const max = Number.isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : Number.POSITIVE_INFINITY;
+    videoEl.currentTime = Math.max(0, Math.min(max, videoEl.currentTime + deltaSeconds));
+    syncVideoState();
+    props.onVideoTimeUpdate();
+  };
+
+  const seekTo = (value: string): void => {
+    const videoEl = props.videoRef.current;
+    if (!videoEl) return;
+    videoEl.currentTime = Number(value);
+    syncVideoState();
+    props.onVideoTimeUpdate();
+  };
+
+  const toggleMute = (): void => {
+    const videoEl = props.videoRef.current;
+    if (!videoEl) return;
+    videoEl.muted = !videoEl.muted;
+    syncVideoState();
+  };
+
+  const enterFullscreen = (): void => {
+    const host = props.videoRef.current?.closest(".jl-vm-video-wrap") as HTMLElement | null;
+    void host?.requestFullscreen?.().catch(() => undefined);
+  };
+
+  return (
+    <div className="jl-vm-video-wrap">
+      <div className="jl-vm-video-inner">
+        <video
+          key={props.videoSrc ?? "empty-video"}
+          ref={props.videoRef}
+          src={props.videoSrc ?? undefined}
+          playsInline
+          preload="metadata"
+          onClick={togglePlayback}
+          onLoadStart={resetVideoState}
+          onLoadedMetadata={syncVideoState}
+          onDurationChange={syncVideoState}
+          onPlay={syncVideoState}
+          onPause={syncVideoState}
+          onVolumeChange={syncVideoState}
+          onTimeUpdate={() => {
+            syncVideoState();
+            props.onVideoTimeUpdate();
+          }}
+          onError={props.onVideoError}
+        />
+        <button
+          type="button"
+          className="jl-vm-video-stage-button"
+          aria-label={paused ? "Play evidence video" : "Pause evidence video"}
+          data-paused={paused ? "true" : "false"}
+          onClick={togglePlayback}
+        >
+          {paused ? <Play aria-hidden size={24} strokeWidth={2.2} /> : <Pause aria-hidden size={24} strokeWidth={2.2} />}
+        </button>
+      </div>
+      <div className="jl-vm-video-controls">
+        <button type="button" className="jl-vm-video-control" aria-label="Back 5 seconds" onClick={() => seekBy(-5)}>
+          <RotateCcw aria-hidden size={16} strokeWidth={2.1} />
+        </button>
+        <button
+          type="button"
+          className="jl-vm-video-control jl-vm-video-play"
+          aria-label={paused ? "Play" : "Pause"}
+          onClick={togglePlayback}
+        >
+          {paused ? <Play aria-hidden size={17} strokeWidth={2.2} /> : <Pause aria-hidden size={17} strokeWidth={2.2} />}
+        </button>
+        <button type="button" className="jl-vm-video-control" aria-label="Forward 5 seconds" onClick={() => seekBy(5)}>
+          <RotateCw aria-hidden size={16} strokeWidth={2.1} />
+        </button>
+        <span className="jl-vm-video-time">{formatClockTime(currentTime)}</span>
+        <input
+          className="jl-vm-video-scrub"
+          type="range"
+          min="0"
+          max={durationValue || 0}
+          step="0.01"
+          value={durationValue > 0 ? Math.min(currentTime, durationValue) : 0}
+          aria-label="Evidence video timeline"
+          style={{ "--jl-vm-video-progress": `${progress}%` } as React.CSSProperties}
+          onChange={(event) => seekTo(event.currentTarget.value)}
+        />
+        <span className="jl-vm-video-time">{durationValue > 0 ? formatClockTime(durationValue) : "0:00"}</span>
+        <button type="button" className="jl-vm-video-control" aria-label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
+          {muted ? <VolumeX aria-hidden size={16} strokeWidth={2.1} /> : <Volume2 aria-hidden size={16} strokeWidth={2.1} />}
+        </button>
+        <button type="button" className="jl-vm-video-control" aria-label="Full screen" onClick={enterFullscreen}>
+          <Maximize2 aria-hidden size={16} strokeWidth={2.1} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function formatClockTime(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function EvidencePane(props: ViewerModalProps): React.JSX.Element {

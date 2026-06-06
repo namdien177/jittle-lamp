@@ -175,9 +175,11 @@ export const viewerModalStyles = `
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  isolation: isolate;
 }
 
 .jl-vm-video-inner {
+  position: relative;
   aspect-ratio: 4 / 3;
   max-width: 100%;
   max-height: 100%;
@@ -188,6 +190,150 @@ export const viewerModalStyles = `
   width: 100%;
   height: 100%;
   display: block;
+  background: #000;
+  cursor: pointer;
+}
+
+.jl-vm-video-stage-button {
+  appearance: none;
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: 62px;
+  height: 62px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 10, 13, 0.64);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms ease, transform 160ms ease, background 160ms ease;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+}
+
+.jl-vm-video-stage-button[data-paused="true"],
+.jl-vm-video-wrap:hover .jl-vm-video-stage-button,
+.jl-vm-video-stage-button:focus-visible {
+  opacity: 1;
+}
+
+.jl-vm-video-stage-button:hover {
+  transform: translate(-50%, -50%) scale(1.04);
+  background: rgba(8, 10, 13, 0.78);
+}
+
+.jl-vm-video-controls {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 34px 38px 34px auto minmax(120px, 1fr) auto 34px 34px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(7, 9, 12, 0.72);
+  color: #fff;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+}
+
+.jl-vm-video-control {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  width: 34px;
+  height: 30px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.jl-vm-video-control:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.jl-vm-video-play {
+  width: 38px;
+  background: #f4f7fb;
+  border-color: transparent;
+  color: #0a0d12;
+}
+
+.jl-vm-video-play:hover {
+  background: #fff;
+}
+
+.jl-vm-video-time {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: nowrap;
+  min-width: 34px;
+  text-align: center;
+}
+
+.jl-vm-video-scrub {
+  width: 100%;
+  min-width: 0;
+  height: 18px;
+  accent-color: #f4f7fb;
+  cursor: pointer;
+  background: transparent;
+}
+
+.jl-vm-video-scrub::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #f4f7fb 0%,
+    #f4f7fb var(--jl-vm-video-progress, 0%),
+    rgba(255, 255, 255, 0.2) var(--jl-vm-video-progress, 0%),
+    rgba(255, 255, 255, 0.2) 100%
+  );
+}
+
+.jl-vm-video-scrub::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #fff;
+  margin-top: -4px;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14);
+}
+
+.jl-vm-video-scrub::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.jl-vm-video-scrub::-moz-range-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: #f4f7fb;
+}
+
+.jl-vm-video-scrub::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14);
 }
 
 .jl-vm-notes {
@@ -602,6 +748,18 @@ export const viewerModalStyles = `
   .jl-vm-left {
     border-right: 0;
     border-bottom: 1px solid var(--border, #30363d);
+  }
+
+  .jl-vm-video-controls {
+    grid-template-columns: 34px 38px 34px minmax(88px, 1fr) 34px;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .jl-vm-video-time,
+  .jl-vm-video-controls .jl-vm-video-control:last-child {
+    display: none;
   }
 }
 `;
