@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-
+import type { RuntimeConfig } from "../config/runtime";
 import {
 	desktopRecordingSessions,
 	evidenceArtifactKindSchema,
@@ -14,7 +14,10 @@ import {
 	createApiError,
 	createDbUnavailableError,
 } from "../http/api-error";
-import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
+import {
+	type ClerkAuthPlugin,
+	requireSessionScope,
+} from "../plugins/clerk-auth";
 import type { BackendDb } from "../services/user-provisioning";
 
 const startUploadBodySchema = t.Object({
@@ -123,7 +126,21 @@ const evidenceSummarySchema = t.Object({
 	createdBy: t.String({ minLength: 1 }),
 	createdAt: t.Number(),
 	updatedAt: t.Number(),
+	status: t.Union([t.Literal("ready"), t.Literal("pending")]),
 });
+
+/**
+ * Evidence is "ready" once it has at least one artifact and every artifact has
+ * finished uploading; otherwise it is still a draft/in-flight upload. Lets
+ * clients distinguish viewable evidence from incomplete upload drafts.
+ */
+const deriveEvidenceStatus = (
+	artifacts: { uploadStatus: string }[],
+): "ready" | "pending" =>
+	artifacts.length > 0 &&
+	artifacts.every((artifact) => artifact.uploadStatus === "uploaded")
+		? "ready"
+		: "pending";
 
 const evidenceArtifactSummarySchema = t.Object({
 	id: t.String({ minLength: 1 }),
@@ -187,20 +204,68 @@ const forwardedHeaderValue = (
 	return undefined;
 };
 
-const resolveExternalRequestOrigin = (request: Request): string => {
-	const requestUrl = new URL(request.url);
-	const forwarded = request.headers.get("forwarded");
-	const protocol =
-		firstHeaderValue(request.headers.get("x-forwarded-proto")) ??
-		forwardedHeaderValue(forwarded, "proto") ??
-		requestUrl.protocol.replace(/:$/, "");
-	const host =
-		firstHeaderValue(request.headers.get("x-forwarded-host")) ??
-		forwardedHeaderValue(forwarded, "host") ??
-		request.headers.get("host") ??
-		requestUrl.host;
+const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, "");
 
-	return `${protocol}://${host}`;
+const isDevelopmentRuntime = (runtime: RuntimeConfig) =>
+	runtime.nodeEnv === "local" || runtime.nodeEnv === "development";
+
+const buildAllowedOriginSet = (runtime: RuntimeConfig): Set<string> => {
+	const origins = [
+		runtime.apiOrigin,
+		runtime.webAppOrigin,
+		...(runtime.clerkAuthorizedParties ?? []),
+	]
+		.filter((value): value is string => Boolean(value))
+		.map(normalizeOrigin);
+
+	if (isDevelopmentRuntime(runtime)) {
+		origins.push(
+			"http://127.0.0.1:4173",
+			"http://localhost:4173",
+			"http://127.0.0.1:3001",
+			"http://localhost:3001",
+		);
+	}
+
+	return new Set(origins);
+};
+
+/**
+ * Builds the public origin used to construct upload URLs handed back to
+ * clients. Proxy-forwarded host/proto headers are attacker-controllable, so we
+ * only honor a forwarded origin when it matches a configured allowlist. This
+ * prevents host-header injection from redirecting authenticated uploads (and
+ * their bearer tokens) to an arbitrary host. When the forwarded origin is not
+ * trusted we fall back to the configured API origin, then to the actual
+ * connection origin.
+ */
+const resolveExternalRequestOrigin = (
+	request: Request,
+	runtime: RuntimeConfig,
+): string => {
+	const requestUrl = new URL(request.url);
+	const connectionOrigin = `${requestUrl.protocol.replace(/:$/, "")}://${requestUrl.host}`;
+
+	const forwarded = request.headers.get("forwarded");
+	const forwardedHost =
+		firstHeaderValue(request.headers.get("x-forwarded-host")) ??
+		forwardedHeaderValue(forwarded, "host");
+
+	if (forwardedHost) {
+		const forwardedProto =
+			firstHeaderValue(request.headers.get("x-forwarded-proto")) ??
+			forwardedHeaderValue(forwarded, "proto") ??
+			requestUrl.protocol.replace(/:$/, "");
+		const forwardedOrigin = normalizeOrigin(
+			`${forwardedProto}://${forwardedHost}`,
+		);
+
+		if (buildAllowedOriginSet(runtime).has(forwardedOrigin)) {
+			return forwardedOrigin;
+		}
+	}
+
+	return runtime.apiOrigin ?? connectionOrigin;
 };
 
 const encodeSha256 = async (payload: ArrayBuffer): Promise<string> => {
@@ -323,11 +388,22 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						request,
 						requestId,
 						requestLogger,
+						runtime,
 						set,
 					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:write",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
 						}
 
 						const workspace = resolveActiveWorkspace(
@@ -486,7 +562,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 									key: artifactInput.key,
 									uploadId: artifact.id,
 									expiresAt: now + UPLOAD_SESSION_TTL_MS,
-									uploadUrl: `${resolveExternalRequestOrigin(request)}/evidences/uploads/${artifact.id}/blob`,
+									uploadUrl: `${resolveExternalRequestOrigin(request, runtime)}/evidences/uploads/${artifact.id}/blob`,
 									method: "PUT" as const,
 									headers: {
 										"content-type": artifactInput.mimeType,
@@ -545,7 +621,15 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/evidences/uploads/start",
-					async ({ authContext, body, db, request, requestId, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						request,
+						requestId,
+						runtime,
+						set,
+					}) => {
 						if (body.orgId) {
 							set.status = 400;
 							return createApiError(
@@ -559,6 +643,16 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:write",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
 						}
 
 						const workspace = resolveActiveWorkspace(
@@ -661,7 +755,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							organizationId: created.organizationId,
 							uploadSession: {
 								expiresAt: now + UPLOAD_SESSION_TTL_MS,
-								uploadUrl: `${resolveExternalRequestOrigin(request)}/evidences/uploads/${created.uploadId}/blob`,
+								uploadUrl: `${resolveExternalRequestOrigin(request, runtime)}/evidences/uploads/${created.uploadId}/blob`,
 								method: "PUT",
 								headers: {
 									"content-type": body.artifact.mimeType,
@@ -718,11 +812,17 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								createdAt: true,
 								updatedAt: true,
 							},
+							with: {
+								artifacts: { columns: { uploadStatus: true } },
+							},
 							orderBy: desc(evidences.updatedAt),
 						});
 
 						return {
-							evidences: rows,
+							evidences: rows.map(({ artifacts, ...evidence }) => ({
+								...evidence,
+								status: deriveEvidenceStatus(artifacts),
+							})),
 							orgId: resolvedOrg.orgId,
 						};
 					},
@@ -777,6 +877,9 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								createdAt: true,
 								updatedAt: true,
 							},
+							with: {
+								artifacts: { columns: { uploadStatus: true } },
+							},
 						});
 						if (!evidence) {
 							set.status = 404;
@@ -788,7 +891,13 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
-						return { evidence };
+						const { artifacts, ...evidenceSummary } = evidence;
+						return {
+							evidence: {
+								...evidenceSummary,
+								status: deriveEvidenceStatus(artifacts),
+							},
+						};
 					},
 					{
 						params: t.Object({
@@ -1002,6 +1111,16 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							return createDbUnavailableError(requestId);
 						}
 
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:write",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
+						}
+
 						const workspace = resolveActiveWorkspace(
 							authContext.activeOrgId,
 							authContext.localUserId,
@@ -1168,6 +1287,16 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:write",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
 						}
 
 						const workspace = resolveActiveWorkspace(

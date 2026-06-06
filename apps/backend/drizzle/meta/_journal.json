@@ -57,6 +57,13 @@
       "when": 1777116100000,
       "tag": "0007_static_invitation_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780740453399,
+      "tag": "0008_device_sessions",
+      "breakpoints": true
     }
   ]
 }

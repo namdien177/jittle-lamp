@@ -110,7 +110,7 @@ export const createExtensionAuthRoutes = (auth: ClerkAuthPlugin) =>
 					);
 				}
 
-				return pollDesktopAuthFlow(db, runtime, params.deviceCode, "extension");
+				return pollDesktopAuthFlow(db, runtime, params.deviceCode);
 			},
 			{
 				params: t.Object({

@@ -82,6 +82,35 @@ export function useDeleteEvidence() {
   });
 }
 
+export function useRenameEvidence() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { evidenceId: string; title: string }) =>
+      api.renameEvidence(getToken, input.evidenceId, input.title),
+    onSuccess: (data, input) => {
+      const updatedAt = data.evidence.updatedAt;
+      queryClient.setQueryData<{ evidences: ApiEvidenceSummary[]; orgId: string } | undefined>(
+        queryKeys.evidences(),
+        (previous) =>
+          previous
+            ? {
+                ...previous,
+                evidences: previous.evidences.map((evidence) =>
+                  evidence.id === input.evidenceId
+                    ? { ...evidence, title: data.evidence.title, updatedAt }
+                    : evidence
+                )
+              }
+            : previous
+      );
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: input.evidenceId })
+      });
+    }
+  });
+}
+
 export function useShareLinks(evidenceId: string | null) {
   const auth = useAuth();
   const getToken = useAuthToken();

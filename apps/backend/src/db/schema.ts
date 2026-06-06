@@ -3,8 +3,13 @@ export {
 	createDesktopAuthFlowInputSchema,
 	desktopAuthFlowStatusSchema,
 	desktopAuthFlows,
+	deviceAuthClientSchema,
 } from "./tables/desktop-auth-flows";
 export { desktopRecordingSessions } from "./tables/desktop-recording-sessions";
+export {
+	createDeviceSessionInputSchema,
+	deviceSessions,
+} from "./tables/device-sessions";
 export {
 	createEvidenceArtifactInputSchema,
 	evidenceArtifactKindSchema,

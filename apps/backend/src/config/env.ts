@@ -34,6 +34,7 @@ const envSchema = z
 		CLERK_AUDIENCE: z.string().min(1).optional(),
 		CLERK_AUTHORIZED_PARTIES: z.string().min(1).optional(),
 		WEB_APP_ORIGIN: z.string().url().optional(),
+		JITTLE_LAMP_API_ORIGIN: z.string().url().optional(),
 	})
 	.superRefine((env, ctx) => {
 		if (env.NODE_ENV === "production" && !env.APP_SECRET) {

@@ -42,21 +42,19 @@ export const createClerkRoutes = (auth: ClerkAuthPlugin) =>
 						);
 					}
 
-					const userProfile = await resolveClerkUserProfile(
-						runtime,
-						authContext.userId,
-					).catch((error) => {
-						requestLogger.warn(
-							{ err: error, clerkUserId: authContext.userId },
-							"failed to resolve Clerk user profile during callback provisioning",
-						);
-						return null;
-					});
-
 					const provisioned = await ensureUserAndPersonalOrganization(db, {
 						clerkUserId: authContext.userId,
 						source: "clerk-callback",
-						userProfile,
+						userProfile: () =>
+							resolveClerkUserProfile(runtime, authContext.userId).catch(
+								(error) => {
+									requestLogger.warn(
+										{ err: error, clerkUserId: authContext.userId },
+										"failed to resolve Clerk user profile during callback provisioning",
+									);
+									return null;
+								},
+							),
 						rawPayload: {
 							userId: authContext.userId,
 							orgId: authContext.orgId,

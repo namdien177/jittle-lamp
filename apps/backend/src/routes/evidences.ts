@@ -14,7 +14,10 @@ import {
 	createApiError,
 	createDbUnavailableError,
 } from "../http/api-error";
-import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
+import {
+	type ClerkAuthPlugin,
+	requireSessionScope,
+} from "../plugins/clerk-auth";
 import { createEvidencePolicy } from "../services/evidence-policy";
 
 const moveEvidenceBodySchema = t.Object({
@@ -32,6 +35,19 @@ const moveEvidenceResponseSchema = t.Object({
 		fromOrgId: t.String({ minLength: 1 }),
 		toOrgId: t.String({ minLength: 1 }),
 		invalidatedShareLinks: t.Number({ minimum: 0 }),
+	}),
+});
+
+const renameEvidenceBodySchema = t.Object({
+	title: t.String({ minLength: 1, maxLength: 200 }),
+});
+
+const renameEvidenceResponseSchema = t.Object({
+	evidence: t.Object({
+		id: t.String({ minLength: 1 }),
+		orgId: t.String({ minLength: 1 }),
+		title: t.String({ minLength: 1 }),
+		updatedAt: t.Number(),
 	}),
 });
 
@@ -68,6 +84,16 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							return createDbUnavailableError(requestId);
 						}
 
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:manage",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
+						}
+
 						if (!authContext.localUserId) {
 							set.status = 403;
 							return createApiError(
@@ -101,12 +127,15 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							columns: { id: true },
 						});
 						if (!membership) {
-							set.status = 403;
+							// Non-members get the same 404 as a missing record so the
+							// endpoint cannot be used to probe which evidence IDs exist
+							// in other organizations.
+							set.status = 404;
 							return createApiError(
 								requestId,
-								"EVIDENCE_DELETE_FORBIDDEN",
-								"Only workspace members can delete this evidence",
-								403,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
 							);
 						}
 
@@ -217,6 +246,16 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:manage",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
 						}
 
 						if (!authContext.localUserId) {
@@ -331,6 +370,14 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								throw new Error("Failed to move evidence");
 							}
 
+							// Keep the desktop recording session attributed to the new
+							// org so its (orgId, sessionId) uniqueness and org scoping
+							// stay consistent with the evidence it points at.
+							await tx
+								.update(desktopRecordingSessions)
+								.set({ orgId: body.targetOrgId, updatedAt: now })
+								.where(eq(desktopRecordingSessions.evidenceId, evidence.id));
+
 							return {
 								evidenceId: updatedEvidence.id,
 								orgId: updatedEvidence.orgId,
@@ -380,6 +427,133 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							403: apiErrorSchema,
 							404: apiErrorSchema,
 							409: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.patch(
+					"/evidences/:id",
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						requestId,
+						requestLogger,
+						set,
+					}) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						if (!authContext.localUserId) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_RENAME_FORBIDDEN",
+								"Only workspace members can rename this evidence",
+								403,
+							);
+						}
+
+						const evidence = await db.query.evidences.findFirst({
+							where: eq(evidences.id, params.id),
+							columns: { id: true, orgId: true },
+						});
+						if (!evidence) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+
+						const membership = await db.query.organizationMembers.findFirst({
+							where: and(
+								eq(organizationMembers.organizationId, evidence.orgId),
+								eq(organizationMembers.userId, authContext.localUserId),
+								isNull(organizationMembers.teamId),
+							),
+							columns: { id: true },
+						});
+						if (!membership) {
+							// Non-members get the same 404 as a missing record so the
+							// endpoint cannot be used to probe which evidence IDs exist
+							// in other organizations.
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+
+						const title = body.title.trim();
+						if (!title) {
+							set.status = 422;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TITLE_REQUIRED",
+								"Evidence title is required",
+								422,
+							);
+						}
+
+						const now = Date.now();
+						const [updated] = await db
+							.update(evidences)
+							.set({ title, updatedAt: now })
+							.where(eq(evidences.id, evidence.id))
+							.returning({
+								id: evidences.id,
+								orgId: evidences.orgId,
+								title: evidences.title,
+								updatedAt: evidences.updatedAt,
+							});
+
+						if (!updated) {
+							set.status = 500;
+							return createApiError(
+								requestId,
+								"EVIDENCE_RENAME_FAILED",
+								"Failed to rename evidence",
+								500,
+							);
+						}
+
+						requestLogger.info(
+							{
+								event: "evidence.renamed",
+								evidenceId: updated.id,
+								orgId: updated.orgId,
+								renamedByUserId: authContext.localUserId,
+								requestId,
+							},
+							"evidence renamed",
+						);
+
+						return { evidence: updated };
+					},
+					{
+						params: t.Object({
+							id: t.String({ minLength: 1 }),
+						}),
+						body: renameEvidenceBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Renames an evidence record",
+						},
+						response: {
+							200: renameEvidenceResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							422: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},

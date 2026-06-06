@@ -1,3 +1,4 @@
+import { cors } from "@elysiajs/cors";
 import { Elysia } from "elysia";
 import type { Logger } from "pino";
 
@@ -53,25 +54,6 @@ const isAllowedCorsOrigin = (runtime: RuntimeConfig, origin: string) => {
 	return isDevelopmentRuntime(runtime) && localWebOrigins.has(normalizedOrigin);
 };
 
-const applyCorsHeaders = (
-	request: Request,
-	set: { headers: Record<string, string | string[] | number> },
-	runtime: RuntimeConfig,
-) => {
-	const origin = request.headers.get("origin");
-	if (!origin || !isAllowedCorsOrigin(runtime, origin)) {
-		return;
-	}
-
-	set.headers["access-control-allow-origin"] = origin;
-	set.headers["access-control-allow-methods"] =
-		"GET,POST,PUT,PATCH,DELETE,OPTIONS";
-	set.headers["access-control-allow-headers"] =
-		"authorization,content-type,x-request-id";
-	set.headers["access-control-max-age"] = "600";
-	set.headers.vary = "Origin";
-};
-
 export const createCorePlugin = ({
 	runtime,
 	db,
@@ -80,10 +62,26 @@ export const createCorePlugin = ({
 }: CorePluginParams) =>
 	new Elysia({ name: "backend-core" })
 		.decorate({ runtime, db, logger, artifactStorage })
-		.onRequest(({ request, set, logger, runtime }) => {
+		.use(
+			// Official CORS plugin handles preflight (204), Vary, and origin
+			// reflection. Origins are restricted to the configured web app, Clerk
+			// authorized parties, and (in dev) localhost; credentials are off since
+			// the API authenticates via bearer tokens, not cookies cross-origin.
+			cors({
+				origin: (request) => {
+					const origin = request.headers.get("origin");
+					return origin ? isAllowedCorsOrigin(runtime, origin) : false;
+				},
+				methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+				allowedHeaders: ["authorization", "content-type", "x-request-id"],
+				credentials: false,
+				maxAge: 600,
+				preflight: true,
+			}),
+		)
+		.onRequest(({ request, set, logger }) => {
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
 			set.headers["x-request-id"] = requestId;
-			applyCorsHeaders(request, set, runtime);
 
 			logger.child({ requestId }).info(
 				{
@@ -92,14 +90,6 @@ export const createCorePlugin = ({
 				},
 				"request received",
 			);
-
-			if (
-				request.method === "OPTIONS" &&
-				request.headers.has("access-control-request-method")
-			) {
-				set.status = 204;
-				return "";
-			}
 		})
 		.resolve({ as: "global" }, ({ request, set, logger }) => {
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
@@ -122,12 +112,17 @@ export const createCorePlugin = ({
 			requestLogger.error({ err: error, code, status }, "request failed");
 			set.status = status;
 
-			return createApiError(
-				requestId,
-				String(code),
-				error instanceof Error ? error.message : "Unexpected error",
-				status,
-			);
+			// Never leak internal error detail for unexpected server errors; the
+			// full error is logged above. Client-facing 4xx messages (e.g.
+			// validation) remain informative.
+			const message =
+				status >= 500
+					? "Internal server error"
+					: error instanceof Error
+						? error.message
+						: "Unexpected error";
+
+			return createApiError(requestId, String(code), message, status);
 		});
 
 export type CorePlugin = ReturnType<typeof createCorePlugin>;

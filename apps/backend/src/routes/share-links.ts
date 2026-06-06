@@ -7,7 +7,10 @@ import {
 	createApiError,
 	createDbUnavailableError,
 } from "../http/api-error";
-import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
+import {
+	type ClerkAuthPlugin,
+	requireSessionScope,
+} from "../plugins/clerk-auth";
 import { createEvidencePolicy } from "../services/evidence-policy";
 
 const createShareLinkBodySchema = t.Object({
@@ -103,6 +106,16 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"share:write",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
 						}
 
 						if (!authContext.localUserId) {
@@ -377,6 +390,16 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"share:write",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
 						}
 
 						if (!authContext.localUserId) {
