@@ -69,6 +69,13 @@ type CloudUploadStartPayload = {
   }>;
 };
 
+type PendingCloudRetry = {
+  sessionId: string;
+  archive: SessionArchive;
+  recordingBlob: Blob;
+  jsonBlob: Blob;
+};
+
 type VideoThumbnail = {
   base64: string;
   mimeType: string;
@@ -79,6 +86,7 @@ const thumbnailWidth = 240;
 const thumbnailHeight = 135;
 
 let activeRecorderState: ActiveRecorderState | null = null;
+let pendingCloudRetry: PendingCloudRetry | null = null;
 
 chrome.runtime.onMessage.addListener((rawMessage, _sender, sendResponse) => {
   const parsed = offscreenRequestSchema.safeParse(rawMessage);
@@ -131,6 +139,12 @@ async function handleRequest(
       }
 
       if (!cloudUploadResult.saved && (request.cloudAuthToken || request.cloudRequired)) {
+        pendingCloudRetry = {
+          sessionId: request.sessionId,
+          archive: finalized.archive,
+          recordingBlob,
+          jsonBlob: finalized.jsonBlob
+        };
         throw new Error(cloudUploadResult.error);
       }
 
@@ -164,6 +178,34 @@ async function handleRequest(
         destination: companionResult.saved ? companionResult.destination : "downloads",
         ...(companionResult.saved && companionResult.destination === "cloud" ? { cloudUrl: companionResult.cloudUrl } : {}),
         ...(companionResult.saved && companionResult.destination === "companion" ? { outputDir: companionResult.outputDir } : {})
+      };
+    }
+
+    case "jl/offscreen-retry-cloud-upload": {
+      const retry = pendingCloudRetry;
+
+      if (!retry || retry.sessionId !== request.sessionId) {
+        throw new Error("No retryable cloud upload is available for this session.");
+      }
+
+      const cloudUploadResult = await tryWriteArtifactsToCloud(
+        retry.archive,
+        retry.recordingBlob,
+        retry.jsonBlob,
+        request.cloudAuthToken
+      );
+
+      if (!cloudUploadResult.saved) {
+        throw new Error(cloudUploadResult.error);
+      }
+
+      pendingCloudRetry = null;
+      return {
+        ok: true,
+        recordingBytes: retry.recordingBlob.size,
+        eventBytes: retry.jsonBlob.size,
+        destination: "cloud",
+        cloudUrl: cloudUploadResult.cloudUrl
       };
     }
   }

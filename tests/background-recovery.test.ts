@@ -141,6 +141,48 @@ describe("background recovery", () => {
     expect(lastLifecycleDetail(activeDraft)).toContain("Saved session directly to cloud");
   });
 
+  test("refreshes an expired extension auth token before stop export", async () => {
+    const expiredToken = createExtensionSessionToken({ expiresInSeconds: -60 });
+    const refreshedToken = createExtensionSessionToken();
+    await chrome.storage.local.set({
+      "jittle-lamp.cloud-auth-extension-session": {
+        token: expiredToken,
+        origin: "https://jl-api.monthlyparty.com",
+        checkedAt: new Date().toISOString(),
+        expiresAt: Date.now() - 60_000,
+        refreshToken: "refresh-token-1",
+        refreshExpiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000
+      }
+    });
+    chromeHarness.queueFetchResponse("https://jl-api.monthlyparty.com/extension-auth/sessions/refresh", {
+      accessToken: refreshedToken,
+      refreshToken: "refresh-token-2",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      refreshExpiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000
+    });
+    chromeHarness.setOffscreenStopResponse({
+      ok: true,
+      destination: "cloud",
+      recordingBytes: 128,
+      eventBytes: 64,
+      cloudUrl: "https://jittlelamp.dev/evidence/ev_refreshed"
+    });
+    await backgroundTest.saveDraft(createRecordingDraft());
+
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+
+    const stopMessage = chromeHarness.runtimeMessages.find((message) =>
+      hasMessageType(message, "jl/offscreen-stop-and-export")
+    ) as { cloudAuthToken?: string; cloudRequired?: boolean } | undefined;
+    const stored = chromeHarness.getLocalValue("jittle-lamp.cloud-auth-extension-session") as
+      | { refreshToken?: string }
+      | undefined;
+
+    expect(stopMessage?.cloudAuthToken).toBe(refreshedToken);
+    expect(stopMessage?.cloudRequired).toBe(true);
+    expect(stored?.refreshToken).toBe("refresh-token-2");
+  });
+
   test("polls a pending approved extension auth flow before stop export falls back to downloads", async () => {
     const token = createExtensionSessionToken();
     chromeHarness.queueFetchResponse("https://jl-api.monthlyparty.com/extension-auth/flows/device-stop", {
@@ -467,14 +509,14 @@ function hasMessageType(message: unknown, type: string): boolean {
   );
 }
 
-function createExtensionSessionToken(): string {
+function createExtensionSessionToken(options: { expiresInSeconds?: number } = {}): string {
   return [
     base64UrlJson({ alg: "none", typ: "JWT" }),
     base64UrlJson({
       token_type: "extension_session",
       scope: "extension",
       sub: "user_test",
-      exp: Math.floor(Date.now() / 1000) + 60 * 60
+      exp: Math.floor(Date.now() / 1000) + (options.expiresInSeconds ?? 60 * 60)
     }),
     "signature"
   ].join(".");

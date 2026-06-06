@@ -594,6 +594,7 @@ describe("routes", () => {
 		const approved = (await approvedResponse.json()) as {
 			status: string;
 			accessToken: string;
+			refreshToken: string;
 			clerkUserId: string;
 			expiresInSeconds: number;
 		};
@@ -601,10 +602,29 @@ describe("routes", () => {
 		expect(approved.clerkUserId).toBe("user_extension_auth_bridge");
 		expect(approved.expiresInSeconds).toBe(30 * 24 * 60 * 60);
 		expect(approved.accessToken).toBeString();
+		expect(approved.refreshToken).toBeString();
+
+		const refreshResponse = await app.handle(
+			new Request("http://localhost/extension-auth/sessions/refresh", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ refreshToken: approved.refreshToken }),
+			}),
+		);
+		expect(refreshResponse.status).toBe(200);
+		const refreshed = (await refreshResponse.json()) as {
+			accessToken: string;
+			refreshToken: string;
+			clerkUserId: string;
+		};
+		expect(refreshed.accessToken).toBeString();
+		expect(refreshed.refreshToken).toBeString();
+		expect(refreshed.refreshToken).not.toBe(approved.refreshToken);
+		expect(refreshed.clerkUserId).toBe("user_extension_auth_bridge");
 
 		const meResponse = await app.handle(
 			new Request("http://localhost/protected/me", {
-				headers: { authorization: `Bearer ${approved.accessToken}` },
+				headers: { authorization: `Bearer ${refreshed.accessToken}` },
 			}),
 		);
 		expect(meResponse.status).toBe(200);

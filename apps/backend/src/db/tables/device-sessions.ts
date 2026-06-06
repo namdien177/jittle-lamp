@@ -23,6 +23,8 @@ export const deviceSessions = sqliteTable(
 			.notNull(),
 		flowId: text("flow_id"),
 		scope: text("scope").notNull(),
+		refreshTokenHash: text("refresh_token_hash"),
+		refreshExpiresAt: integer("refresh_expires_at"),
 		expiresAt: integer("expires_at").notNull(),
 		revokedAt: integer("revoked_at"),
 		lastSeenAt: integer("last_seen_at"),
@@ -36,6 +38,7 @@ export const deviceSessions = sqliteTable(
 	(table) => [
 		index("device_sessions_clerk_user_id_idx").on(table.clerkUserId),
 		index("device_sessions_client_idx").on(table.client),
+		index("device_sessions_refresh_token_hash_idx").on(table.refreshTokenHash),
 		index("device_sessions_expires_at_idx").on(table.expiresAt),
 		check(
 			"device_sessions_client_check",

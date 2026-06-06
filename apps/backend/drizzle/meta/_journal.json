@@ -71,6 +71,13 @@
       "when": 1780740500000,
       "tag": "0009_evidence_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780740600000,
+      "tag": "0010_device_session_refresh_tokens",
+      "breakpoints": true
     }
   ]
 }

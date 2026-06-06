@@ -23,7 +23,13 @@
           <strong class="companion-title" data-role="cloud-status">Checking…</strong>
           <p class="value mono wrap" data-role="cloud-route">Open Jittle Lamp web and sign in.</p>
         </div>
-        <span class="companion-pill" data-role="cloud-pill" data-status="unknown">unknown</span>
+        <button class="companion-pill menu-trigger" data-role="cloud-menu-button" data-status="unknown" type="button">
+          <span data-role="cloud-pill">unknown</span>
+        </button>
+        <div class="cloud-menu" data-role="cloud-menu" hidden>
+          <button type="button" data-role="open-evidence-button">Evidence list</button>
+          <button type="button" data-role="logout-button">Log out</button>
+        </div>
       </section>
 
       <section class="companion-strip">

@@ -50,14 +50,19 @@ export const extensionManifest = {
     "downloads",
     "tabCapture",
     "debugger",
-    "offscreen",
+    "offscreen"
+  ],
+  optional_permissions: [
     "webRequest"
   ],
   host_permissions: [
-    "<all_urls>",
     "http://127.0.0.1/*",
     "http://127.0.0.1:3001/*",
     "https://jl-api.monthlyparty.com/*",
     ...webHostPermissions
+  ],
+  optional_host_permissions: [
+    "http://*/*",
+    "https://*/*"
   ]
 } satisfies chrome.runtime.ManifestV3;

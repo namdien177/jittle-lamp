@@ -9,6 +9,7 @@ import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import {
 	approveDesktopAuthFlow,
 	pollDesktopAuthFlow,
+	refreshExtensionAuthSession,
 	startDesktopAuthFlow,
 } from "../services/desktop-auth";
 
@@ -37,8 +38,21 @@ const extensionAuthApprovedResponseSchema = t.Object({
 	status: t.Literal("approved"),
 	tokenType: t.Literal("Bearer"),
 	accessToken: t.String({ minLength: 1 }),
+	refreshToken: t.Optional(t.String({ minLength: 1 })),
+	refreshExpiresAt: t.Optional(t.Number()),
 	expiresAt: t.Number(),
 	expiresInSeconds: t.Number(),
+	clerkUserId: t.String({ minLength: 1 }),
+});
+
+const extensionAuthRefreshResponseSchema = t.Object({
+	ok: t.Literal(true),
+	tokenType: t.Literal("Bearer"),
+	accessToken: t.String({ minLength: 1 }),
+	refreshToken: t.String({ minLength: 1 }),
+	expiresAt: t.Number(),
+	expiresInSeconds: t.Number(),
+	refreshExpiresAt: t.Number(),
 	clerkUserId: t.String({ minLength: 1 }),
 });
 
@@ -125,6 +139,63 @@ export const createExtensionAuthRoutes = (auth: ClerkAuthPlugin) =>
 						extensionAuthPendingResponseSchema,
 						extensionAuthApprovedResponseSchema,
 					]),
+					500: apiErrorSchema,
+					503: apiErrorSchema,
+				},
+			},
+		)
+		.post(
+			"/extension-auth/sessions/refresh",
+			async ({ body, db, requestId, runtime, set }) => {
+				if (!db) {
+					set.status = 503;
+					return createDbUnavailableError(
+						requestId,
+						"DATABASE_URL is not configured. Cannot refresh extension authentication.",
+					);
+				}
+
+				if (!runtime.secret) {
+					set.status = 500;
+					return createApiError(
+						requestId,
+						"EXTENSION_AUTH_MISCONFIGURED",
+						"APP_SECRET is required for extension authentication",
+						500,
+					);
+				}
+
+				const result = await refreshExtensionAuthSession(
+					db,
+					runtime,
+					body.refreshToken,
+				);
+
+				if (!result.ok) {
+					set.status = 401;
+					return createApiError(
+						requestId,
+						"EXTENSION_AUTH_REFRESH_INVALID",
+						result.reason === "expired"
+							? "Extension refresh token expired"
+							: "Extension refresh token is invalid",
+						401,
+					);
+				}
+
+				return result;
+			},
+			{
+				body: t.Object({
+					refreshToken: t.String({ minLength: 1 }),
+				}),
+				detail: {
+					tags: ["extension-auth"],
+					summary: "Refreshes an extension access token",
+				},
+				response: {
+					200: extensionAuthRefreshResponseSchema,
+					401: apiErrorSchema,
 					500: apiErrorSchema,
 					503: apiErrorSchema,
 				},

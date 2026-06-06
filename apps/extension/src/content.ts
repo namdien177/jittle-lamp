@@ -95,7 +95,7 @@ function bootContentBridge(): void {
         return;
 
       case "jl/content-refresh-widget":
-        floatingWidget?.show(parsed.data.state);
+        floatingWidget?.renderIfVisible(parsed.data.state);
         return;
     }
   });
@@ -430,6 +430,14 @@ class FloatingWidgetController {
         void this.refresh();
       }, floatingWidgetRefreshMs);
     }
+  }
+
+  renderIfVisible(state: PopupState): void {
+    if (this.host.hidden) {
+      return;
+    }
+
+    this.render(state);
   }
 
   toggle(initialState?: PopupState): void {

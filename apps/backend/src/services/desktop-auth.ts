@@ -17,6 +17,7 @@ export const desktopAuthPollIntervalSeconds = 5;
 export const desktopAuthFlowTtlMs = 10 * 60 * 1000;
 export const desktopAuthTokenTtlSeconds = 8 * 60 * 60;
 export const extensionAuthTokenTtlSeconds = 30 * 24 * 60 * 60;
+export const extensionAuthRefreshTokenTtlMs = 180 * 24 * 60 * 60 * 1000;
 
 export type DeviceAuthClient = "desktop" | "extension";
 
@@ -68,6 +69,8 @@ export type PolledDesktopAuthFlow =
 			status: "approved";
 			tokenType: "Bearer";
 			accessToken: string;
+			refreshToken?: string;
+			refreshExpiresAt?: number;
 			expiresAt: number;
 			expiresInSeconds: number;
 			clerkUserId: string;
@@ -114,6 +117,29 @@ const tokenTtlSecondsForClient = (client: DeviceAuthClient) =>
 const audienceForClient = (client: DeviceAuthClient) =>
 	client === "extension" ? extensionAuthAudience : desktopAuthAudience;
 
+const issueAccessTokenForSession = async (
+	runtime: RuntimeConfig,
+	input: {
+		clerkUserId: string;
+		client: DeviceAuthClient;
+		sessionId: string;
+		scope: string;
+		ttlSeconds: number;
+	},
+) =>
+	new SignJWT({
+		token_type: `${input.client}_session`,
+		scope: input.scope,
+	})
+		.setProtectedHeader({ alg: "HS256", typ: "JWT" })
+		.setIssuer(desktopAuthIssuer)
+		.setAudience(audienceForClient(input.client))
+		.setSubject(input.clerkUserId)
+		.setJti(input.sessionId)
+		.setIssuedAt()
+		.setExpirationTime(`${input.ttlSeconds}s`)
+		.sign(getTokenKey(runtime));
+
 const getWebAppOrigin = (runtime: RuntimeConfig) =>
 	(runtime.webAppOrigin ?? "http://127.0.0.1:4173").replace(/\/+$/, "");
 
@@ -147,6 +173,8 @@ const issueDeviceSessionToken = async (
 	},
 ): Promise<{
 	accessToken: string;
+	refreshToken?: string;
+	refreshExpiresAt?: number;
 	expiresAt: number;
 	expiresInSeconds: number;
 }> => {
@@ -154,6 +182,11 @@ const issueDeviceSessionToken = async (
 	const now = Date.now();
 	const expiresAt = now + ttlSeconds * 1000;
 	const scope = deviceScopesByClient[input.client].join(" ");
+	const refreshToken =
+		input.client === "extension" ? createBase64UrlSecret(48) : undefined;
+	const refreshExpiresAt = refreshToken
+		? now + extensionAuthRefreshTokenTtlMs
+		: undefined;
 
 	const [session] = await db
 		.insert(deviceSessions)
@@ -162,6 +195,12 @@ const issueDeviceSessionToken = async (
 			client: input.client,
 			flowId: input.flowId,
 			scope,
+			...(refreshToken
+				? {
+						refreshTokenHash: hashSecret(runtime, refreshToken),
+						refreshExpiresAt,
+					}
+				: {}),
 			expiresAt,
 			updatedAt: now,
 		})
@@ -171,20 +210,108 @@ const issueDeviceSessionToken = async (
 		throw new Error("Failed to persist device session");
 	}
 
-	const accessToken = await new SignJWT({
-		token_type: `${input.client}_session`,
+	const accessToken = await issueAccessTokenForSession(runtime, {
+		clerkUserId: input.clerkUserId,
+		client: input.client,
+		sessionId: session.id,
 		scope,
-	})
-		.setProtectedHeader({ alg: "HS256", typ: "JWT" })
-		.setIssuer(desktopAuthIssuer)
-		.setAudience(audienceForClient(input.client))
-		.setSubject(input.clerkUserId)
-		.setJti(session.id)
-		.setIssuedAt()
-		.setExpirationTime(`${ttlSeconds}s`)
-		.sign(getTokenKey(runtime));
+		ttlSeconds,
+	});
 
-	return { accessToken, expiresAt, expiresInSeconds: ttlSeconds };
+	return {
+		accessToken,
+		...(refreshToken && refreshExpiresAt
+			? { refreshToken, refreshExpiresAt }
+			: {}),
+		expiresAt,
+		expiresInSeconds: ttlSeconds,
+	};
+};
+
+export const refreshExtensionAuthSession = async (
+	db: BackendDb,
+	runtime: RuntimeConfig,
+	refreshToken: string,
+): Promise<
+	| {
+			ok: true;
+			tokenType: "Bearer";
+			accessToken: string;
+			refreshToken: string;
+			expiresAt: number;
+			expiresInSeconds: number;
+			refreshExpiresAt: number;
+			clerkUserId: string;
+	  }
+	| { ok: false; reason: "invalid" | "expired" }
+> => {
+	const refreshTokenHash = hashSecret(runtime, refreshToken);
+	const now = Date.now();
+	const session = await db.query.deviceSessions.findFirst({
+		where: eq(deviceSessions.refreshTokenHash, refreshTokenHash),
+		columns: {
+			id: true,
+			clerkUserId: true,
+			client: true,
+			scope: true,
+			refreshExpiresAt: true,
+			revokedAt: true,
+		},
+	});
+
+	if (
+		!session ||
+		session.client !== "extension" ||
+		session.revokedAt !== null ||
+		session.refreshExpiresAt === null
+	) {
+		return { ok: false, reason: "invalid" };
+	}
+
+	if (session.refreshExpiresAt <= now) {
+		await db
+			.update(deviceSessions)
+			.set({ revokedAt: now, updatedAt: now })
+			.where(eq(deviceSessions.id, session.id));
+		return { ok: false, reason: "expired" };
+	}
+
+	const ttlSeconds = tokenTtlSecondsForClient("extension");
+	const expiresAt = now + ttlSeconds * 1000;
+	const nextRefreshToken = createBase64UrlSecret(48);
+	const nextRefreshExpiresAt = now + extensionAuthRefreshTokenTtlMs;
+	const [updated] = await db
+		.update(deviceSessions)
+		.set({
+			refreshTokenHash: hashSecret(runtime, nextRefreshToken),
+			refreshExpiresAt: nextRefreshExpiresAt,
+			expiresAt,
+			lastSeenAt: now,
+			updatedAt: now,
+		})
+		.where(eq(deviceSessions.id, session.id))
+		.returning({ id: deviceSessions.id });
+
+	if (!updated) {
+		return { ok: false, reason: "invalid" };
+	}
+
+	return {
+		ok: true,
+		tokenType: "Bearer",
+		accessToken: await issueAccessTokenForSession(runtime, {
+			clerkUserId: session.clerkUserId,
+			client: "extension",
+			sessionId: session.id,
+			scope: session.scope,
+			ttlSeconds,
+		}),
+		refreshToken: nextRefreshToken,
+		expiresAt,
+		expiresInSeconds: ttlSeconds,
+		refreshExpiresAt: nextRefreshExpiresAt,
+		clerkUserId: session.clerkUserId,
+	};
 };
 
 export const verifyDesktopAuthSessionToken = async (
@@ -477,6 +604,12 @@ export const pollDesktopAuthFlow = async (
 		status: "approved",
 		tokenType: "Bearer",
 		accessToken: token.accessToken,
+		...(token.refreshToken && token.refreshExpiresAt
+			? {
+					refreshToken: token.refreshToken,
+					refreshExpiresAt: token.refreshExpiresAt,
+				}
+			: {}),
 		expiresAt: token.expiresAt,
 		expiresInSeconds: token.expiresInSeconds,
 		clerkUserId: flow.clerkUserId,

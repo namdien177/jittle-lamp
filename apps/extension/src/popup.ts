@@ -11,6 +11,10 @@ const companionDownload = requireElement<HTMLAnchorElement>("[data-role='compani
 const cloudStatus = requireElement<HTMLElement>("[data-role='cloud-status']");
 const cloudRoute = requireElement<HTMLParagraphElement>("[data-role='cloud-route']");
 const cloudPill = requireElement<HTMLSpanElement>("[data-role='cloud-pill']");
+const cloudMenuButton = requireElement<HTMLButtonElement>("[data-role='cloud-menu-button']");
+const cloudMenu = requireElement<HTMLDivElement>("[data-role='cloud-menu']");
+const openEvidenceButton = requireElement<HTMLButtonElement>("[data-role='open-evidence-button']");
+const logoutButton = requireElement<HTMLButtonElement>("[data-role='logout-button']");
 const titleValue = requireElement<HTMLInputElement>("[data-role='title-value']");
 const urlValue = requireElement<HTMLSpanElement>("[data-role='url-value']");
 const sessionValue = requireElement<HTMLSpanElement>("[data-role='session-value']");
@@ -37,6 +41,41 @@ stopButton.addEventListener("click", () => {
   void performAction("jl/popup-stop-recording");
 });
 
+statusBadge.addEventListener("click", () => {
+  if (statusBadge.dataset.phase === "failed") {
+    void performAction("jl/popup-retry-upload");
+  }
+});
+
+cloudMenuButton.addEventListener("click", () => {
+  if (cloudMenuButton.disabled) {
+    return;
+  }
+
+  cloudMenu.hidden = !cloudMenu.hidden;
+});
+
+openEvidenceButton.addEventListener("click", () => {
+  cloudMenu.hidden = true;
+  void performAction("jl/popup-open-evidence-list");
+});
+
+logoutButton.addEventListener("click", () => {
+  cloudMenu.hidden = true;
+  void performAction("jl/popup-logout-cloud");
+});
+
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+
+  if (!cloudMenu.hidden && !cloudMenu.contains(target) && !cloudMenuButton.contains(target)) {
+    cloudMenu.hidden = true;
+  }
+});
+
 titleValue.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     titleValue.blur();
@@ -53,7 +92,12 @@ titleValue.addEventListener("blur", () => {
 });
 
 async function performAction(
-  type: "jl/popup-start-recording" | "jl/popup-stop-recording"
+  type:
+    | "jl/popup-start-recording"
+    | "jl/popup-stop-recording"
+    | "jl/popup-retry-upload"
+    | "jl/popup-open-evidence-list"
+    | "jl/popup-logout-cloud"
 ): Promise<void> {
   if (requestInFlight) {
     return;
@@ -66,11 +110,12 @@ async function performAction(
   try {
     if (type === "jl/popup-start-recording") {
       const granted = await chrome.permissions.request({
-        origins: ["<all_urls>"]
+        permissions: ["webRequest"],
+        origins: ["http://*/*", "https://*/*"]
       });
 
       if (!granted) {
-        transientError = "Grant site access to keep interaction capture running across navigations.";
+        transientError = "Grant recording access to capture active-tab interactions, console output, and network evidence.";
         return;
       }
     }
@@ -103,7 +148,13 @@ async function refreshState(errorOverride?: string): Promise<void> {
 }
 
 async function sendPopupMessage(
-  type: "jl/popup-get-state" | "jl/popup-start-recording" | "jl/popup-stop-recording"
+  type:
+    | "jl/popup-get-state"
+    | "jl/popup-start-recording"
+    | "jl/popup-stop-recording"
+    | "jl/popup-retry-upload"
+    | "jl/popup-open-evidence-list"
+    | "jl/popup-logout-cloud"
 ): Promise<PopupResponse> {
   return popupResponseSchema.parse(
     await chrome.runtime.sendMessage({
@@ -163,7 +214,12 @@ function renderState(state: PopupState, error?: string): void {
   cloudRoute.textContent = cloudRouteText;
   cloudRoute.title = cloudRouteText;
   cloudPill.textContent = state.cloud.status;
-  cloudPill.dataset.status = state.cloud.status;
+  cloudMenuButton.dataset.status = state.cloud.status;
+  cloudMenuButton.disabled = requestInFlight || state.cloud.status !== "signed-in";
+  cloudMenuButton.title = state.cloud.status === "signed-in" ? "Cloud account options" : "Sign in from Jittle Lamp web";
+  if (state.cloud.status !== "signed-in") {
+    cloudMenu.hidden = true;
+  }
 
   companionStatus.textContent =
     state.companion.status === "online" ? "Desktop companion online" : "Desktop companion offline";
@@ -232,6 +288,7 @@ function renderState(state: PopupState, error?: string): void {
 function setButtonsDisabled(disabled: boolean): void {
   startButton.disabled = disabled;
   stopButton.disabled = disabled;
+  cloudMenuButton.disabled = disabled;
 }
 
 function setStatusMessage(message: string): void {

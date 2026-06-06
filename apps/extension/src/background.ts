@@ -68,6 +68,7 @@ let cloudAuthSessionCache: StoredCloudAuthSession | null = null;
 let companionStateCache: CompanionState | null = null;
 let companionStateCacheExpiresAt = 0;
 let companionStateProbePromise: Promise<CompanionState> | null = null;
+let webRequestFallbackListenersRegistered = false;
 
 function authDebugLog(event: string, details: Record<string, unknown> = {}): void {
   console.debug("[jittle-lamp/auth]", event, details);
@@ -334,15 +335,25 @@ async function handleIncomingMessage(
           }
         });
 
-	      case "jl/popup-stop-recording":
-	        return queueDraftMutation(async () => {
-	          try {
-	            await stopRecordingSession("Stopped recording from the popup.");
-	            return buildPopupResponse(true);
+      case "jl/popup-stop-recording":
+        return queueDraftMutation(async () => {
+          try {
+            await stopRecordingSession("Stopped recording from the popup.");
+            return buildPopupResponse(true);
 	          } catch (error: unknown) {
 	            return buildPopupResponse(false, errorMessage(error));
-	          }
-	        });
+          }
+        });
+
+      case "jl/popup-retry-upload":
+        return queueDraftMutation(async () => {
+          try {
+            await retryFailedCloudUpload();
+            return buildPopupResponse(true);
+          } catch (error: unknown) {
+            return buildPopupResponse(false, errorMessage(error));
+          }
+        });
 
       case "jl/popup-start-cloud-sign-in":
         try {
@@ -351,6 +362,14 @@ async function handleIncomingMessage(
         } catch (error: unknown) {
           return buildPopupResponse(false, errorMessage(error));
         }
+
+      case "jl/popup-open-evidence-list":
+        await chrome.tabs.create({ url: `${cloudWebOrigins[0]}/evidence` });
+        return buildPopupResponse(true);
+
+      case "jl/popup-logout-cloud":
+        await clearCloudAuthSession();
+        return buildPopupResponse(true, "Signed out of cloud upload for this extension.");
 
 	      case "jl/popup-update-session-name":
         const nextSessionName = popupRequest.data.name;
@@ -398,6 +417,7 @@ async function startRecordingSession(): Promise<void> {
   await saveDraft(draft);
 
   try {
+    registerWebRequestFallbackListeners();
     await ensureOffscreenDocument();
     await ensureRecordableTab(tab.id, "before content bridge");
     await ensureContentBridge(tab.id, draft.sessionId);
@@ -565,6 +585,8 @@ async function stopRecordingSession(detail: string): Promise<void> {
   await clearMaxRecordingDurationAlarm();
   await saveDraft(processingDraft);
 
+  let keepOffscreenForRetry = false;
+
   try {
     stoppingTabIds.add(tabId);
     await signalContentCaptureEnded(tabId, processingDraft.sessionId);
@@ -600,6 +622,7 @@ async function stopRecordingSession(detail: string): Promise<void> {
       )
     );
   } catch (error: unknown) {
+    keepOffscreenForRetry = true;
     await saveDraft(
       transitionDraftPhase(
         processingDraft,
@@ -613,8 +636,51 @@ async function stopRecordingSession(detail: string): Promise<void> {
     stoppingTabIds.delete(tabId);
     webRequestFallbackTabIds.delete(tabId);
     networkRequestsByTab.delete(tabId);
-    await closeOffscreenDocumentIfPresent();
+    if (!keepOffscreenForRetry) {
+      await closeOffscreenDocumentIfPresent();
+    }
   }
+}
+
+async function retryFailedCloudUpload(): Promise<void> {
+  const currentDraft = await readDraft();
+
+  if (!currentDraft || currentDraft.phase !== "failed") {
+    throw new Error("There is no failed recording upload to retry.");
+  }
+
+  const cloudAuthSession = await resolveCloudUploadSession();
+
+  if (!cloudAuthSession?.token) {
+    throw new Error("Sign in to cloud upload before retrying.");
+  }
+
+  await ensureOffscreenDocument();
+  const offscreenResponse = await sendOffscreenMessage({
+    type: "jl/offscreen-retry-cloud-upload",
+    sessionId: currentDraft.sessionId,
+    cloudAuthToken: cloudAuthSession.token
+  });
+
+  if (!offscreenResponse.ok) {
+    await saveDraft(
+      transitionDraftPhase(
+        currentDraft,
+        "failed",
+        `Failed to retry cloud upload: ${offscreenResponse.error ?? "Offscreen retry failed."}`
+      )
+    );
+    throw new Error(offscreenResponse.error ?? "Offscreen retry failed.");
+  }
+
+  await saveDraft(
+    transitionDraftPhase(
+      currentDraft,
+      "ready",
+      `Saved session directly to cloud${offscreenResponse.cloudUrl ? `: ${offscreenResponse.cloudUrl}` : "."}`
+    )
+  );
+  await closeOffscreenDocumentIfPresent();
 }
 
 async function updateActiveSessionName(name: string): Promise<void> {
@@ -789,6 +855,10 @@ async function handleContentRuntimeMessage(
 }
 
 function registerWebRequestFallbackListeners(): void {
+  if (webRequestFallbackListenersRegistered) {
+    return;
+  }
+
   if (!("webRequest" in chrome) || !chrome.webRequest) {
     return;
   }
@@ -839,6 +909,7 @@ function registerWebRequestFallbackListeners(): void {
       },
       filter
     );
+    webRequestFallbackListenersRegistered = true;
   } catch (error: unknown) {
     console.warn("[jittle-lamp] Unable to register webRequest fallback listeners.", errorMessage(error));
   }
@@ -2700,11 +2771,11 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
   const checkedAt = new Date().toISOString();
 
   try {
-    let session = await readStoredCloudAuthSession();
+    let session = await ensureFreshCloudAuthSession();
 
     if (!session) {
       await resumePendingCloudAuthFlow();
-      session = await readStoredCloudAuthSession();
+      session = await ensureFreshCloudAuthSession();
     }
 
     if (!session) {
@@ -2720,6 +2791,8 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
       token: session.token,
       origin: session.origin,
       ...(accountLabel ? { accountLabel } : {}),
+      ...(session.refreshToken ? { refreshToken: session.refreshToken } : {}),
+      ...(session.refreshExpiresAt ? { refreshExpiresAt: session.refreshExpiresAt } : {}),
       expiresAt: normalizeExpirationMs(session.expiresAt) ??
         getJwtExpirationMs(session.token) ??
         Date.now() + 45 * 60 * 1000,
@@ -2822,6 +2895,8 @@ async function pollCloudSignInFlow(
   const payload = await response.json() as {
     status?: unknown;
     accessToken?: unknown;
+    refreshToken?: unknown;
+    refreshExpiresAt?: unknown;
     expiresAt?: unknown;
   };
 
@@ -2831,6 +2906,8 @@ async function pollCloudSignInFlow(
       token: payload.accessToken,
       origin: configuredCloudApiOrigin,
       ...(accountLabel ? { accountLabel } : {}),
+      ...(typeof payload.refreshToken === "string" ? { refreshToken: payload.refreshToken } : {}),
+      ...(typeof payload.refreshExpiresAt === "number" ? { refreshExpiresAt: payload.refreshExpiresAt } : {}),
       expiresAt: normalizeExpirationMs(payload.expiresAt) ??
         getJwtExpirationMs(payload.accessToken) ??
         Date.now() + 30 * 24 * 60 * 60 * 1000,
@@ -2950,20 +3027,80 @@ async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | nu
 }
 
 async function resolveCloudUploadSession(): Promise<StoredCloudAuthSession | null> {
-  const storedSession = await readStoredCloudAuthSession();
+  const storedSession = await ensureFreshCloudAuthSession();
 
   if (storedSession) {
     return storedSession;
   }
 
   await resumePendingCloudAuthFlow();
-  const resumedSession = await readStoredCloudAuthSession();
+  const resumedSession = await ensureFreshCloudAuthSession();
 
   if (resumedSession) {
     return resumedSession;
   }
 
   return readCachedCloudAuthSession("stop-export");
+}
+
+async function ensureFreshCloudAuthSession(): Promise<StoredCloudAuthSession | null> {
+  const storedSession = await readStoredCloudAuthSession();
+
+  if (storedSession) {
+    return storedSession;
+  }
+
+  const refreshableSession = await readRefreshableCloudAuthSession();
+
+  if (!refreshableSession) {
+    return null;
+  }
+
+  return refreshCloudAuthSession(refreshableSession);
+}
+
+async function refreshCloudAuthSession(session: RefreshableCloudAuthSession): Promise<StoredCloudAuthSession | null> {
+  try {
+    const response = await fetch(`${configuredCloudApiOrigin}/extension-auth/sessions/refresh`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ refreshToken: session.refreshToken })
+    });
+
+    if (!response.ok) {
+      await clearCloudAuthSession();
+      return null;
+    }
+
+    const payload = await response.json() as {
+      accessToken?: unknown;
+      refreshToken?: unknown;
+      expiresAt?: unknown;
+      refreshExpiresAt?: unknown;
+    };
+
+    if (typeof payload.accessToken !== "string" || typeof payload.refreshToken !== "string") {
+      await clearCloudAuthSession();
+      return null;
+    }
+
+    const refreshedSession: StoredCloudAuthSession = {
+      token: payload.accessToken,
+      origin: configuredCloudApiOrigin,
+      ...(session.accountLabel ? { accountLabel: session.accountLabel } : {}),
+      refreshToken: payload.refreshToken,
+      ...(typeof payload.refreshExpiresAt === "number" ? { refreshExpiresAt: payload.refreshExpiresAt } : {}),
+      expiresAt: normalizeExpirationMs(payload.expiresAt) ??
+        getJwtExpirationMs(payload.accessToken) ??
+        Date.now() + 45 * 60 * 1000,
+      checkedAt: new Date().toISOString()
+    };
+
+    await saveCloudAuthSession(refreshedSession);
+    return refreshedSession;
+  } catch {
+    return null;
+  }
 }
 
 function readCachedCloudAuthSession(reason: string): StoredCloudAuthSession | null {
@@ -3039,6 +3176,52 @@ function parseStoredCloudAuthSession(rawValue: unknown, source = "unknown"): Sto
     origin: candidate.origin,
     expiresAt,
     checkedAt: candidate.checkedAt,
+    ...(typeof candidate.refreshToken === "string" && candidate.refreshToken.trim()
+      ? { refreshToken: candidate.refreshToken.trim() }
+      : {}),
+    ...(typeof candidate.refreshExpiresAt === "number" ? { refreshExpiresAt: candidate.refreshExpiresAt } : {}),
+    ...(typeof candidate.accountLabel === "string" && candidate.accountLabel.trim()
+      ? { accountLabel: candidate.accountLabel.trim() }
+      : {})
+  };
+}
+
+async function readRefreshableCloudAuthSession(): Promise<RefreshableCloudAuthSession | null> {
+  const stored = await chrome.storage.local.get([cloudAuthStorageKey, cloudAuthDurableStorageKey]);
+  const primary = parseRefreshableCloudAuthSession(stored[cloudAuthStorageKey]);
+  const durable = parseRefreshableCloudAuthSession(stored[cloudAuthDurableStorageKey]);
+
+  if (durable && (!primary || durable.refreshExpiresAt >= primary.refreshExpiresAt)) {
+    return durable;
+  }
+
+  return primary;
+}
+
+function parseRefreshableCloudAuthSession(rawValue: unknown): RefreshableCloudAuthSession | null {
+  const value = parseStoredObject(rawValue);
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<StoredCloudAuthSession>;
+
+  if (
+    typeof candidate.origin !== "string" ||
+    candidate.origin !== configuredCloudApiOrigin ||
+    typeof candidate.refreshToken !== "string" ||
+    !candidate.refreshToken.trim() ||
+    typeof candidate.refreshExpiresAt !== "number" ||
+    candidate.refreshExpiresAt <= Date.now() + 30_000
+  ) {
+    return null;
+  }
+
+  return {
+    origin: candidate.origin,
+    refreshToken: candidate.refreshToken.trim(),
+    refreshExpiresAt: candidate.refreshExpiresAt,
     ...(typeof candidate.accountLabel === "string" && candidate.accountLabel.trim()
       ? { accountLabel: candidate.accountLabel.trim() }
       : {})
@@ -3126,7 +3309,7 @@ function summarizeAuthToken(token: unknown): { tokenType?: unknown; scope?: unkn
 function isExtensionSessionToken(token: string): boolean {
   const payload = readJwtPayload(token);
 
-  return payload?.token_type === "extension_session" && payload.scope === "extension";
+  return payload?.token_type === "extension_session";
 }
 
 function isPersistentCloudAuthSession(session: CloudAuthSession): boolean {
@@ -3220,6 +3403,11 @@ async function saveCloudAuthSession(session: StoredCloudAuthSession): Promise<vo
   cloudAuthSessionCache = session;
 }
 
+async function clearCloudAuthSession(): Promise<void> {
+  cloudAuthSessionCache = null;
+  await chrome.storage.local.remove([cloudAuthStorageKey, cloudAuthDurableStorageKey, cloudAuthFlowStorageKey]);
+}
+
 function getJwtExpirationMs(token: string): number | undefined {
   const payload = readJwtPayload(token);
 
@@ -3238,6 +3426,8 @@ type CloudAuthSession = {
   token: string;
   origin: string;
   accountLabel?: string;
+  refreshToken?: string;
+  refreshExpiresAt?: number;
   expiresAt?: number;
   checkedAt?: string;
 };
@@ -3247,6 +3437,13 @@ type StoredCloudAuthSession = CloudAuthSession & {
   origin: string;
   expiresAt: number;
   checkedAt: string;
+};
+
+type RefreshableCloudAuthSession = {
+  origin: string;
+  refreshToken: string;
+  refreshExpiresAt: number;
+  accountLabel?: string;
 };
 
 async function resolveCloudAuthToken(): Promise<CloudAuthSession | null> {
@@ -3471,6 +3668,11 @@ async function sendOffscreenMessage(
         archive: ReturnType<typeof createSessionArchive>;
         cloudRequired?: boolean;
         cloudAuthToken?: string;
+      }
+    | {
+        type: "jl/offscreen-retry-cloud-upload";
+        sessionId: string;
+        cloudAuthToken: string;
       }
 ) {
   const rawResponse = await chrome.runtime.sendMessage(message);
