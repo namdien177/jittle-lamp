@@ -69,6 +69,8 @@ function injectStyles(): void {
 export type ViewerModalProps = {
   open: boolean;
   onClose: () => void;
+  mode?: "modal" | "page";
+  closeLabel?: string;
 
   title: string;
   tags: string[];
@@ -129,6 +131,7 @@ export type ViewerModalProps = {
 
 export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
   injectStyles();
+  const mode = props.mode ?? "modal";
 
   useEffect(() => {
     if (!props.open) return;
@@ -142,7 +145,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
           props.onDrawerClose();
           return;
         }
-        if (!props.mergeDialog.open) {
+        if (!props.mergeDialog.open && mode === "modal") {
           props.onClose();
         }
       }
@@ -154,12 +157,61 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
     props.contextMenu.open,
     props.drawerItem,
     props.mergeDialog.open,
+    mode,
     props.onClose,
     props.onContextMenuClose,
     props.onDrawerClose
   ]);
 
   if (!props.open) return null;
+
+  const viewer = (
+    <div
+      className="jl-vm-modal"
+      role={mode === "modal" ? "dialog" : undefined}
+      aria-modal={mode === "modal" ? "true" : undefined}
+      aria-label={props.title}
+    >
+      <ViewerModalHeader {...props} mode={mode} />
+      <div className="jl-vm-body">
+        <VideoNotesPane {...props} />
+        <EvidencePane {...props} />
+      </div>
+      {props.feedback ? (
+        <div className="jl-vm-feedback" data-tone={props.feedback.tone}>
+          <span>{props.feedback.text}</span>
+          {props.onFeedbackDismiss ? (
+            <button
+              type="button"
+              className="jl-vm-feedback-dismiss"
+              aria-label="Dismiss"
+              onClick={props.onFeedbackDismiss}
+            >
+              <X aria-hidden size={14} strokeWidth={2} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (mode === "page") {
+    return (
+      <div className="jl-vm-page">
+        {viewer}
+        <ContextMenuPortal {...props} />
+        <MergeDialog
+          open={props.mergeDialog.open}
+          selectedCount={0}
+          value={props.mergeDialog.value}
+          error={props.mergeDialog.error}
+          onValueChange={props.onMergeValueChange}
+          onConfirm={props.onMergeConfirm}
+          onCancel={props.onMergeCancel}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -168,28 +220,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
         if (event.target === event.currentTarget) props.onClose();
       }}
     >
-      <div className="jl-vm-modal" role="dialog" aria-modal="true" aria-label={props.title}>
-        <ViewerModalHeader {...props} />
-        <div className="jl-vm-body">
-          <VideoNotesPane {...props} />
-          <EvidencePane {...props} />
-        </div>
-        {props.feedback ? (
-          <div className="jl-vm-feedback" data-tone={props.feedback.tone}>
-            <span>{props.feedback.text}</span>
-            {props.onFeedbackDismiss ? (
-              <button
-                type="button"
-                className="jl-vm-feedback-dismiss"
-                aria-label="Dismiss"
-                onClick={props.onFeedbackDismiss}
-              >
-                <X aria-hidden size={14} strokeWidth={2} />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+      {viewer}
       <ContextMenuPortal {...props} />
       <MergeDialog
         open={props.mergeDialog.open}
@@ -209,6 +240,8 @@ function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
   const showCreateLink =
     props.isOwner && props.shareLinkUrl === null && props.onCreateShareLink !== undefined;
   const showDownloadZip = props.onDownloadZip !== undefined;
+  const isPage = (props.mode ?? "modal") === "page";
+  const closeLabel = props.closeLabel ?? "Close viewer";
 
   return (
     <header className="jl-vm-header">
@@ -252,11 +285,11 @@ function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
         ) : null}
         <button
           type="button"
-          className="jl-vm-btn jl-vm-btn-icon"
-          aria-label="Close viewer"
+          className={isPage && props.closeLabel ? "jl-vm-btn" : "jl-vm-btn jl-vm-btn-icon"}
+          aria-label={closeLabel}
           onClick={props.onClose}
         >
-          <X aria-hidden size={16} strokeWidth={2} />
+          {isPage && props.closeLabel ? props.closeLabel : <X aria-hidden size={16} strokeWidth={2} />}
         </button>
       </div>
     </header>

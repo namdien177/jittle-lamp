@@ -1,9 +1,8 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 
 import {
 	desktopRecordingSessions,
-	evidenceArtifacts,
 	evidences,
 	organizationMembers,
 	organizations,
@@ -18,6 +17,7 @@ import {
 	type ClerkAuthPlugin,
 	requireSessionScope,
 } from "../plugins/clerk-auth";
+import { EVIDENCE_BIN_RETENTION_MS } from "../services/evidence-maintenance";
 import { createEvidencePolicy } from "../services/evidence-policy";
 
 const moveEvidenceBodySchema = t.Object({
@@ -42,6 +42,10 @@ const renameEvidenceBodySchema = t.Object({
 	title: t.String({ minLength: 1, maxLength: 200 }),
 });
 
+const bulkDeleteEvidenceBodySchema = t.Object({
+	ids: t.Array(t.String({ minLength: 1 }), { minItems: 1, maxItems: 100 }),
+});
+
 const renameEvidenceResponseSchema = t.Object({
 	evidence: t.Object({
 		id: t.String({ minLength: 1 }),
@@ -55,13 +59,29 @@ const deleteEvidenceResponseSchema = t.Object({
 	evidence: t.Object({
 		id: t.String({ minLength: 1 }),
 		orgId: t.String({ minLength: 1 }),
+		deletedAt: t.Number(),
+		deletePurgesAt: t.Number(),
 	}),
+	deleted: t.Object({ mode: t.Literal("soft") }),
+});
+
+const bulkDeleteEvidenceResponseSchema = t.Object({
+	evidences: t.Array(
+		t.Object({
+			id: t.String({ minLength: 1 }),
+			orgId: t.String({ minLength: 1 }),
+			deletedAt: t.Number(),
+			deletePurgesAt: t.Number(),
+		}),
+	),
 	deleted: t.Object({
-		artifactObjects: t.Number({ minimum: 0 }),
-		shareLinks: t.Number({ minimum: 0 }),
-		desktopSessions: t.Number({ minimum: 0 }),
+		mode: t.Literal("soft"),
+		count: t.Number({ minimum: 0 }),
 	}),
 });
+
+const isElevatedEvidenceManager = (role: string): boolean =>
+	role === "owner" || role === "admin" || role === "moderator";
 
 export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 	new Elysia({ name: "evidence-routes" })
@@ -71,7 +91,6 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 				.delete(
 					"/evidences/:id",
 					async ({
-						artifactStorage,
 						authContext,
 						db,
 						params,
@@ -105,8 +124,11 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						}
 
 						const evidence = await db.query.evidences.findFirst({
-							where: eq(evidences.id, params.id),
-							columns: { id: true, orgId: true },
+							where: and(
+								eq(evidences.id, params.id),
+								isNull(evidences.deletedAt),
+							),
+							columns: { id: true, orgId: true, createdBy: true },
 						});
 						if (!evidence) {
 							set.status = 404;
@@ -124,7 +146,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								eq(organizationMembers.userId, authContext.localUserId),
 								isNull(organizationMembers.teamId),
 							),
-							columns: { id: true },
+							columns: { id: true, role: true },
 						});
 						if (!membership) {
 							// Non-members get the same 404 as a missing record so the
@@ -139,58 +161,44 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
-						const artifactKeys = (
-							await db.query.evidenceArtifacts.findMany({
-								where: eq(evidenceArtifacts.evidenceId, evidence.id),
-								columns: { s3Key: true },
-							})
-						).map((artifact) => artifact.s3Key);
-
-						const deleted = await db.transaction(async (tx) => {
-							const deletedShareLinks = await tx
-								.delete(shareLinks)
-								.where(eq(shareLinks.evidenceId, evidence.id))
-								.returning({ id: shareLinks.id });
-							const deletedDesktopSessions = await tx
-								.delete(desktopRecordingSessions)
-								.where(eq(desktopRecordingSessions.evidenceId, evidence.id))
-								.returning({ id: desktopRecordingSessions.id });
-							const deletedEvidence = await tx
-								.delete(evidences)
-								.where(eq(evidences.id, evidence.id))
-								.returning({ id: evidences.id, orgId: evidences.orgId });
-
-							if (!deletedEvidence[0]) {
-								throw new Error("Failed to delete evidence");
-							}
-
-							return {
-								evidence: deletedEvidence[0],
-								shareLinks: deletedShareLinks.length,
-								desktopSessions: deletedDesktopSessions.length,
-							};
-						});
-
-						if (artifactKeys.length > 0) {
-							const results = await Promise.allSettled(
-								artifactKeys.map((key) =>
-									artifactStorage.deleteObject({ key }),
-								),
+						const isCreator = evidence.createdBy === authContext.localUserId;
+						if (!isCreator && !isElevatedEvidenceManager(membership.role)) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_DELETE_FORBIDDEN",
+								"Only the recorder, admins, or moderators can delete this evidence",
+								403,
 							);
-							const failedDeleteCount = results.filter(
-								(result) => result.status === "rejected",
-							).length;
-							if (failedDeleteCount > 0) {
-								requestLogger.warn(
-									{
-										event: "evidence.artifact-delete-failed",
-										evidenceId: evidence.id,
-										failedDeleteCount,
-										requestId,
-									},
-									"failed to delete evidence artifact objects",
-								);
-							}
+						}
+
+						const now = Date.now();
+						const [deleted] = await db
+							.update(evidences)
+							.set({
+								deletedAt: now,
+								deletedBy: authContext.localUserId,
+								deletePurgesAt: now + EVIDENCE_BIN_RETENTION_MS,
+								updatedAt: now,
+							})
+							.where(
+								and(eq(evidences.id, evidence.id), isNull(evidences.deletedAt)),
+							)
+							.returning({
+								id: evidences.id,
+								orgId: evidences.orgId,
+								deletedAt: evidences.deletedAt,
+								deletePurgesAt: evidences.deletePurgesAt,
+							});
+
+						if (!deleted?.deletedAt || !deleted.deletePurgesAt) {
+							set.status = 500;
+							return createApiError(
+								requestId,
+								"EVIDENCE_DELETE_FAILED",
+								"Failed to delete evidence",
+								500,
+							);
 						}
 
 						requestLogger.info(
@@ -199,19 +207,20 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								evidenceId: evidence.id,
 								orgId: evidence.orgId,
 								deletedByUserId: authContext.localUserId,
-								artifactObjectCount: artifactKeys.length,
+								mode: "soft",
 								requestId,
 							},
 							"evidence deleted",
 						);
 
 						return {
-							evidence: deleted.evidence,
-							deleted: {
-								artifactObjects: artifactKeys.length,
-								shareLinks: deleted.shareLinks,
-								desktopSessions: deleted.desktopSessions,
+							evidence: {
+								id: deleted.id,
+								orgId: deleted.orgId,
+								deletedAt: deleted.deletedAt,
+								deletePurgesAt: deleted.deletePurgesAt,
 							},
+							deleted: { mode: "soft" as const },
 						};
 					},
 					{
@@ -220,10 +229,162 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						}),
 						detail: {
 							tags: ["evidences"],
-							summary: "Deletes an evidence record and its artifact objects",
+							summary: "Moves an evidence record to the bin for 30 days",
 						},
 						response: {
 							200: deleteEvidenceResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.post(
+					"/evidences/bulk-delete",
+					async ({ authContext, body, db, requestId, requestLogger, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:manage",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
+						}
+
+						if (!authContext.localUserId) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_DELETE_FORBIDDEN",
+								"Only workspace members can delete evidence",
+								403,
+							);
+						}
+
+						const ids = Array.from(new Set(body.ids));
+						const rows = await db.query.evidences.findMany({
+							where: and(
+								inArray(evidences.id, ids),
+								isNull(evidences.deletedAt),
+							),
+							columns: { id: true, orgId: true, createdBy: true },
+						});
+
+						if (rows.length !== ids.length) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"One or more evidence records were not found",
+								404,
+							);
+						}
+
+						const orgIds = Array.from(new Set(rows.map((row) => row.orgId)));
+						const memberships = await db.query.organizationMembers.findMany({
+							where: and(
+								inArray(organizationMembers.organizationId, orgIds),
+								eq(organizationMembers.userId, authContext.localUserId),
+								isNull(organizationMembers.teamId),
+							),
+							columns: { organizationId: true, role: true },
+						});
+						const roleByOrgId = new Map(
+							memberships.map((membership) => [
+								membership.organizationId,
+								membership.role,
+							]),
+						);
+
+						const inaccessible = rows.find(
+							(row) => !roleByOrgId.has(row.orgId),
+						);
+						if (inaccessible) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"One or more evidence records were not found",
+								404,
+							);
+						}
+
+						const forbidden = rows.find((row) => {
+							const role = roleByOrgId.get(row.orgId) ?? "";
+							return (
+								row.createdBy !== authContext.localUserId &&
+								!isElevatedEvidenceManager(role)
+							);
+						});
+						if (forbidden) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_DELETE_FORBIDDEN",
+								"Only the recorder, admins, or moderators can delete selected evidence",
+								403,
+							);
+						}
+
+						const now = Date.now();
+						const deleted = await db
+							.update(evidences)
+							.set({
+								deletedAt: now,
+								deletedBy: authContext.localUserId,
+								deletePurgesAt: now + EVIDENCE_BIN_RETENTION_MS,
+								updatedAt: now,
+							})
+							.where(
+								and(inArray(evidences.id, ids), isNull(evidences.deletedAt)),
+							)
+							.returning({
+								id: evidences.id,
+								orgId: evidences.orgId,
+								deletedAt: evidences.deletedAt,
+								deletePurgesAt: evidences.deletePurgesAt,
+							});
+
+						requestLogger.info(
+							{
+								event: "evidence.bulk-deleted",
+								evidenceIds: ids,
+								deletedByUserId: authContext.localUserId,
+								count: deleted.length,
+								mode: "soft",
+								requestId,
+							},
+							"evidence bulk delete completed",
+						);
+
+						return {
+							evidences: deleted.map((evidence) => ({
+								id: evidence.id,
+								orgId: evidence.orgId,
+								deletedAt: evidence.deletedAt ?? now,
+								deletePurgesAt:
+									evidence.deletePurgesAt ?? now + EVIDENCE_BIN_RETENTION_MS,
+							})),
+							deleted: { mode: "soft" as const, count: deleted.length },
+						};
+					},
+					{
+						body: bulkDeleteEvidenceBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary:
+								"Moves multiple evidence records to the bin in one operation",
+						},
+						response: {
+							200: bulkDeleteEvidenceResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,

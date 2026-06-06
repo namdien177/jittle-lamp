@@ -1,6 +1,9 @@
 import { createApp } from "./app";
 import { cleanupExpiredDeviceAuthState } from "./services/desktop-auth";
-import { cleanupAbandonedEvidenceUploads } from "./services/evidence-maintenance";
+import {
+	cleanupAbandonedEvidenceUploads,
+	purgeExpiredDeletedEvidences,
+} from "./services/evidence-maintenance";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
 import { runDatabaseMigrations } from "./startup/run-database-migrations";
 
@@ -48,6 +51,15 @@ try {
 				}
 			} catch (err) {
 				logger.error({ err }, "failed to clean up abandoned evidence uploads");
+			}
+
+			try {
+				const removed = await purgeExpiredDeletedEvidences(db, artifactStorage);
+				if (removed > 0) {
+					logger.info({ removed }, "expired deleted evidences purged");
+				}
+			} catch (err) {
+				logger.error({ err }, "failed to purge expired deleted evidences");
 			}
 
 			try {

@@ -71,6 +71,7 @@ function useRenewArtifactUrls(input: {
 function RemoteEvidenceLoader(props: {
   shareToken?: string;
   remoteEvidenceId?: string;
+  viewerMode?: "modal" | "page";
 }): React.JSX.Element {
   const navigate = useNavigate();
   const auth = useAuth();
@@ -162,7 +163,8 @@ function RemoteEvidenceLoader(props: {
       shareLinkUrl={shareLinkUrl}
       fetchVideoBytes={fetchVideoBytes}
       onVideoError={handleVideoError}
-      onClose={() => navigate("/")}
+      onClose={() => navigate(props.viewerMode === "page" ? "/evidence" : "/")}
+      {...(props.viewerMode ? { viewerMode: props.viewerMode } : {})}
     />
   );
 }
@@ -180,9 +182,5 @@ export function SharedEvidencePage(): React.JSX.Element {
 export function CloudEvidencePage(): React.JSX.Element {
   const { evidenceId } = useParams();
   if (!evidenceId) return <StatusScreen tone="error" title="Missing evidence id" />;
-  return (
-    <RequireAuth>
-      <RemoteEvidenceLoader remoteEvidenceId={evidenceId} />
-    </RequireAuth>
-  );
+  return <RemoteEvidenceLoader remoteEvidenceId={evidenceId} viewerMode="page" />;
 }

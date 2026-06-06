@@ -51,7 +51,7 @@ export function EvidenceSearch(): React.JSX.Element {
 function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element {
   const navigate = useNavigate();
   const toast = useToast();
-  const evidencesQuery = useEvidences();
+  const evidencesQuery = useEvidences({ limit: 100 });
   const renameEvidence = useRenameEvidence();
 
   const [query, setQuery] = useState("");

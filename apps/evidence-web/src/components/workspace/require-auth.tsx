@@ -22,6 +22,26 @@ const clerkAppearance = {
     colorInputText: "#ededed",
     borderRadius: "0.5rem",
     fontFamily: '"Geist", system-ui, sans-serif'
+  },
+  elements: {
+    card: {
+      backgroundColor: "#111314",
+      color: "#ededed"
+    },
+    modalContent: {
+      backgroundColor: "#111314",
+      color: "#ededed"
+    },
+    headerTitle: { color: "#ededed" },
+    headerSubtitle: { color: "#8b9590" },
+    formFieldLabel: { color: "#d7ddd9" },
+    formFieldInput: {
+      backgroundColor: "#0b0d0e",
+      color: "#ededed",
+      borderColor: "#303633"
+    },
+    footerActionText: { color: "#8b9590" },
+    footerActionLink: { color: "#4ade80" }
   }
 } as const;
 

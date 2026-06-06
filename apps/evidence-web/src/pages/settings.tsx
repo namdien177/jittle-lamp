@@ -134,7 +134,7 @@ export function SettingsPage(): React.JSX.Element {
             </button>
           </div>
           <a
-            href="https://chromewebstore.google.com/"
+            href="https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh"
             target="_blank"
             rel="noreferrer"
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "mt-3")}

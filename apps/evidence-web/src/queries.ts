@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/clerk-react";
 import {
   api,
   type ApiAccountProfile,
+  type ApiEvidenceListResponse,
   type ApiEvidenceSummary,
   type ApiOrganization,
   type ApiShareLinkSummary,
@@ -31,7 +32,8 @@ export const queryKeys = {
   organizations: () => ["organizations"] as const,
   organizationMembers: (orgId: string) => ["organization-members", orgId] as const,
   organizationInvitations: (orgId: string) => ["organization-invitations", orgId] as const,
-  evidences: () => ["evidences"] as const,
+  evidences: (options: { createdBy?: string[]; page?: number; limit?: number } = {}) =>
+    ["evidences", options.createdBy?.join(",") ?? "", options.page ?? 1, options.limit ?? 24] as const,
   evidenceArtifacts: (evidenceId: string, orgId: string | undefined) =>
     ["evidence-artifacts", evidenceId, orgId ?? null] as const,
   shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
@@ -54,12 +56,12 @@ export function useAccountProfile() {
   });
 }
 
-export function useEvidences() {
+export function useEvidences(options: { createdBy?: string[]; page?: number; limit?: number } = {}) {
   const auth = useAuth();
   const getToken = useAuthToken();
-  return useQuery<{ evidences: ApiEvidenceSummary[]; orgId: string }>({
-    queryKey: queryKeys.evidences(),
-    queryFn: () => api.listEvidences(getToken),
+  return useQuery<ApiEvidenceListResponse>({
+    queryKey: queryKeys.evidences(options),
+    queryFn: () => api.listEvidences(getToken, options),
     enabled: auth.isLoaded && Boolean(auth.isSignedIn)
   });
 }
@@ -70,14 +72,22 @@ export function useDeleteEvidence() {
   return useMutation({
     mutationFn: (evidenceId: string) => api.deleteEvidence(getToken, evidenceId),
     onSuccess: (_data, evidenceId) => {
-      queryClient.setQueryData<{ evidences: ApiEvidenceSummary[]; orgId: string } | undefined>(
-        queryKeys.evidences(),
-        (previous) =>
-          previous
-            ? { ...previous, evidences: previous.evidences.filter((evidence) => evidence.id !== evidenceId) }
-            : previous
-      );
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
       queryClient.removeQueries({ queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }) });
+    }
+  });
+}
+
+export function useBulkDeleteEvidences() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (evidenceIds: string[]) => api.bulkDeleteEvidences(getToken, evidenceIds),
+    onSuccess: (_data, evidenceIds) => {
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
+      for (const evidenceId of evidenceIds) {
+        queryClient.removeQueries({ queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }) });
+      }
     }
   });
 }
@@ -90,20 +100,7 @@ export function useRenameEvidence() {
       api.renameEvidence(getToken, input.evidenceId, input.title),
     onSuccess: (data, input) => {
       const updatedAt = data.evidence.updatedAt;
-      queryClient.setQueryData<{ evidences: ApiEvidenceSummary[]; orgId: string } | undefined>(
-        queryKeys.evidences(),
-        (previous) =>
-          previous
-            ? {
-                ...previous,
-                evidences: previous.evidences.map((evidence) =>
-                  evidence.id === input.evidenceId
-                    ? { ...evidence, title: data.evidence.title, updatedAt }
-                    : evidence
-                )
-              }
-            : previous
-      );
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
       queryClient.invalidateQueries({
         queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: input.evidenceId })
       });
@@ -156,7 +153,7 @@ export function useSelectActiveOrganization() {
           ? { ...prev, organizations: prev.organizations.map((org) => ({ ...org, isActive: org.id === orgId })) }
           : prev
       );
-      queryClient.invalidateQueries({ queryKey: queryKeys.evidences() });
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
     }
   });
 }
@@ -169,7 +166,7 @@ export function useAcceptInvitation() {
       api.acceptInvitationWithPassword(getToken, input.token, input.password),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.evidences() });
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
     }
   });
 }
@@ -184,12 +181,15 @@ export function useOrganizations() {
   });
 }
 
-export function useOrganizationMembers(orgId: string | null) {
+export function useOrganizationMembers(
+  orgId: string | null,
+  options: { search?: string; role?: "all" | "owner" | "moderator" | "member"; page?: number; limit?: number } = {}
+) {
   const auth = useAuth();
   const getToken = useAuthToken();
   return useQuery({
-    queryKey: queryKeys.organizationMembers(orgId ?? "none"),
-    queryFn: () => api.listMembers(getToken, orgId ?? ""),
+    queryKey: [...queryKeys.organizationMembers(orgId ?? "none"), options.search ?? "", options.role ?? "all", options.page ?? 1, options.limit ?? 20],
+    queryFn: () => api.listMembers(getToken, orgId ?? "", options),
     enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId)
   });
 }

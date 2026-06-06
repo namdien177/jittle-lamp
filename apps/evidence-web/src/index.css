@@ -193,6 +193,32 @@
   .jl-scroll::-webkit-scrollbar-thumb:hover {
     background-color: color-mix(in srgb, var(--primary) 40%, var(--border-strong));
   }
+
+  :where(.cl-rootBox, .cl-modalContent, .cl-card) {
+    color-scheme: dark;
+  }
+
+  :where(.cl-card, .cl-modalContent, .cl-form, .cl-footer, .cl-header) {
+    color: #ededed;
+  }
+
+  :where(.cl-headerSubtitle, .cl-footerActionText, .cl-formFieldHintText, .cl-dividerText) {
+    color: #8b9590;
+  }
+
+  :where(.cl-formFieldLabel, .cl-identityPreviewText, .cl-userPreviewText) {
+    color: #d7ddd9;
+  }
+
+  :where(.cl-formFieldInput) {
+    background: #0b0d0e;
+    color: #ededed;
+    border-color: #303633;
+  }
+
+  :where(.cl-formFieldInput::placeholder) {
+    color: #6f7974;
+  }
 }
 
 @utility grid-backdrop {

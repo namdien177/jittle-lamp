@@ -152,6 +152,14 @@ export type ApiEvidenceSummary = {
   status?: "ready" | "pending";
 };
 
+export type ApiEvidenceListResponse = {
+  evidences: ApiEvidenceSummary[];
+  orgId: string;
+  total: number;
+  page: number;
+  limit: number;
+};
+
 export type ResolveShareLinkResponse = {
   shareLink: {
     id: string;
@@ -193,18 +201,34 @@ export const api = {
       `/share-links/${encodeURIComponent(token)}/resolve`
     ),
 
-  listEvidences: (getToken: FetchToken, orgId?: string) =>
-    authedFetch<{ evidences: ApiEvidenceSummary[]; orgId: string }>(
-      getToken,
-      orgId ? `/evidences?orgId=${encodeURIComponent(orgId)}` : "/evidences"
-    ),
+  listEvidences: (
+    getToken: FetchToken,
+    options: { orgId?: string; createdBy?: string[]; page?: number; limit?: number } = {}
+  ) => {
+    const query = new URLSearchParams();
+    if (options.orgId) query.set("orgId", options.orgId);
+    if (options.createdBy && options.createdBy.length > 0) query.set("createdBy", options.createdBy.join(","));
+    if (options.page) query.set("page", String(options.page));
+    if (options.limit) query.set("limit", String(options.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return authedFetch<ApiEvidenceListResponse>(getToken, `/evidences${suffix}`);
+  },
 
   deleteEvidence: (getToken: FetchToken, evidenceId: string) =>
-    authedFetch<{ evidence: { id: string; orgId: string } }>(
+    authedFetch<{ evidence: { id: string; orgId: string; deletedAt: number; deletePurgesAt: number } }>(
       getToken,
       `/evidences/${encodeURIComponent(evidenceId)}`,
       { method: "DELETE" }
     ),
+
+  bulkDeleteEvidences: (getToken: FetchToken, evidenceIds: string[]) =>
+    authedFetch<{
+      evidences: Array<{ id: string; orgId: string; deletedAt: number; deletePurgesAt: number }>;
+      deleted: { mode: "soft"; count: number };
+    }>(getToken, "/evidences/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids: evidenceIds })
+    }),
 
   renameEvidence: (getToken: FetchToken, evidenceId: string, title: string) =>
     authedFetch<{ evidence: { id: string; orgId: string; title: string; updatedAt: number } }>(

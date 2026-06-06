@@ -42,6 +42,7 @@ export function DashboardPage(): React.JSX.Element {
 
   const profile = profileQuery.data ?? null;
   const evidences = evidencesQuery.data?.evidences ?? [];
+  const evidenceTotal = evidencesQuery.data?.total ?? evidences.length;
   const activeOrg = profile?.organizations.find((org) => org.isActive) ?? null;
   const firstName = profile?.user.displayName?.split(" ")[0] ?? "there";
 
@@ -76,7 +77,7 @@ export function DashboardPage(): React.JSX.Element {
           <StatCard
             icon={<Video aria-hidden />}
             label="Evidence captured"
-            value={loading ? <Skeleton className="h-8 w-12" /> : evidences.length}
+            value={loading ? <Skeleton className="h-8 w-12" /> : evidenceTotal}
             hint="in this workspace"
           />
           <StatCard

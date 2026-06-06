@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import type { RuntimeConfig } from "../config/runtime";
 import {
@@ -118,6 +118,13 @@ const evidenceQuerySchema = t.Object({
 	orgId: t.Optional(t.String({ minLength: 1 })),
 });
 
+const listEvidenceQuerySchema = t.Object({
+	orgId: t.Optional(t.String({ minLength: 1 })),
+	createdBy: t.Optional(t.String()),
+	page: t.Optional(t.Number({ minimum: 1 })),
+	limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
+});
+
 const evidenceSummarySchema = t.Object({
 	id: t.String({ minLength: 1 }),
 	orgId: t.String({ minLength: 1 }),
@@ -161,6 +168,9 @@ const evidenceArtifactSummarySchema = t.Object({
 const listEvidencesResponseSchema = t.Object({
 	evidences: t.Array(evidenceSummarySchema),
 	orgId: t.String({ minLength: 1 }),
+	total: t.Number({ minimum: 0 }),
+	page: t.Number({ minimum: 1 }),
+	limit: t.Number({ minimum: 1 }),
 });
 
 const loadEvidenceResponseSchema = t.Object({
@@ -185,9 +195,21 @@ type UploadedBlobMetadata = {
 
 const UPLOAD_SESSION_TTL_MS = 5 * 60 * 1000;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
+const DEFAULT_EVIDENCE_PAGE_SIZE = 24;
+const MAX_EVIDENCE_PAGE_SIZE = 100;
 
 const firstHeaderValue = (value: string | null): string | undefined =>
 	value?.split(",")[0]?.trim().replace(/^"|"$/g, "") || undefined;
+
+const parseCreatorFilter = (value: string | undefined): string[] =>
+	Array.from(
+		new Set(
+			(value ?? "")
+				.split(",")
+				.map((part) => part.trim())
+				.filter(Boolean),
+		),
+	);
 
 const forwardedHeaderValue = (
 	forwarded: string | null,
@@ -807,8 +829,25 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							return resolvedOrg.error;
 						}
 
+						const page = Math.max(1, Math.trunc(query.page ?? 1));
+						const limit = Math.min(
+							MAX_EVIDENCE_PAGE_SIZE,
+							Math.max(
+								1,
+								Math.trunc(query.limit ?? DEFAULT_EVIDENCE_PAGE_SIZE),
+							),
+						);
+						const creatorIds = parseCreatorFilter(query.createdBy);
+						const where = and(
+							eq(evidences.orgId, resolvedOrg.orgId),
+							isNull(evidences.deletedAt),
+							creatorIds.length > 0
+								? inArray(evidences.createdBy, creatorIds)
+								: undefined,
+						);
+
 						const rows = await db.query.evidences.findMany({
-							where: eq(evidences.orgId, resolvedOrg.orgId),
+							where,
 							columns: {
 								id: true,
 								orgId: true,
@@ -825,8 +864,14 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							with: {
 								artifacts: { columns: { uploadStatus: true } },
 							},
-							orderBy: desc(evidences.updatedAt),
+							orderBy: desc(evidences.createdAt),
+							limit,
+							offset: (page - 1) * limit,
 						});
+						const totalRows = await db
+							.select({ value: count() })
+							.from(evidences)
+							.where(where);
 
 						return {
 							evidences: rows.map(({ artifacts, ...evidence }) => ({
@@ -834,10 +879,13 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								status: deriveEvidenceStatus(artifacts),
 							})),
 							orgId: resolvedOrg.orgId,
+							total: totalRows[0]?.value ?? 0,
+							page,
+							limit,
 						};
 					},
 					{
-						query: evidenceQuerySchema,
+						query: listEvidenceQuerySchema,
 						detail: {
 							tags: ["evidences"],
 							summary:
@@ -875,6 +923,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							where: and(
 								eq(evidences.id, params.id),
 								eq(evidences.orgId, resolvedOrg.orgId),
+								isNull(evidences.deletedAt),
 							),
 							columns: {
 								id: true,
@@ -954,6 +1003,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							where: and(
 								eq(evidences.id, params.id),
 								eq(evidences.orgId, resolvedOrg.orgId),
+								isNull(evidences.deletedAt),
 							),
 							columns: { id: true },
 						});
@@ -1054,11 +1104,15 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							with: {
 								evidence: {
-									columns: { id: true, orgId: true },
+									columns: { id: true, orgId: true, deletedAt: true },
 								},
 							},
 						});
-						if (!artifact || artifact.evidence.orgId !== resolvedOrg.orgId) {
+						if (
+							!artifact ||
+							artifact.evidence.orgId !== resolvedOrg.orgId ||
+							artifact.evidence.deletedAt !== null
+						) {
 							set.status = 404;
 							return createApiError(
 								requestId,

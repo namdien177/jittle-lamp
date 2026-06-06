@@ -841,7 +841,7 @@ export function OrgLibraryTab(): React.JSX.Element {
   useEffect(() => {
     setLoading(true);
     void Promise.all([
-      api.listEvidences(ctx.getToken, ctx.orgId),
+      api.listEvidences(ctx.getToken, { orgId: ctx.orgId, limit: 100 }),
       api.listMembers(ctx.getToken, ctx.orgId, { limit: 100 })
     ])
       .then(([evidenceResult, memberResult]) => {

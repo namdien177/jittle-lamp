@@ -1,4 +1,4 @@
-import { inArray, lt } from "drizzle-orm";
+import { and, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 
 import { evidenceArtifacts, evidences } from "../db/schema";
 import type { ArtifactStorage } from "./artifact-storage";
@@ -10,6 +10,7 @@ import type { BackendDb } from "./user-provisioning";
  * the per-blob upload session TTL so slow or resumed uploads are never reaped.
  */
 export const ABANDONED_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
+export const EVIDENCE_BIN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Removes evidence rows (and their cascaded artifacts / desktop sessions /
@@ -26,7 +27,7 @@ export const cleanupAbandonedEvidenceUploads = async (
 	const cutoff = now - graceMs;
 
 	const staleEvidences = await db.query.evidences.findMany({
-		where: lt(evidences.createdAt, cutoff),
+		where: and(lt(evidences.createdAt, cutoff), isNull(evidences.deletedAt)),
 		columns: { id: true },
 	});
 	if (staleEvidences.length === 0) {
@@ -69,4 +70,39 @@ export const cleanupAbandonedEvidenceUploads = async (
 	}
 
 	return abandonedEvidenceIds.length;
+};
+
+export const purgeExpiredDeletedEvidences = async (
+	db: BackendDb,
+	artifactStorage: ArtifactStorage,
+	now = Date.now(),
+): Promise<number> => {
+	const expired = await db.query.evidences.findMany({
+		where: and(
+			isNotNull(evidences.deletedAt),
+			lt(evidences.deletePurgesAt, now),
+		),
+		columns: { id: true },
+	});
+	if (expired.length === 0) {
+		return 0;
+	}
+
+	const evidenceIds = expired.map((evidence) => evidence.id);
+	const artifacts = await db.query.evidenceArtifacts.findMany({
+		where: inArray(evidenceArtifacts.evidenceId, evidenceIds),
+		columns: { s3Key: true },
+	});
+
+	await db.delete(evidences).where(inArray(evidences.id, evidenceIds));
+
+	if (artifacts.length > 0) {
+		await Promise.allSettled(
+			artifacts.map((artifact) =>
+				artifactStorage.deleteObject({ key: artifact.s3Key }),
+			),
+		);
+	}
+
+	return evidenceIds.length;
 };

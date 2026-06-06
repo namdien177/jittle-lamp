@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
+  Check,
   Download,
   LayoutGrid,
   List,
@@ -12,6 +13,7 @@ import {
   Search,
   Share2,
   Trash2,
+  Users,
   Video
 } from "lucide-react";
 
@@ -25,6 +27,7 @@ import { EmptyState, Skeleton, Spinner } from "../components/ui/misc";
 import {
   DropdownMenu,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator
 } from "../components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
@@ -33,27 +36,44 @@ import { Field } from "../components/ui/field";
 import { cn } from "../lib/cn";
 import type { ApiEvidenceSummary, FetchToken } from "../api";
 import { useAuth } from "@clerk/clerk-react";
-import { useDeleteEvidence, useEvidences, useRenameEvidence } from "../queries";
+import {
+  useAccountProfile,
+  useBulkDeleteEvidences,
+  useDeleteEvidence,
+  useEvidences,
+  useOrganizationMembers,
+  useRenameEvidence
+} from "../queries";
 import { downloadEvidenceAsZip } from "../download-evidence";
 import { ShareDialog } from "../share-dialog";
 import { useToast } from "../toast";
 import { formatRelativeTime } from "../utils";
 
-type SortKey = "recent" | "oldest" | "title";
+const PAGE_SIZE = 24;
 
-const SORT_OPTIONS: Array<{ label: string; value: SortKey }> = [
-  { label: "Most recent", value: "recent" },
-  { label: "Oldest first", value: "oldest" },
-  { label: "Title (A–Z)", value: "title" }
-];
+const personName = (person: { displayName?: string | null; email?: string | null; userId: string }): string =>
+  person.displayName?.trim() || person.email?.trim() || person.userId;
+
+const canManageOthers = (role: string | undefined): boolean =>
+  role === "owner" || role === "admin" || role === "moderator";
 
 export function EvidenceLibraryPage(): React.JSX.Element {
   const navigate = useNavigate();
   const auth = useAuth();
   const toast = useToast();
-  const evidencesQuery = useEvidences();
-  const deleteEvidence = useDeleteEvidence();
   const [params, setParams] = useSearchParams();
+  const accountQuery = useAccountProfile();
+  const activeOrg = accountQuery.data?.organizations.find((org) => org.isActive);
+  const currentUserId = accountQuery.data?.userId ?? null;
+  const selectedCreatorIds = useMemo(
+    () => (params.get("people") ?? "").split(",").map((id) => id.trim()).filter(Boolean),
+    [params]
+  );
+  const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
+  const evidencesQuery = useEvidences({ createdBy: selectedCreatorIds, page, limit: PAGE_SIZE });
+  const membersQuery = useOrganizationMembers(activeOrg?.id ?? null, { limit: 100 });
+  const deleteEvidence = useDeleteEvidence();
+  const bulkDeleteEvidences = useBulkDeleteEvidences();
 
   const [shareTarget, setShareTarget] = useState<ApiEvidenceSummary | null>(null);
   const [renameTarget, setRenameTarget] = useState<ApiEvidenceSummary | null>(null);
@@ -68,7 +88,6 @@ export function EvidenceLibraryPage(): React.JSX.Element {
 
   const search = params.get("q") ?? "";
   const typeFilter = params.get("type") ?? "all";
-  const sort = (params.get("sort") as SortKey | null) ?? "recent";
   const view = params.get("view") === "table" ? "table" : "grid";
 
   const setParam = (key: string, value: string, fallback: string): void => {
@@ -77,6 +96,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         const next = new URLSearchParams(prev);
         if (value === fallback) next.delete(key);
         else next.set(key, value);
+        if (key !== "page") next.delete("page");
         return next;
       },
       { replace: true }
@@ -84,6 +104,21 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   };
 
   const evidences = evidencesQuery.data?.evidences ?? [];
+  const total = evidencesQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const members = membersQuery.data?.members ?? [];
+  const memberNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const member of members) {
+      map.set(member.userId, member.userId === currentUserId ? "You" : personName(member));
+    }
+    return map;
+  }, [currentUserId, members]);
+  const activeOrgRole = activeOrg?.role;
+  const canDelete = (evidence: ApiEvidenceSummary): boolean =>
+    evidence.createdBy === currentUserId || canManageOthers(activeOrgRole);
+  const isDeletingSomeoneElse = (evidence: ApiEvidenceSummary): boolean =>
+    Boolean(currentUserId && evidence.createdBy !== currentUserId);
 
   const typeOptions = useMemo(() => {
     const types = Array.from(new Set(evidences.map((e) => e.sourceType))).sort();
@@ -92,19 +127,14 @@ export function EvidenceLibraryPage(): React.JSX.Element {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let list = evidences.filter((e) => {
+    const list = evidences.filter((e) => {
       const matchesType = typeFilter === "all" || e.sourceType === typeFilter;
       const matchesQuery =
-        !q || [e.title, e.sourceType, e.id].some((f) => f.toLowerCase().includes(q));
+        !q || [e.title, e.sourceType, e.id, memberNameById.get(e.createdBy) ?? e.createdBy].some((f) => f.toLowerCase().includes(q));
       return matchesType && matchesQuery;
     });
-    list = [...list].sort((a, b) => {
-      if (sort === "title") return a.title.localeCompare(b.title);
-      if (sort === "oldest") return a.updatedAt - b.updatedAt;
-      return b.updatedAt - a.updatedAt;
-    });
     return list;
-  }, [evidences, search, typeFilter, sort]);
+  }, [evidences, memberNameById, search, typeFilter]);
 
   useEffect(() => {
     const evidenceIds = new Set(evidences.map((evidence) => evidence.id));
@@ -121,6 +151,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const filteredSelectedCount = filtered.filter((evidence) => selectedIds.has(evidence.id)).length;
   const allFilteredSelected = filtered.length > 0 && filteredSelectedCount === filtered.length;
   const hasSelection = selectedEvidences.length > 0;
+  const selectedOtherCount = selectedEvidences.filter(isDeletingSomeoneElse).length;
+  const selectedUndeletableCount = selectedEvidences.filter((evidence) => !canDelete(evidence)).length;
 
   const loading = evidencesQuery.isLoading;
   const deletingId = deleteEvidence.variables ?? null;
@@ -194,7 +226,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     const target = pendingDelete;
     deleteEvidence.mutate(target.id, {
       onSuccess: () => {
-        toast.success("Evidence deleted", target.title);
+        toast.success("Evidence moved to bin", "It will auto-purge after 30 days.");
         setPendingDelete(null);
       },
       onError: (mutationError) =>
@@ -207,10 +239,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     const targets = selectedEvidences;
     setBulkDeleting(true);
     try {
-      for (const evidence of targets) {
-        await deleteEvidence.mutateAsync(evidence.id);
-      }
-      toast.success("Evidence deleted", `${targets.length} records removed from the workspace.`);
+      await bulkDeleteEvidences.mutateAsync(targets.map((evidence) => evidence.id));
+      toast.success("Evidence moved to bin", `${targets.length} record${targets.length === 1 ? "" : "s"} will purge after 30 days.`);
       setSelectedIds((previous) => {
         const next = new Set(previous);
         for (const evidence of targets) next.delete(evidence.id);
@@ -222,6 +252,13 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     } finally {
       setBulkDeleting(false);
     }
+  };
+
+  const setCreatorFilter = (personId: string, selected: boolean): void => {
+    const next = new Set(selectedCreatorIds);
+    if (selected) next.add(personId);
+    else next.delete(personId);
+    setParam("people", Array.from(next).join(","), "");
   };
 
   const actions = (evidence: ApiEvidenceSummary, downloading: boolean, deleting: boolean): React.JSX.Element => (
@@ -254,7 +291,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         Download ZIP
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem destructive onClick={() => setPendingDelete(evidence)}>
+      <DropdownMenuItem destructive disabled={!canDelete(evidence)} onClick={() => setPendingDelete(evidence)}>
         <Trash2 aria-hidden />
         Delete
       </DropdownMenuItem>
@@ -297,15 +334,53 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 onValueChange={(v) => setParam("type", v, "all")}
               />
             </div>
-            <div className="w-44">
-              <Select
-                ariaLabel="Sort evidence"
-                size="sm"
-                options={SORT_OPTIONS}
-                value={sort}
-                onValueChange={(v) => setParam("sort", v, "recent")}
-              />
-            </div>
+            <DropdownMenu
+              align="end"
+              className="w-64"
+              trigger={
+                <button
+                  type="button"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" }),
+                    "justify-start"
+                  )}
+                >
+                  <Users aria-hidden />
+                  {selectedCreatorIds.length === 0
+                    ? "All people"
+                    : `${selectedCreatorIds.length} selected`}
+                </button>
+              }
+            >
+              <DropdownMenuLabel>Recorded by</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => setParam("people", "", "")}>
+                <span className="inline-flex size-4 items-center justify-center">
+                  {selectedCreatorIds.length === 0 ? <Check aria-hidden /> : null}
+                </span>
+                Everyone
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {members.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  {membersQuery.isLoading ? "Loading people…" : "No people found"}
+                </DropdownMenuItem>
+              ) : (
+                members.map((member) => {
+                  const selected = selectedCreatorIds.includes(member.userId);
+                  return (
+                    <DropdownMenuItem
+                      key={member.userId}
+                      onClick={() => setCreatorFilter(member.userId, !selected)}
+                    >
+                      <span className="inline-flex size-4 items-center justify-center">
+                        {selected ? <Check aria-hidden /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{memberNameById.get(member.userId) ?? personName(member)}</span>
+                    </DropdownMenuItem>
+                  );
+                })
+              )}
+            </DropdownMenu>
             <div className="flex items-center rounded-md border border-border-strong bg-secondary p-0.5">
               <button
                 type="button"
@@ -345,7 +420,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           <p className="text-xs text-muted-foreground">
             {loading
               ? "Loading…"
-              : `${filtered.length} of ${evidences.length} record${evidences.length === 1 ? "" : "s"}`}
+              : `${filtered.length} shown · ${total} total · latest first`}
           </p>
           {filtered.length > 0 ? (
             <label className="inline-flex w-fit items-center gap-2 text-xs text-muted-foreground">
@@ -367,6 +442,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           <div className="flex flex-col gap-3 rounded-md border border-border-strong bg-secondary px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm font-medium text-foreground">
               {selectedEvidences.length} selected
+              {selectedUndeletableCount > 0 ? (
+                <span className="ml-2 text-xs font-normal text-destructive">
+                  {selectedUndeletableCount} cannot be deleted by your role
+                </span>
+              ) : null}
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -382,7 +462,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 size="sm"
                 variant="destructive"
                 onClick={() => setPendingBulkDelete(true)}
-                disabled={bulkDownloading || bulkDeleting}
+                disabled={bulkDownloading || bulkDeleting || selectedUndeletableCount > 0}
               >
                 <Trash2 aria-hidden />
                 Delete
@@ -467,6 +547,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   <span className="mt-0.5 block truncate font-mono text-xs text-muted-foreground">
                     {evidence.id.slice(0, 18)}…
                   </span>
+                  <span className="mt-1 block truncate text-xs text-muted-foreground">
+                    Recorded by {memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
+                  </span>
                 </button>
                 <div className="mt-auto flex items-center justify-between gap-2 pt-1">
                   <div className="flex min-w-0 flex-wrap gap-1.5">
@@ -475,8 +558,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                     </Badge>
                     {evidence.status === "pending" ? <Badge variant="muted">Pending</Badge> : null}
                   </div>
-                  <span className="text-xs text-muted-foreground" title={new Date(evidence.updatedAt).toISOString()}>
-                    {formatRelativeTime(evidence.updatedAt)}
+                  <span className="text-xs text-muted-foreground" title={new Date(evidence.createdAt).toISOString()}>
+                    {formatRelativeTime(evidence.createdAt)}
                   </span>
                 </div>
                 <div className="flex gap-2">
@@ -514,8 +597,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                     />
                   </TableHead>
                   <TableHead>Evidence</TableHead>
+                  <TableHead className="hidden sm:table-cell">Recorded by</TableHead>
                   <TableHead className="hidden md:table-cell">Type</TableHead>
-                  <TableHead className="hidden lg:table-cell">Updated</TableHead>
+                  <TableHead className="hidden lg:table-cell">Recorded</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -548,6 +632,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                         </span>
                       </button>
                     </TableCell>
+                    <TableCell className="hidden max-w-[12rem] truncate text-sm text-muted-foreground sm:table-cell">
+                      {memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
+                    </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <div className="flex flex-wrap gap-1.5">
                         <Badge variant="muted" className="capitalize">
@@ -557,7 +644,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       </div>
                     </TableCell>
                     <TableCell className="hidden whitespace-nowrap text-sm text-muted-foreground lg:table-cell">
-                      {formatRelativeTime(evidence.updatedAt)}
+                      {formatRelativeTime(evidence.createdAt)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1.5">
@@ -577,6 +664,31 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             </Table>
           </Card>
         )}
+        {!loading && totalPages > 1 ? (
+          <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              Page {Math.min(page, totalPages)} of {totalPages}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page <= 1}
+                onClick={() => setParam("page", String(page - 1), "1")}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page >= totalPages}
+                onClick={() => setParam("page", String(page + 1), "1")}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </PageBody>
 
       {shareTarget ? <ShareDialog evidence={shareTarget} onClose={() => setShareTarget(null)} /> : null}
@@ -590,10 +702,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         title="Delete this evidence?"
         description={
           pendingDelete
-            ? `This permanently removes “${pendingDelete.title}” from the workspace. Active share links will stop working.`
+            ? isDeletingSomeoneElse(pendingDelete)
+              ? `You are deleting evidence recorded by ${memberNameById.get(pendingDelete.createdBy) ?? pendingDelete.createdBy}. It will move to the bin and auto-purge after 30 days.`
+              : `“${pendingDelete.title}” will move to the bin and auto-purge after 30 days.`
             : ""
         }
-        confirmLabel="Delete"
+        confirmLabel="Move to bin"
         destructive
         busy={deleteEvidence.isPending}
         onConfirm={confirmDelete}
@@ -603,10 +717,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
       <ConfirmDialog
         open={pendingBulkDelete}
         title="Delete selected evidence?"
-        description={`This permanently removes ${selectedEvidences.length} selected record${
+        description={`${selectedEvidences.length} selected record${
           selectedEvidences.length === 1 ? "" : "s"
-        } from the workspace. Active share links will stop working.`}
-        confirmLabel="Delete"
+        } will move to the bin and auto-purge after 30 days.${
+          selectedOtherCount > 0 ? ` ${selectedOtherCount} were recorded by other people.` : ""
+        }`}
+        confirmLabel="Move to bin"
         destructive
         busy={bulkDeleting}
         onConfirm={() => void confirmBulkDelete()}

@@ -110,6 +110,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <DashboardPage /> },
           { path: "evidence", element: <EvidenceLibraryPage /> },
+          { path: "evidence/:evidenceId", element: <CloudEvidencePage /> },
           { path: "test-cases", element: <ComingSoonPage variant="test-cases" /> },
           { path: "documents", element: <ComingSoonPage variant="documents" /> },
           { path: "organisations", element: <OrganisationsListPage /> },
@@ -138,7 +139,6 @@ export const router = createBrowserRouter([
       { path: "privacy", element: <PrivacyPage /> },
       { path: "join", element: <JoinPage /> },
       { path: "share/:shareToken", element: <SharedEvidencePage /> },
-      { path: "evidence/:evidenceId", element: <CloudEvidencePage /> },
       { path: "desktop-auth", element: <DesktopAuthApprovalPage /> },
       { path: "extension-auth", element: <ExtensionAuthApprovalPage /> },
       { path: "home", loader: () => redirect("/") },

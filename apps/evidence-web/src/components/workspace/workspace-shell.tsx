@@ -33,7 +33,7 @@ type NavGroup = { heading: string; items: NavItem[] };
 
 function useNavGroups(): NavGroup[] {
   const evidencesQuery = useEvidences();
-  const evidenceCount = evidencesQuery.data?.evidences.length;
+  const evidenceCount = evidencesQuery.data?.total;
 
   return [
     {

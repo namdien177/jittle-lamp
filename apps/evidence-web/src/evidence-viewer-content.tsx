@@ -46,6 +46,7 @@ export type EvidenceViewerContentProps = {
   fetchVideoBytes: () => Promise<Uint8Array | null>;
   onVideoError: (videoEl: HTMLVideoElement) => void;
   onClose: () => void;
+  viewerMode?: "modal" | "page";
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -85,7 +86,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     shareLinkUrl,
     fetchVideoBytes,
     onVideoError,
-    onClose
+    onClose,
+    viewerMode = "modal"
   } = props;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -362,6 +364,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     <ViewerModal
       open
       onClose={onClose}
+      mode={viewerMode}
+      {...(viewerMode === "page" ? { closeLabel: "Back to evidence" } : {})}
       title={archive.name}
       tags={[]}
       source={source}

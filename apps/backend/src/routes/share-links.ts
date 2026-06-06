@@ -125,7 +125,10 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 
 						const evidencePolicy = createEvidencePolicy();
 						const evidence = await db.query.evidences.findFirst({
-							where: eq(evidences.id, params.id),
+							where: and(
+								eq(evidences.id, params.id),
+								isNull(evidences.deletedAt),
+							),
 							columns: { id: true, orgId: true, teamId: true },
 						});
 						if (!evidence) {
@@ -321,9 +324,14 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 								expiresAt: true,
 								revokedAt: true,
 							},
+							with: {
+								evidence: {
+									columns: { deletedAt: true },
+								},
+							},
 						});
 
-						if (!shareLink) {
+						if (!shareLink || shareLink.evidence.deletedAt !== null) {
 							set.status = 404;
 							return createApiError(
 								requestId,

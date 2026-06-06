@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { fileURLToPath } from "node:url";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import { exportSPKI, generateKeyPair, SignJWT } from "jose";
 
@@ -1775,6 +1775,121 @@ describe("routes", () => {
 		});
 	});
 
+	it("lists organization evidence from multiple recorders with creator filters and pagination", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_list_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_list_owner" },
+		});
+		const recorderA = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_list_recorder_a",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_list_recorder_a" },
+		});
+		const recorderB = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_list_recorder_b",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_list_recorder_b" },
+		});
+
+		await db.insert(organizationMembers).values([
+			{
+				organizationId: owner.organizationId,
+				userId: recorderA.userId,
+				role: "member",
+			},
+			{
+				organizationId: owner.organizationId,
+				userId: recorderB.userId,
+				role: "member",
+			},
+		]);
+
+		const now = Date.now();
+		const inserted = await db
+			.insert(evidences)
+			.values([
+				{
+					orgId: owner.organizationId,
+					createdBy: owner.userId,
+					title: "Old owner evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+					createdAt: now - 3_000,
+					updatedAt: now - 3_000,
+				},
+				{
+					orgId: owner.organizationId,
+					createdBy: recorderA.userId,
+					title: "Newest A evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+					createdAt: now - 1_000,
+					updatedAt: now - 1_000,
+				},
+				{
+					orgId: owner.organizationId,
+					createdBy: recorderB.userId,
+					title: "Middle B evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+					createdAt: now - 2_000,
+					updatedAt: now - 2_000,
+				},
+			])
+			.returning({ id: evidences.id, createdBy: evidences.createdBy });
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const ownerToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_list_owner")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const filtered = await app.handle(
+			new Request(
+				`http://localhost/evidences?createdBy=${recorderA.userId},${recorderB.userId}&limit=1&page=1`,
+				{ headers: { authorization: `Bearer ${ownerToken}` } },
+			),
+		);
+		expect(filtered.status).toBe(200);
+		const payload = (await filtered.json()) as {
+			evidences: Array<{ id: string; createdBy: string }>;
+			total: number;
+			page: number;
+			limit: number;
+		};
+		expect(payload.total).toBe(2);
+		expect(payload.page).toBe(1);
+		expect(payload.limit).toBe(1);
+		expect(payload.evidences).toHaveLength(1);
+		expect(payload.evidences[0]?.createdBy).toBe(recorderA.userId);
+		expect(payload.evidences[0]?.id).toBe(
+			inserted.find((row) => row.createdBy === recorderA.userId)?.id,
+		);
+	});
+
 	it("enforces internal-only share link resolution and revoke flow", async () => {
 		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
 		await applyMigrations(databaseUrl);
@@ -2593,6 +2708,124 @@ describe("routes", () => {
 		});
 		expect(remainingFlows).toHaveLength(1);
 		expect(remainingFlows[0]?.expiresAt).toBe(now + 60_000);
+	});
+
+	it("bulk soft-deletes selected evidence for moderators", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_bulk_delete_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_bulk_delete_owner" },
+		});
+		const moderator = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_bulk_delete_moderator",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_bulk_delete_moderator" },
+		});
+		await db.insert(organizationMembers).values({
+			organizationId: owner.organizationId,
+			userId: moderator.userId,
+			role: "moderator",
+		});
+
+		const rows = await db
+			.insert(evidences)
+			.values([
+				{
+					orgId: owner.organizationId,
+					createdBy: owner.userId,
+					title: "Owner evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+				},
+				{
+					orgId: owner.organizationId,
+					createdBy: moderator.userId,
+					title: "Moderator evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+				},
+			])
+			.returning({ id: evidences.id });
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const moderatorToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_bulk_delete_moderator")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const response = await app.handle(
+			new Request("http://localhost/evidences/bulk-delete", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${moderatorToken}`,
+				},
+				body: JSON.stringify({ ids: rows.map((row) => row.id) }),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const payload = (await response.json()) as {
+			evidences: Array<{
+				id: string;
+				deletedAt: number;
+				deletePurgesAt: number;
+			}>;
+			deleted: { mode: "soft"; count: number };
+		};
+		expect(payload.deleted).toEqual({ mode: "soft", count: 2 });
+		expect(payload.evidences.every((row) => row.deletedAt > 0)).toBeTrue();
+		expect(
+			payload.evidences.every((row) => row.deletePurgesAt > row.deletedAt),
+		).toBeTrue();
+
+		const persisted = await db.query.evidences.findMany({
+			where: inArray(
+				evidences.id,
+				rows.map((row) => row.id),
+			),
+			columns: { id: true, deletedAt: true, deletedBy: true },
+		});
+		expect(persisted).toHaveLength(2);
+		expect(persisted.every((row) => row.deletedAt !== null)).toBeTrue();
+		expect(
+			persisted.every((row) => row.deletedBy === moderator.userId),
+		).toBeTrue();
+
+		const listResponse = await app.handle(
+			new Request("http://localhost/evidences", {
+				headers: { authorization: `Bearer ${moderatorToken}` },
+			}),
+		);
+		expect(listResponse.status).toBe(200);
+		const listPayload = (await listResponse.json()) as {
+			evidences: Array<{ id: string }>;
+			total: number;
+		};
+		expect(listPayload.total).toBe(0);
+		expect(listPayload.evidences).toHaveLength(0);
 	});
 
 	it("returns 404 (not 403) when a non-member targets evidence in another org", async () => {

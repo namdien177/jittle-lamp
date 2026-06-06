@@ -47,11 +47,18 @@ export const evidences = sqliteTable(
 		updatedAt: integer("updated_at")
 			.notNull()
 			.$defaultFn(() => Date.now()),
+		deletedAt: integer("deleted_at"),
+		deletedBy: text("deleted_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		deletePurgesAt: integer("delete_purges_at"),
 	},
 	(table) => [
 		index("evidences_org_id_idx").on(table.orgId),
 		index("evidences_created_by_idx").on(table.createdBy),
 		index("evidences_org_created_at_idx").on(table.orgId, table.createdAt),
+		index("evidences_org_deleted_at_idx").on(table.orgId, table.deletedAt),
+		index("evidences_delete_purges_at_idx").on(table.deletePurgesAt),
 		uniqueIndex("evidences_org_id_id_unique").on(table.orgId, table.id),
 		index("evidences_source_lookup_idx").on(
 			table.orgId,
