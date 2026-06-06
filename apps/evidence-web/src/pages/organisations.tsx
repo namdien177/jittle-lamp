@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import {
+  Navigate,
   Outlet,
   useNavigate,
   useOutletContext,
@@ -23,12 +24,8 @@ import {
 
 import {
   api,
-  type ApiCreatedInvitationCode,
-  type ApiEvidenceSummary,
-  type ApiInvitation,
   type ApiInvitationCode,
   type ApiMember,
-  type ApiMembersResponse,
   type ApiOrgSummary,
   type FetchToken
 } from "../api";
@@ -49,6 +46,22 @@ import {
   TableHeader,
   TableRow
 } from "../components/ui/table";
+import {
+  useAcceptInvitation,
+  useAccountProfile,
+  useCreateInvitationCode,
+  useCreateOrganization,
+  useDeleteInvitationCode,
+  useEvidences,
+  useLeaveOrganization,
+  useOrganizationInvitations,
+  useOrganizationMembers,
+  useOrganizations,
+  useRemoveMember,
+  useSelectActiveOrganization,
+  useSetInvitationCodeLocked,
+  useUpdateMemberRole
+} from "../queries";
 import { useToast } from "../toast";
 
 type SortKey = "name" | "joinedAt" | "role";
@@ -137,51 +150,32 @@ function sortOrganizations(orgs: ApiOrgSummary[], activeOrgId: string | null, so
 /* ── List ─────────────────────────────────────────────────────────────────── */
 
 export function OrganisationsListPage(): React.JSX.Element {
-  const auth = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  const [orgs, setOrgs] = useState<ApiOrgSummary[]>([]);
-  const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+  const profileQuery = useAccountProfile();
+  const orgsQuery = useOrganizations();
+  const selectActiveOrganization = useSelectActiveOrganization();
   const [sort, setSort] = useState<SortKey>("name");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showAccept, setShowAccept] = useState(false);
-  const getToken: FetchToken = () => auth.getToken();
 
-  const load = async (): Promise<void> => {
-    const [profile, list] = await Promise.all([
-      api.fetchAccountProfile(getToken),
-      api.listOrganizations(getToken)
-    ]);
-    setActiveOrgId(profile.activeOrgId);
-    setOrgs(list.organizations);
-  };
-
-  useEffect(() => {
-    if (!auth.isLoaded || !auth.isSignedIn) return;
-    setLoading(true);
-    void load()
-      .catch((err) => setError(err instanceof Error ? err.message : "Unable to load organisations."))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.isLoaded, auth.isSignedIn]);
-
+  const orgs = orgsQuery.data?.organizations ?? [];
+  const activeOrgId = profileQuery.data?.activeOrgId ?? null;
   const ordered = useMemo(() => sortOrganizations(orgs, activeOrgId, sort), [activeOrgId, orgs, sort]);
+  const loading = profileQuery.isPending || orgsQuery.isPending;
+  const busy = selectActiveOrganization.isPending;
+  const error =
+    profileQuery.error instanceof Error
+      ? profileQuery.error.message
+      : orgsQuery.error instanceof Error
+        ? orgsQuery.error.message
+        : selectActiveOrganization.error instanceof Error
+          ? selectActiveOrganization.error.message
+          : null;
 
   const activate = async (id: string): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.selectActiveOrganization(getToken, id);
-      setActiveOrgId(id);
-      toast.success("Active workspace changed");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to change active organisation.");
-    } finally {
-      setBusy(false);
-    }
+    await selectActiveOrganization.mutateAsync(id);
+    toast.success("Active workspace changed");
   };
 
   return (
@@ -271,7 +265,14 @@ export function OrganisationsListPage(): React.JSX.Element {
                           variant={org.id === activeOrgId ? "ghost" : "secondary"}
                           size="sm"
                           disabled={busy || org.id === activeOrgId}
-                          onClick={() => void activate(org.id)}
+                          onClick={() =>
+                            void activate(org.id).catch((err) =>
+                              toast.error(
+                                "Unable to change active organisation",
+                                err instanceof Error ? err.message : undefined
+                              )
+                            )
+                          }
                         >
                           {org.id === activeOrgId ? "Active" : "Set active"}
                         </Button>
@@ -290,22 +291,18 @@ export function OrganisationsListPage(): React.JSX.Element {
 
       {showCreate ? (
         <CreateOrganizationDialog
-          getToken={getToken}
           onClose={() => setShowCreate(false)}
-          onCreated={async (created) => {
+          onCreated={(created) => {
             setShowCreate(false);
-            await load();
             navigate(`/organisations/${created.id}`);
           }}
         />
       ) : null}
       {showAccept ? (
         <AcceptInvitationDialog
-          getToken={getToken}
           onClose={() => setShowAccept(false)}
-          onAccepted={async (id) => {
+          onAccepted={(id) => {
             setShowAccept(false);
-            await load();
             navigate(`/organisations/${id}`);
           }}
         />
@@ -319,53 +316,40 @@ export function OrganisationsListPage(): React.JSX.Element {
 type OrgOutletContext = {
   orgId: string;
   org: ApiOrgSummary | null;
-  getToken: FetchToken;
   activeOrgId: string | null;
   canManage: boolean;
   isOwner: boolean;
   setError: (error: string | null) => void;
-  reloadShell: () => Promise<void>;
 };
 
 export function OrganisationDetailLayout(): React.JSX.Element {
   const { orgId = "" } = useParams();
-  const auth = useAuth();
   const navigate = useNavigate();
-  const [orgs, setOrgs] = useState<ApiOrgSummary[]>([]);
-  const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+  const profileQuery = useAccountProfile();
+  const orgsQuery = useOrganizations();
   const [error, setError] = useState<string | null>(null);
-  const getToken: FetchToken = () => auth.getToken();
+  const orgs = orgsQuery.data?.organizations ?? [];
+  const activeOrgId = profileQuery.data?.activeOrgId ?? null;
   const org = orgs.find((candidate) => candidate.id === orgId) ?? null;
   const canManage = org?.role === "owner" || org?.role === "moderator";
   const isOwner = org?.role === "owner";
 
-  const reloadShell = async (): Promise<void> => {
-    const [profile, list] = await Promise.all([
-      api.fetchAccountProfile(getToken),
-      api.listOrganizations(getToken)
-    ]);
-    setActiveOrgId(profile.activeOrgId);
-    setOrgs(list.organizations);
-    if (!list.organizations.some((candidate) => candidate.id === orgId)) navigate("/organisations");
-  };
+  if (!org && orgsQuery.isSuccess) return <Navigate to="/organisations" replace />;
 
-  useEffect(() => {
-    if (!auth.isLoaded || !auth.isSignedIn) return;
-    void reloadShell().catch((err) =>
-      setError(err instanceof Error ? err.message : "Unable to load organisation.")
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.isLoaded, auth.isSignedIn, orgId]);
+  const queryError =
+    profileQuery.error instanceof Error
+      ? profileQuery.error.message
+      : orgsQuery.error instanceof Error
+        ? orgsQuery.error.message
+        : null;
 
   const context: OrgOutletContext = {
     orgId,
     org,
-    getToken,
     activeOrgId,
     canManage,
     isOwner,
-    setError,
-    reloadShell
+    setError
   };
 
   const base = `/organisations/${orgId}`;
@@ -400,9 +384,9 @@ export function OrganisationDetailLayout(): React.JSX.Element {
             { to: `${base}/options`, label: "Options" }
           ]}
         />
-        {error ? (
+        {error || queryError ? (
           <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-sm text-destructive">
-            {error}
+            {error ?? queryError}
           </div>
         ) : null}
         <Outlet context={context} />
@@ -419,51 +403,39 @@ function useOrgContext(): OrgOutletContext {
 
 export function OrgMembersTab(): React.JSX.Element {
   const ctx = useOrgContext();
-  const [result, setResult] = useState<ApiMembersResponse>({ members: [], total: 0, page: 1, limit: 20 });
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [page, setPage] = useState(1);
-  const [busy, setBusy] = useState(false);
+  const trimmedSearch = search.trim();
+  const membersQuery = useOrganizationMembers(ctx.orgId, {
+    role: roleFilter,
+    page,
+    limit: 20,
+    ...(trimmedSearch ? { search: trimmedSearch } : {})
+  });
+  const updateMemberRole = useUpdateMemberRole();
+  const removeMemberMutation = useRemoveMember();
+  const result = membersQuery.data ?? { members: [], total: 0, page: 1, limit: 20 };
   const pages = Math.max(1, Math.ceil(result.total / result.limit));
-
-  const load = async (): Promise<void> => {
-    const res = await api.listMembers(ctx.getToken, ctx.orgId, {
-      search: search.trim() || undefined,
-      role: roleFilter,
-      page,
-      limit: 20
-    });
-    setResult(res);
-  };
-
-  useEffect(() => {
-    void load().catch((err) => ctx.setError(err instanceof Error ? err.message : "Unable to load members."));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.orgId, search, roleFilter, page]);
+  const busy = updateMemberRole.isPending || removeMemberMutation.isPending;
+  const loading = membersQuery.isPending;
+  const memberError =
+    membersQuery.error instanceof Error
+      ? membersQuery.error.message
+      : updateMemberRole.error instanceof Error
+        ? updateMemberRole.error.message
+        : removeMemberMutation.error instanceof Error
+          ? removeMemberMutation.error.message
+          : null;
 
   const updateRole = async (member: ApiMember, role: "moderator" | "member"): Promise<void> => {
-    setBusy(true);
-    try {
-      await api.updateMemberRole(ctx.getToken, ctx.orgId, member.membershipId, role);
-      await load();
-    } catch (err) {
-      ctx.setError(err instanceof Error ? err.message : "Unable to update member.");
-    } finally {
-      setBusy(false);
-    }
+    ctx.setError(null);
+    await updateMemberRole.mutateAsync({ orgId: ctx.orgId, membershipId: member.membershipId, role });
   };
 
   const removeMember = async (member: ApiMember): Promise<void> => {
-    setBusy(true);
-    try {
-      await api.removeMember(ctx.getToken, ctx.orgId, member.membershipId);
-      await load();
-      await ctx.reloadShell();
-    } catch (err) {
-      ctx.setError(err instanceof Error ? err.message : "Unable to remove member.");
-    } finally {
-      setBusy(false);
-    }
+    ctx.setError(null);
+    await removeMemberMutation.mutateAsync({ orgId: ctx.orgId, membershipId: member.membershipId });
   };
 
   return (
@@ -493,6 +465,11 @@ export function OrgMembersTab(): React.JSX.Element {
           />
         </div>
       </div>
+      {memberError ? (
+        <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {memberError}
+        </div>
+      ) : null}
       <Table>
         <TableHeader>
           <TableRow>
@@ -504,7 +481,16 @@ export function OrgMembersTab(): React.JSX.Element {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {result.members.map((member) => {
+          {loading ? (
+            [0, 1, 2].map((i) => (
+              <TableRow key={i}>
+                <TableCell colSpan={5}>
+                  <Skeleton className="h-10 w-full" />
+                </TableCell>
+              </TableRow>
+            ))
+          ) : (
+            result.members.map((member) => {
             const editable =
               ctx.canManage && member.role !== "owner" && (ctx.isOwner || member.role === "member");
             return (
@@ -530,12 +516,25 @@ export function OrgMembersTab(): React.JSX.Element {
                           options={editableRoleOptions}
                           value={member.role === "moderator" ? "moderator" : "member"}
                           disabled={busy}
-                          onValueChange={(v) => void updateRole(member, v)}
+                          onValueChange={(v) =>
+                            void updateRole(member, v).catch((err) =>
+                              ctx.setError(err instanceof Error ? err.message : "Unable to update member.")
+                            )
+                          }
                         />
                       </div>
                     ) : null}
                     {editable ? (
-                      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void removeMember(member)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          void removeMember(member).catch((err) =>
+                            ctx.setError(err instanceof Error ? err.message : "Unable to remove member.")
+                          )
+                        }
+                      >
                         Remove
                       </Button>
                     ) : null}
@@ -543,8 +542,9 @@ export function OrgMembersTab(): React.JSX.Element {
                 </TableCell>
               </TableRow>
             );
-          })}
-          {result.members.length === 0 ? (
+            })
+          )}
+          {!loading && result.members.length === 0 ? (
             <TableRow>
               <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                 No members match this filter.
@@ -578,27 +578,32 @@ export function OrgMembersTab(): React.JSX.Element {
 export function OrgInvitationsTab(): React.JSX.Element {
   const ctx = useOrgContext();
   const toast = useToast();
-  const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
-  const [codes, setCodes] = useState<ApiInvitationCode[]>([]);
-  const [createdCode, setCreatedCode] = useState<ApiCreatedInvitationCode | null>(null);
-  const [busy, setBusy] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
+  const invitationsQuery = useOrganizationInvitations(ctx.orgId, ctx.canManage);
+  const createInvitationCode = useCreateInvitationCode();
+  const setInvitationCodeLocked = useSetInvitationCodeLocked();
+  const deleteInvitationCode = useDeleteInvitationCode();
+  const invitations = invitationsQuery.data?.invitations ?? [];
+  const codes = invitationsQuery.data?.codes ?? [];
+  const busy =
+    createInvitationCode.isPending ||
+    setInvitationCodeLocked.isPending ||
+    deleteInvitationCode.isPending;
+  const invitationError =
+    invitationsQuery.error instanceof Error
+      ? invitationsQuery.error.message
+      : createInvitationCode.error instanceof Error
+        ? createInvitationCode.error.message
+        : setInvitationCodeLocked.error instanceof Error
+          ? setInvitationCodeLocked.error.message
+          : deleteInvitationCode.error instanceof Error
+            ? deleteInvitationCode.error.message
+            : null;
   const form = useForm<CodeValues>({
     resolver: zodResolver(codeSchema),
     defaultValues: { label: "Team onboarding", role: "member", password: "", emailDomain: "", expiresDays: "", guestDays: "" }
   });
-
-  const reload = async (): Promise<void> => {
-    const res = await api.listInvitations(ctx.getToken, ctx.orgId);
-    setInvitations(res.invitations);
-    setCodes(res.codes);
-  };
-
-  useEffect(() => {
-    if (!ctx.canManage) return;
-    void reload().catch((err) => ctx.setError(err instanceof Error ? err.message : "Unable to load invitations."));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.orgId, ctx.canManage]);
 
   if (!ctx.canManage) {
     return (
@@ -611,49 +616,47 @@ export function OrgInvitationsTab(): React.JSX.Element {
   }
 
   const createCode = async (values: CodeValues): Promise<void> => {
-    setBusy(true);
+    ctx.setError(null);
     try {
-      const result = await api.createInvitationCode(ctx.getToken, ctx.orgId, {
-        label: values.label,
-        role: values.role,
-        emailDomain: values.emailDomain || null,
-        expiresAt: values.expiresDays ? Date.now() + Number(values.expiresDays) * 86400000 : null,
-        guestExpiresAfterDays: values.guestDays ? Number(values.guestDays) : null,
-        ...(values.password?.trim() ? { password: values.password.trim() } : {})
+      const result = await createInvitationCode.mutateAsync({
+        orgId: ctx.orgId,
+        body: {
+          label: values.label,
+          role: values.role,
+          emailDomain: values.emailDomain || null,
+          expiresAt: values.expiresDays ? Date.now() + Number(values.expiresDays) * 86400000 : null,
+          guestExpiresAfterDays: values.guestDays ? Number(values.guestDays) : null,
+          ...(values.password?.trim() ? { password: values.password.trim() } : {})
+        }
       });
-      setCreatedCode(result.code);
+      setCreatedCode(result.code.code);
       form.setValue("password", "");
       setShowCreate(false);
-      await reload();
       toast.success("Invitation code created");
     } catch (err) {
       ctx.setError(err instanceof Error ? err.message : "Unable to create invitation code.");
-    } finally {
-      setBusy(false);
     }
   };
 
   const toggleCode = async (code: ApiInvitationCode): Promise<void> => {
-    setBusy(true);
+    ctx.setError(null);
     try {
-      await api.setInvitationCodeLocked(ctx.getToken, ctx.orgId, code.id, !code.lockedAt);
-      await reload();
+      await setInvitationCodeLocked.mutateAsync({
+        orgId: ctx.orgId,
+        codeId: code.id,
+        locked: !code.lockedAt
+      });
     } catch (err) {
       ctx.setError(err instanceof Error ? err.message : "Unable to update invitation code.");
-    } finally {
-      setBusy(false);
     }
   };
 
   const deleteCode = async (code: ApiInvitationCode): Promise<void> => {
-    setBusy(true);
+    ctx.setError(null);
     try {
-      await api.deleteInvitationCode(ctx.getToken, ctx.orgId, code.id);
-      await reload();
+      await deleteInvitationCode.mutateAsync({ orgId: ctx.orgId, codeId: code.id });
     } catch (err) {
       ctx.setError(err instanceof Error ? err.message : "Unable to delete invitation code.");
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -673,6 +676,11 @@ export function OrgInvitationsTab(): React.JSX.Element {
             Create
           </Button>
         </div>
+        {invitationError ? (
+          <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+            {invitationError}
+          </div>
+        ) : null}
         {createdCode ? (
           <div className="m-4 space-y-2 rounded-lg border border-primary/30 bg-primary/[0.07] p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.06em] text-brand-300">
@@ -680,7 +688,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-sm">
-                {createdCode.code}
+                {createdCode}
               </code>
               <Button variant="ghost" size="sm" onClick={() => setCreatedCode(null)}>
                 Done
@@ -699,7 +707,16 @@ export function OrgInvitationsTab(): React.JSX.Element {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {codes.map((code) => (
+            {invitationsQuery.isPending ? (
+              [0, 1, 2].map((i) => (
+                <TableRow key={i}>
+                  <TableCell colSpan={5}>
+                    <Skeleton className="h-10 w-full" />
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              codes.map((code) => (
               <TableRow key={code.id}>
                 <TableCell>
                   <span className="block font-medium text-foreground">{code.label}</span>
@@ -733,8 +750,9 @@ export function OrgInvitationsTab(): React.JSX.Element {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
-            {codes.length === 0 ? (
+              ))
+            )}
+            {!invitationsQuery.isPending && codes.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                   No static codes yet.
@@ -834,27 +852,28 @@ export function OrgInvitationsTab(): React.JSX.Element {
 export function OrgLibraryTab(): React.JSX.Element {
   const ctx = useOrgContext();
   const navigate = useNavigate();
-  const [evidences, setEvidences] = useState<ApiEvidenceSummary[]>([]);
-  const [creators, setCreators] = useState<Map<string, string>>(new Map());
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    void Promise.all([
-      api.listEvidences(ctx.getToken, { orgId: ctx.orgId, limit: 100 }),
-      api.listMembers(ctx.getToken, ctx.orgId, { limit: 100 })
-    ])
-      .then(([evidenceResult, memberResult]) => {
-        setEvidences(evidenceResult.evidences);
-        setCreators(new Map(memberResult.members.map((m) => [m.userId, memberName(m)])));
-      })
-      .catch((err) => ctx.setError(err instanceof Error ? err.message : "Unable to load library."))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.orgId]);
+  const evidencesQuery = useEvidences({ orgId: ctx.orgId, page: 1, limit: 100 });
+  const membersQuery = useOrganizationMembers(ctx.orgId, { limit: 100 });
+  const evidences = evidencesQuery.data?.evidences ?? [];
+  const creators = useMemo(
+    () => new Map((membersQuery.data?.members ?? []).map((member) => [member.userId, memberName(member)])),
+    [membersQuery.data?.members]
+  );
+  const loading = evidencesQuery.isPending || membersQuery.isPending;
+  const libraryError =
+    evidencesQuery.error instanceof Error
+      ? evidencesQuery.error.message
+      : membersQuery.error instanceof Error
+        ? membersQuery.error.message
+        : null;
 
   return (
     <Card className="overflow-hidden p-0">
+      {libraryError ? (
+        <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {libraryError}
+        </div>
+      ) : null}
       {loading ? (
         <div className="space-y-2 p-4">
           {[0, 1, 2].map((i) => (
@@ -912,19 +931,16 @@ export function OrgOptionsTab(): React.JSX.Element {
   const ctx = useOrgContext();
   const navigate = useNavigate();
   const toast = useToast();
-  const [busy, setBusy] = useState(false);
+  const leaveOrganization = useLeaveOrganization();
 
   const leave = async (): Promise<void> => {
     if (!ctx.org || !window.confirm(`Leave ${ctx.org.name}?`)) return;
-    setBusy(true);
     try {
-      await api.leaveOrganization(ctx.getToken, ctx.org.id);
+      await leaveOrganization.mutateAsync(ctx.org.id);
       toast.success("Left organisation");
       navigate("/organisations");
     } catch (err) {
       ctx.setError(err instanceof Error ? err.message : "Unable to leave organisation.");
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -940,7 +956,7 @@ export function OrgOptionsTab(): React.JSX.Element {
           </h3>
           <p className="text-sm text-muted-foreground">Remove your membership from this organisation.</p>
         </div>
-        <Button variant="destructive" disabled={busy || ctx.org.isPersonal} onClick={() => void leave()}>
+        <Button variant="destructive" disabled={leaveOrganization.isPending || ctx.org.isPersonal} onClick={() => void leave()}>
           Leave
         </Button>
       </div>
@@ -964,24 +980,21 @@ export function OrgOptionsTab(): React.JSX.Element {
 /* ── Dialogs ────────────────────────────────────────────────────────────────── */
 
 function CreateOrganizationDialog(props: {
-  getToken: FetchToken;
   onClose: () => void;
-  onCreated: (organization: ApiOrgSummary) => Promise<void>;
+  onCreated: (organization: ApiOrgSummary) => void;
 }): React.JSX.Element {
   const form = useForm<CreateOrgValues>({ resolver: zodResolver(createOrgSchema), defaultValues: { name: "" } });
-  const [busy, setBusy] = useState(false);
+  const createOrganization = useCreateOrganization();
   const [error, setError] = useState<string | null>(null);
+  const busy = createOrganization.isPending;
 
   const submit = async (values: CreateOrgValues): Promise<void> => {
-    setBusy(true);
     setError(null);
     try {
-      const result = await api.createOrganization(props.getToken, values.name.trim());
-      await props.onCreated(result.organization);
+      const result = await createOrganization.mutateAsync(values.name.trim());
+      props.onCreated(result.organization);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create organisation.");
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -1018,24 +1031,25 @@ function CreateOrganizationDialog(props: {
 }
 
 function AcceptInvitationDialog(props: {
-  getToken: FetchToken;
   onClose: () => void;
-  onAccepted: (orgId: string) => Promise<void>;
+  onAccepted: (orgId: string) => void;
 }): React.JSX.Element {
+  const auth = useAuth();
   const form = useForm<AcceptInvitationValues>({
     resolver: zodResolver(acceptInvitationSchema),
     defaultValues: { token: "", password: "" }
   });
+  const acceptInvitation = useAcceptInvitation();
   const [requiresPassword, setRequiresPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const busy = acceptInvitation.isPending;
+  const getToken: FetchToken = () => auth.getToken();
 
   const submit = async (values: AcceptInvitationValues): Promise<void> => {
-    setBusy(true);
     setError(null);
     try {
       if (!requiresPassword) {
-        const lookup = await api.lookupInvitation(props.getToken, values.token.trim()).catch(() => null);
+        const lookup = await api.lookupInvitation(getToken, values.token.trim()).catch(() => null);
         if (lookup?.code.requiresPassword) {
           setRequiresPassword(true);
           setError("This invitation code requires a password.");
@@ -1046,16 +1060,13 @@ function AcceptInvitationDialog(props: {
         setError("Enter the invitation password.");
         return;
       }
-      const result = await api.acceptInvitationWithPassword(
-        props.getToken,
-        values.token.trim(),
-        requiresPassword ? values.password : undefined
-      );
-      await props.onAccepted(result.organizationId);
+      const result = await acceptInvitation.mutateAsync({
+        token: values.token.trim(),
+        ...(requiresPassword && values.password ? { password: values.password } : {})
+      });
+      props.onAccepted(result.organizationId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to accept invitation.");
-    } finally {
-      setBusy(false);
     }
   };
 

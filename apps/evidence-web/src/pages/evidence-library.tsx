@@ -154,7 +154,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const selectedOtherCount = selectedEvidences.filter(isDeletingSomeoneElse).length;
   const selectedUndeletableCount = selectedEvidences.filter((evidence) => !canDelete(evidence)).length;
 
-  const loading = evidencesQuery.isLoading;
+  const loading = evidencesQuery.isPending;
   const deletingId = deleteEvidence.variables ?? null;
   const error =
     evidencesQuery.error instanceof Error
@@ -362,7 +362,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               <DropdownMenuSeparator />
               {members.length === 0 ? (
                 <DropdownMenuItem disabled>
-                  {membersQuery.isLoading ? "Loading people…" : "No people found"}
+                  {membersQuery.isPending ? "Loading people…" : "No people found"}
                 </DropdownMenuItem>
               ) : (
                 members.map((member) => {

@@ -51,7 +51,7 @@ export function DashboardPage(): React.JSX.Element {
     [evidences]
   );
   const lastCapture = recent[0] ?? null;
-  const loading = evidencesQuery.isLoading || profileQuery.isLoading;
+  const loading = evidencesQuery.isPending || profileQuery.isPending;
 
   return (
     <>

@@ -2,7 +2,37 @@ import React from "react";
 
 import { cn } from "../lib/cn";
 import { Wordmark } from "./brand";
-import { Spinner } from "./ui/misc";
+
+const LOADER_BARS = Array.from({ length: 14 }, (_, index) => index);
+const LOADER_NODES = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"] as const;
+
+function LoadingScanner(): React.JSX.Element {
+  return (
+    <div aria-hidden className="jl-load-scanner">
+      <div className="jl-load-orbit jl-load-orbit-a" />
+      <div className="jl-load-orbit jl-load-orbit-b" />
+      <div className="jl-load-console">
+        <div className="jl-load-console-glass">
+          <div className="jl-load-map">
+            <div className="jl-load-playhead" />
+            <div className="jl-load-radar" />
+            <div className="jl-load-path jl-load-path-a" />
+            <div className="jl-load-path jl-load-path-b" />
+            <div className="jl-load-path jl-load-path-c" />
+            {LOADER_NODES.map((node) => (
+              <span key={node} className={cn("jl-load-node", `jl-load-node-${node}`)} />
+            ))}
+          </div>
+          <div className="jl-load-bars">
+            {LOADER_BARS.map((bar) => (
+              <span key={bar} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Full-viewport centered panel used for loading / error / gated states. */
 export function StatusScreen(props: {
@@ -12,30 +42,39 @@ export function StatusScreen(props: {
   loading?: boolean;
   children?: React.ReactNode;
 }): React.JSX.Element {
+  const isLoading = Boolean(props.loading);
+
   return (
-    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background p-6">
-      <div aria-hidden className="pointer-events-none absolute inset-0 grid-backdrop opacity-[0.4]" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-1/3 left-1/2 h-[60vh] w-[60vh] -translate-x-1/2 rounded-full bg-primary/10 blur-[120px]"
-      />
+    <main className={cn("jl-status-screen", isLoading ? "jl-status-screen-loading" : null)}>
+      <div aria-hidden className="jl-status-mesh" />
+      <div aria-hidden className="jl-status-sweep" />
       <section
         aria-live="polite"
-        className="relative w-full max-w-md animate-rise rounded-xl border border-border-strong bg-card/80 p-7 shadow-pop backdrop-blur"
+        className={cn(
+          "relative w-full animate-rise border border-border-strong shadow-pop backdrop-blur",
+          isLoading
+            ? "jl-status-panel max-w-[34rem] px-6 py-7 sm:px-8"
+            : "max-w-md rounded-lg bg-card/80 p-7"
+        )}
       >
-        <Wordmark className="mb-5" />
-        <div className="flex items-center gap-2">
-          {props.loading ? <Spinner className="text-primary" /> : null}
+        <Wordmark className={cn(isLoading ? "mb-7" : "mb-5")} />
+        {isLoading ? <LoadingScanner /> : null}
+        <div className={cn(isLoading ? "mt-7 text-center" : "flex items-center gap-2")}>
           <h1
             className={cn(
-              "font-display text-lg font-semibold tracking-tight",
+              "font-display font-semibold tracking-tight",
+              isLoading ? "text-2xl leading-tight sm:text-3xl" : "text-lg",
               props.tone === "error" ? "text-destructive" : "text-foreground"
             )}
           >
             {props.title}
           </h1>
+          {props.detail ? (
+            <p className={cn("mt-2 text-sm text-muted-foreground", isLoading ? "mx-auto max-w-sm" : null)}>
+              {props.detail}
+            </p>
+          ) : null}
         </div>
-        {props.detail ? <p className="mt-2 text-sm text-muted-foreground">{props.detail}</p> : null}
         {props.children ? <div className="mt-5">{props.children}</div> : null}
       </section>
     </main>

@@ -100,7 +100,7 @@ function RemoteEvidenceLoader(props: {
   if (auth.isLoaded && !auth.isSignedIn) {
     return <StatusScreen title="Sign in required" detail="Sign in to view this evidence." />;
   }
-  if (query.isLoading || !auth.isLoaded) {
+  if (query.isPending || !auth.isLoaded) {
     return (
       <StatusScreen
         loading

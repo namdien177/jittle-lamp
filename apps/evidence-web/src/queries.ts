@@ -4,9 +4,14 @@ import { useAuth } from "@clerk/clerk-react";
 import {
   api,
   type ApiAccountProfile,
+  type ApiCreatedInvitationCode,
   type ApiEvidenceListResponse,
   type ApiEvidenceSummary,
+  type ApiInvitation,
+  type ApiInvitationCode,
+  type ApiMembersResponse,
   type ApiOrganization,
+  type ApiOrgSummary,
   type ApiShareLinkSummary,
   type ArtifactReadUrl,
   type CreatedShareLink,
@@ -19,9 +24,19 @@ export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 30_000,
-        refetchOnWindowFocus: false,
-        retry: 1
+        staleTime: 45_000,
+        gcTime: 10 * 60_000,
+        refetchOnWindowFocus: true,
+        refetchOnReconnect: true,
+        retry: (failureCount, error) => {
+          const message = error instanceof Error ? error.message : "";
+          if (message === "Sign in is required.") return false;
+          if (message.includes("not authorized") || message.includes("forbidden")) return false;
+          return failureCount < 2;
+        }
+      },
+      mutations: {
+        retry: false
       }
     }
   });
@@ -30,10 +45,27 @@ export function createQueryClient(): QueryClient {
 export const queryKeys = {
   accountProfile: () => ["account-profile"] as const,
   organizations: () => ["organizations"] as const,
-  organizationMembers: (orgId: string) => ["organization-members", orgId] as const,
+  organizationMembers: (
+    orgId: string,
+    options: { search?: string; role?: "all" | "owner" | "moderator" | "member"; page?: number; limit?: number } = {}
+  ) =>
+    [
+      "organization-members",
+      orgId,
+      options.search?.trim() ?? "",
+      options.role ?? "all",
+      options.page ?? 1,
+      options.limit ?? 20
+    ] as const,
   organizationInvitations: (orgId: string) => ["organization-invitations", orgId] as const,
-  evidences: (options: { createdBy?: string[]; page?: number; limit?: number } = {}) =>
-    ["evidences", options.createdBy?.join(",") ?? "", options.page ?? 1, options.limit ?? 24] as const,
+  evidences: (options: { orgId?: string; createdBy?: string[]; page?: number; limit?: number } = {}) =>
+    [
+      "evidences",
+      options.orgId ?? "active",
+      options.createdBy?.join(",") ?? "",
+      options.page ?? 1,
+      options.limit ?? 24
+    ] as const,
   evidenceArtifacts: (evidenceId: string, orgId: string | undefined) =>
     ["evidence-artifacts", evidenceId, orgId ?? null] as const,
   shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
@@ -56,7 +88,7 @@ export function useAccountProfile() {
   });
 }
 
-export function useEvidences(options: { createdBy?: string[]; page?: number; limit?: number } = {}) {
+export function useEvidences(options: { orgId?: string; createdBy?: string[]; page?: number; limit?: number } = {}) {
   const auth = useAuth();
   const getToken = useAuthToken();
   return useQuery<ApiEvidenceListResponse>({
@@ -150,9 +182,14 @@ export function useSelectActiveOrganization() {
     onSuccess: (_data, orgId) => {
       queryClient.setQueryData<ApiAccountProfile | undefined>(queryKeys.accountProfile(), (prev) =>
         prev
-          ? { ...prev, organizations: prev.organizations.map((org) => ({ ...org, isActive: org.id === orgId })) }
+          ? {
+              ...prev,
+              activeOrgId: orgId,
+              organizations: prev.organizations.map((org) => ({ ...org, isActive: org.id === orgId }))
+            }
           : prev
       );
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
     }
   });
@@ -166,6 +203,7 @@ export function useAcceptInvitation() {
       api.acceptInvitationWithPassword(getToken, input.token, input.password),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
     }
   });
@@ -174,10 +212,37 @@ export function useAcceptInvitation() {
 export function useOrganizations() {
   const auth = useAuth();
   const getToken = useAuthToken();
-  return useQuery({
+  return useQuery<{ organizations: ApiOrgSummary[] }>({
     queryKey: queryKeys.organizations(),
     queryFn: () => api.listOrganizations(getToken),
     enabled: auth.isLoaded && Boolean(auth.isSignedIn)
+  });
+}
+
+export function useCreateOrganization() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.createOrganization(getToken, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
+    }
+  });
+}
+
+export function useLeaveOrganization() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orgId: string) => api.leaveOrganization(getToken, orgId),
+    onSuccess: (_data, orgId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
+      queryClient.removeQueries({ queryKey: ["organization-members", orgId] });
+      queryClient.removeQueries({ queryKey: queryKeys.organizationInvitations(orgId) });
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
+    }
   });
 }
 
@@ -187,20 +252,92 @@ export function useOrganizationMembers(
 ) {
   const auth = useAuth();
   const getToken = useAuthToken();
-  return useQuery({
-    queryKey: [...queryKeys.organizationMembers(orgId ?? "none"), options.search ?? "", options.role ?? "all", options.page ?? 1, options.limit ?? 20],
+  return useQuery<ApiMembersResponse>({
+    queryKey: queryKeys.organizationMembers(orgId ?? "none", options),
     queryFn: () => api.listMembers(getToken, orgId ?? "", options),
     enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId)
+  });
+}
+
+export function useUpdateMemberRole() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { orgId: string; membershipId: string; role: "moderator" | "member" }) =>
+      api.updateMemberRole(getToken, input.orgId, input.membershipId, input.role),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({ queryKey: ["organization-members", input.orgId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
+    }
+  });
+}
+
+export function useRemoveMember() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { orgId: string; membershipId: string }) =>
+      api.removeMember(getToken, input.orgId, input.membershipId),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({ queryKey: ["organization-members", input.orgId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
+    }
   });
 }
 
 export function useOrganizationInvitations(orgId: string | null, enabled: boolean) {
   const auth = useAuth();
   const getToken = useAuthToken();
-  return useQuery({
+  return useQuery<{ invitations: ApiInvitation[]; codes: ApiInvitationCode[] }>({
     queryKey: queryKeys.organizationInvitations(orgId ?? "none"),
     queryFn: () => api.listInvitations(getToken, orgId ?? ""),
     enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId) && enabled
+  });
+}
+
+export function useCreateInvitationCode() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      orgId: string;
+      body: {
+        label: string;
+        role?: "moderator" | "member";
+        password?: string;
+        emailDomain?: string | null;
+        expiresAt?: number | null;
+        guestExpiresAfterDays?: number | null;
+      };
+    }) => api.createInvitationCode(getToken, input.orgId, input.body),
+    onSuccess: (_data: { code: ApiCreatedInvitationCode }, input) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizationInvitations(input.orgId) });
+    }
+  });
+}
+
+export function useSetInvitationCodeLocked() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { orgId: string; codeId: string; locked: boolean }) =>
+      api.setInvitationCodeLocked(getToken, input.orgId, input.codeId, input.locked),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizationInvitations(input.orgId) });
+    }
+  });
+}
+
+export function useDeleteInvitationCode() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { orgId: string; codeId: string }) =>
+      api.deleteInvitationCode(getToken, input.orgId, input.codeId),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizationInvitations(input.orgId) });
+    }
   });
 }
 

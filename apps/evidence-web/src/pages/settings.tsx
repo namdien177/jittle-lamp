@@ -63,7 +63,7 @@ export function SettingsPage(): React.JSX.Element {
       />
       <PageBody className="max-w-3xl">
         <SettingCard title="Account" description="Your profile is managed by Clerk.">
-          {profileQuery.isLoading ? (
+          {profileQuery.isPending ? (
             <Skeleton className="h-12 w-full" />
           ) : (
             <div className="flex items-center gap-3">

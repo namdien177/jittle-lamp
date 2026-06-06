@@ -19,7 +19,7 @@ export function OrgSwitcher(): React.JSX.Element {
   const orgs = profileQuery.data?.organizations ?? [];
   const activeOrg = orgs.find((org) => org.isActive) ?? null;
   const busyOrgId = selectOrg.isPending ? selectOrg.variables ?? null : null;
-  const label = activeOrg?.name ?? (profileQuery.isLoading ? "Loading…" : "Select workspace");
+  const label = activeOrg?.name ?? (profileQuery.isPending ? "Loading…" : "Select workspace");
 
   return (
     <DropdownMenu
@@ -38,7 +38,7 @@ export function OrgSwitcher(): React.JSX.Element {
       <DropdownMenuLabel>Your organisations</DropdownMenuLabel>
       {orgs.length === 0 ? (
         <div className="px-2.5 py-2 text-sm text-muted-foreground">
-          {profileQuery.isLoading ? "Loading…" : "No organisations yet."}
+          {profileQuery.isPending ? "Loading…" : "No organisations yet."}
         </div>
       ) : (
         orgs.map((org) => (

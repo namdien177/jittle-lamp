@@ -144,7 +144,7 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
             </div>
 
             <div ref={listRef} className="jl-scroll max-h-[min(24rem,55vh)] overflow-y-auto p-1.5">
-              {evidencesQuery.isLoading ? (
+              {evidencesQuery.isPending ? (
                 <p className="px-3 py-8 text-center text-sm text-muted-foreground">Loading evidence…</p>
               ) : results.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-muted-foreground">
