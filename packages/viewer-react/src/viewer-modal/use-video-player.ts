@@ -6,6 +6,7 @@ import { mediaDuration } from "./format";
 export const PLAYBACK_RATES = [0.25, 0.5, 1, 1.5, 2] as const;
 const CONTROLS_HIDE_DELAY_MS = 2600;
 const SEEK_SETTLE_TOLERANCE_SECONDS = 0.35;
+const SEEK_RECOVERY_DELAY_MS = 900;
 
 /** The subset of viewer props the player needs — a narrow, explicit contract. */
 export type VideoPlayerProps = {
@@ -79,6 +80,7 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [recoveringSeek, setRecoveringSeek] = useState(false);
+  const [playbackPending, setPlaybackPending] = useState(false);
   const [scrubHover, setScrubHover] = useState<number | null>(null);
   const lastRequestedSeekRef = useRef<number | null>(null);
   const playAfterSeekRef = useRef(false);
@@ -118,6 +120,7 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
 
   const resetVideoState = (): void => {
     setPaused(true);
+    setPlaybackPending(false);
     setCurrentTime(0);
     setDuration(0);
     setBuffered(0);
@@ -151,7 +154,12 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
   const playIfRequestedAfterSeek = (videoEl: HTMLVideoElement): void => {
     if (!playAfterSeekRef.current || lastRequestedSeekRef.current !== null) return;
     playAfterSeekRef.current = false;
-    if (videoEl.paused) void videoEl.play().then(syncVideoState).catch(syncVideoState);
+    setPlaybackPending(true);
+    if (videoEl.paused) {
+      void videoEl.play().then(syncVideoState).catch(syncVideoState);
+    } else {
+      syncVideoState();
+    }
   };
 
   const syncVideoState = (): void => {
@@ -164,6 +172,9 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
     setCurrentTime(videoEl.currentTime || 0);
     setDuration(nextDuration);
     setPlaybackRate(videoEl.playbackRate || 1);
+    if (!videoEl.paused && !videoEl.seeking && videoEl.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      setPlaybackPending(false);
+    }
     if (videoEl.buffered.length > 0) {
       setBuffered(videoEl.buffered.end(videoEl.buffered.length - 1));
     }
@@ -191,22 +202,39 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
       if (!blocked) return;
       setRecoveringSeek(true);
       props.onVideoSeekStall?.(targetSeconds);
-    }, 1200);
+    }, SEEK_RECOVERY_DELAY_MS);
   };
 
   const togglePlayback = (): void => {
     const videoEl = props.videoRef.current;
     if (!videoEl) return;
 
+    if (playbackPending && !videoEl.paused) {
+      playAfterSeekRef.current = true;
+      scheduleSeekRecovery();
+      syncVideoState();
+      revealControls();
+      return;
+    }
+
     if (videoEl.paused) {
       if (videoEl.readyState === 0) videoEl.load();
-      if (lastRequestedSeekRef.current !== null && videoEl.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+      if (
+        lastRequestedSeekRef.current !== null &&
+        (videoEl.seeking || videoEl.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
+      ) {
         playAfterSeekRef.current = true;
+        setPlaybackPending(true);
         scheduleSeekRecovery();
+        syncVideoState();
+        revealControls();
+        return;
       }
+      setPlaybackPending(true);
       void videoEl.play().then(syncVideoState).catch(syncVideoState);
     } else {
       playAfterSeekRef.current = false;
+      setPlaybackPending(false);
       videoEl.pause();
     }
     syncVideoState();
@@ -218,8 +246,11 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
     if (!videoEl) return;
     const max = durationValue > 0 ? durationValue : Number.POSITIVE_INFINITY;
     const target = Math.max(0, Math.min(max, boundedCurrentTime + deltaSeconds));
+    const shouldResume = !videoEl.paused || playAfterSeekRef.current;
     videoEl.currentTime = target;
     lastRequestedSeekRef.current = target;
+    playAfterSeekRef.current = shouldResume;
+    if (shouldResume) setPlaybackPending(true);
     setCurrentTime(target);
     scheduleSeekRecovery();
     props.onVideoTimeUpdate();
@@ -230,8 +261,11 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
     if (!videoEl) return;
     const nextTime = Math.max(0, Number(value));
     const target = durationValue > 0 ? Math.min(nextTime, durationValue) : nextTime;
+    const shouldResume = !videoEl.paused || playAfterSeekRef.current;
     videoEl.currentTime = target;
     lastRequestedSeekRef.current = target;
+    playAfterSeekRef.current = shouldResume;
+    if (shouldResume) setPlaybackPending(true);
     setCurrentTime(target);
     scheduleSeekRecovery();
     props.onVideoTimeUpdate();
@@ -393,10 +427,24 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
       syncVideoState();
       if (videoEl) playIfRequestedAfterSeek(videoEl);
     },
-    onWaiting: scheduleSeekRecovery,
-    onStalled: scheduleSeekRecovery,
+    onWaiting: () => {
+      if (lastRequestedSeekRef.current !== null && playAfterSeekRef.current) setPlaybackPending(true);
+      scheduleSeekRecovery();
+    },
+    onStalled: () => {
+      if (lastRequestedSeekRef.current !== null && playAfterSeekRef.current) setPlaybackPending(true);
+      scheduleSeekRecovery();
+    },
     onDurationChange: syncVideoState,
     onPlay: () => {
+      const videoEl = props.videoRef.current;
+      if (!videoEl) return;
+      if (lastRequestedSeekRef.current !== null && videoEl.paused) {
+        playAfterSeekRef.current = true;
+        setPlaybackPending(true);
+        scheduleSeekRecovery();
+        return;
+      }
       syncVideoState();
       revealControls();
     },
@@ -412,7 +460,7 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
   };
 
   return {
-    paused,
+    paused: paused || playbackPending,
     muted,
     effectiveVolume,
     playbackRate,

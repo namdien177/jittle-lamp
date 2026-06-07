@@ -355,12 +355,22 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     const blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "video/webm" }));
     localPlaybackUrlRef.current = blobUrl;
     setPlaybackVideoSrc(blobUrl);
-    window.setTimeout(() => {
+    const attachRecoveredSource = (): void => {
       const videoEl = videoRef.current;
       if (!videoEl) return;
-      videoEl.currentTime = targetSeconds;
-      void videoEl.play().catch(() => undefined);
-    }, 0);
+      const seekAndPlay = (): void => {
+        const duration = Number.isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : targetSeconds;
+        videoEl.currentTime = Math.max(0, Math.min(targetSeconds, duration));
+        void videoEl.play().catch(() => undefined);
+      };
+      if (videoEl.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        seekAndPlay();
+        return;
+      }
+      videoEl.addEventListener("loadedmetadata", seekAndPlay, { once: true });
+      videoEl.load();
+    };
+    window.setTimeout(attachRecoveredSource, 0);
   };
 
   const handleDownloadZip = async (): Promise<void> => {
