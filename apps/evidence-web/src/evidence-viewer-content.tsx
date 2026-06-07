@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   buildVisibleActionRows,
   buildSectionTimeline,
@@ -81,6 +81,12 @@ const initialMergeDialog: MergeDialogState = {
   pendingMergeActionIds: []
 };
 
+function shouldBufferRemotePlayback(source: ViewerSource, videoSrc: string | null): boolean {
+  if (!videoSrc || videoSrc.startsWith("blob:") || (source !== "cloud" && source !== "share")) return false;
+  if (typeof navigator === "undefined") return false;
+  return /\bFirefox\//.test(navigator.userAgent);
+}
+
 export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.JSX.Element {
   const {
     loadedArchive,
@@ -108,6 +114,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const autoScrollingRef = useRef(false);
   const localPlaybackUrlRef = useRef<string | null>(null);
   const pendingRecoveredSeekSecondsRef = useRef<number | null>(null);
+  const bufferedPlaybackPromiseRef = useRef<Promise<void> | null>(null);
 
   const [mergeGroups, setMergeGroups] = useState<ActionMergeGroup[]>(loadedMergeGroups);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -123,18 +130,10 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [recordingBytes, setRecordingBytes] = useState<Uint8Array | null>(recordingBytesInitial);
-  const [playbackVideoSrc, setPlaybackVideoSrc] = useState<string | null>(videoSrc);
-
-  useEffect(() => {
-    setPlaybackVideoSrc(videoSrc);
-    pendingRecoveredSeekSecondsRef.current = null;
-    return () => {
-      if (localPlaybackUrlRef.current) {
-        URL.revokeObjectURL(localPlaybackUrlRef.current);
-        localPlaybackUrlRef.current = null;
-      }
-    };
-  }, [videoSrc]);
+  const needsBufferedPlayback = shouldBufferRemotePlayback(source, videoSrc);
+  const [playbackVideoSrc, setPlaybackVideoSrc] = useState<string | null>(() =>
+    needsBufferedPlayback ? null : videoSrc
+  );
 
   const archive = useMemo(
     () => buildReviewedArchive({ archive: loadedArchive, mergeGroups }),
@@ -336,6 +335,17 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const findNetworkItem = (rowId: string): TimelineItem | null =>
     loadedTimeline.find((item) => item.id === rowId) ?? null;
 
+  const releaseLocalPlaybackUrl = (): void => {
+    if (!localPlaybackUrlRef.current) return;
+    URL.revokeObjectURL(localPlaybackUrlRef.current);
+    localPlaybackUrlRef.current = null;
+  };
+
+  const closeViewer = (): void => {
+    releaseLocalPlaybackUrl();
+    onClose();
+  };
+
   const seekAndPlayRecoveredVideo = (videoEl: HTMLVideoElement, targetSeconds: number): void => {
     const seekAndPlay = (): void => {
       const duration = Number.isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : targetSeconds;
@@ -352,7 +362,43 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     videoEl.load();
   };
 
+  const installBufferedPlayback = async (targetSeconds: number | null = null): Promise<void> => {
+    if (localPlaybackUrlRef.current) {
+      if (targetSeconds !== null && videoRef.current) seekAndPlayRecoveredVideo(videoRef.current, targetSeconds);
+      return;
+    }
+
+    const bytes = await ensureRecordingBytes();
+    if (!bytes || bytes.length === 0) {
+      showFeedback("Unable to buffer recording for Firefox playback.", "error");
+      return;
+    }
+
+    const blobBytes = new Uint8Array(bytes.byteLength);
+    blobBytes.set(bytes);
+    const blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "video/webm" }));
+    localPlaybackUrlRef.current = blobUrl;
+    if (targetSeconds !== null) pendingRecoveredSeekSecondsRef.current = targetSeconds;
+    setPlaybackVideoSrc(blobUrl);
+  };
+
+  const ensureBufferedPlayback = (targetSeconds: number | null = null): void => {
+    if (bufferedPlaybackPromiseRef.current) {
+      if (targetSeconds !== null) pendingRecoveredSeekSecondsRef.current = targetSeconds;
+      return;
+    }
+
+    bufferedPlaybackPromiseRef.current = installBufferedPlayback(targetSeconds).finally(() => {
+      bufferedPlaybackPromiseRef.current = null;
+    });
+  };
+
   const handleVideoElementReady = (videoEl: HTMLVideoElement): void => {
+    if (needsBufferedPlayback && !localPlaybackUrlRef.current) {
+      ensureBufferedPlayback();
+      return;
+    }
+
     const targetSeconds = pendingRecoveredSeekSecondsRef.current;
     const localPlaybackUrl = localPlaybackUrlRef.current;
     if (targetSeconds === null || !localPlaybackUrl || videoEl.src !== localPlaybackUrl) return;
@@ -368,6 +414,11 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   };
 
   const recoverStalledVideoSeek = async (targetSeconds: number): Promise<void> => {
+    if (needsBufferedPlayback) {
+      ensureBufferedPlayback(targetSeconds);
+      return;
+    }
+
     if (playbackVideoSrc && localPlaybackUrlRef.current === playbackVideoSrc) {
       pendingRecoveredSeekSecondsRef.current = null;
       if (videoRef.current) seekAndPlayRecoveredVideo(videoRef.current, targetSeconds);
@@ -380,7 +431,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       return;
     }
 
-    if (localPlaybackUrlRef.current) URL.revokeObjectURL(localPlaybackUrlRef.current);
+    releaseLocalPlaybackUrl();
     const blobBytes = new Uint8Array(bytes.byteLength);
     blobBytes.set(bytes);
     const blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "video/webm" }));
@@ -442,7 +493,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   return (
     <ViewerModal
       open
-      onClose={onClose}
+      onClose={closeViewer}
       mode={viewerMode}
       {...(viewerMode === "page" ? { closeLabel: "Back to evidence" } : {})}
       title={archive.name}
