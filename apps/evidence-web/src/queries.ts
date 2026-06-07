@@ -509,6 +509,11 @@ export function useOrganizationRoles(orgId: string | null) {
   });
 }
 
+type OrganizationRolesQueryData = {
+  permissions: OrganizationPermission[];
+  roles: ApiOrganizationRole[];
+};
+
 export function useUpdateOrganizationRole() {
   const getToken = useAuthToken();
   const queryClient = useQueryClient();
@@ -524,12 +529,47 @@ export function useUpdateOrganizationRole() {
         input.role,
         input.permissions,
       ),
+    onMutate: async (input) => {
+      const queryKey = queryKeys.organizationRoles(input.orgId);
+      await queryClient.cancelQueries({ queryKey });
+      const previous =
+        queryClient.getQueryData<OrganizationRolesQueryData>(queryKey);
+
+      queryClient.setQueryData<OrganizationRolesQueryData>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              roles: current.roles.map((role) =>
+                role.key === input.role
+                  ? {
+                      ...role,
+                      permissions: input.permissions,
+                      updatedAt: Date.now(),
+                    }
+                  : role,
+              ),
+            }
+          : current,
+      );
+
+      return { previous };
+    },
+    onError: (_error, input, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          queryKeys.organizationRoles(input.orgId),
+          context.previous,
+        );
+      }
+    },
     onSuccess: (_data, input) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.organizationRoles(input.orgId),
-      });
-      queryClient.invalidateQueries({
         queryKey: queryKeys.organizationActivity(input.orgId),
+      });
+    },
+    onSettled: (_data, _error, input) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationRoles(input.orgId),
       });
     },
   });

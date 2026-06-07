@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -1252,9 +1252,26 @@ export function OrgRolesTab(): React.JSX.Element {
   const rolesQuery = useOrganizationRoles(ctx.orgId);
   const updateRole = useUpdateOrganizationRole();
   const settingsMutation = useUpdateOrganizationSettings();
+  const [selectedRoleKey, setSelectedRoleKey] =
+    useState<OrganizationRoleKey>("moderator");
+  const [pendingPermission, setPendingPermission] = useState<{
+    role: OrganizationRoleKey;
+    permission: OrganizationPermission;
+  } | null>(null);
   const roles = rolesQuery.data?.roles ?? [];
   const permissions = rolesQuery.data?.permissions ?? [];
-  const busy = updateRole.isPending || settingsMutation.isPending;
+  const settingsBusy = settingsMutation.isPending;
+  const selectedRole =
+    roles.find((role) => role.key === selectedRoleKey) ??
+    roles.find((role) => role.key !== "admin") ??
+    roles[0] ??
+    null;
+
+  useEffect(() => {
+    if (roles.length === 0) return;
+    if (roles.some((role) => role.key === selectedRoleKey)) return;
+    setSelectedRoleKey(roles.find((role) => role.key !== "admin")?.key ?? roles[0]!.key);
+  }, [roles, selectedRoleKey]);
 
   const togglePermission = async (
     role: OrganizationRoleKey,
@@ -1266,7 +1283,16 @@ export function OrgRolesTab(): React.JSX.Element {
     const next = enabled
       ? Array.from(new Set([...current.permissions, permission]))
       : current.permissions.filter((item) => item !== permission);
-    await updateRole.mutateAsync({ orgId: ctx.orgId, role, permissions: next });
+    setPendingPermission({ role, permission });
+    try {
+      await updateRole.mutateAsync({ orgId: ctx.orgId, role, permissions: next });
+    } finally {
+      setPendingPermission((pending) =>
+        pending?.role === role && pending.permission === permission
+          ? null
+          : pending,
+      );
+    }
   };
 
   if (rolesQuery.isPending) return <Skeleton className="h-64 w-full" />;
@@ -1297,7 +1323,7 @@ export function OrgRolesTab(): React.JSX.Element {
               type="checkbox"
               className="size-4 accent-primary"
               checked={ctx.org.requireInvitationApproval}
-              disabled={!ctx.canAdmin || busy}
+              disabled={!ctx.canAdmin || settingsBusy}
               onChange={(event) =>
                 void settingsMutation
                   .mutateAsync({
@@ -1317,57 +1343,138 @@ export function OrgRolesTab(): React.JSX.Element {
           </label>
         </Card>
       ) : null}
-      <div className="grid gap-4 xl:grid-cols-2">
-        {roles.map((role) => (
-          <Card key={role.key} className="p-0">
-            <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-              <div>
-                <h2 className="text-base font-semibold">{role.name}</h2>
-                <p className="text-base text-muted-foreground">
-                  {role.permissions.length} permissions enabled
-                </p>
-              </div>
-              {roleBadge(role.key)}
+      <Card className="p-0">
+        <div className="grid min-h-[520px] lg:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="border-b border-border p-3 lg:border-r lg:border-b-0">
+            <div className="px-1 pb-3">
+              <h2 className="text-base font-semibold">Roles</h2>
+              <p className="text-base text-muted-foreground">
+                Select a role to edit its permissions.
+              </p>
             </div>
-            <div className="grid gap-2 p-4 sm:grid-cols-2">
-              {permissions.map((permission) => {
-                const adminOnly = adminOnlyPermissions.has(permission);
-                const checked =
-                  role.key === "admin" ||
-                  (!adminOnly && role.permissions.includes(permission));
-                const locked = role.key === "admin" || adminOnly;
+            <div className="grid gap-2">
+              {roles.map((role) => {
+                const selected = selectedRole?.key === role.key;
+                const locked = role.key === "admin";
                 return (
-                  <label
-                    key={permission}
-                    className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-black/15 px-3 py-2 text-base"
+                  <button
+                    key={role.key}
+                    type="button"
+                    className={[
+                      "rounded-md border px-3 py-3 text-left transition-colors",
+                      selected
+                        ? "border-primary/60 bg-primary/10 text-foreground"
+                        : "border-border bg-black/10 text-muted-foreground hover:border-border-strong hover:bg-white/[0.04] hover:text-foreground",
+                    ].join(" ")}
+                    aria-pressed={selected}
+                    onClick={() => setSelectedRoleKey(role.key)}
                   >
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      checked={checked}
-                      disabled={!ctx.canAdmin || locked || busy}
-                      onChange={(event) =>
-                        void togglePermission(
-                          role.key,
-                          permission,
-                          event.currentTarget.checked,
-                        ).catch((err) =>
-                          ctx.setError(
-                            err instanceof Error
-                              ? err.message
-                              : "Unable to update role.",
-                          ),
-                        )
-                      }
-                    />
-                    <span>{permissionLabels[permission]}</span>
-                  </label>
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="font-medium">{role.name}</span>
+                      {roleBadge(role.key)}
+                    </span>
+                    <span className="mt-1 block text-base text-muted-foreground">
+                      {role.permissions.length} permissions enabled
+                      {locked ? " · fixed" : ""}
+                    </span>
+                  </button>
                 );
               })}
             </div>
-          </Card>
-        ))}
-      </div>
+          </aside>
+
+          <section className="p-4">
+            {selectedRole ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+                  <div>
+                    <h2 className="text-lg font-semibold">
+                      {selectedRole.name} permissions
+                    </h2>
+                    <p className="text-base text-muted-foreground">
+                      Changes are saved as soon as you toggle a permission.
+                    </p>
+                  </div>
+                  {roleBadge(selectedRole.key)}
+                </div>
+
+                <div className="grid gap-2 xl:grid-cols-2">
+                  {permissions.map((permission) => {
+                    const adminOnly = adminOnlyPermissions.has(permission);
+                    const checked =
+                      selectedRole.key === "admin" ||
+                      (!adminOnly && selectedRole.permissions.includes(permission));
+                    const locked = selectedRole.key === "admin" || adminOnly;
+                    const pending =
+                      pendingPermission?.role === selectedRole.key &&
+                      pendingPermission.permission === permission;
+                    const disabled = !ctx.canAdmin || locked || pending;
+                    const reason =
+                      selectedRole.key === "admin"
+                        ? "Admin permissions are fixed."
+                        : adminOnly
+                          ? "Admin-only permission."
+                          : !ctx.canAdmin
+                            ? "Admin access required."
+                            : null;
+
+                    return (
+                      <label
+                        key={permission}
+                        className={[
+                          "flex min-h-12 items-center gap-3 rounded-md border px-3 py-2 text-base transition-colors",
+                          checked
+                            ? "border-primary/40 bg-primary/10"
+                            : "border-border bg-black/15",
+                          disabled ? "text-muted-foreground" : "cursor-pointer hover:border-border-strong",
+                          pending ? "animate-pulse" : "",
+                        ].join(" ")}
+                        aria-busy={pending}
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            void togglePermission(
+                              selectedRole.key,
+                              permission,
+                              event.currentTarget.checked,
+                            ).catch((err) =>
+                              ctx.setError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Unable to update role.",
+                              ),
+                            )
+                          }
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium">
+                            {permissionLabels[permission]}
+                          </span>
+                          {reason ? (
+                            <span className="block text-base text-muted-foreground">
+                              {reason}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                icon={<KeyRound aria-hidden />}
+                title="No roles found"
+                description="This organisation does not have editable roles yet."
+              />
+            )}
+          </section>
+        </div>
+      </Card>
     </div>
   );
 }
