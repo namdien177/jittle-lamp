@@ -62,6 +62,7 @@ export type ViewerModalProps = {
   videoSrc?: string | null;
   videoDurationHintMs?: number;
   onVideoElementReady?: (videoEl: HTMLVideoElement) => void;
+  onVideoPlaybackRequested?: () => boolean | void;
   notesValue: string;
   notesReadOnly: boolean;
   notesSaving: boolean;

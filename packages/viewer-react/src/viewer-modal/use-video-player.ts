@@ -15,6 +15,7 @@ export type VideoPlayerProps = {
   videoSrc?: string | null;
   videoDurationHintMs?: number;
   onVideoElementReady?: (videoEl: HTMLVideoElement) => void;
+  onVideoPlaybackRequested?: () => boolean | void;
   onVideoTimeUpdate: () => void;
   onVideoError?: () => void;
   onVideoSeekStall?: (targetSeconds: number) => void;
@@ -228,6 +229,11 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
   const togglePlayback = (): void => {
     const videoEl = props.videoRef.current;
     if (!videoEl) return;
+
+    if (videoEl.paused && props.onVideoPlaybackRequested?.()) {
+      revealControls();
+      return;
+    }
 
     if (playbackPending && !videoEl.paused) {
       playAfterSeekRef.current = true;

@@ -406,6 +406,13 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     seekAndPlayRecoveredVideo(videoEl, targetSeconds);
   };
 
+  const handleVideoPlaybackRequested = (): boolean => {
+    if (!needsBufferedPlayback || localPlaybackUrlRef.current) return false;
+    pendingRecoveredSeekSecondsRef.current = videoRef.current?.currentTime ?? 0;
+    ensureBufferedPlayback(pendingRecoveredSeekSecondsRef.current);
+    return true;
+  };
+
   const ensureRecordingBytes = async (): Promise<Uint8Array | null> => {
     if (recordingBytes && recordingBytes.length > 0) return recordingBytes;
     const bytes = await fetchVideoBytes();
@@ -509,6 +516,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       videoSrc={playbackVideoSrc}
       videoDurationHintMs={videoDurationHintMs}
       onVideoElementReady={handleVideoElementReady}
+      onVideoPlaybackRequested={handleVideoPlaybackRequested}
       notesValue=""
       notesReadOnly
       notesSaving={false}
