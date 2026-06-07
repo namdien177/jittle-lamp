@@ -24,9 +24,10 @@ export type OrganizationInvitationStatus = z.infer<
 >;
 
 export const organizationInvitationRoleSchema = z.enum([
-	"owner",
+	"admin",
 	"moderator",
-	"member",
+	"developer",
+	"qa_engineer",
 ]);
 export type OrganizationInvitationRole = z.infer<
 	typeof organizationInvitationRoleSchema
@@ -45,7 +46,7 @@ export const organizationInvitations = sqliteTable(
 		role: text("role")
 			.$type<OrganizationInvitationRole>()
 			.notNull()
-			.default("member"),
+			.default("developer"),
 		tokenHash: text("token_hash").notNull(),
 		status: text("status")
 			.$type<OrganizationInvitationStatus>()
@@ -80,7 +81,7 @@ export const organizationInvitations = sqliteTable(
 		),
 		check(
 			"organization_invitations_role_check",
-			sql`${table.role} in ('owner', 'moderator', 'member')`,
+			sql`${table.role} in ('admin', 'moderator', 'developer', 'qa_engineer')`,
 		),
 	],
 );
@@ -88,7 +89,7 @@ export const organizationInvitations = sqliteTable(
 export const createOrganizationInvitationInputSchema = z.object({
 	organizationId: z.string().uuid(),
 	email: z.string().trim().email(),
-	role: organizationInvitationRoleSchema.default("member"),
+	role: organizationInvitationRoleSchema.default("developer"),
 	tokenHash: z.string().min(32),
 	expiresAt: z.number().int(),
 	invitedBy: z.string().uuid(),

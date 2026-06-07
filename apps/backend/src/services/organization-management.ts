@@ -4,12 +4,16 @@ import {
 	createOrganizationInputSchema,
 	createOrganizationInvitationCodeInputSchema,
 	createOrganizationInvitationInputSchema,
+	createOrganizationJoinRequestInputSchema,
 	createOrganizationMembershipInputSchema,
+	type OrganizationPermission,
 	type organizationInvitationCodeRoleSchema,
 	organizationInvitationCodes,
 	type organizationInvitationRoleSchema,
 	organizationInvitations,
+	organizationJoinRequests,
 	organizationMembers,
+	organizationRoles,
 	organizations,
 	users,
 } from "../db/schema";
@@ -18,6 +22,16 @@ import {
 	formatClerkDisplayName,
 	resolveClerkUserProfile,
 } from "./clerk-user-profile";
+import {
+	adminOnlyOrganizationPermissions,
+	allOrganizationPermissions,
+	defaultRoleLabels,
+	ensureDefaultOrganizationRoles,
+	normalizeOrganizationRoleKey,
+	organizationMemberHasPermission,
+	parsePermissions,
+	serializePermissions,
+} from "./organization-permissions";
 import type { BackendDb } from "./user-provisioning";
 
 export type OrganizationSummary = {
@@ -25,6 +39,7 @@ export type OrganizationSummary = {
 	name: string;
 	role: string;
 	isPersonal: boolean;
+	requireInvitationApproval: boolean;
 	memberCount: number;
 	createdAt: number;
 	joinedAt: number;
@@ -53,7 +68,7 @@ export type OrganizationMemberList = {
 export type InvitationSummary = {
 	id: string;
 	email: string;
-	role: "owner" | "moderator" | "member";
+	role: "admin" | "moderator" | "developer" | "qa_engineer";
 	status: "pending" | "accepted" | "revoked" | "expired";
 	expiresAt: number;
 	createdAt: number;
@@ -68,7 +83,7 @@ export type CreatedInvitation = InvitationSummary & {
 export type InvitationCodeSummary = {
 	id: string;
 	label: string;
-	role: "moderator" | "member";
+	role: "admin" | "moderator" | "developer" | "qa_engineer";
 	hasPassword: boolean;
 	emailDomain: string | null;
 	expiresAt: number | null;
@@ -81,6 +96,26 @@ export type InvitationCodeSummary = {
 export type CreatedInvitationCode = InvitationCodeSummary & {
 	code: string;
 	organizationId: string;
+};
+
+export type OrganizationRoleSummary = {
+	key: "admin" | "moderator" | "developer" | "qa_engineer";
+	name: string;
+	permissions: string[];
+	isSystem: boolean;
+	updatedAt: number;
+};
+
+export type OrganizationJoinRequestSummary = {
+	id: string;
+	organizationId: string;
+	userId: string;
+	clerkUserId: string;
+	displayName: string;
+	email: string | null;
+	requestedRole: string;
+	status: "pending" | "approved" | "rejected";
+	createdAt: number;
 };
 
 const sha256Hex = async (value: string): Promise<string> => {
@@ -142,8 +177,10 @@ export const createOrganization = async (
 		const membership = createOrganizationMembershipInputSchema.parse({
 			organizationId: organization.id,
 			userId: input.createdByLocalUserId,
-			role: "owner",
+			role: "admin",
 		});
+
+		await ensureDefaultOrganizationRoles(tx, organization.id);
 
 		await tx
 			.insert(organizationMembers)
@@ -158,8 +195,9 @@ export const createOrganization = async (
 		return {
 			id: organization.id,
 			name: organization.name,
-			role: "owner",
+			role: "admin",
 			isPersonal: organization.isPersonal,
+			requireInvitationApproval: false,
 			memberCount: 1,
 			createdAt: organization.createdAt,
 			joinedAt: Date.now(),
@@ -183,6 +221,7 @@ export const listOrganizationsForUser = async (
 					id: true,
 					name: true,
 					isPersonal: true,
+					requireInvitationApproval: true,
 					createdAt: true,
 				},
 			},
@@ -204,8 +243,10 @@ export const listOrganizationsForUser = async (
 	return memberships.map((membership) => ({
 		id: membership.organization.id,
 		name: membership.organization.name,
-		role: membership.role,
+		role: normalizeOrganizationRoleKey(membership.role),
 		isPersonal: membership.organization.isPersonal,
+		requireInvitationApproval:
+			membership.organization.requireInvitationApproval,
 		memberCount: counts.get(membership.organizationId) ?? 1,
 		createdAt: membership.organization.createdAt,
 		joinedAt: membership.createdAt,
@@ -224,20 +265,23 @@ export const getOrganizationRole = async (
 		),
 		columns: { role: true },
 	});
-	return membership?.role ?? null;
+	return membership ? normalizeOrganizationRoleKey(membership.role) : null;
 };
 
 export const ensureOrganizationOwner = async (
 	db: BackendDb,
 	args: { organizationId: string; localUserId: string },
-): Promise<boolean> => (await getOrganizationRole(db, args)) === "owner";
+): Promise<boolean> => (await getOrganizationRole(db, args)) === "admin";
 
 export const ensureOrganizationManager = async (
 	db: BackendDb,
 	args: { organizationId: string; localUserId: string },
 ): Promise<boolean> => {
-	const role = await getOrganizationRole(db, args);
-	return role === "owner" || role === "moderator";
+	return organizationMemberHasPermission(db, {
+		organizationId: args.organizationId,
+		localUserId: args.localUserId,
+		permission: "invitations.disable",
+	});
 };
 
 export const ensureOrganizationMember = async (
@@ -252,7 +296,7 @@ export const listOrganizationMembers = async (
 		runtime: { clerkSecretKey: string | undefined };
 		currentLocalUserId: string;
 		search?: string | undefined;
-		role?: "all" | "owner" | "moderator" | "member";
+		role?: "all" | "admin" | "moderator" | "developer" | "qa_engineer";
 		page?: number | undefined;
 		limit?: number | undefined;
 	},
@@ -299,7 +343,7 @@ export const listOrganizationMembers = async (
 					email: profile.email,
 				}),
 				email: profile.email,
-				role: membership.role,
+				role: normalizeOrganizationRoleKey(membership.role),
 				joinedAt: membership.createdAt,
 				guestExpiresAt: membership.guestExpiresAt,
 			};
@@ -349,19 +393,128 @@ export const renameOrganization = async (
 		.where(eq(organizations.id, args.organizationId));
 };
 
+export const updateOrganizationSettings = async (
+	db: BackendDb,
+	args: {
+		organizationId: string;
+		requireInvitationApproval: boolean;
+	},
+): Promise<{ organizationId: string; requireInvitationApproval: boolean }> => {
+	const [updated] = await db
+		.update(organizations)
+		.set({
+			requireInvitationApproval: args.requireInvitationApproval,
+			updatedAt: Date.now(),
+		})
+		.where(eq(organizations.id, args.organizationId))
+		.returning({
+			organizationId: organizations.id,
+			requireInvitationApproval: organizations.requireInvitationApproval,
+		});
+	if (!updated) throw new Error("Organization not found.");
+	return updated;
+};
+
+export const listOrganizationRoles = async (
+	db: BackendDb,
+	organizationId: string,
+): Promise<OrganizationRoleSummary[]> => {
+	await ensureDefaultOrganizationRoles(db, organizationId);
+	const rows = await db.query.organizationRoles.findMany({
+		where: eq(organizationRoles.organizationId, organizationId),
+		columns: {
+			key: true,
+			name: true,
+			permissionsJson: true,
+			isSystem: true,
+			updatedAt: true,
+		},
+	});
+	const order = new Map([
+		["admin", 0],
+		["moderator", 1],
+		["qa_engineer", 2],
+		["developer", 3],
+	]);
+	return rows
+		.map((row) => ({
+			key: normalizeOrganizationRoleKey(row.key),
+			name: row.name,
+			permissions: parsePermissions(row.permissionsJson),
+			isSystem: row.isSystem,
+			updatedAt: row.updatedAt,
+		}))
+		.sort((a, b) => (order.get(a.key) ?? 99) - (order.get(b.key) ?? 99));
+};
+
+export const updateOrganizationRolePermissions = async (
+	db: BackendDb,
+	args: {
+		organizationId: string;
+		role: "admin" | "moderator" | "developer" | "qa_engineer";
+		permissions: string[];
+	},
+): Promise<OrganizationRoleSummary> => {
+	const role = normalizeOrganizationRoleKey(args.role);
+	if (role === "admin") {
+		throw new Error("Admin permissions cannot be restricted.");
+	}
+	const allowed = new Set(allOrganizationPermissions);
+	const adminOnly = new Set<OrganizationPermission>(
+		adminOnlyOrganizationPermissions,
+	);
+	const permissions = args.permissions.filter((permission) =>
+		allowed.has(permission as never),
+	) as Array<(typeof allOrganizationPermissions)[number]>;
+	if (permissions.some((permission) => adminOnly.has(permission))) {
+		throw new Error("Only the Admin role can hold admin-only permissions.");
+	}
+	const now = Date.now();
+	await ensureDefaultOrganizationRoles(db, args.organizationId);
+	const [updated] = await db
+		.update(organizationRoles)
+		.set({
+			name: defaultRoleLabels[role],
+			permissionsJson: serializePermissions(permissions),
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(organizationRoles.organizationId, args.organizationId),
+				eq(organizationRoles.key, role),
+			),
+		)
+		.returning({
+			key: organizationRoles.key,
+			name: organizationRoles.name,
+			permissionsJson: organizationRoles.permissionsJson,
+			isSystem: organizationRoles.isSystem,
+			updatedAt: organizationRoles.updatedAt,
+		});
+	if (!updated) throw new Error("Role not found.");
+	return {
+		key: normalizeOrganizationRoleKey(updated.key),
+		name: updated.name,
+		permissions: parsePermissions(updated.permissionsJson),
+		isSystem: updated.isSystem,
+		updatedAt: updated.updatedAt,
+	};
+};
+
 export const updateOrganizationMemberRole = async (
 	db: BackendDb,
 	args: {
 		organizationId: string;
 		actorLocalUserId: string;
 		membershipId: string;
-		role: "moderator" | "member";
+		role: "admin" | "moderator" | "developer" | "qa_engineer";
 	},
 ): Promise<void> => {
-	const actorRole = await getOrganizationRole(db, {
-		organizationId: args.organizationId,
-		localUserId: args.actorLocalUserId,
-	});
+	const canAssignRole =
+		(await getOrganizationRole(db, {
+			organizationId: args.organizationId,
+			localUserId: args.actorLocalUserId,
+		})) === "admin";
 	const target = await db.query.organizationMembers.findFirst({
 		where: and(
 			eq(organizationMembers.id, args.membershipId),
@@ -371,19 +524,13 @@ export const updateOrganizationMemberRole = async (
 		columns: { role: true, userId: true },
 	});
 	if (!target) throw new Error("Member not found.");
-	if (target.role === "owner") {
-		throw new Error("Owners cannot be changed from this screen.");
-	}
-	if (actorRole !== "owner" && target.role !== "member") {
-		throw new Error("Moderators can only manage regular members.");
-	}
-	if (actorRole !== "owner" && args.role !== "member") {
-		throw new Error("Only owners can promote moderators.");
+	if (!canAssignRole) {
+		throw new Error("Only admins can assign organization roles.");
 	}
 
 	await db
 		.update(organizationMembers)
-		.set({ role: args.role })
+		.set({ role: normalizeOrganizationRoleKey(args.role) })
 		.where(eq(organizationMembers.id, args.membershipId));
 };
 
@@ -395,10 +542,11 @@ export const removeOrganizationMember = async (
 		membershipId: string;
 	},
 ): Promise<void> => {
-	const actorRole = await getOrganizationRole(db, {
-		organizationId: args.organizationId,
-		localUserId: args.actorLocalUserId,
-	});
+	const canKick =
+		(await getOrganizationRole(db, {
+			organizationId: args.organizationId,
+			localUserId: args.actorLocalUserId,
+		})) === "admin";
 	const target = await db.query.organizationMembers.findFirst({
 		where: and(
 			eq(organizationMembers.id, args.membershipId),
@@ -411,11 +559,8 @@ export const removeOrganizationMember = async (
 	if (target.userId === args.actorLocalUserId) {
 		throw new Error("You cannot remove yourself from the organization.");
 	}
-	if (target.role === "owner") {
-		throw new Error("Owners cannot be removed from this screen.");
-	}
-	if (actorRole !== "owner" && target.role !== "member") {
-		throw new Error("Moderators can only manage regular members.");
+	if (!canKick) {
+		throw new Error("Only admins can remove organization members.");
 	}
 	await db
 		.delete(organizationMembers)
@@ -435,18 +580,18 @@ export const leaveOrganization = async (
 		columns: { id: true, role: true },
 	});
 	if (!membership) throw new Error("Member not found.");
-	if (membership.role === "owner") {
+	if (normalizeOrganizationRoleKey(membership.role) === "admin") {
 		const otherOwner = await db.query.organizationMembers.findFirst({
 			where: and(
 				eq(organizationMembers.organizationId, args.organizationId),
-				eq(organizationMembers.role, "owner"),
+				eq(organizationMembers.role, "admin"),
 				ne(organizationMembers.userId, args.localUserId),
 				isNull(organizationMembers.teamId),
 			),
 			columns: { id: true },
 		});
 		if (!otherOwner) {
-			throw new Error("Transfer ownership before leaving this organization.");
+			throw new Error("Assign another admin before leaving this organization.");
 		}
 	}
 
@@ -482,7 +627,7 @@ export const leaveOrganization = async (
 const summarizeInvitation = (row: {
 	id: string;
 	email: string;
-	role: "owner" | "moderator" | "member" | string;
+	role: "admin" | "moderator" | "developer" | "qa_engineer" | string;
 	status: string;
 	expiresAt: number;
 	createdAt: number;
@@ -490,12 +635,7 @@ const summarizeInvitation = (row: {
 }): InvitationSummary => ({
 	id: row.id,
 	email: row.email,
-	role:
-		row.role === "owner"
-			? "owner"
-			: row.role === "moderator"
-				? "moderator"
-				: "member",
+	role: normalizeOrganizationRoleKey(row.role),
 	status:
 		row.status === "accepted"
 			? "accepted"
@@ -512,7 +652,7 @@ const summarizeInvitation = (row: {
 const summarizeInvitationCode = (row: {
 	id: string;
 	label: string;
-	role: "moderator" | "member" | string;
+	role: "admin" | "moderator" | "developer" | "qa_engineer" | string;
 	passwordHash: string | null;
 	emailDomain: string | null;
 	expiresAt: number | null;
@@ -523,7 +663,7 @@ const summarizeInvitationCode = (row: {
 }): InvitationCodeSummary => ({
 	id: row.id,
 	label: row.label,
-	role: row.role === "moderator" ? "moderator" : "member",
+	role: normalizeOrganizationRoleKey(row.role),
 	hasPassword: Boolean(row.passwordHash),
 	emailDomain: row.emailDomain,
 	expiresAt: row.expiresAt,
@@ -806,8 +946,9 @@ export const acceptInvitationByToken = async (
 	},
 ): Promise<{
 	organizationId: string;
-	role: "owner" | "moderator" | "member";
+	role: "admin" | "moderator" | "developer" | "qa_engineer";
 	invitationId: string;
+	status: "accepted" | "pending_approval";
 }> => {
 	const tokenHash = await hashInvitationToken(args.token);
 	const now = Date.now();
@@ -826,12 +967,7 @@ export const acceptInvitationByToken = async (
 			},
 		});
 		if (invitation) {
-			const role =
-				invitation.role === "owner"
-					? "owner"
-					: invitation.role === "moderator"
-						? "moderator"
-						: "member";
+			const role = normalizeOrganizationRoleKey(invitation.role);
 
 			await tx
 				.insert(organizationMembers)
@@ -861,6 +997,7 @@ export const acceptInvitationByToken = async (
 				organizationId: invitation.organizationId,
 				role,
 				invitationId: invitation.id,
+				status: "accepted",
 			};
 		}
 
@@ -904,10 +1041,55 @@ export const acceptInvitationByToken = async (
 			}
 		}
 
-		const role = code.role === "moderator" ? "moderator" : "member";
+		const role = normalizeOrganizationRoleKey(code.role);
 		const guestExpiresAt = code.guestExpiresAfterDays
 			? now + code.guestExpiresAfterDays * 24 * 60 * 60 * 1000
 			: null;
+
+		const organization = await tx.query.organizations.findFirst({
+			where: eq(organizations.id, code.organizationId),
+			columns: { requireInvitationApproval: true },
+		});
+		if (organization?.requireInvitationApproval) {
+			const parsed = createOrganizationJoinRequestInputSchema.parse({
+				organizationId: code.organizationId,
+				userId: args.localUserId,
+				invitationCodeId: code.id,
+				requestedRole: role,
+			});
+			const existingRequest = await tx.query.organizationJoinRequests.findFirst(
+				{
+					where: and(
+						eq(organizationJoinRequests.organizationId, code.organizationId),
+						eq(organizationJoinRequests.userId, args.localUserId),
+						eq(organizationJoinRequests.status, "pending"),
+					),
+					columns: { id: true },
+				},
+			);
+			if (existingRequest) {
+				await tx
+					.update(organizationJoinRequests)
+					.set({
+						requestedRole: role,
+						invitationCodeId: code.id,
+						updatedAt: now,
+					})
+					.where(eq(organizationJoinRequests.id, existingRequest.id));
+			} else {
+				await tx.insert(organizationJoinRequests).values({
+					...parsed,
+					updatedAt: now,
+				});
+			}
+			return {
+				organizationId: code.organizationId,
+				role,
+				invitationId: code.id,
+				status: "pending_approval",
+			};
+		}
+
 		await tx
 			.insert(organizationMembers)
 			.values({
@@ -939,7 +1121,127 @@ export const acceptInvitationByToken = async (
 			organizationId: code.organizationId,
 			role,
 			invitationId: code.id,
+			status: "accepted",
 		};
+	});
+};
+
+export const listOrganizationJoinRequests = async (
+	db: BackendDb,
+	args: {
+		organizationId: string;
+		runtime: { clerkSecretKey: string | undefined };
+	},
+): Promise<OrganizationJoinRequestSummary[]> => {
+	const rows = await db.query.organizationJoinRequests.findMany({
+		where: and(
+			eq(organizationJoinRequests.organizationId, args.organizationId),
+			eq(organizationJoinRequests.status, "pending"),
+		),
+		columns: {
+			id: true,
+			organizationId: true,
+			userId: true,
+			requestedRole: true,
+			status: true,
+			createdAt: true,
+		},
+		with: { user: { columns: { clerkUserId: true } } },
+		orderBy: desc(organizationJoinRequests.createdAt),
+	});
+
+	return Promise.all(
+		rows.map(async (row) => {
+			const profile = await resolveClerkUserProfile(
+				args.runtime,
+				row.user.clerkUserId,
+			).catch(() => fallbackClerkUserProfile(row.user.clerkUserId));
+			return {
+				id: row.id,
+				organizationId: row.organizationId,
+				userId: row.userId,
+				clerkUserId: row.user.clerkUserId,
+				displayName: formatClerkDisplayName({
+					clerkUserId: row.user.clerkUserId,
+					firstName: profile.firstName,
+					lastName: profile.lastName,
+					username: profile.username,
+					email: profile.email,
+				}),
+				email: profile.email,
+				requestedRole: normalizeOrganizationRoleKey(row.requestedRole),
+				status: row.status,
+				createdAt: row.createdAt,
+			};
+		}),
+	);
+};
+
+export const reviewOrganizationJoinRequest = async (
+	db: BackendDb,
+	args: {
+		organizationId: string;
+		requestId: string;
+		reviewerLocalUserId: string;
+		decision: "approved" | "rejected";
+	},
+): Promise<{ requestId: string; status: "approved" | "rejected" }> => {
+	const now = Date.now();
+	return db.transaction(async (tx) => {
+		const request = await tx.query.organizationJoinRequests.findFirst({
+			where: and(
+				eq(organizationJoinRequests.id, args.requestId),
+				eq(organizationJoinRequests.organizationId, args.organizationId),
+				eq(organizationJoinRequests.status, "pending"),
+			),
+			columns: {
+				id: true,
+				organizationId: true,
+				userId: true,
+				requestedRole: true,
+				invitationCodeId: true,
+			},
+		});
+		if (!request) throw new Error("Join request not found.");
+
+		if (args.decision === "approved") {
+			const existingMembership = await tx.query.organizationMembers.findFirst({
+				where: and(
+					eq(organizationMembers.organizationId, request.organizationId),
+					eq(organizationMembers.userId, request.userId),
+					isNull(organizationMembers.teamId),
+				),
+				columns: { id: true },
+			});
+			if (existingMembership) {
+				await tx
+					.update(organizationMembers)
+					.set({
+						role: normalizeOrganizationRoleKey(request.requestedRole),
+						invitationCodeId: request.invitationCodeId,
+					})
+					.where(eq(organizationMembers.id, existingMembership.id));
+			} else {
+				await tx.insert(organizationMembers).values({
+					organizationId: request.organizationId,
+					userId: request.userId,
+					role: normalizeOrganizationRoleKey(request.requestedRole),
+					invitationCodeId: request.invitationCodeId,
+				});
+			}
+		}
+
+		await tx
+			.update(organizationJoinRequests)
+			.set({
+				status: args.decision,
+				reviewedBy: args.reviewerLocalUserId,
+				reviewedAt: now,
+				updatedAt: now,
+			})
+			.where(eq(organizationJoinRequests.id, request.id));
+
+		return { requestId: request.id, status: args.decision };
 	});
 };
 
@@ -954,7 +1256,9 @@ export const cleanupExpiredGuestMemberships = async (
 		),
 		columns: { id: true, role: true },
 	});
-	const removable = expired.filter((row) => row.role !== "owner");
+	const removable = expired.filter(
+		(row) => normalizeOrganizationRoleKey(row.role) !== "admin",
+	);
 	for (const row of removable) {
 		await db
 			.delete(organizationMembers)

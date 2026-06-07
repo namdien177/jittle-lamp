@@ -14,8 +14,10 @@ import { organizations } from "./organizations";
 import { users } from "./users";
 
 export const organizationInvitationCodeRoleSchema = z.enum([
+	"admin",
 	"moderator",
-	"member",
+	"developer",
+	"qa_engineer",
 ]);
 export type OrganizationInvitationCodeRole = z.infer<
 	typeof organizationInvitationCodeRoleSchema
@@ -34,7 +36,7 @@ export const organizationInvitationCodes = sqliteTable(
 		role: text("role")
 			.$type<OrganizationInvitationCodeRole>()
 			.notNull()
-			.default("member"),
+			.default("developer"),
 		codeHash: text("code_hash").notNull(),
 		passwordHash: text("password_hash"),
 		emailDomain: text("email_domain"),
@@ -59,7 +61,7 @@ export const organizationInvitationCodes = sqliteTable(
 		index("organization_invitation_codes_locked_idx").on(table.lockedAt),
 		check(
 			"organization_invitation_codes_role_check",
-			sql`${table.role} in ('moderator', 'member')`,
+			sql`${table.role} in ('admin', 'moderator', 'developer', 'qa_engineer')`,
 		),
 		check(
 			"organization_invitation_codes_guest_days_check",
@@ -71,7 +73,7 @@ export const organizationInvitationCodes = sqliteTable(
 export const createOrganizationInvitationCodeInputSchema = z.object({
 	organizationId: z.string().uuid(),
 	label: z.string().trim().min(1).max(80),
-	role: organizationInvitationCodeRoleSchema.default("member"),
+	role: organizationInvitationCodeRoleSchema.default("developer"),
 	codeHash: z.string().min(32),
 	passwordHash: z.string().min(32).nullable().optional(),
 	emailDomain: z

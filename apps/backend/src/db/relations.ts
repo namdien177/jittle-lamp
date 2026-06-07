@@ -4,9 +4,12 @@ import { desktopRecordingSessions } from "./tables/desktop-recording-sessions";
 import { evidenceArtifacts } from "./tables/evidence-artifacts";
 import { evidenceComments } from "./tables/evidence-comments";
 import { evidences } from "./tables/evidences";
+import { organizationActivityLogs } from "./tables/organization-activity-logs";
 import { organizationInvitationCodes } from "./tables/organization-invitation-codes";
 import { organizationInvitations } from "./tables/organization-invitations";
+import { organizationJoinRequests } from "./tables/organization-join-requests";
 import { organizationMembers } from "./tables/organization-members";
+import { organizationRoles } from "./tables/organization-roles";
 import { organizations } from "./tables/organizations";
 import { provisioningEvents } from "./tables/provisioning-events";
 import { shareLinks } from "./tables/share-links";
@@ -23,6 +26,8 @@ export const usersRelations = relations(users, ({ many }) => ({
 		relationName: "invitedByUser",
 	}),
 	createdInvitationCodes: many(organizationInvitationCodes),
+	organizationActivityLogs: many(organizationActivityLogs),
+	organizationJoinRequests: many(organizationJoinRequests),
 }));
 
 export const organizationsRelations = relations(
@@ -37,7 +42,56 @@ export const organizationsRelations = relations(
 		shareLinks: many(shareLinks),
 		invitations: many(organizationInvitations),
 		invitationCodes: many(organizationInvitationCodes),
+		joinRequests: many(organizationJoinRequests),
+		roles: many(organizationRoles),
+		activityLogs: many(organizationActivityLogs),
 		desktopRecordingSessions: many(desktopRecordingSessions),
+	}),
+);
+
+export const organizationRolesRelations = relations(
+	organizationRoles,
+	({ one }) => ({
+		organization: one(organizations, {
+			fields: [organizationRoles.organizationId],
+			references: [organizations.id],
+		}),
+	}),
+);
+
+export const organizationActivityLogsRelations = relations(
+	organizationActivityLogs,
+	({ one }) => ({
+		organization: one(organizations, {
+			fields: [organizationActivityLogs.organizationId],
+			references: [organizations.id],
+		}),
+		actor: one(users, {
+			fields: [organizationActivityLogs.actorUserId],
+			references: [users.id],
+		}),
+	}),
+);
+
+export const organizationJoinRequestsRelations = relations(
+	organizationJoinRequests,
+	({ one }) => ({
+		organization: one(organizations, {
+			fields: [organizationJoinRequests.organizationId],
+			references: [organizations.id],
+		}),
+		user: one(users, {
+			fields: [organizationJoinRequests.userId],
+			references: [users.id],
+		}),
+		invitationCode: one(organizationInvitationCodes, {
+			fields: [organizationJoinRequests.invitationCodeId],
+			references: [organizationInvitationCodes.id],
+		}),
+		reviewer: one(users, {
+			fields: [organizationJoinRequests.reviewedBy],
+			references: [users.id],
+		}),
 	}),
 );
 

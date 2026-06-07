@@ -23,10 +23,12 @@ import { LandingPage } from "./pages/landing";
 import {
   OrganisationDetailLayout,
   OrganisationsListPage,
+  OrgActivityTab,
   OrgInvitationsTab,
   OrgLibraryTab,
   OrgMembersTab,
-  OrgOptionsTab
+  OrgOptionsTab,
+  OrgRolesTab
 } from "./pages/organisations";
 import { PrivacyPage } from "./pages/privacy";
 import { QuickViewPage } from "./pages/quick-view";
@@ -125,7 +127,9 @@ export const router = createBrowserRouter([
               { index: true, element: <OrgMembersTab /> },
               // Legacy alias: members lived at .../members before becoming the index.
               { path: "members", loader: ({ params }) => redirect(`/organisations/${params.orgId}`) },
+              { path: "roles", element: <OrgRolesTab /> },
               { path: "invitations", element: <OrgInvitationsTab /> },
+              { path: "activity", element: <OrgActivityTab /> },
               { path: "library", element: <OrgLibraryTab /> },
               { path: "options", element: <OrgOptionsTab /> }
             ]

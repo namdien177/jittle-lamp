@@ -1,6 +1,13 @@
 import React, { useMemo } from "react";
 import { Link, useNavigate } from "react-router";
-import { Archive, ArrowRight, Building2, Clock, Plus, Video } from "lucide-react";
+import {
+  Archive,
+  ArrowRight,
+  Building2,
+  Clock,
+  Plus,
+  Video,
+} from "lucide-react";
 
 import { PageBody, PageHeader } from "../components/page";
 import { Button, buttonVariants } from "../components/ui/button";
@@ -21,11 +28,15 @@ function StatCard(props: {
     <Card>
       <CardContent className="flex items-start justify-between gap-3 p-5">
         <div className="space-y-1">
-          <p className="text-sm font-medium uppercase tracking-[0.06em] text-muted-foreground">
+          <p className=" font-medium uppercase tracking-[0.06em] text-muted-foreground">
             {props.label}
           </p>
-          <p className="font-display text-3xl font-bold tracking-tight tabular-nums">{props.value}</p>
-          {props.hint ? <p className="text-sm text-muted-foreground">{props.hint}</p> : null}
+          <p className="font-display text-3xl font-bold tracking-tight tabular-nums">
+            {props.value}
+          </p>
+          {props.hint ? (
+            <p className=" text-muted-foreground">{props.hint}</p>
+          ) : null}
         </div>
         <span className="flex size-10 items-center justify-center rounded-lg border border-border bg-secondary text-primary [&_svg]:size-5">
           {props.icon}
@@ -48,7 +59,7 @@ export function DashboardPage(): React.JSX.Element {
 
   const recent = useMemo(
     () => [...evidences].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5),
-    [evidences]
+    [evidences],
   );
   const lastCapture = recent[0] ?? null;
   const loading = evidencesQuery.isPending || profileQuery.isPending;
@@ -61,7 +72,10 @@ export function DashboardPage(): React.JSX.Element {
         description="Your QA evidence at a glance. Capture from the extension, review here, and share scoped links with your team."
         actions={
           <>
-            <Link to="/quick-view" className={cn(buttonVariants({ variant: "outline" }))}>
+            <Link
+              to="/quick-view"
+              className={cn(buttonVariants({ variant: "outline" }))}
+            >
               <Archive aria-hidden />
               Open a ZIP
             </Link>
@@ -83,8 +97,16 @@ export function DashboardPage(): React.JSX.Element {
           <StatCard
             icon={<Building2 aria-hidden />}
             label="Organisations"
-            value={loading ? <Skeleton className="h-8 w-12" /> : profile?.organizations.length ?? 0}
-            hint={activeOrg ? `Active: ${activeOrg.name}` : "No active workspace"}
+            value={
+              loading ? (
+                <Skeleton className="h-8 w-12" />
+              ) : (
+                (profile?.organizations.length ?? 0)
+              )
+            }
+            hint={
+              activeOrg ? `Active: ${activeOrg.name}` : "No active workspace"
+            }
           />
           <StatCard
             icon={<Clock aria-hidden />}
@@ -93,7 +115,9 @@ export function DashboardPage(): React.JSX.Element {
               loading ? (
                 <Skeleton className="h-8 w-24" />
               ) : lastCapture ? (
-                <span className="text-xl">{formatRelativeTime(lastCapture.updatedAt)}</span>
+                <span className="text-xl">
+                  {formatRelativeTime(lastCapture.updatedAt)}
+                </span>
               ) : (
                 <span className="text-xl text-muted-foreground">—</span>
               )
@@ -105,8 +129,12 @@ export function DashboardPage(): React.JSX.Element {
         <Card>
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
-              <h2 className="font-display text-base font-semibold tracking-tight">Recent evidence</h2>
-              <p className="text-base text-muted-foreground">The latest sessions uploaded here.</p>
+              <h2 className="font-display text-base font-semibold tracking-tight">
+                Recent evidence
+              </h2>
+              <p className="text-base text-muted-foreground">
+                The latest sessions uploaded here.
+              </p>
             </div>
             <Link
               to="/evidence"
@@ -142,7 +170,9 @@ export function DashboardPage(): React.JSX.Element {
                   <li key={evidence.id}>
                     <button
                       type="button"
-                      onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+                      onClick={() =>
+                        navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
+                      }
                       className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition-colors hover:bg-white/[0.03]"
                     >
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
@@ -152,17 +182,20 @@ export function DashboardPage(): React.JSX.Element {
                         <span className="block truncate text-base font-medium text-foreground">
                           {evidence.title}
                         </span>
-                        <span className="block truncate font-mono text-sm text-muted-foreground">
+                        <span className="block truncate font-mono text-muted-foreground">
                           {evidence.id.slice(0, 16)}…
                         </span>
                       </span>
                       <Badge variant="muted" className="capitalize">
                         {evidence.sourceType}
                       </Badge>
-                      <span className="hidden shrink-0 text-sm text-muted-foreground sm:block">
+                      <span className="hidden shrink-0 text-muted-foreground sm:block">
                         {formatRelativeTime(evidence.updatedAt)}
                       </span>
-                      <ArrowRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      <ArrowRight
+                        aria-hidden
+                        className="size-4 shrink-0 text-muted-foreground"
+                      />
                     </button>
                   </li>
                 ))}

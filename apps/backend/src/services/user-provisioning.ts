@@ -17,6 +17,7 @@ import {
 	buildPersonalOrganizationName,
 	type ClerkUserProfile,
 } from "./clerk-user-profile";
+import { ensureDefaultOrganizationRoles } from "./organization-permissions";
 
 export type BackendDb = LibSQLDatabase<typeof appSchema>;
 
@@ -131,7 +132,7 @@ export const processProvisioningEvent = async (
 			? (JSON.parse(event.normalizedPayload) as {
 					organizationId?: string;
 					activeOrgId?: string;
-					membershipRole?: "owner";
+					membershipRole?: "admin";
 				})
 			: {};
 		if (!event.userId || !normalized.organizationId) {
@@ -146,7 +147,7 @@ export const processProvisioningEvent = async (
 			clerkUserId: event.clerkUserId,
 			organizationId: normalized.organizationId,
 			activeOrgId: normalized.activeOrgId ?? normalized.organizationId,
-			membershipRole: normalized.membershipRole ?? "owner",
+			membershipRole: normalized.membershipRole ?? "admin",
 		};
 	}
 
@@ -223,8 +224,10 @@ export const processProvisioningEvent = async (
 			const membership = createOrganizationMembershipInputSchema.parse({
 				organizationId,
 				userId: localUser.id,
-				role: "owner",
+				role: "admin",
 			});
+
+			await ensureDefaultOrganizationRoles(tx, organizationId);
 
 			await tx
 				.insert(organizationMembers)
@@ -254,7 +257,7 @@ export const processProvisioningEvent = async (
 				clerkUserId: localUser.clerkUserId,
 				organizationId,
 				activeOrgId: updatedUser.activeOrgId,
-				membershipRole: "owner" as const,
+				membershipRole: "admin" as const,
 			};
 		});
 
@@ -297,7 +300,7 @@ export const ensureUserAndPersonalOrganization = async (
 	if (existing) {
 		const personalMembership = existing.organizationMemberships.find(
 			(membership) =>
-				membership.organization.isPersonal && membership.role === "owner",
+				membership.organization.isPersonal && membership.role === "admin",
 		);
 
 		if (personalMembership) {
@@ -317,7 +320,7 @@ export const ensureUserAndPersonalOrganization = async (
 				activeOrgId: hasPersistedOrgScopeMembership
 					? persistedActiveOrgId
 					: personalMembership.organizationId,
-				membershipRole: "owner" as const,
+				membershipRole: "admin" as const,
 			};
 		}
 	}

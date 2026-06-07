@@ -1,23 +1,33 @@
-import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 
 import {
   api,
   type ApiAccountProfile,
+  type ApiActivityLog,
   type ApiCreatedInvitationCode,
   type ApiEvidenceComment,
   type ApiEvidenceListResponse,
   type ApiEvidenceSummary,
   type ApiInvitation,
   type ApiInvitationCode,
+  type ApiJoinRequest,
   type ApiMembersResponse,
+  type ApiOrganizationRole,
   type ApiOrganization,
   type ApiOrgSummary,
   type ApiShareLinkSummary,
   type ArtifactReadUrl,
   type CreatedShareLink,
   type EvidenceArtifact,
-  type FetchToken
+  type FetchToken,
+  type OrganizationPermission,
+  type OrganizationRoleKey,
 } from "./api";
 import { loadRemoteSessionArtifacts, type LoadedSession } from "./loader";
 
@@ -32,14 +42,18 @@ export function createQueryClient(): QueryClient {
         retry: (failureCount, error) => {
           const message = error instanceof Error ? error.message : "";
           if (message === "Sign in is required.") return false;
-          if (message.includes("not authorized") || message.includes("forbidden")) return false;
+          if (
+            message.includes("not authorized") ||
+            message.includes("forbidden")
+          )
+            return false;
           return failureCount < 2;
-        }
+        },
       },
       mutations: {
-        retry: false
-      }
-    }
+        retry: false,
+      },
+    },
   });
 }
 
@@ -48,7 +62,12 @@ export const queryKeys = {
   organizations: () => ["organizations"] as const,
   organizationMembers: (
     orgId: string,
-    options: { search?: string; role?: "all" | "owner" | "moderator" | "member"; page?: number; limit?: number } = {}
+    options: {
+      search?: string;
+      role?: "all" | OrganizationRoleKey;
+      page?: number;
+      limit?: number;
+    } = {},
   ) =>
     [
       "organization-members",
@@ -56,16 +75,48 @@ export const queryKeys = {
       options.search?.trim() ?? "",
       options.role ?? "all",
       options.page ?? 1,
-      options.limit ?? 20
+      options.limit ?? 20,
     ] as const,
-  organizationInvitations: (orgId: string) => ["organization-invitations", orgId] as const,
-  evidences: (options: { orgId?: string; createdBy?: string[]; page?: number; limit?: number } = {}) =>
+  organizationInvitations: (orgId: string) =>
+    ["organization-invitations", orgId] as const,
+  organizationRoles: (orgId: string) => ["organization-roles", orgId] as const,
+  organizationJoinRequests: (orgId: string) =>
+    ["organization-join-requests", orgId] as const,
+  organizationActivity: (
+    orgId: string,
+    options: {
+      userId?: string;
+      action?: string;
+      from?: number;
+      to?: number;
+      page?: number;
+      limit?: number;
+    } = {},
+  ) =>
+    [
+      "organization-activity",
+      orgId,
+      options.userId ?? "",
+      options.action ?? "",
+      options.from ?? "",
+      options.to ?? "",
+      options.page ?? 1,
+      options.limit ?? 25,
+    ] as const,
+  evidences: (
+    options: {
+      orgId?: string;
+      createdBy?: string[];
+      page?: number;
+      limit?: number;
+    } = {},
+  ) =>
     [
       "evidences",
       options.orgId ?? "active",
       options.createdBy?.join(",") ?? "",
       options.page ?? 1,
-      options.limit ?? 24
+      options.limit ?? 24,
     ] as const,
   evidenceArtifacts: (evidenceId: string, orgId: string | undefined) =>
     ["evidence-artifacts", evidenceId, orgId ?? null] as const,
@@ -73,7 +124,11 @@ export const queryKeys = {
     ["evidence-comments", evidenceId, orgId ?? null] as const,
   shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
   remoteEvidence: (key: { shareToken?: string; remoteEvidenceId?: string }) =>
-    ["remote-evidence", key.shareToken ?? null, key.remoteEvidenceId ?? null] as const
+    [
+      "remote-evidence",
+      key.shareToken ?? null,
+      key.remoteEvidenceId ?? null,
+    ] as const,
 };
 
 function useAuthToken(): FetchToken {
@@ -87,17 +142,24 @@ export function useAccountProfile() {
   return useQuery<ApiAccountProfile>({
     queryKey: queryKeys.accountProfile(),
     queryFn: () => api.fetchAccountProfile(getToken),
-    enabled: auth.isLoaded && Boolean(auth.isSignedIn)
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn),
   });
 }
 
-export function useEvidences(options: { orgId?: string; createdBy?: string[]; page?: number; limit?: number } = {}) {
+export function useEvidences(
+  options: {
+    orgId?: string;
+    createdBy?: string[];
+    page?: number;
+    limit?: number;
+  } = {},
+) {
   const auth = useAuth();
   const getToken = useAuthToken();
   return useQuery<ApiEvidenceListResponse>({
     queryKey: queryKeys.evidences(options),
     queryFn: () => api.listEvidences(getToken, options),
-    enabled: auth.isLoaded && Boolean(auth.isSignedIn)
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn),
   });
 }
 
@@ -105,11 +167,14 @@ export function useDeleteEvidence() {
   const getToken = useAuthToken();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (evidenceId: string) => api.deleteEvidence(getToken, evidenceId),
+    mutationFn: (evidenceId: string) =>
+      api.deleteEvidence(getToken, evidenceId),
     onSuccess: (_data, evidenceId) => {
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
-      queryClient.removeQueries({ queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }) });
-    }
+      queryClient.removeQueries({
+        queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }),
+      });
+    },
   });
 }
 
@@ -117,13 +182,16 @@ export function useBulkDeleteEvidences() {
   const getToken = useAuthToken();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (evidenceIds: string[]) => api.bulkDeleteEvidences(getToken, evidenceIds),
+    mutationFn: (evidenceIds: string[]) =>
+      api.bulkDeleteEvidences(getToken, evidenceIds),
     onSuccess: (_data, evidenceIds) => {
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
       for (const evidenceId of evidenceIds) {
-        queryClient.removeQueries({ queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }) });
+        queryClient.removeQueries({
+          queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }),
+        });
       }
-    }
+    },
   });
 }
 
@@ -137,9 +205,11 @@ export function useRenameEvidence() {
       const updatedAt = data.evidence.updatedAt;
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
       queryClient.invalidateQueries({
-        queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: input.evidenceId })
+        queryKey: queryKeys.remoteEvidence({
+          remoteEvidenceId: input.evidenceId,
+        }),
       });
-    }
+    },
   });
 }
 
@@ -149,7 +219,7 @@ export function useEvidenceComments(evidenceId: string | null, orgId?: string) {
   return useQuery<{ comments: ApiEvidenceComment[] }>({
     queryKey: queryKeys.evidenceComments(evidenceId ?? "none", orgId),
     queryFn: () => api.listEvidenceComments(getToken, evidenceId ?? "", orgId),
-    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(evidenceId)
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(evidenceId),
   });
 }
 
@@ -158,10 +228,17 @@ export function useCreateEvidenceComment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { evidenceId: string; body: string; orgId?: string }) =>
-      api.createEvidenceComment(getToken, input.evidenceId, input.body, input.orgId),
+      api.createEvidenceComment(
+        getToken,
+        input.evidenceId,
+        input.body,
+        input.orgId,
+      ),
     onSuccess: (_data, input) => {
-      return queryClient.invalidateQueries({ queryKey: queryKeys.evidenceComments(input.evidenceId, input.orgId) });
-    }
+      return queryClient.invalidateQueries({
+        queryKey: queryKeys.evidenceComments(input.evidenceId, input.orgId),
+      });
+    },
   });
 }
 
@@ -171,7 +248,7 @@ export function useShareLinks(evidenceId: string | null) {
   return useQuery<{ shareLinks: ApiShareLinkSummary[] }>({
     queryKey: queryKeys.shareLinks(evidenceId ?? "none"),
     queryFn: () => api.listShareLinks(getToken, evidenceId ?? ""),
-    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(evidenceId)
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(evidenceId),
   });
 }
 
@@ -182,8 +259,10 @@ export function useCreateShareLink() {
     mutationFn: (input: { evidenceId: string; expiresInMs?: number }) =>
       api.createShareLink(getToken, input.evidenceId, input.expiresInMs),
     onSuccess: (_data: { shareLink: CreatedShareLink }, input) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shareLinks(input.evidenceId) });
-    }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.shareLinks(input.evidenceId),
+      });
+    },
   });
 }
 
@@ -194,8 +273,10 @@ export function useRevokeShareLink() {
     mutationFn: (input: { shareLinkId: string; evidenceId: string }) =>
       api.revokeShareLink(getToken, input.shareLinkId),
     onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shareLinks(input.evidenceId) });
-    }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.shareLinks(input.evidenceId),
+      });
+    },
   });
 }
 
@@ -203,20 +284,26 @@ export function useSelectActiveOrganization() {
   const getToken = useAuthToken();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (orgId: string) => api.selectActiveOrganization(getToken, orgId),
+    mutationFn: (orgId: string) =>
+      api.selectActiveOrganization(getToken, orgId),
     onSuccess: (_data, orgId) => {
-      queryClient.setQueryData<ApiAccountProfile | undefined>(queryKeys.accountProfile(), (prev) =>
-        prev
-          ? {
-              ...prev,
-              activeOrgId: orgId,
-              organizations: prev.organizations.map((org) => ({ ...org, isActive: org.id === orgId }))
-            }
-          : prev
+      queryClient.setQueryData<ApiAccountProfile | undefined>(
+        queryKeys.accountProfile(),
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                activeOrgId: orgId,
+                organizations: prev.organizations.map((org) => ({
+                  ...org,
+                  isActive: org.id === orgId,
+                })),
+              }
+            : prev,
       );
       queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
-    }
+    },
   });
 }
 
@@ -230,7 +317,7 @@ export function useAcceptInvitation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
       queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
-    }
+    },
   });
 }
 
@@ -240,7 +327,7 @@ export function useOrganizations() {
   return useQuery<{ organizations: ApiOrgSummary[] }>({
     queryKey: queryKeys.organizations(),
     queryFn: () => api.listOrganizations(getToken),
-    enabled: auth.isLoaded && Boolean(auth.isSignedIn)
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn),
   });
 }
 
@@ -252,7 +339,7 @@ export function useCreateOrganization() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
       queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
-    }
+    },
   });
 }
 
@@ -265,22 +352,29 @@ export function useLeaveOrganization() {
       queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
       queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
       queryClient.removeQueries({ queryKey: ["organization-members", orgId] });
-      queryClient.removeQueries({ queryKey: queryKeys.organizationInvitations(orgId) });
+      queryClient.removeQueries({
+        queryKey: queryKeys.organizationInvitations(orgId),
+      });
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
-    }
+    },
   });
 }
 
 export function useOrganizationMembers(
   orgId: string | null,
-  options: { search?: string; role?: "all" | "owner" | "moderator" | "member"; page?: number; limit?: number } = {}
+  options: {
+    search?: string;
+    role?: "all" | OrganizationRoleKey;
+    page?: number;
+    limit?: number;
+  } = {},
 ) {
   const auth = useAuth();
   const getToken = useAuthToken();
   return useQuery<ApiMembersResponse>({
     queryKey: queryKeys.organizationMembers(orgId ?? "none", options),
     queryFn: () => api.listMembers(getToken, orgId ?? "", options),
-    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId)
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId),
   });
 }
 
@@ -288,12 +382,23 @@ export function useUpdateMemberRole() {
   const getToken = useAuthToken();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { orgId: string; membershipId: string; role: "moderator" | "member" }) =>
-      api.updateMemberRole(getToken, input.orgId, input.membershipId, input.role),
+    mutationFn: (input: {
+      orgId: string;
+      membershipId: string;
+      role: OrganizationRoleKey;
+    }) =>
+      api.updateMemberRole(
+        getToken,
+        input.orgId,
+        input.membershipId,
+        input.role,
+      ),
     onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: ["organization-members", input.orgId] });
+      queryClient.invalidateQueries({
+        queryKey: ["organization-members", input.orgId],
+      });
       queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
-    }
+    },
   });
 }
 
@@ -304,21 +409,29 @@ export function useRemoveMember() {
     mutationFn: (input: { orgId: string; membershipId: string }) =>
       api.removeMember(getToken, input.orgId, input.membershipId),
     onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: ["organization-members", input.orgId] });
+      queryClient.invalidateQueries({
+        queryKey: ["organization-members", input.orgId],
+      });
       queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
       queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
-    }
+    },
   });
 }
 
-export function useOrganizationInvitations(orgId: string | null, enabled: boolean) {
+export function useOrganizationInvitations(
+  orgId: string | null,
+  enabled: boolean,
+) {
   const auth = useAuth();
   const getToken = useAuthToken();
-  return useQuery<{ invitations: ApiInvitation[]; codes: ApiInvitationCode[] }>({
-    queryKey: queryKeys.organizationInvitations(orgId ?? "none"),
-    queryFn: () => api.listInvitations(getToken, orgId ?? ""),
-    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId) && enabled
-  });
+  return useQuery<{ invitations: ApiInvitation[]; codes: ApiInvitationCode[] }>(
+    {
+      queryKey: queryKeys.organizationInvitations(orgId ?? "none"),
+      queryFn: () => api.listInvitations(getToken, orgId ?? ""),
+      enabled:
+        auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId) && enabled,
+    },
+  );
 }
 
 export function useCreateInvitationCode() {
@@ -329,7 +442,7 @@ export function useCreateInvitationCode() {
       orgId: string;
       body: {
         label: string;
-        role?: "moderator" | "member";
+        role: OrganizationRoleKey;
         password?: string;
         emailDomain?: string | null;
         expiresAt?: number | null;
@@ -337,8 +450,153 @@ export function useCreateInvitationCode() {
       };
     }) => api.createInvitationCode(getToken, input.orgId, input.body),
     onSuccess: (_data: { code: ApiCreatedInvitationCode }, input) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.organizationInvitations(input.orgId) });
-    }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationInvitations(input.orgId),
+      });
+    },
+  });
+}
+
+export function useCreateInvitation() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      orgId: string;
+      body: { email: string; role: OrganizationRoleKey; ttlMs?: number };
+    }) => api.createInvitation(getToken, input.orgId, input.body),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationInvitations(input.orgId),
+      });
+    },
+  });
+}
+
+export function useUpdateOrganizationSettings() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      orgId: string;
+      requireInvitationApproval: boolean;
+    }) =>
+      api.updateOrganizationSettings(
+        getToken,
+        input.orgId,
+        input.requireInvitationApproval,
+      ),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationActivity(input.orgId),
+      });
+    },
+  });
+}
+
+export function useOrganizationRoles(orgId: string | null) {
+  const auth = useAuth();
+  const getToken = useAuthToken();
+  return useQuery<{
+    permissions: OrganizationPermission[];
+    roles: ApiOrganizationRole[];
+  }>({
+    queryKey: queryKeys.organizationRoles(orgId ?? "none"),
+    queryFn: () => api.listOrganizationRoles(getToken, orgId ?? ""),
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId),
+  });
+}
+
+export function useUpdateOrganizationRole() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      orgId: string;
+      role: OrganizationRoleKey;
+      permissions: OrganizationPermission[];
+    }) =>
+      api.updateOrganizationRole(
+        getToken,
+        input.orgId,
+        input.role,
+        input.permissions,
+      ),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationRoles(input.orgId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationActivity(input.orgId),
+      });
+    },
+  });
+}
+
+export function useOrganizationJoinRequests(
+  orgId: string | null,
+  enabled = true,
+) {
+  const auth = useAuth();
+  const getToken = useAuthToken();
+  return useQuery<{ requests: ApiJoinRequest[] }>({
+    queryKey: queryKeys.organizationJoinRequests(orgId ?? "none"),
+    queryFn: () => api.listJoinRequests(getToken, orgId ?? ""),
+    enabled:
+      auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId) && enabled,
+  });
+}
+
+export function useReviewJoinRequest() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      orgId: string;
+      joinRequestId: string;
+      decision: "approved" | "rejected";
+    }) =>
+      api.reviewJoinRequest(
+        getToken,
+        input.orgId,
+        input.joinRequestId,
+        input.decision,
+      ),
+    onSuccess: (_data, input) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationJoinRequests(input.orgId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["organization-members", input.orgId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationActivity(input.orgId),
+      });
+    },
+  });
+}
+
+export function useOrganizationActivity(
+  orgId: string | null,
+  options: {
+    userId?: string;
+    action?: string;
+    from?: number;
+    to?: number;
+    page?: number;
+    limit?: number;
+  } = {},
+  enabled = true,
+) {
+  const auth = useAuth();
+  const getToken = useAuthToken();
+  return useQuery<{ logs: ApiActivityLog[]; page: number; limit: number }>({
+    queryKey: queryKeys.organizationActivity(orgId ?? "none", options),
+    queryFn: () => api.listActivityLogs(getToken, orgId ?? "", options),
+    enabled:
+      auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId) && enabled,
   });
 }
 
@@ -347,10 +605,17 @@ export function useSetInvitationCodeLocked() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { orgId: string; codeId: string; locked: boolean }) =>
-      api.setInvitationCodeLocked(getToken, input.orgId, input.codeId, input.locked),
+      api.setInvitationCodeLocked(
+        getToken,
+        input.orgId,
+        input.codeId,
+        input.locked,
+      ),
     onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.organizationInvitations(input.orgId) });
-    }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationInvitations(input.orgId),
+      });
+    },
   });
 }
 
@@ -361,8 +626,10 @@ export function useDeleteInvitationCode() {
     mutationFn: (input: { orgId: string; codeId: string }) =>
       api.deleteInvitationCode(getToken, input.orgId, input.codeId),
     onSuccess: (_data, input) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.organizationInvitations(input.orgId) });
-    }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationInvitations(input.orgId),
+      });
+    },
   });
 }
 
@@ -383,7 +650,7 @@ export type RemoteEvidenceResult =
 
 async function fetchRemoteEvidence(
   getToken: FetchToken,
-  locator: { shareToken?: string; remoteEvidenceId?: string }
+  locator: { shareToken?: string; remoteEvidenceId?: string },
 ): Promise<RemoteEvidenceResult> {
   let evidenceId: string;
   let orgId: string | undefined;
@@ -400,21 +667,34 @@ async function fetchRemoteEvidence(
     throw new Error("No evidence locator provided.");
   }
 
-  const artifactResult = await api.listEvidenceArtifacts(getToken, evidenceId, orgId);
-  const recordingArtifact = artifactResult.artifacts.find((artifact) => artifact.kind === "recording");
-  const archiveArtifact = artifactResult.artifacts.find((artifact) => artifact.kind === "network-log");
+  const artifactResult = await api.listEvidenceArtifacts(
+    getToken,
+    evidenceId,
+    orgId,
+  );
+  const recordingArtifact = artifactResult.artifacts.find(
+    (artifact) => artifact.kind === "recording",
+  );
+  const archiveArtifact = artifactResult.artifacts.find(
+    (artifact) => artifact.kind === "network-log",
+  );
   if (!recordingArtifact || !archiveArtifact) {
     throw new Error("Evidence is missing recording or archive artifacts.");
   }
 
   const [videoReadUrl, archiveReadUrl] = await Promise.all([
-    api.createArtifactReadUrl(getToken, evidenceId, recordingArtifact.id, orgId),
-    api.createArtifactReadUrl(getToken, evidenceId, archiveArtifact.id, orgId)
+    api.createArtifactReadUrl(
+      getToken,
+      evidenceId,
+      recordingArtifact.id,
+      orgId,
+    ),
+    api.createArtifactReadUrl(getToken, evidenceId, archiveArtifact.id, orgId),
   ]);
   const evidenceResult = await api.loadEvidence(getToken, evidenceId, orgId);
   const session = await loadRemoteSessionArtifacts({
     archiveUrl: archiveReadUrl.url,
-    videoUrl: videoReadUrl.url
+    videoUrl: videoReadUrl.url,
   });
 
   return {
@@ -427,23 +707,28 @@ async function fetchRemoteEvidence(
       recordingArtifact,
       archiveArtifact,
       videoReadUrl,
-      archiveReadUrl
-    }
+      archiveReadUrl,
+    },
   };
 }
 
-export function useRemoteEvidence(locator: { shareToken?: string; remoteEvidenceId?: string }) {
+export function useRemoteEvidence(locator: {
+  shareToken?: string;
+  remoteEvidenceId?: string;
+}) {
   const auth = useAuth();
   const getToken = useAuthToken();
   const enabled =
-    auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(locator.shareToken || locator.remoteEvidenceId);
+    auth.isLoaded &&
+    Boolean(auth.isSignedIn) &&
+    Boolean(locator.shareToken || locator.remoteEvidenceId);
   return useQuery<RemoteEvidenceResult>({
     queryKey: queryKeys.remoteEvidence(locator),
     queryFn: () => fetchRemoteEvidence(getToken, locator),
     enabled,
     staleTime: Infinity,
     gcTime: 5 * 60_000,
-    retry: 0
+    retry: 0,
   });
 }
 

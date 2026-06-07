@@ -2,12 +2,21 @@ import { apiOrigin } from "./env";
 
 export type FetchToken = () => Promise<string | null>;
 
-async function readApiError(response: Response, fallback: string): Promise<string> {
-  const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+async function readApiError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { message?: string };
+  } | null;
   return payload?.error?.message ?? fallback;
 }
 
-async function authedFetch<T>(getToken: FetchToken, path: string, init: RequestInit = {}): Promise<T> {
+async function authedFetch<T>(
+  getToken: FetchToken,
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
   const token = await getToken();
   if (!token) throw new Error("Sign in is required.");
 
@@ -19,16 +28,43 @@ async function authedFetch<T>(getToken: FetchToken, path: string, init: RequestI
 
   const response = await fetch(`${apiOrigin}${path}`, { ...init, headers });
   if (!response.ok) {
-    throw new Error(await readApiError(response, `Request failed (${response.status}).`));
+    throw new Error(
+      await readApiError(response, `Request failed (${response.status}).`),
+    );
   }
   return (await response.json()) as T;
 }
 
 export type AcceptInvitationResponse = {
   organizationId: string;
-  role: "owner" | "moderator" | "member";
+  role: OrganizationRoleKey;
   invitationId: string;
+  status: "accepted" | "pending_approval";
 };
+
+export type OrganizationRoleKey =
+  | "admin"
+  | "moderator"
+  | "developer"
+  | "qa_engineer";
+export type OrganizationPermission =
+  | "evidence.view"
+  | "evidence.download"
+  | "evidence.comment"
+  | "evidence.create"
+  | "evidence.update.own"
+  | "evidence.delete.own"
+  | "evidence.move.own"
+  | "evidence.update.any"
+  | "evidence.delete.any"
+  | "evidence.move.any"
+  | "invitations.create"
+  | "invitations.disable"
+  | "join_requests.manage"
+  | "roles.manage"
+  | "members.assign_role"
+  | "members.kick"
+  | "activity.view";
 
 export type ApiOrganization = {
   id: string;
@@ -43,6 +79,7 @@ export type ApiOrgSummary = {
   name: string;
   role: string;
   isPersonal: boolean;
+  requireInvitationApproval: boolean;
   memberCount: number;
   createdAt: number;
   joinedAt: number;
@@ -71,7 +108,7 @@ export type ApiMembersResponse = {
 export type ApiInvitation = {
   id: string;
   email: string;
-  role: "owner" | "moderator" | "member";
+  role: OrganizationRoleKey;
   status: "pending" | "accepted" | "revoked" | "expired";
   expiresAt: number;
   createdAt: number;
@@ -81,7 +118,7 @@ export type ApiInvitation = {
 export type ApiInvitationCode = {
   id: string;
   label: string;
-  role: "moderator" | "member";
+  role: OrganizationRoleKey;
   hasPassword: boolean;
   emailDomain: string | null;
   expiresAt: number | null;
@@ -94,6 +131,39 @@ export type ApiInvitationCode = {
 export type ApiCreatedInvitationCode = ApiInvitationCode & {
   code: string;
   organizationId: string;
+};
+
+export type ApiOrganizationRole = {
+  key: OrganizationRoleKey;
+  name: string;
+  permissions: OrganizationPermission[];
+  isSystem: boolean;
+  updatedAt: number;
+};
+
+export type ApiJoinRequest = {
+  id: string;
+  organizationId: string;
+  userId: string;
+  clerkUserId: string;
+  displayName: string;
+  email: string | null;
+  requestedRole: OrganizationRoleKey;
+  status: "pending" | "approved" | "rejected";
+  createdAt: number;
+};
+
+export type ApiActivityLog = {
+  id: string;
+  organizationId: string;
+  actorUserId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  message: string;
+  metadata: Record<string, unknown>;
+  ipAddress: string | null;
+  createdAt: number;
 };
 
 export type ApiInvitationLookup = {
@@ -216,118 +286,172 @@ export const api = {
   resolveShareLink: (getToken: FetchToken, token: string) =>
     authedFetch<ResolveShareLinkResponse>(
       getToken,
-      `/share-links/${encodeURIComponent(token)}/resolve`
+      `/share-links/${encodeURIComponent(token)}/resolve`,
     ),
 
   listEvidences: (
     getToken: FetchToken,
-    options: { orgId?: string; createdBy?: string[]; page?: number; limit?: number } = {}
+    options: {
+      orgId?: string;
+      createdBy?: string[];
+      page?: number;
+      limit?: number;
+    } = {},
   ) => {
     const query = new URLSearchParams();
     if (options.orgId) query.set("orgId", options.orgId);
-    if (options.createdBy && options.createdBy.length > 0) query.set("createdBy", options.createdBy.join(","));
+    if (options.createdBy && options.createdBy.length > 0)
+      query.set("createdBy", options.createdBy.join(","));
     if (options.page) query.set("page", String(options.page));
     if (options.limit) query.set("limit", String(options.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return authedFetch<ApiEvidenceListResponse>(getToken, `/evidences${suffix}`);
+    return authedFetch<ApiEvidenceListResponse>(
+      getToken,
+      `/evidences${suffix}`,
+    );
   },
 
   loadEvidence: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
     authedFetch<ApiEvidenceResponse>(
       getToken,
-      `/evidences/${encodeURIComponent(evidenceId)}${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
+      `/evidences/${encodeURIComponent(evidenceId)}${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`,
     ),
 
   deleteEvidence: (getToken: FetchToken, evidenceId: string) =>
-    authedFetch<{ evidence: { id: string; orgId: string; deletedAt: number; deletePurgesAt: number } }>(
-      getToken,
-      `/evidences/${encodeURIComponent(evidenceId)}`,
-      { method: "DELETE" }
-    ),
+    authedFetch<{
+      evidence: {
+        id: string;
+        orgId: string;
+        deletedAt: number;
+        deletePurgesAt: number;
+      };
+    }>(getToken, `/evidences/${encodeURIComponent(evidenceId)}`, {
+      method: "DELETE",
+    }),
 
   bulkDeleteEvidences: (getToken: FetchToken, evidenceIds: string[]) =>
     authedFetch<{
-      evidences: Array<{ id: string; orgId: string; deletedAt: number; deletePurgesAt: number }>;
+      evidences: Array<{
+        id: string;
+        orgId: string;
+        deletedAt: number;
+        deletePurgesAt: number;
+      }>;
       deleted: { mode: "soft"; count: number };
     }>(getToken, "/evidences/bulk-delete", {
       method: "POST",
-      body: JSON.stringify({ ids: evidenceIds })
+      body: JSON.stringify({ ids: evidenceIds }),
     }),
 
   renameEvidence: (getToken: FetchToken, evidenceId: string, title: string) =>
-    authedFetch<{ evidence: { id: string; orgId: string; title: string; updatedAt: number } }>(
-      getToken,
-      `/evidences/${encodeURIComponent(evidenceId)}`,
-      { method: "PATCH", body: JSON.stringify({ title }) }
-    ),
+    authedFetch<{
+      evidence: { id: string; orgId: string; title: string; updatedAt: number };
+    }>(getToken, `/evidences/${encodeURIComponent(evidenceId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
 
-  listEvidenceArtifacts: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
+  listEvidenceArtifacts: (
+    getToken: FetchToken,
+    evidenceId: string,
+    orgId?: string,
+  ) =>
     authedFetch<{ artifacts: EvidenceArtifact[] }>(
       getToken,
-      `/evidences/${encodeURIComponent(evidenceId)}/artifacts${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
+      `/evidences/${encodeURIComponent(evidenceId)}/artifacts${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`,
     ),
 
-  listEvidenceComments: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
+  listEvidenceComments: (
+    getToken: FetchToken,
+    evidenceId: string,
+    orgId?: string,
+  ) =>
     authedFetch<ApiEvidenceCommentsResponse>(
       getToken,
-      `/evidences/${encodeURIComponent(evidenceId)}/comments${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
+      `/evidences/${encodeURIComponent(evidenceId)}/comments${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`,
     ),
 
-  createEvidenceComment: (getToken: FetchToken, evidenceId: string, body: string, orgId?: string) =>
+  createEvidenceComment: (
+    getToken: FetchToken,
+    evidenceId: string,
+    body: string,
+    orgId?: string,
+  ) =>
     authedFetch<{ comment: ApiEvidenceComment }>(
       getToken,
       `/evidences/${encodeURIComponent(evidenceId)}/comments${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`,
-      { method: "POST", body: JSON.stringify({ body }) }
+      { method: "POST", body: JSON.stringify({ body }) },
     ),
 
-  createArtifactReadUrl: (getToken: FetchToken, evidenceId: string, artifactId: string, orgId?: string) =>
+  createArtifactReadUrl: (
+    getToken: FetchToken,
+    evidenceId: string,
+    artifactId: string,
+    orgId?: string,
+  ) =>
     authedFetch<ArtifactReadUrl>(
       getToken,
       `/evidences/${encodeURIComponent(evidenceId)}/artifacts/${encodeURIComponent(artifactId)}/read-url${
         orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""
-      }`
+      }`,
     ),
 
   listShareLinks: (getToken: FetchToken, evidenceId: string) =>
     authedFetch<{ shareLinks: ApiShareLinkSummary[] }>(
       getToken,
-      `/evidences/${encodeURIComponent(evidenceId)}/share-links`
+      `/evidences/${encodeURIComponent(evidenceId)}/share-links`,
     ),
 
-  createShareLink: (getToken: FetchToken, evidenceId: string, expiresInMs?: number) =>
+  createShareLink: (
+    getToken: FetchToken,
+    evidenceId: string,
+    expiresInMs?: number,
+  ) =>
     authedFetch<{ shareLink: CreatedShareLink }>(
       getToken,
       `/evidences/${encodeURIComponent(evidenceId)}/share-links`,
       {
         method: "POST",
-        body: JSON.stringify(expiresInMs !== undefined ? { expiresInMs } : {})
-      }
+        body: JSON.stringify(expiresInMs !== undefined ? { expiresInMs } : {}),
+      },
     ),
 
   revokeShareLink: (getToken: FetchToken, shareLinkId: string) =>
     authedFetch<{ shareLink: { id: string; revokedAt: number } }>(
       getToken,
       `/share-links/${encodeURIComponent(shareLinkId)}/revoke`,
-      { method: "POST" }
+      { method: "POST" },
     ),
 
   acceptInvitation: (getToken: FetchToken, token: string) =>
-    authedFetch<AcceptInvitationResponse>(getToken, "/orgs/invitations/accept", {
-      method: "POST",
-      body: JSON.stringify({ token })
-    }),
+    authedFetch<AcceptInvitationResponse>(
+      getToken,
+      "/orgs/invitations/accept",
+      {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      },
+    ),
 
   lookupInvitation: (getToken: FetchToken, token: string) =>
     authedFetch<ApiInvitationLookup>(getToken, "/orgs/invitations/lookup", {
       method: "POST",
-      body: JSON.stringify({ token })
+      body: JSON.stringify({ token }),
     }),
 
-  acceptInvitationWithPassword: (getToken: FetchToken, token: string, password?: string) =>
-    authedFetch<AcceptInvitationResponse>(getToken, "/orgs/invitations/accept", {
-      method: "POST",
-      body: JSON.stringify(password ? { token, password } : { token })
-    }),
+  acceptInvitationWithPassword: (
+    getToken: FetchToken,
+    token: string,
+    password?: string,
+  ) =>
+    authedFetch<AcceptInvitationResponse>(
+      getToken,
+      "/orgs/invitations/accept",
+      {
+        method: "POST",
+        body: JSON.stringify(password ? { token, password } : { token }),
+      },
+    ),
 
   fetchAccountProfile: (getToken: FetchToken) =>
     authedFetch<ApiAccountProfile>(getToken, "/protected/me"),
@@ -336,13 +460,17 @@ export const api = {
     authedFetch<{ organizationId: string }>(
       getToken,
       `/orgs/${encodeURIComponent(orgId)}/select-active`,
-      { method: "POST" }
+      { method: "POST" },
     ),
 
   leaveOrganization: (getToken: FetchToken, orgId: string) =>
-    authedFetch<{ ok: true }>(getToken, `/orgs/${encodeURIComponent(orgId)}/leave`, {
-      method: "POST"
-    }),
+    authedFetch<{ ok: true }>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}/leave`,
+      {
+        method: "POST",
+      },
+    ),
 
   listOrganizations: (getToken: FetchToken) =>
     authedFetch<{ organizations: ApiOrgSummary[] }>(getToken, "/orgs"),
@@ -350,19 +478,28 @@ export const api = {
   createOrganization: (getToken: FetchToken, name: string) =>
     authedFetch<{ organization: ApiOrgSummary }>(getToken, "/orgs", {
       method: "POST",
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name }),
     }),
 
   renameOrganization: (getToken: FetchToken, orgId: string, name: string) =>
-    authedFetch<{ organizationId: string; name: string }>(getToken, `/orgs/${encodeURIComponent(orgId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ name })
-    }),
+    authedFetch<{ organizationId: string; name: string }>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      },
+    ),
 
   listMembers: (
     getToken: FetchToken,
     orgId: string,
-    options: { search?: string | undefined; role?: "all" | "owner" | "moderator" | "member"; page?: number; limit?: number } = {}
+    options: {
+      search?: string | undefined;
+      role?: "all" | OrganizationRoleKey;
+      page?: number;
+      limit?: number;
+    } = {},
   ) => {
     const query = new URLSearchParams();
     if (options.search) query.set("search", options.search);
@@ -370,27 +507,35 @@ export const api = {
     if (options.page) query.set("page", String(options.page));
     if (options.limit) query.set("limit", String(options.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return authedFetch<ApiMembersResponse>(getToken, `/orgs/${encodeURIComponent(orgId)}/members${suffix}`);
+    return authedFetch<ApiMembersResponse>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}/members${suffix}`,
+    );
   },
 
   listInvitations: (getToken: FetchToken, orgId: string) =>
     authedFetch<{ invitations: ApiInvitation[]; codes: ApiInvitationCode[] }>(
       getToken,
-      `/orgs/${encodeURIComponent(orgId)}/invitations`
+      `/orgs/${encodeURIComponent(orgId)}/invitations`,
     ),
 
-  updateMemberRole: (getToken: FetchToken, orgId: string, membershipId: string, role: "moderator" | "member") =>
+  updateMemberRole: (
+    getToken: FetchToken,
+    orgId: string,
+    membershipId: string,
+    role: OrganizationRoleKey,
+  ) =>
     authedFetch<{ ok: true }>(
       getToken,
       `/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(membershipId)}`,
-      { method: "PATCH", body: JSON.stringify({ role }) }
+      { method: "PATCH", body: JSON.stringify({ role }) },
     ),
 
   removeMember: (getToken: FetchToken, orgId: string, membershipId: string) =>
     authedFetch<{ ok: true }>(
       getToken,
       `/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(membershipId)}`,
-      { method: "DELETE" }
+      { method: "DELETE" },
     ),
 
   createInvitationCode: (
@@ -398,30 +543,123 @@ export const api = {
     orgId: string,
     body: {
       label: string;
-      role?: "moderator" | "member";
+      role: OrganizationRoleKey;
       password?: string;
       emailDomain?: string | null;
       expiresAt?: number | null;
       guestExpiresAfterDays?: number | null;
-    }
+    },
   ) =>
     authedFetch<{ code: ApiCreatedInvitationCode }>(
       getToken,
       `/orgs/${encodeURIComponent(orgId)}/invitation-codes`,
-      { method: "POST", body: JSON.stringify(body) }
+      { method: "POST", body: JSON.stringify(body) },
     ),
 
-  setInvitationCodeLocked: (getToken: FetchToken, orgId: string, codeId: string, locked: boolean) =>
+  createInvitation: (
+    getToken: FetchToken,
+    orgId: string,
+    body: { email: string; role: OrganizationRoleKey; ttlMs?: number },
+  ) =>
+    authedFetch<{
+      invitation: ApiInvitation & { organizationId: string; token: string };
+    }>(getToken, `/orgs/${encodeURIComponent(orgId)}/invitations`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateOrganizationSettings: (
+    getToken: FetchToken,
+    orgId: string,
+    requireInvitationApproval: boolean,
+  ) =>
+    authedFetch<{
+      settings: { organizationId: string; requireInvitationApproval: boolean };
+    }>(getToken, `/orgs/${encodeURIComponent(orgId)}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify({ requireInvitationApproval }),
+    }),
+
+  listOrganizationRoles: (getToken: FetchToken, orgId: string) =>
+    authedFetch<{
+      permissions: OrganizationPermission[];
+      roles: ApiOrganizationRole[];
+    }>(getToken, `/orgs/${encodeURIComponent(orgId)}/roles`),
+
+  updateOrganizationRole: (
+    getToken: FetchToken,
+    orgId: string,
+    role: OrganizationRoleKey,
+    permissions: OrganizationPermission[],
+  ) =>
+    authedFetch<{ role: ApiOrganizationRole }>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}/roles/${encodeURIComponent(role)}`,
+      { method: "PATCH", body: JSON.stringify({ permissions }) },
+    ),
+
+  listJoinRequests: (getToken: FetchToken, orgId: string) =>
+    authedFetch<{ requests: ApiJoinRequest[] }>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}/join-requests`,
+    ),
+
+  reviewJoinRequest: (
+    getToken: FetchToken,
+    orgId: string,
+    joinRequestId: string,
+    decision: "approved" | "rejected",
+  ) =>
+    authedFetch<{
+      review: { requestId: string; status: "approved" | "rejected" };
+    }>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}/join-requests/${encodeURIComponent(joinRequestId)}/review`,
+      { method: "POST", body: JSON.stringify({ decision }) },
+    ),
+
+  listActivityLogs: (
+    getToken: FetchToken,
+    orgId: string,
+    options: {
+      userId?: string;
+      action?: string;
+      from?: number;
+      to?: number;
+      page?: number;
+      limit?: number;
+    } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (options.userId) query.set("userId", options.userId);
+    if (options.action) query.set("action", options.action);
+    if (options.from) query.set("from", String(options.from));
+    if (options.to) query.set("to", String(options.to));
+    if (options.page) query.set("page", String(options.page));
+    if (options.limit) query.set("limit", String(options.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return authedFetch<{ logs: ApiActivityLog[]; page: number; limit: number }>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}/activity${suffix}`,
+    );
+  },
+
+  setInvitationCodeLocked: (
+    getToken: FetchToken,
+    orgId: string,
+    codeId: string,
+    locked: boolean,
+  ) =>
     authedFetch<{ code: ApiInvitationCode }>(
       getToken,
       `/orgs/${encodeURIComponent(orgId)}/invitation-codes/${encodeURIComponent(codeId)}/lock`,
-      { method: "POST", body: JSON.stringify({ locked }) }
+      { method: "POST", body: JSON.stringify({ locked }) },
     ),
 
   deleteInvitationCode: (getToken: FetchToken, orgId: string, codeId: string) =>
     authedFetch<{ ok: true }>(
       getToken,
       `/orgs/${encodeURIComponent(orgId)}/invitation-codes/${encodeURIComponent(codeId)}`,
-      { method: "DELETE" }
-    )
+      { method: "DELETE" },
+    ),
 };

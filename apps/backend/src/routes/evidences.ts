@@ -5,6 +5,7 @@ import {
 	desktopRecordingSessions,
 	evidenceComments,
 	evidences,
+	type OrganizationPermission,
 	organizationMembers,
 	organizations,
 	shareLinks,
@@ -20,6 +21,15 @@ import {
 } from "../plugins/clerk-auth";
 import { EVIDENCE_BIN_RETENTION_MS } from "../services/evidence-maintenance";
 import { createEvidencePolicy } from "../services/evidence-policy";
+import {
+	evidenceActivityEntity,
+	getRequestIpAddress,
+	recordOrganizationActivity,
+} from "../services/organization-activity";
+import {
+	getOrganizationRolePermissions,
+	normalizeOrganizationRoleKey,
+} from "../services/organization-permissions";
 import type { BackendDb } from "../services/user-provisioning";
 
 const moveEvidenceBodySchema = t.Object({
@@ -108,8 +118,26 @@ const createEvidenceCommentResponseSchema = t.Object({
 	comment: evidenceCommentSchema,
 });
 
-const isElevatedEvidenceManager = (role: string): boolean =>
-	role === "owner" || role === "admin" || role === "moderator";
+const roleCanManageEvidence = async (
+	db: BackendDb,
+	input: {
+		orgId: string;
+		role: string;
+		action: "update" | "delete";
+		isCreator: boolean;
+	},
+): Promise<boolean> => {
+	const permissions = await getOrganizationRolePermissions(db, {
+		organizationId: input.orgId,
+		role: normalizeOrganizationRoleKey(input.role),
+	});
+	const anyPermission =
+		`evidence.${input.action}.any` as OrganizationPermission;
+	const ownPermission =
+		`evidence.${input.action}.own` as OrganizationPermission;
+	if (permissions.has(anyPermission)) return true;
+	return input.isCreator && permissions.has(ownPermission);
+};
 
 const createAuthorLabel = (userId: string): string =>
 	`User ${userId.slice(0, 8)}`;
@@ -120,6 +148,7 @@ const findAccessibleEvidence = async (
 		evidenceId: string;
 		orgId?: string | undefined;
 		userId: string;
+		permission?: "evidence.view" | "evidence.comment";
 	},
 ) => {
 	const evidence = await db.query.evidences.findFirst({
@@ -138,10 +167,19 @@ const findAccessibleEvidence = async (
 			eq(organizationMembers.userId, input.userId),
 			isNull(organizationMembers.teamId),
 		),
-		columns: { id: true },
+		columns: { id: true, role: true },
 	});
 
-	return membership ? evidence : null;
+	if (!membership) return null;
+	if (input.permission) {
+		const permissions = await getOrganizationRolePermissions(db, {
+			organizationId: evidence.orgId,
+			role: normalizeOrganizationRoleKey(membership.role),
+		});
+		if (!permissions.has(input.permission)) return null;
+	}
+
+	return evidence;
 };
 
 export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
@@ -171,6 +209,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							evidenceId: params.id,
 							orgId: query.orgId,
 							userId: authContext.localUserId,
+							permission: "evidence.view",
 						});
 						if (!evidence) {
 							set.status = 404;
@@ -227,6 +266,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						db,
 						params,
 						query,
+						request,
 						requestId,
 						requestLogger,
 						set,
@@ -261,6 +301,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							evidenceId: params.id,
 							orgId: query.orgId,
 							userId: authContext.localUserId,
+							permission: "evidence.comment",
 						});
 						if (!evidence) {
 							set.status = 404;
@@ -312,6 +353,15 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							"evidence comment created",
 						);
+						await recordOrganizationActivity(db, {
+							organizationId: evidence.orgId,
+							actorUserId: authContext.localUserId,
+							action: "evidence.comment.created",
+							entity: evidenceActivityEntity(evidence.id),
+							message: "Commented on evidence",
+							metadata: { commentId: inserted.id },
+							ipAddress: getRequestIpAddress(request),
+						});
 
 						return {
 							comment: {
@@ -345,6 +395,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						authContext,
 						db,
 						params,
+						request,
 						requestId,
 						requestLogger,
 						set,
@@ -413,7 +464,14 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						}
 
 						const isCreator = evidence.createdBy === authContext.localUserId;
-						if (!isCreator && !isElevatedEvidenceManager(membership.role)) {
+						if (
+							!(await roleCanManageEvidence(db, {
+								orgId: evidence.orgId,
+								role: membership.role,
+								action: "delete",
+								isCreator,
+							}))
+						) {
 							set.status = 403;
 							return createApiError(
 								requestId,
@@ -463,6 +521,15 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							"evidence deleted",
 						);
+						await recordOrganizationActivity(db, {
+							organizationId: evidence.orgId,
+							actorUserId: authContext.localUserId,
+							action: "evidence.deleted",
+							entity: evidenceActivityEntity(evidence.id),
+							message: "Deleted evidence",
+							metadata: { mode: "soft" },
+							ipAddress: getRequestIpAddress(request),
+						});
 
 						return {
 							evidence: {
@@ -494,7 +561,15 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/evidences/bulk-delete",
-					async ({ authContext, body, db, requestId, requestLogger, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						request,
+						requestId,
+						requestLogger,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -568,13 +643,21 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
-						const forbidden = rows.find((row) => {
-							const role = roleByOrgId.get(row.orgId) ?? "";
-							return (
-								row.createdBy !== authContext.localUserId &&
-								!isElevatedEvidenceManager(role)
-							);
-						});
+						const forbiddenChecks = await Promise.all(
+							rows.map(async (row) => {
+								const role = roleByOrgId.get(row.orgId) ?? "";
+								return {
+									row,
+									allowed: await roleCanManageEvidence(db, {
+										orgId: row.orgId,
+										role,
+										action: "delete",
+										isCreator: row.createdBy === authContext.localUserId,
+									}),
+								};
+							}),
+						);
+						const forbidden = forbiddenChecks.find((check) => !check.allowed);
 						if (forbidden) {
 							set.status = 403;
 							return createApiError(
@@ -615,6 +698,19 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							"evidence bulk delete completed",
 						);
+						await Promise.all(
+							deleted.map((evidence) =>
+								recordOrganizationActivity(db, {
+									organizationId: evidence.orgId,
+									actorUserId: authContext.localUserId,
+									action: "evidence.deleted",
+									entity: evidenceActivityEntity(evidence.id),
+									message: "Deleted evidence",
+									metadata: { mode: "soft", bulk: true },
+									ipAddress: getRequestIpAddress(request),
+								}),
+							),
+						);
 
 						return {
 							evidences: deleted.map((evidence) => ({
@@ -651,6 +747,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						body,
 						db,
 						params,
+						request,
 						requestId,
 						requestLogger,
 						set,
@@ -809,6 +906,34 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							"evidence move completed",
 						);
+						await Promise.all([
+							recordOrganizationActivity(db, {
+								organizationId: evidence.orgId,
+								actorUserId: authContext.localUserId,
+								action: "evidence.moved.out",
+								entity: evidenceActivityEntity(moved.evidenceId),
+								message: "Moved evidence out of this organization",
+								metadata: {
+									fromOrgId: evidence.orgId,
+									toOrgId: moved.orgId,
+									invalidatedShareLinks: moved.invalidatedShareLinks,
+								},
+								ipAddress: getRequestIpAddress(request),
+							}),
+							recordOrganizationActivity(db, {
+								organizationId: moved.orgId,
+								actorUserId: authContext.localUserId,
+								action: "evidence.moved.in",
+								entity: evidenceActivityEntity(moved.evidenceId),
+								message: "Moved evidence into this organization",
+								metadata: {
+									fromOrgId: evidence.orgId,
+									toOrgId: moved.orgId,
+									invalidatedShareLinks: moved.invalidatedShareLinks,
+								},
+								ipAddress: getRequestIpAddress(request),
+							}),
+						]);
 
 						return {
 							evidence: {
@@ -851,6 +976,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						body,
 						db,
 						params,
+						request,
 						requestId,
 						requestLogger,
 						set,
@@ -882,7 +1008,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 
 						const evidence = await db.query.evidences.findFirst({
 							where: eq(evidences.id, params.id),
-							columns: { id: true, orgId: true },
+							columns: { id: true, orgId: true, createdBy: true },
 						});
 						if (!evidence) {
 							set.status = 404;
@@ -900,7 +1026,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								eq(organizationMembers.userId, authContext.localUserId),
 								isNull(organizationMembers.teamId),
 							),
-							columns: { id: true },
+							columns: { id: true, role: true },
 						});
 						if (!membership) {
 							// Non-members get the same 404 as a missing record so the
@@ -912,6 +1038,22 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								"EVIDENCE_NOT_FOUND",
 								"Evidence not found",
 								404,
+							);
+						}
+						if (
+							!(await roleCanManageEvidence(db, {
+								orgId: evidence.orgId,
+								role: membership.role,
+								action: "update",
+								isCreator: evidence.createdBy === authContext.localUserId,
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_RENAME_FORBIDDEN",
+								"Only permitted owners or evidence managers can rename this evidence",
+								403,
 							);
 						}
 
@@ -958,6 +1100,15 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							"evidence renamed",
 						);
+						await recordOrganizationActivity(db, {
+							organizationId: updated.orgId,
+							actorUserId: authContext.localUserId,
+							action: "evidence.renamed",
+							entity: evidenceActivityEntity(updated.id),
+							message: `Renamed evidence to ${updated.title}`,
+							metadata: { title: updated.title },
+							ipAddress: getRequestIpAddress(request),
+						});
 
 						return { evidence: updated };
 					},

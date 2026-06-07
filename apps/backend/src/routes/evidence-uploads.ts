@@ -18,6 +18,12 @@ import {
 	type ClerkAuthPlugin,
 	requireSessionScope,
 } from "../plugins/clerk-auth";
+import {
+	evidenceActivityEntity,
+	getRequestIpAddress,
+	recordOrganizationActivity,
+} from "../services/organization-activity";
+import { organizationMemberHasPermission } from "../services/organization-permissions";
 import type { BackendDb } from "../services/user-provisioning";
 
 const startUploadBodySchema = t.Object({
@@ -449,6 +455,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								403,
 							);
 						}
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: workspace.activeOrgId,
+								localUserId: workspace.localUserId,
+								permission: "evidence.create",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_CREATE_FORBIDDEN",
+								"Your role cannot create evidence in this organization",
+								403,
+							);
+						}
 
 						const artifactKeys = new Set(
 							body.artifacts.map((artifact) => artifact.key),
@@ -633,6 +654,23 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								);
 							}
 						}
+						await recordOrganizationActivity(db, {
+							organizationId: created.organizationId,
+							actorUserId: workspace.localUserId,
+							action: existingEvidence
+								? "evidence.recording.resynced"
+								: "evidence.created",
+							entity: evidenceActivityEntity(created.evidenceId),
+							message: existingEvidence
+								? "Re-synced evidence recording"
+								: "Created evidence recording",
+							metadata: {
+								sourceType: "desktop-session",
+								sessionId: body.sessionId,
+								replacedEvidenceId: existingEvidence?.id ?? null,
+							},
+							ipAddress: getRequestIpAddress(request),
+						});
 
 						return created;
 					},
@@ -699,6 +737,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								requestId,
 								"ORG_CONTEXT_UNRESOLVED",
 								"No active organization found for current user",
+								403,
+							);
+						}
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: workspace.activeOrgId,
+								localUserId: workspace.localUserId,
+								permission: "evidence.create",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_CREATE_FORBIDDEN",
+								"Your role cannot create evidence in this organization",
 								403,
 							);
 						}
@@ -782,6 +835,19 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								s3Key: artifact.s3Key,
 							};
 						});
+						await recordOrganizationActivity(db, {
+							organizationId: created.organizationId,
+							actorUserId: workspace.localUserId,
+							action: "evidence.created",
+							entity: evidenceActivityEntity(created.evidenceId),
+							message: "Created evidence session",
+							metadata: {
+								sourceType: body.sourceType,
+								sourceExternalId: body.sourceExternalId ?? null,
+								artifactKind: body.artifact.kind,
+							},
+							ipAddress: getRequestIpAddress(request),
+						});
 
 						return {
 							uploadId: created.uploadId,
@@ -831,6 +897,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						if (!resolvedOrg.ok) {
 							return resolvedOrg.error;
+						}
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.view",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_VIEW_FORBIDDEN",
+								"Your role cannot view evidence in this organization",
+								403,
+							);
 						}
 
 						const page = Math.max(1, Math.trunc(query.page ?? 1));
@@ -922,6 +1003,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						if (!resolvedOrg.ok) {
 							return resolvedOrg.error;
 						}
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.view",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_VIEW_FORBIDDEN",
+								"Your role cannot view evidence in this organization",
+								403,
+							);
+						}
 
 						const evidence = await db.query.evidences.findFirst({
 							where: and(
@@ -1002,6 +1098,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						if (!resolvedOrg.ok) {
 							return resolvedOrg.error;
 						}
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.view",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_VIEW_FORBIDDEN",
+								"Your role cannot view evidence in this organization",
+								403,
+							);
+						}
 
 						const evidence = await db.query.evidences.findFirst({
 							where: and(
@@ -1066,6 +1177,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						db,
 						params,
 						query,
+						request,
 						requestId,
 						set,
 					}) => {
@@ -1093,6 +1205,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						if (!resolvedOrg.ok) {
 							return resolvedOrg.error;
+						}
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.download",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_DOWNLOAD_FORBIDDEN",
+								"Your role cannot download evidence in this organization",
+								403,
+							);
 						}
 
 						const artifact = await db.query.evidenceArtifacts.findFirst({
@@ -1139,6 +1266,19 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						const signed = await artifactStorage.createReadUrl({
 							key: artifact.s3Key,
 							responseContentType: artifact.mimeType,
+						});
+						await recordOrganizationActivity(db, {
+							organizationId: resolvedOrg.orgId,
+							actorUserId: resolvedOrg.localUserId,
+							action: "evidence.download_url.created",
+							entity: evidenceActivityEntity(artifact.evidence.id),
+							message: "Created evidence download link",
+							metadata: {
+								artifactId: artifact.id,
+								mimeType: artifact.mimeType,
+								expiresAt: signed.expiresAt,
+							},
+							ipAddress: getRequestIpAddress(request),
 						});
 
 						return {

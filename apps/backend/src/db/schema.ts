@@ -26,6 +26,10 @@ export {
 	evidences,
 } from "./tables/evidences";
 export {
+	createOrganizationActivityLogInputSchema,
+	organizationActivityLogs,
+} from "./tables/organization-activity-logs";
+export {
 	createOrganizationInvitationCodeInputSchema,
 	organizationInvitationCodeRoleSchema,
 	organizationInvitationCodes,
@@ -37,11 +41,24 @@ export {
 	organizationInvitations,
 } from "./tables/organization-invitations";
 export {
+	createOrganizationJoinRequestInputSchema,
+	organizationJoinRequestStatusSchema,
+	organizationJoinRequests,
+} from "./tables/organization-join-requests";
+export {
 	createOrganizationMembershipInputSchema,
 	defaultOrganizationRoles,
 	organizationMembers,
 	organizationRoleSchema,
 } from "./tables/organization-members";
+export {
+	createOrganizationRoleInputSchema,
+	type OrganizationPermission,
+	type OrganizationRoleKey,
+	organizationPermissionValueSchema,
+	organizationRoleKeySchema,
+	organizationRoles,
+} from "./tables/organization-roles";
 export {
 	createOrganizationInputSchema,
 	organizations,

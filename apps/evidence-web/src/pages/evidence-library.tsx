@@ -14,7 +14,7 @@ import {
   Share2,
   Trash2,
   Users,
-  Video
+  Video,
 } from "lucide-react";
 
 import { PageBody, PageHeader } from "../components/page";
@@ -28,9 +28,16 @@ import {
   DropdownMenu,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator
+  DropdownMenuSeparator,
 } from "../components/ui/dropdown-menu";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
 import { ConfirmDialog, Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { cn } from "../lib/cn";
@@ -42,7 +49,7 @@ import {
   useDeleteEvidence,
   useEvidences,
   useOrganizationMembers,
-  useRenameEvidence
+  useRenameEvidence,
 } from "../queries";
 import { downloadEvidenceAsZip } from "../download-evidence";
 import { ShareDialog } from "../share-dialog";
@@ -51,7 +58,11 @@ import { formatRelativeTime } from "../utils";
 
 const PAGE_SIZE = 24;
 
-const personName = (person: { displayName?: string | null; email?: string | null; userId: string }): string =>
+const personName = (person: {
+  displayName?: string | null;
+  email?: string | null;
+  userId: string;
+}): string =>
   person.displayName?.trim() || person.email?.trim() || person.userId;
 
 const canManageOthers = (role: string | undefined): boolean =>
@@ -63,21 +74,39 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const accountQuery = useAccountProfile();
-  const activeOrg = accountQuery.data?.organizations.find((org) => org.isActive);
+  const activeOrg = accountQuery.data?.organizations.find(
+    (org) => org.isActive,
+  );
   const currentUserId = accountQuery.data?.userId ?? null;
   const selectedCreatorIds = useMemo(
-    () => (params.get("people") ?? "").split(",").map((id) => id.trim()).filter(Boolean),
-    [params]
+    () =>
+      (params.get("people") ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    [params],
   );
   const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
-  const evidencesQuery = useEvidences({ createdBy: selectedCreatorIds, page, limit: PAGE_SIZE });
-  const membersQuery = useOrganizationMembers(activeOrg?.id ?? null, { limit: 100 });
+  const evidencesQuery = useEvidences({
+    createdBy: selectedCreatorIds,
+    page,
+    limit: PAGE_SIZE,
+  });
+  const membersQuery = useOrganizationMembers(activeOrg?.id ?? null, {
+    limit: 100,
+  });
   const deleteEvidence = useDeleteEvidence();
   const bulkDeleteEvidences = useBulkDeleteEvidences();
 
-  const [shareTarget, setShareTarget] = useState<ApiEvidenceSummary | null>(null);
-  const [renameTarget, setRenameTarget] = useState<ApiEvidenceSummary | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<ApiEvidenceSummary | null>(null);
+  const [shareTarget, setShareTarget] = useState<ApiEvidenceSummary | null>(
+    null,
+  );
+  const [renameTarget, setRenameTarget] = useState<ApiEvidenceSummary | null>(
+    null,
+  );
+  const [pendingDelete, setPendingDelete] = useState<ApiEvidenceSummary | null>(
+    null,
+  );
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [bulkDownloading, setBulkDownloading] = useState(false);
@@ -99,7 +128,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         if (key !== "page") next.delete("page");
         return next;
       },
-      { replace: true }
+      { replace: true },
     );
   };
 
@@ -110,7 +139,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const memberNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const member of members) {
-      map.set(member.userId, member.userId === currentUserId ? "You" : personName(member));
+      map.set(
+        member.userId,
+        member.userId === currentUserId ? "You" : personName(member),
+      );
     }
     return map;
   }, [currentUserId, members]);
@@ -121,8 +153,13 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     Boolean(currentUserId && evidence.createdBy !== currentUserId);
 
   const typeOptions = useMemo(() => {
-    const types = Array.from(new Set(evidences.map((e) => e.sourceType))).sort();
-    return [{ label: "All types", value: "all" }, ...types.map((t) => ({ label: t, value: t }))];
+    const types = Array.from(
+      new Set(evidences.map((e) => e.sourceType)),
+    ).sort();
+    return [
+      { label: "All types", value: "all" },
+      ...types.map((t) => ({ label: t, value: t })),
+    ];
   }, [evidences]);
 
   const filtered = useMemo(() => {
@@ -130,7 +167,13 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     const list = evidences.filter((e) => {
       const matchesType = typeFilter === "all" || e.sourceType === typeFilter;
       const matchesQuery =
-        !q || [e.title, e.sourceType, e.id, memberNameById.get(e.createdBy) ?? e.createdBy].some((f) => f.toLowerCase().includes(q));
+        !q ||
+        [
+          e.title,
+          e.sourceType,
+          e.id,
+          memberNameById.get(e.createdBy) ?? e.createdBy,
+        ].some((f) => f.toLowerCase().includes(q));
       return matchesType && matchesQuery;
     });
     return list;
@@ -146,13 +189,20 @@ export function EvidenceLibraryPage(): React.JSX.Element {
 
   const selectedEvidences = useMemo(
     () => evidences.filter((evidence) => selectedIds.has(evidence.id)),
-    [evidences, selectedIds]
+    [evidences, selectedIds],
   );
-  const filteredSelectedCount = filtered.filter((evidence) => selectedIds.has(evidence.id)).length;
-  const allFilteredSelected = filtered.length > 0 && filteredSelectedCount === filtered.length;
+  const filteredSelectedCount = filtered.filter((evidence) =>
+    selectedIds.has(evidence.id),
+  ).length;
+  const allFilteredSelected =
+    filtered.length > 0 && filteredSelectedCount === filtered.length;
   const hasSelection = selectedEvidences.length > 0;
-  const selectedOtherCount = selectedEvidences.filter(isDeletingSomeoneElse).length;
-  const selectedUndeletableCount = selectedEvidences.filter((evidence) => !canDelete(evidence)).length;
+  const selectedOtherCount = selectedEvidences.filter(
+    isDeletingSomeoneElse,
+  ).length;
+  const selectedUndeletableCount = selectedEvidences.filter(
+    (evidence) => !canDelete(evidence),
+  ).length;
 
   const loading = evidencesQuery.isPending;
   const deletingId = deleteEvidence.variables ?? null;
@@ -163,18 +213,23 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         ? deleteEvidence.error.message
         : null;
 
-  const handleDownload = async (evidence: ApiEvidenceSummary): Promise<void> => {
+  const handleDownload = async (
+    evidence: ApiEvidenceSummary,
+  ): Promise<void> => {
     setDownloadingId(evidence.id);
     try {
       await downloadEvidenceAsZip({
         getToken,
         evidenceId: evidence.id,
         orgId: evidence.orgId,
-        title: evidence.title
+        title: evidence.title,
       });
       toast.success("Download started", "ZIP saved to your downloads folder.");
     } catch (downloadError) {
-      toast.error("Download failed", downloadError instanceof Error ? downloadError.message : undefined);
+      toast.error(
+        "Download failed",
+        downloadError instanceof Error ? downloadError.message : undefined,
+      );
     } finally {
       setDownloadingId(null);
     }
@@ -210,12 +265,18 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           getToken,
           evidenceId: evidence.id,
           orgId: evidence.orgId,
-          title: evidence.title
+          title: evidence.title,
         });
       }
-      toast.success("Downloads started", `${selectedEvidences.length} ZIP files saved to your downloads folder.`);
+      toast.success(
+        "Downloads started",
+        `${selectedEvidences.length} ZIP files saved to your downloads folder.`,
+      );
     } catch (downloadError) {
-      toast.error("Bulk download failed", downloadError instanceof Error ? downloadError.message : undefined);
+      toast.error(
+        "Bulk download failed",
+        downloadError instanceof Error ? downloadError.message : undefined,
+      );
     } finally {
       setBulkDownloading(false);
     }
@@ -226,11 +287,17 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     const target = pendingDelete;
     deleteEvidence.mutate(target.id, {
       onSuccess: () => {
-        toast.success("Evidence moved to bin", "It will auto-purge after 30 days.");
+        toast.success(
+          "Evidence moved to bin",
+          "It will auto-purge after 30 days.",
+        );
         setPendingDelete(null);
       },
       onError: (mutationError) =>
-        toast.error("Delete failed", mutationError instanceof Error ? mutationError.message : undefined)
+        toast.error(
+          "Delete failed",
+          mutationError instanceof Error ? mutationError.message : undefined,
+        ),
     });
   };
 
@@ -239,8 +306,13 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     const targets = selectedEvidences;
     setBulkDeleting(true);
     try {
-      await bulkDeleteEvidences.mutateAsync(targets.map((evidence) => evidence.id));
-      toast.success("Evidence moved to bin", `${targets.length} record${targets.length === 1 ? "" : "s"} will purge after 30 days.`);
+      await bulkDeleteEvidences.mutateAsync(
+        targets.map((evidence) => evidence.id),
+      );
+      toast.success(
+        "Evidence moved to bin",
+        `${targets.length} record${targets.length === 1 ? "" : "s"} will purge after 30 days.`,
+      );
       setSelectedIds((previous) => {
         const next = new Set(previous);
         for (const evidence of targets) next.delete(evidence.id);
@@ -248,7 +320,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
       });
       setPendingBulkDelete(false);
     } catch (mutationError) {
-      toast.error("Bulk delete failed", mutationError instanceof Error ? mutationError.message : undefined);
+      toast.error(
+        "Bulk delete failed",
+        mutationError instanceof Error ? mutationError.message : undefined,
+      );
     } finally {
       setBulkDeleting(false);
     }
@@ -261,7 +336,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     setParam("people", Array.from(next).join(","), "");
   };
 
-  const actions = (evidence: ApiEvidenceSummary, downloading: boolean, deleting: boolean): React.JSX.Element => (
+  const actions = (
+    evidence: ApiEvidenceSummary,
+    downloading: boolean,
+    deleting: boolean,
+  ): React.JSX.Element => (
     <DropdownMenu
       trigger={
         <button
@@ -270,11 +349,17 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           disabled={downloading || deleting}
           className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-50"
         >
-          {downloading || deleting ? <Spinner /> : <MoreVertical className="size-4" aria-hidden />}
+          {downloading || deleting ? (
+            <Spinner />
+          ) : (
+            <MoreVertical className="size-4" aria-hidden />
+          )}
         </button>
       }
     >
-      <DropdownMenuItem onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}>
+      <DropdownMenuItem
+        onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+      >
         <Play aria-hidden />
         Review
       </DropdownMenuItem>
@@ -291,7 +376,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         Download ZIP
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem destructive disabled={!canDelete(evidence)} onClick={() => setPendingDelete(evidence)}>
+      <DropdownMenuItem
+        destructive
+        disabled={!canDelete(evidence)}
+        onClick={() => setPendingDelete(evidence)}
+      >
         <Trash2 aria-hidden />
         Delete
       </DropdownMenuItem>
@@ -305,7 +394,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         title="Evidence"
         description="Browser sessions uploaded to this organisation. Open one to review the synced video, timeline, console, and network."
         actions={
-          <Button variant="outline" onClick={() => void evidencesQuery.refetch()} disabled={loading}>
+          <Button
+            variant="outline"
+            onClick={() => void evidencesQuery.refetch()}
+            disabled={loading}
+          >
             <RefreshCw aria-hidden className={cn(loading && "animate-spin")} />
             Refresh
           </Button>
@@ -315,7 +408,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         {/* Toolbar */}
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative max-w-md flex-1">
-            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
             <Input
               value={search}
               onChange={(e) => setParam("q", e.currentTarget.value, "")}
@@ -342,7 +438,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   type="button"
                   className={cn(
                     buttonVariants({ variant: "outline", size: "sm" }),
-                    "justify-start"
+                    "justify-start",
                   )}
                 >
                   <Users aria-hidden />
@@ -355,14 +451,18 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               <DropdownMenuLabel>Recorded by</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => setParam("people", "", "")}>
                 <span className="inline-flex size-4 items-center justify-center">
-                  {selectedCreatorIds.length === 0 ? <Check aria-hidden /> : null}
+                  {selectedCreatorIds.length === 0 ? (
+                    <Check aria-hidden />
+                  ) : null}
                 </span>
                 Everyone
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               {members.length === 0 ? (
                 <DropdownMenuItem disabled>
-                  {membersQuery.isPending ? "Loading people…" : "No people found"}
+                  {membersQuery.isPending
+                    ? "Loading people…"
+                    : "No people found"}
                 </DropdownMenuItem>
               ) : (
                 members.map((member) => {
@@ -375,7 +475,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       <span className="inline-flex size-4 items-center justify-center">
                         {selected ? <Check aria-hidden /> : null}
                       </span>
-                      <span className="min-w-0 flex-1 truncate">{memberNameById.get(member.userId) ?? personName(member)}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {memberNameById.get(member.userId) ??
+                          personName(member)}
+                      </span>
                     </DropdownMenuItem>
                   );
                 })
@@ -389,7 +492,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 onClick={() => setParam("view", "grid", "grid")}
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
-                  view === "grid" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  view === "grid"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <LayoutGrid className="size-4" aria-hidden />
@@ -401,7 +506,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 onClick={() => setParam("view", "table", "grid")}
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
-                  view === "table" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  view === "table"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <List className="size-4" aria-hidden />
@@ -417,18 +524,20 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         ) : null}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
+          <p className=" text-muted-foreground">
             {loading
               ? "Loading…"
               : `${filtered.length} shown · ${total} total · latest first`}
           </p>
           {filtered.length > 0 ? (
-            <label className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground">
+            <label className="inline-flex w-fit items-center gap-2 text-muted-foreground">
               <input
                 type="checkbox"
                 checked={allFilteredSelected}
                 ref={(element) => {
-                  if (element) element.indeterminate = filteredSelectedCount > 0 && !allFilteredSelected;
+                  if (element)
+                    element.indeterminate =
+                      filteredSelectedCount > 0 && !allFilteredSelected;
                 }}
                 onChange={toggleFilteredSelection}
                 className="size-4 accent-[var(--brand-500)]"
@@ -443,7 +552,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             <span className="text-base font-medium text-foreground">
               {selectedEvidences.length} selected
               {selectedUndeletableCount > 0 ? (
-                <span className="ml-2 text-sm font-normal text-destructive">
+                <span className="ml-2 font-normal text-destructive">
                   {selectedUndeletableCount} cannot be deleted by your role
                 </span>
               ) : null}
@@ -462,7 +571,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 size="sm"
                 variant="destructive"
                 onClick={() => setPendingBulkDelete(true)}
-                disabled={bulkDownloading || bulkDeleting || selectedUndeletableCount > 0}
+                disabled={
+                  bulkDownloading ||
+                  bulkDeleting ||
+                  selectedUndeletableCount > 0
+                }
               >
                 <Trash2 aria-hidden />
                 Delete
@@ -492,7 +605,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<Video aria-hidden />}
-            title={evidences.length === 0 ? "No evidence in this workspace yet" : "No matches"}
+            title={
+              evidences.length === 0
+                ? "No evidence in this workspace yet"
+                : "No matches"
+            }
             description={
               evidences.length === 0
                 ? "Upload from the desktop app or open a local archive in Quick view. Uploads land in the active organisation automatically."
@@ -505,7 +622,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   Open a local archive
                 </Button>
               ) : (
-                <Button variant="outline" onClick={() => setParams({}, { replace: true })}>
+                <Button
+                  variant="outline"
+                  onClick={() => setParams({}, { replace: true })}
+                >
                   Clear filters
                 </Button>
               )
@@ -519,36 +639,57 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 className="group flex flex-col gap-3 p-4 transition-colors hover:border-border-strong"
               >
                 <div className="flex items-start gap-2">
-                  <label className="mt-1 inline-flex shrink-0 items-center" aria-label={`Select ${evidence.title}`}>
+                  <label
+                    className="mt-1 inline-flex shrink-0 items-center"
+                    aria-label={`Select ${evidence.title}`}
+                  >
                     <input
                       type="checkbox"
                       checked={selectedIds.has(evidence.id)}
-                      onChange={(event) => setEvidenceSelected(evidence.id, event.currentTarget.checked)}
+                      onChange={(event) =>
+                        setEvidenceSelected(
+                          evidence.id,
+                          event.currentTarget.checked,
+                        )
+                      }
                       className="size-4 accent-[var(--brand-500)]"
                     />
                   </label>
                   <button
                     type="button"
-                    onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+                    onClick={() =>
+                      navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
+                    }
                     className="min-w-0 flex-1"
                   >
-                    <EvidenceThumbnail evidence={evidence} className="aspect-video w-full" />
+                    <EvidenceThumbnail
+                      evidence={evidence}
+                      className="aspect-video w-full"
+                    />
                   </button>
-                  {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
+                  {actions(
+                    evidence,
+                    downloadingId === evidence.id,
+                    deletingId === evidence.id,
+                  )}
                 </div>
                 <button
                   type="button"
-                  onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+                  onClick={() =>
+                    navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
+                  }
                   className="min-w-0 text-left"
                 >
                   <span className="block truncate text-base font-semibold text-foreground group-hover:text-primary">
                     {evidence.title}
                   </span>
-                  <span className="mt-0.5 block truncate font-mono text-sm text-muted-foreground">
+                  <span className="mt-0.5 block truncate font-mono text-muted-foreground">
                     {evidence.id.slice(0, 18)}…
                   </span>
-                  <span className="mt-1 block truncate text-sm text-muted-foreground">
-                    Recorded by {memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
+                  <span className="mt-1 block truncate text-muted-foreground">
+                    Recorded by{" "}
+                    {memberNameById.get(evidence.createdBy) ??
+                      evidence.createdBy}
                   </span>
                 </button>
                 <div className="mt-auto flex items-center justify-between gap-2 pt-1">
@@ -556,9 +697,14 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                     <Badge variant="muted" className="capitalize">
                       {evidence.sourceType}
                     </Badge>
-                    {evidence.status === "pending" ? <Badge variant="muted">Pending</Badge> : null}
+                    {evidence.status === "pending" ? (
+                      <Badge variant="muted">Pending</Badge>
+                    ) : null}
                   </div>
-                  <span className="text-sm text-muted-foreground" title={new Date(evidence.createdAt).toISOString()}>
+                  <span
+                    className=" text-muted-foreground"
+                    title={new Date(evidence.createdAt).toISOString()}
+                  >
                     {formatRelativeTime(evidence.createdAt)}
                   </span>
                 </div>
@@ -566,12 +712,18 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   <Button
                     size="sm"
                     className="flex-1"
-                    onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+                    onClick={() =>
+                      navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
+                    }
                   >
                     <Play aria-hidden />
                     Review
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setShareTarget(evidence)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShareTarget(evidence)}
+                  >
                     <Share2 aria-hidden />
                     Share
                   </Button>
@@ -590,57 +742,81 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       aria-label="Select visible evidence"
                       checked={allFilteredSelected}
                       ref={(element) => {
-                        if (element) element.indeterminate = filteredSelectedCount > 0 && !allFilteredSelected;
+                        if (element)
+                          element.indeterminate =
+                            filteredSelectedCount > 0 && !allFilteredSelected;
                       }}
                       onChange={toggleFilteredSelection}
                       className="size-4 accent-[var(--brand-500)]"
                     />
                   </TableHead>
                   <TableHead>Evidence</TableHead>
-                  <TableHead className="hidden sm:table-cell">Recorded by</TableHead>
+                  <TableHead className="hidden sm:table-cell">
+                    Recorded by
+                  </TableHead>
                   <TableHead className="hidden md:table-cell">Type</TableHead>
-                  <TableHead className="hidden lg:table-cell">Recorded</TableHead>
+                  <TableHead className="hidden lg:table-cell">
+                    Recorded
+                  </TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((evidence) => (
-                  <TableRow key={evidence.id} data-active={selectedIds.has(evidence.id)}>
+                  <TableRow
+                    key={evidence.id}
+                    data-active={selectedIds.has(evidence.id)}
+                  >
                     <TableCell className="w-10 pr-0">
                       <input
                         type="checkbox"
                         aria-label={`Select ${evidence.title}`}
                         checked={selectedIds.has(evidence.id)}
-                        onChange={(event) => setEvidenceSelected(evidence.id, event.currentTarget.checked)}
+                        onChange={(event) =>
+                          setEvidenceSelected(
+                            evidence.id,
+                            event.currentTarget.checked,
+                          )
+                        }
                         className="size-4 accent-[var(--brand-500)]"
                       />
                     </TableCell>
                     <TableCell>
                       <button
                         type="button"
-                        onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+                        onClick={() =>
+                          navigate(
+                            `/evidence/${encodeURIComponent(evidence.id)}`,
+                          )
+                        }
                         className="flex min-w-0 items-center gap-3 text-left"
                       >
-                        <EvidenceThumbnail evidence={evidence} className="h-10 w-16" />
+                        <EvidenceThumbnail
+                          evidence={evidence}
+                          className="h-10 w-16"
+                        />
                         <span className="min-w-0">
                           <span className="block truncate text-base font-medium text-foreground hover:text-primary">
                             {evidence.title}
                           </span>
-                          <span className="block truncate font-mono text-sm text-muted-foreground">
+                          <span className="block truncate font-mono text-muted-foreground">
                             {evidence.id.slice(0, 16)}…
                           </span>
                         </span>
                       </button>
                     </TableCell>
                     <TableCell className="hidden max-w-[12rem] truncate text-base text-muted-foreground sm:table-cell">
-                      {memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
+                      {memberNameById.get(evidence.createdBy) ??
+                        evidence.createdBy}
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <div className="flex flex-wrap gap-1.5">
                         <Badge variant="muted" className="capitalize">
                           {evidence.sourceType}
                         </Badge>
-                        {evidence.status === "pending" ? <Badge variant="muted">Pending</Badge> : null}
+                        {evidence.status === "pending" ? (
+                          <Badge variant="muted">Pending</Badge>
+                        ) : null}
                       </div>
                     </TableCell>
                     <TableCell className="hidden whitespace-nowrap text-base text-muted-foreground lg:table-cell">
@@ -650,12 +826,22 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
-                          className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+                          onClick={() =>
+                            navigate(
+                              `/evidence/${encodeURIComponent(evidence.id)}`,
+                            )
+                          }
+                          className={cn(
+                            buttonVariants({ variant: "ghost", size: "sm" }),
+                          )}
                         >
                           Review
                         </button>
-                        {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
+                        {actions(
+                          evidence,
+                          downloadingId === evidence.id,
+                          deletingId === evidence.id,
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -666,7 +852,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         )}
         {!loading && totalPages > 1 ? (
           <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
+            <p className=" text-muted-foreground">
               Page {Math.min(page, totalPages)} of {totalPages}
             </p>
             <div className="flex items-center gap-2">
@@ -691,10 +877,18 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         ) : null}
       </PageBody>
 
-      {shareTarget ? <ShareDialog evidence={shareTarget} onClose={() => setShareTarget(null)} /> : null}
+      {shareTarget ? (
+        <ShareDialog
+          evidence={shareTarget}
+          onClose={() => setShareTarget(null)}
+        />
+      ) : null}
 
       {renameTarget ? (
-        <RenameEvidenceDialog evidence={renameTarget} onClose={() => setRenameTarget(null)} />
+        <RenameEvidenceDialog
+          evidence={renameTarget}
+          onClose={() => setRenameTarget(null)}
+        />
       ) : null}
 
       <ConfirmDialog
@@ -711,7 +905,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         destructive
         busy={deleteEvidence.isPending}
         onConfirm={confirmDelete}
-        onCancel={() => (deleteEvidence.isPending ? null : setPendingDelete(null))}
+        onCancel={() =>
+          deleteEvidence.isPending ? null : setPendingDelete(null)
+        }
       />
 
       <ConfirmDialog
@@ -720,7 +916,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         description={`${selectedEvidences.length} selected record${
           selectedEvidences.length === 1 ? "" : "s"
         } will move to the bin and auto-purge after 30 days.${
-          selectedOtherCount > 0 ? ` ${selectedOtherCount} were recorded by other people.` : ""
+          selectedOtherCount > 0
+            ? ` ${selectedOtherCount} were recorded by other people.`
+            : ""
         }`}
         confirmLabel="Move to bin"
         destructive
@@ -746,7 +944,7 @@ function EvidenceThumbnail(props: {
     <span
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-secondary text-primary",
-        className
+        className,
       )}
     >
       {thumbnailSrc ? (
@@ -786,8 +984,11 @@ function RenameEvidenceDialog(props: {
           props.onClose();
         },
         onError: (error) =>
-          toast.error("Rename failed", error instanceof Error ? error.message : undefined)
-      }
+          toast.error(
+            "Rename failed",
+            error instanceof Error ? error.message : undefined,
+          ),
+      },
     );
   };
 
@@ -800,10 +1001,19 @@ function RenameEvidenceDialog(props: {
       description="Give this session a clear, searchable name."
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={props.onClose} disabled={renameEvidence.isPending}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={props.onClose}
+            disabled={renameEvidence.isPending}
+          >
             Cancel
           </Button>
-          <Button size="sm" onClick={submit} disabled={renameEvidence.isPending || !canSave}>
+          <Button
+            size="sm"
+            onClick={submit}
+            disabled={renameEvidence.isPending || !canSave}
+          >
             {renameEvidence.isPending ? "Saving…" : "Save"}
           </Button>
         </>
@@ -816,7 +1026,12 @@ function RenameEvidenceDialog(props: {
         }}
       >
         <Field label="Session name">
-          <Input autoFocus value={value} onChange={(e) => setValue(e.currentTarget.value)} maxLength={200} />
+          <Input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.currentTarget.value)}
+            maxLength={200}
+          />
         </Field>
       </form>
     </Dialog>

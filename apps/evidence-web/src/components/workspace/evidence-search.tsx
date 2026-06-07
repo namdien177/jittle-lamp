@@ -10,7 +10,8 @@ import { useToast } from "../../toast";
 import { formatRelativeTime } from "../../utils";
 import { Spinner } from "../ui/misc";
 
-const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+const isMac =
+  typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
 
 export function EvidenceSearch(): React.JSX.Element {
   const [open, setOpen] = useState(false);
@@ -39,7 +40,7 @@ export function EvidenceSearch(): React.JSX.Element {
           <Search aria-hidden className="size-4" />
           <span className="hidden sm:inline">Search evidence…</span>
         </span>
-        <kbd className="hidden items-center gap-0.5 rounded border border-border-strong bg-background px-1.5 py-0.5 font-mono text-sm text-muted-foreground sm:inline-flex">
+        <kbd className="hidden items-center gap-0.5 rounded border border-border-strong bg-background px-1.5 py-0.5 font-mono text-muted-foreground sm:inline-flex">
           {isMac ? "⌘" : "Ctrl"}K
         </kbd>
       </button>
@@ -48,7 +49,11 @@ export function EvidenceSearch(): React.JSX.Element {
   );
 }
 
-function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element {
+function SearchPalette({
+  onClose,
+}: {
+  onClose: () => void;
+}): React.JSX.Element {
   const navigate = useNavigate();
   const toast = useToast();
   const evidencesQuery = useEvidences({ limit: 100 });
@@ -64,7 +69,11 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q
-      ? all.filter((e) => [e.title, e.sourceType, e.id].some((f) => f.toLowerCase().includes(q)))
+      ? all.filter((e) =>
+          [e.title, e.sourceType, e.id].some((f) =>
+            f.toLowerCase().includes(q),
+          ),
+        )
       : all;
     return [...list].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 50);
   }, [all, query]);
@@ -92,8 +101,11 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
       {
         onSuccess: () => toast.success("Evidence renamed", title),
         onError: (error) =>
-          toast.error("Rename failed", error instanceof Error ? error.message : undefined)
-      }
+          toast.error(
+            "Rename failed",
+            error instanceof Error ? error.message : undefined,
+          ),
+      },
     );
   };
 
@@ -115,14 +127,22 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
   };
 
   return (
-    <BaseDialog.Root open onOpenChange={(next) => (!next ? onClose() : undefined)}>
+    <BaseDialog.Root
+      open
+      onOpenChange={(next) => (!next ? onClose() : undefined)}
+    >
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-black/65 backdrop-blur-sm transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <BaseDialog.Viewport className="fixed inset-0 z-[901] flex items-start justify-center overflow-y-auto p-4 pt-[12vh] [pointer-events:none]">
           <BaseDialog.Popup className="pointer-events-auto flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border-strong bg-popover text-popover-foreground shadow-pop transition-[opacity,transform] duration-150 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0">
-            <BaseDialog.Title className="sr-only">Search evidence</BaseDialog.Title>
+            <BaseDialog.Title className="sr-only">
+              Search evidence
+            </BaseDialog.Title>
             <div className="flex items-center gap-2.5 border-b border-border px-4">
-              <Search aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <Search
+                aria-hidden
+                className="size-4 shrink-0 text-muted-foreground"
+              />
               {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
               <input
                 autoFocus
@@ -143,12 +163,19 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
               </button>
             </div>
 
-            <div ref={listRef} className="jl-scroll max-h-[min(24rem,55vh)] overflow-y-auto p-1.5">
+            <div
+              ref={listRef}
+              className="jl-scroll max-h-[min(24rem,55vh)] overflow-y-auto p-1.5"
+            >
               {evidencesQuery.isPending ? (
-                <p className="px-3 py-8 text-center text-base text-muted-foreground">Loading evidence…</p>
+                <p className="px-3 py-8 text-center text-base text-muted-foreground">
+                  Loading evidence…
+                </p>
               ) : results.length === 0 ? (
                 <p className="px-3 py-8 text-center text-base text-muted-foreground">
-                  {all.length === 0 ? "No evidence in this workspace yet." : "No matches found."}
+                  {all.length === 0
+                    ? "No evidence in this workspace yet."
+                    : "No matches found."}
                 </p>
               ) : (
                 results.map((evidence, index) => {
@@ -160,7 +187,7 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
                       onMouseEnter={() => setSelected(index)}
                       className={cn(
                         "group flex items-center gap-3 rounded-md px-2.5 py-2",
-                        active && !editing ? "bg-white/[0.06]" : ""
+                        active && !editing ? "bg-white/[0.06]" : "",
                       )}
                     >
                       <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-primary">
@@ -194,15 +221,19 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
                           <span className="w-full truncate text-base font-medium text-foreground">
                             {evidence.title}
                           </span>
-                          <span className="w-full truncate font-mono text-sm text-muted-foreground">
-                            {evidence.sourceType} · {evidence.id.slice(0, 16)}… ·{" "}
-                            {formatRelativeTime(evidence.updatedAt)}
+                          <span className="w-full truncate font-mono text-muted-foreground">
+                            {evidence.sourceType} · {evidence.id.slice(0, 16)}…
+                            · {formatRelativeTime(evidence.updatedAt)}
                           </span>
                         </button>
                       )}
                       {editing ? (
                         <span className="inline-flex size-7 items-center justify-center text-primary">
-                          {renameEvidence.isPending ? <Spinner /> : <Check className="size-4" aria-hidden />}
+                          {renameEvidence.isPending ? (
+                            <Spinner />
+                          ) : (
+                            <Check className="size-4" aria-hidden />
+                          )}
                         </span>
                       ) : (
                         <button
@@ -223,7 +254,7 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
               )}
             </div>
 
-            <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <CornerDownLeft className="size-3" aria-hidden /> open
               </span>

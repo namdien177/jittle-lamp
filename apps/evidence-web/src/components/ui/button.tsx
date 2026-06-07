@@ -14,37 +14,37 @@ export const buttonVariants = cva(
           "border border-border-strong bg-secondary text-secondary-foreground hover:bg-white/[0.06] hover:border-white/20",
         outline:
           "border border-border-strong bg-transparent text-foreground hover:bg-white/[0.04] hover:border-white/20",
-        ghost: "bg-transparent text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+        ghost:
+          "bg-transparent text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
         destructive:
           "border border-destructive/45 bg-transparent text-destructive hover:bg-destructive/12",
-        link: "text-primary underline-offset-4 hover:underline px-0"
+        link: "text-primary underline-offset-4 hover:underline px-0",
       },
       size: {
-        xs: "h-8 px-3 text-sm",
+        xs: "h-8 px-3 ",
         sm: "h-9 px-3.5",
         md: "h-10 px-4",
         lg: "h-11 px-6",
         icon: "size-10 p-0",
-        "icon-sm": "size-9 p-0"
-      }
+        "icon-sm": "size-9 p-0",
+      },
     },
-    defaultVariants: { variant: "primary", size: "md" }
-  }
+    defaultVariants: { variant: "primary", size: "md" },
+  },
 );
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof buttonVariants>;
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant, size, type, ...props },
-  ref
-) {
-  return (
-    <button
-      ref={ref}
-      type={type ?? "button"}
-      className={cn(buttonVariants({ variant, size }), className)}
-      {...props}
-    />
-  );
-});
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button({ className, variant, size, type, ...props }, ref) {
+    return (
+      <button
+        ref={ref}
+        type={type ?? "button"}
+        className={cn(buttonVariants({ variant, size }), className)}
+        {...props}
+      />
+    );
+  },
+);

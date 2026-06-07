@@ -1,6 +1,14 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { ArrowRight, Check, Copy, Network, PlayCircle, ShieldCheck, Terminal } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  Copy,
+  Network,
+  PlayCircle,
+  ShieldCheck,
+  Terminal,
+} from "lucide-react";
 
 import { PublicTopbar } from "../components/public-topbar";
 import { Button, buttonVariants } from "../components/ui/button";
@@ -21,47 +29,62 @@ function CopyInstall(): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border-strong bg-black/40 pl-3 pr-1.5 font-mono text-base">
       <Terminal aria-hidden className="size-4 shrink-0 text-primary" />
-      <code className="flex-1 truncate py-2.5 text-muted-foreground" title={INSTALL_COMMAND}>
+      <code
+        className="flex-1 truncate py-2.5 text-muted-foreground"
+        title={INSTALL_COMMAND}
+      >
         curl ... | bash
       </code>
       <button
         type="button"
         onClick={onCopy}
-        className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+        className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
       >
-        {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+        {copied ? (
+          <Check className="size-3.5 text-primary" aria-hidden />
+        ) : (
+          <Copy className="size-3.5" aria-hidden />
+        )}
         {copied ? "Copied" : "Copy"}
       </button>
     </div>
   );
 }
 
-const STEPS: Array<{ n: string; title: string; body: string; icon: React.ReactNode }> = [
+const STEPS: Array<{
+  n: string;
+  title: string;
+  body: string;
+  icon: React.ReactNode;
+}> = [
   {
     n: "01",
     title: "Capture",
     body: "Record the browser session the moment a bug appears — video, clicks, console, and network in one pass.",
-    icon: <PlayCircle aria-hidden />
+    icon: <PlayCircle aria-hidden />,
   },
   {
     n: "02",
     title: "Replay",
     body: "Scrub the timeline with every request and log lined up to the frame, so nothing gets lost in translation.",
-    icon: <Network aria-hidden />
+    icon: <Network aria-hidden />,
   },
   {
     n: "03",
     title: "Hand off",
     body: "Share a scoped, organisation-only link. Reviewers see the same evidence — no “works on my machine”.",
-    icon: <ShieldCheck aria-hidden />
-  }
+    icon: <ShieldCheck aria-hidden />,
+  },
 ];
 
 export function LandingPage(): React.JSX.Element {
   const navigate = useNavigate();
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
-      <div aria-hidden className="pointer-events-none absolute inset-0 grid-backdrop opacity-[0.5]" />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 grid-backdrop opacity-[0.5]"
+      />
       <div
         aria-hidden
         className="pointer-events-none absolute -top-40 left-1/2 h-[70vh] w-[80vw] max-w-5xl -translate-x-1/2 rounded-full bg-primary/10 blur-[140px]"
@@ -74,7 +97,8 @@ export function LandingPage(): React.JSX.Element {
           <section className="grid items-center gap-12 py-16 sm:py-24 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="animate-rise space-y-7">
               <Badge variant="brand" className="px-2.5 py-1">
-                <span className="size-1.5 rounded-full bg-primary" /> Evidence when bugs happen
+                <span className="size-1.5 rounded-full bg-primary" /> Evidence
+                when bugs happen
               </Badge>
               <h1 className="font-display text-5xl font-extrabold leading-[0.95] tracking-tight text-foreground sm:text-6xl lg:text-7xl">
                 Capture the bug.
@@ -82,21 +106,27 @@ export function LandingPage(): React.JSX.Element {
                 <span className="text-primary">Prove the fix.</span>
               </h1>
               <p className="max-w-xl text-lg leading-relaxed text-muted-foreground">
-                Jittle Lamp turns a flaky browser moment into a shareable trail — screen recording,
-                timeline, console, and network requests bundled into one piece of evidence your whole
-                QA team can review.
+                Jittle Lamp turns a flaky browser moment into a shareable trail
+                — screen recording, timeline, console, and network requests
+                bundled into one piece of evidence your whole QA team can
+                review.
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 <Button size="lg" onClick={() => navigate("/quick-view")}>
                   Open a session
                   <ArrowRight aria-hidden />
                 </Button>
-                <Link to="/" className={cn(buttonVariants({ variant: "outline", size: "lg" }))}>
+                <Link
+                  to="/"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "lg" }),
+                  )}
+                >
                   Go to workspace
                 </Link>
               </div>
               <div className="max-w-md space-y-2 pt-2">
-                <p className="text-sm font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                <p className=" font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   Install the desktop companion
                 </p>
                 <CopyInstall />
@@ -109,7 +139,10 @@ export function LandingPage(): React.JSX.Element {
           </section>
 
           {/* How it works */}
-          <section className="border-t border-border py-16" aria-label="How Jittle Lamp works">
+          <section
+            className="border-t border-border py-16"
+            aria-label="How Jittle Lamp works"
+          >
             <div className="grid gap-6 md:grid-cols-3">
               {STEPS.map((step, i) => (
                 <div
@@ -121,10 +154,16 @@ export function LandingPage(): React.JSX.Element {
                     <span className="flex size-10 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary [&_svg]:size-5">
                       {step.icon}
                     </span>
-                    <span className="font-mono text-base text-muted-foreground/60">{step.n}</span>
+                    <span className="font-mono text-base text-muted-foreground/60">
+                      {step.n}
+                    </span>
                   </div>
-                  <h3 className="mt-4 font-display text-lg font-semibold tracking-tight">{step.title}</h3>
-                  <p className="mt-1.5 text-base leading-relaxed text-muted-foreground">{step.body}</p>
+                  <h3 className="mt-4 font-display text-lg font-semibold tracking-tight">
+                    {step.title}
+                  </h3>
+                  <p className="mt-1.5 text-base leading-relaxed text-muted-foreground">
+                    {step.body}
+                  </p>
                 </div>
               ))}
             </div>
@@ -132,7 +171,10 @@ export function LandingPage(): React.JSX.Element {
 
           <footer className="flex flex-col items-center justify-between gap-3 border-t border-border py-8 text-base text-muted-foreground sm:flex-row">
             <span>© {new Date().getFullYear()} Jittle Lamp</span>
-            <Link to="/privacy" className="transition-colors hover:text-foreground">
+            <Link
+              to="/privacy"
+              className="transition-colors hover:text-foreground"
+            >
               Privacy
             </Link>
           </footer>
@@ -149,7 +191,7 @@ function MockReviewer(): React.JSX.Element {
     { t: "0:05", label: "Click “Submit order”", tone: "act" as const },
     { t: "0:06", label: "POST /api/orders", tone: "err" as const },
     { t: "0:06", label: "TypeError: cart is null", tone: "err" as const },
-    { t: "0:09", label: "GET /api/retry", tone: "ok" as const }
+    { t: "0:09", label: "GET /api/retry", tone: "ok" as const },
   ];
   return (
     <div className="overflow-hidden rounded-2xl border border-border-strong bg-card shadow-pop">
@@ -157,7 +199,7 @@ function MockReviewer(): React.JSX.Element {
         <span className="size-2.5 rounded-full bg-destructive/70" />
         <span className="size-2.5 rounded-full bg-warning/70" />
         <span className="size-2.5 rounded-full bg-primary/70" />
-        <span className="ml-2 truncate font-mono text-sm text-muted-foreground">
+        <span className="ml-2 truncate font-mono text-muted-foreground">
           checkout-regression.webm
         </span>
       </div>
@@ -165,7 +207,11 @@ function MockReviewer(): React.JSX.Element {
         <div className="relative aspect-[4/3] border-r border-border bg-[radial-gradient(circle_at_50%_40%,#15201a,#0a0b0c)]">
           <div className="absolute inset-0 grid-backdrop opacity-40" />
           <div className="absolute inset-0 grid place-items-center">
-            <PlayCircle className="size-12 text-primary/80" aria-hidden strokeWidth={1.5} />
+            <PlayCircle
+              className="size-12 text-primary/80"
+              aria-hidden
+              strokeWidth={1.5}
+            />
           </div>
           <div className="absolute inset-x-3 bottom-3 h-1.5 rounded-full bg-white/10">
             <div className="h-full w-1/2 rounded-full bg-primary" />
@@ -176,12 +222,16 @@ function MockReviewer(): React.JSX.Element {
             <li
               key={i}
               className={cn(
-                "flex items-center gap-2 px-3 py-2.5 text-sm",
-                row.tone === "err" ? "text-destructive" : "text-muted-foreground",
-                i === 2 && "bg-primary/[0.06]"
+                "flex items-center gap-2 px-3 py-2.5 ",
+                row.tone === "err"
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+                i === 2 && "bg-primary/[0.06]",
               )}
             >
-              <span className="font-mono text-sm text-muted-foreground/60">{row.t}</span>
+              <span className="font-mono text-muted-foreground/60">
+                {row.t}
+              </span>
               <span className="truncate">{row.label}</span>
             </li>
           ))}

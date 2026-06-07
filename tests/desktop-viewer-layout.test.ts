@@ -1,12 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+
+import { viewerModalStyles as css } from "../packages/viewer-react/src/viewer-modal/styles";
 
 describe("viewer modal layout CSS", () => {
-  const css = readFileSync(
-    join(import.meta.dir, "..", "packages", "viewer-react", "src", "viewer-modal", "styles.ts"),
-    "utf8"
-  );
 
   test("modal occupies ~90% of the viewport on each axis", () => {
     expect(css).toMatch(/\.jl-vm-modal\s*\{[\s\S]*?width:\s*min\(90vw,[^)]+\);/);

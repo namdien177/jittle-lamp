@@ -9,6 +9,7 @@ import {
 	formatClerkDisplayName,
 	resolveClerkUserProfile,
 } from "../services/clerk-user-profile";
+import { normalizeOrganizationRoleKey } from "../services/organization-permissions";
 
 type ClerkUserSummary = {
 	id: string;
@@ -112,7 +113,7 @@ export const createProtectedRoutes = (auth: ClerkAuthPlugin) =>
 					const organizations = memberships.map((membership) => ({
 						id: membership.organization.id,
 						name: membership.organization.name,
-						role: membership.role,
+						role: normalizeOrganizationRoleKey(membership.role),
 						isPersonal: membership.organization.isPersonal,
 						isActive: membership.organization.id === authContext.activeOrgId,
 					}));

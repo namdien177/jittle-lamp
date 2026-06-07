@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 
 import { organizationMembers, organizations, users } from "../db/schema";
+import { ensureDefaultOrganizationRoles } from "./organization-permissions";
 import type { BackendDb } from "./user-provisioning";
 
 export type ResolvedActiveOrganization = {
@@ -107,12 +108,14 @@ export const resolveActiveOrganizationForClerkUser = async (
 		return null;
 	}
 
+	await ensureDefaultOrganizationRoles(db, ownedPersonalOrganization.id);
+
 	await db
 		.insert(organizationMembers)
 		.values({
 			organizationId: ownedPersonalOrganization.id,
 			userId: localUser.id,
-			role: "owner",
+			role: "admin",
 		})
 		.onConflictDoNothing();
 

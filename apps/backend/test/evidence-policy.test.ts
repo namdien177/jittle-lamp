@@ -251,12 +251,12 @@ describe("team policy extensibility", () => {
 			{
 				organizationId: sourceOrganization.id,
 				userId: user.id,
-				role: "owner",
+				role: "admin",
 			},
 			{
 				organizationId: targetOrganization.id,
 				userId: user.id,
-				role: "member",
+				role: "qa_engineer",
 			},
 		]);
 

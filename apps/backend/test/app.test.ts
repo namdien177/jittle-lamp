@@ -13,6 +13,7 @@ import {
 	evidenceArtifacts,
 	evidenceComments,
 	evidences,
+	organizationJoinRequests,
 	organizationMembers,
 	organizations,
 	provisioningEvents,
@@ -26,6 +27,9 @@ import {
 import {
 	acceptInvitationByToken,
 	createOrganizationInvitationCode,
+	reviewOrganizationJoinRequest,
+	updateOrganizationRolePermissions,
+	updateOrganizationSettings,
 } from "../src/services/organization-management";
 import {
 	ensureUserAndPersonalOrganization,
@@ -332,7 +336,7 @@ describe("routes", () => {
 		await db.insert(organizationMembers).values({
 			organizationId: teamOrganization.id,
 			userId: provisioned.userId,
-			role: "member",
+			role: "developer",
 		});
 		await db
 			.update(users)
@@ -382,14 +386,14 @@ describe("routes", () => {
 		expect(payload.organizations).toContainEqual({
 			id: provisioned.organizationId,
 			name: "My Space",
-			role: "owner",
+			role: "admin",
 			isPersonal: true,
 			isActive: false,
 		});
 		expect(payload.organizations).toContainEqual({
 			id: teamOrganization.id,
 			name: "Team Settings",
-			role: "member",
+			role: "developer",
 			isPersonal: false,
 			isActive: true,
 		});
@@ -731,12 +735,14 @@ describe("routes", () => {
 			CLERK_AUDIENCE: "test-audience",
 		});
 
+		const activityFrom = Date.now() - 1000;
 		const startResponse = await app.handle(
 			new Request("http://localhost/evidences/uploads/start", {
 				method: "POST",
 				headers: {
 					"content-type": "application/json",
 					authorization: `Bearer ${token}`,
+					"x-forwarded-for": "203.0.113.10, 10.0.0.2",
 				},
 				body: JSON.stringify({
 					title: "Team upload draft",
@@ -811,6 +817,37 @@ describe("routes", () => {
 			columns: { uploadStatus: true },
 		});
 		expect(storedArtifact?.uploadStatus).toBe("uploaded");
+
+		const activityResponse = await app.handle(
+			new Request(
+				`http://localhost/orgs/${provisioned.organizationId}/activity?action=evidence.created&userId=${provisioned.userId}&from=${activityFrom}&to=${Date.now() + 1000}`,
+				{ headers: { authorization: `Bearer ${token}` } },
+			),
+		);
+		expect(activityResponse.status).toBe(200);
+		const activityPayload = (await activityResponse.json()) as {
+			logs: Array<{
+				action: string;
+				actorUserId: string | null;
+				entityType: string;
+				entityId: string | null;
+				message: string;
+				metadata: Record<string, unknown>;
+				ipAddress: string | null;
+			}>;
+		};
+		expect(activityPayload.logs).toHaveLength(1);
+		expect(activityPayload.logs[0]).toMatchObject({
+			action: "evidence.created",
+			actorUserId: provisioned.userId,
+			entityType: "evidence",
+			entityId: startPayload.evidenceId,
+			message: "Created evidence session",
+			ipAddress: "203.0.113.10",
+		});
+		expect(activityPayload.logs[0]?.metadata.entityUrl).toBe(
+			`/evidence/${startPayload.evidenceId}`,
+		);
 	});
 
 	it("uses forwarded proxy origin when returning blob upload URLs", async () => {
@@ -1349,7 +1386,7 @@ describe("routes", () => {
 			rawPayload: { userId: "user_clerk_abc" },
 		});
 
-		expect(firstProvision.membershipRole).toBe("owner");
+		expect(firstProvision.membershipRole).toBe("admin");
 		expect(firstProvision.eventId).toBeString();
 		expect(secondProvision.userId).toBe(firstProvision.userId);
 		expect(secondProvision.organizationId).toBe(firstProvision.organizationId);
@@ -1380,7 +1417,7 @@ describe("routes", () => {
 		const code = await createOrganizationInvitationCode(db, {
 			organizationId: owner.organizationId,
 			label: "LittleLives onboarding",
-			role: "member",
+			role: "developer",
 			createdBy: owner.userId,
 			password: "secret",
 			emailDomain: "littlelives.com",
@@ -1403,7 +1440,8 @@ describe("routes", () => {
 			userEmail: "person@littlelives.com",
 		});
 		expect(accepted.organizationId).toBe(owner.organizationId);
-		expect(accepted.role).toBe("member");
+		expect(accepted.role).toBe("developer");
+		expect(accepted.status).toBe("accepted");
 
 		const membership = await db.query.organizationMembers.findFirst({
 			where: and(
@@ -1413,8 +1451,115 @@ describe("routes", () => {
 			columns: { organizationId: true, role: true, guestExpiresAt: true },
 		});
 		expect(membership?.organizationId).toBe(owner.organizationId);
-		expect(membership?.role).toBe("member");
+		expect(membership?.role).toBe("developer");
 		expect(membership?.guestExpiresAt).toBeNumber();
+	});
+
+	it("queues invitation-code joins when organization approval is required", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_approval_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_approval_owner" },
+		});
+		const joiner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_approval_joiner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_approval_joiner" },
+		});
+
+		await updateOrganizationSettings(db, {
+			organizationId: owner.organizationId,
+			requireInvitationApproval: true,
+		});
+		const code = await createOrganizationInvitationCode(db, {
+			organizationId: owner.organizationId,
+			label: "Approval required",
+			role: "qa_engineer",
+			createdBy: owner.userId,
+		});
+
+		const accepted = await acceptInvitationByToken(db, {
+			token: code.code,
+			localUserId: joiner.userId,
+			userEmail: "person@example.com",
+		});
+		expect(accepted.status).toBe("pending_approval");
+
+		const pendingRequest = await db.query.organizationJoinRequests.findFirst({
+			where: and(
+				eq(organizationJoinRequests.organizationId, owner.organizationId),
+				eq(organizationJoinRequests.userId, joiner.userId),
+			),
+			columns: { id: true, requestedRole: true, status: true },
+		});
+		expect(pendingRequest?.requestedRole).toBe("qa_engineer");
+		expect(pendingRequest?.status).toBe("pending");
+
+		const membershipBeforeApproval =
+			await db.query.organizationMembers.findFirst({
+				where: and(
+					eq(organizationMembers.userId, joiner.userId),
+					eq(organizationMembers.organizationId, owner.organizationId),
+				),
+				columns: { id: true },
+			});
+		expect(membershipBeforeApproval).toBeUndefined();
+
+		if (!pendingRequest) throw new Error("Expected pending join request");
+		await reviewOrganizationJoinRequest(db, {
+			organizationId: owner.organizationId,
+			requestId: pendingRequest.id,
+			reviewerLocalUserId: owner.userId,
+			decision: "approved",
+		});
+
+		const membershipAfterApproval =
+			await db.query.organizationMembers.findFirst({
+				where: and(
+					eq(organizationMembers.userId, joiner.userId),
+					eq(organizationMembers.organizationId, owner.organizationId),
+				),
+				columns: { role: true },
+			});
+		expect(membershipAfterApproval?.role).toBe("qa_engineer");
+	});
+
+	it("does not allow admin-only permissions on non-admin roles", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_admin_only_role_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_admin_only_role_owner" },
+		});
+
+		await expect(
+			updateOrganizationRolePermissions(db, {
+				organizationId: owner.organizationId,
+				role: "moderator",
+				permissions: [
+					"evidence.view",
+					"invitations.disable",
+					"invitations.create",
+				],
+			}),
+		).rejects.toThrow("Only the Admin role can hold admin-only permissions.");
 	});
 
 	it("only retries failed provisioning for the same Clerk user", async () => {
@@ -1480,7 +1625,7 @@ describe("routes", () => {
 		await db.insert(organizationMembers).values({
 			organizationId: teamOrganization.id,
 			userId: provisioned.userId,
-			role: "member",
+			role: "qa_engineer",
 		});
 
 		const { privateKey, jwtKey } = await getAuthFixture();

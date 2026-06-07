@@ -1,7 +1,14 @@
 import React, { useState } from "react";
 import { useClerk } from "@clerk/clerk-react";
 import { Link } from "react-router";
-import { Building2, Check, Copy, ExternalLink, Terminal, UserCog } from "lucide-react";
+import {
+  Building2,
+  Check,
+  Copy,
+  ExternalLink,
+  Terminal,
+  UserCog,
+} from "lucide-react";
 
 import { PageBody, PageHeader } from "../components/page";
 import { Button, buttonVariants } from "../components/ui/button";
@@ -62,7 +69,10 @@ export function SettingsPage(): React.JSX.Element {
         description="Manage your account, active workspace, and the desktop companion."
       />
       <PageBody className="max-w-3xl">
-        <SettingCard title="Account" description="Your profile is managed by Clerk.">
+        <SettingCard
+          title="Account"
+          description="Your profile is managed by Clerk."
+        >
           {profileQuery.isPending ? (
             <Skeleton className="h-12 w-full" />
           ) : (
@@ -82,9 +92,15 @@ export function SettingsPage(): React.JSX.Element {
                 <p className="truncate text-base font-semibold text-foreground">
                   {profile?.user.displayName ?? "Signed in"}
                 </p>
-                <p className="truncate text-base text-muted-foreground">{profile?.user.email ?? "—"}</p>
+                <p className="truncate text-base text-muted-foreground">
+                  {profile?.user.email ?? "—"}
+                </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => clerk.openUserProfile()}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => clerk.openUserProfile()}
+              >
                 <UserCog aria-hidden />
                 Manage account
               </Button>
@@ -105,11 +121,16 @@ export function SettingsPage(): React.JSX.Element {
                 {activeOrg?.name ?? "No active workspace"}
               </p>
               <p className="text-base text-muted-foreground">
-                {profile ? `${profile.organizations.length} organisation${profile.organizations.length === 1 ? "" : "s"}` : "—"}
+                {profile
+                  ? `${profile.organizations.length} organisation${profile.organizations.length === 1 ? "" : "s"}`
+                  : "—"}
               </p>
             </div>
             {activeOrg ? <Badge variant="brand">{activeOrg.role}</Badge> : null}
-            <Link to="/organisations" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
+            <Link
+              to="/organisations"
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+            >
               Switch
             </Link>
           </div>
@@ -121,15 +142,22 @@ export function SettingsPage(): React.JSX.Element {
         >
           <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
             <Terminal aria-hidden className="size-4 shrink-0 text-primary" />
-            <code className="flex-1 truncate py-2.5 text-muted-foreground" title={INSTALL_COMMAND}>
+            <code
+              className="flex-1 truncate py-2.5 text-muted-foreground"
+              title={INSTALL_COMMAND}
+            >
               curl ... | bash
             </code>
             <button
               type="button"
               onClick={onCopy}
-              className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+              className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
             >
-              {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+              {copied ? (
+                <Check className="size-3.5 text-primary" aria-hidden />
+              ) : (
+                <Copy className="size-3.5" aria-hidden />
+              )}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
@@ -137,7 +165,10 @@ export function SettingsPage(): React.JSX.Element {
             href="https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh"
             target="_blank"
             rel="noreferrer"
-            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "mt-3")}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "mt-3",
+            )}
           >
             Get the browser extension
             <ExternalLink aria-hidden />

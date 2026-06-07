@@ -1,7 +1,11 @@
 import { and, eq, isNull } from "drizzle-orm";
 
-import { organizationMembers } from "../db/schema";
+import { type OrganizationPermission, organizationMembers } from "../db/schema";
 
+import {
+	getOrganizationRolePermissions,
+	normalizeOrganizationRoleKey,
+} from "./organization-permissions";
 import type { BackendDb } from "./user-provisioning";
 
 type TeamEvidenceAccessPolicyContext = {
@@ -82,24 +86,7 @@ const authorizeTeamMoveAction = async (
 	});
 };
 
-const hasOrgMembership = async (
-	db: BackendDb,
-	organizationId: string,
-	userId: string,
-): Promise<boolean> => {
-	const membership = await db.query.organizationMembers.findFirst({
-		where: and(
-			eq(organizationMembers.organizationId, organizationId),
-			eq(organizationMembers.userId, userId),
-			isNull(organizationMembers.teamId),
-		),
-		columns: { id: true },
-	});
-
-	return Boolean(membership);
-};
-
-const resolveSourceMembershipRole = async (
+const resolveOrgMembershipRole = async (
 	db: BackendDb,
 	organizationId: string,
 	userId: string,
@@ -116,6 +103,21 @@ const resolveSourceMembershipRole = async (
 	return membership?.role ?? null;
 };
 
+const memberHasPermission = async (
+	db: BackendDb,
+	organizationId: string,
+	userId: string,
+	permission: OrganizationPermission,
+): Promise<boolean> => {
+	const role = await resolveOrgMembershipRole(db, organizationId, userId);
+	if (!role) return false;
+	const permissions = await getOrganizationRolePermissions(db, {
+		organizationId,
+		role: normalizeOrganizationRoleKey(role),
+	});
+	return permissions.has(permission);
+};
+
 export const createEvidencePolicy = (deps: EvidencePolicyDeps = {}) => {
 	const teamPolicyAdapter = deps.teamPolicyAdapter ?? defaultTeamPolicyAdapter;
 
@@ -124,10 +126,11 @@ export const createEvidencePolicy = (deps: EvidencePolicyDeps = {}) => {
 			db: BackendDb,
 			context: EvidenceAccessContext,
 		): Promise<boolean> => {
-			const hasMembership = await hasOrgMembership(
+			const hasMembership = await memberHasPermission(
 				db,
 				context.organizationId,
 				context.userId,
+				"evidence.view",
 			);
 			if (!hasMembership) {
 				return false;
@@ -139,10 +142,11 @@ export const createEvidencePolicy = (deps: EvidencePolicyDeps = {}) => {
 			db: BackendDb,
 			context: EvidenceAccessContext,
 		): Promise<boolean> => {
-			const hasMembership = await hasOrgMembership(
+			const hasMembership = await memberHasPermission(
 				db,
 				context.organizationId,
 				context.userId,
+				"evidence.download",
 			);
 			if (!hasMembership) {
 				return false;
@@ -154,27 +158,36 @@ export const createEvidencePolicy = (deps: EvidencePolicyDeps = {}) => {
 			db: BackendDb,
 			context: EvidenceMoveContext,
 		): Promise<boolean> => {
-			const [hasSourceMembership, hasTargetMembership, sourceRole] =
-				await Promise.all([
-					hasOrgMembership(db, context.sourceOrganizationId, context.userId),
-					hasOrgMembership(db, context.targetOrganizationId, context.userId),
-					resolveSourceMembershipRole(
-						db,
-						context.sourceOrganizationId,
-						context.userId,
-					),
-				]);
+			const [canMoveOwn, canMoveAny, hasTargetMembership] = await Promise.all([
+				memberHasPermission(
+					db,
+					context.sourceOrganizationId,
+					context.userId,
+					"evidence.move.own",
+				),
+				memberHasPermission(
+					db,
+					context.sourceOrganizationId,
+					context.userId,
+					"evidence.move.any",
+				),
+				memberHasPermission(
+					db,
+					context.targetOrganizationId,
+					context.userId,
+					"evidence.create",
+				),
+			]);
 
-			if (!hasSourceMembership || !hasTargetMembership) {
+			if (!hasTargetMembership) {
 				return false;
 			}
 
-			const isSourceOwner = sourceRole === "owner";
 			if (
 				!(
-					context.isEvidenceCreator ||
-					context.isSourceOrganizationCreator ||
-					isSourceOwner
+					canMoveAny ||
+					(canMoveOwn &&
+						(context.isEvidenceCreator || context.isSourceOrganizationCreator))
 				)
 			) {
 				return false;

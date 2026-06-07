@@ -28,6 +28,11 @@ export const organizations = sqliteTable(
 				onDelete: "cascade",
 			},
 		),
+		requireInvitationApproval: integer("require_invitation_approval", {
+			mode: "boolean",
+		})
+			.notNull()
+			.default(false),
 		createdAt: integer("created_at")
 			.notNull()
 			.$defaultFn(() => Date.now()),
@@ -53,4 +58,5 @@ export const createOrganizationInputSchema = z.object({
 	name: z.string().trim().min(1),
 	isPersonal: z.boolean(),
 	personalOwnerUserId: z.string().uuid().nullable(),
+	requireInvitationApproval: z.boolean().optional(),
 });

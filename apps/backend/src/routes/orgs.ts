@@ -15,6 +15,11 @@ import {
 	resolveClerkUserProfile,
 } from "../services/clerk-user-profile";
 import {
+	getRequestIpAddress,
+	listOrganizationActivityLogs,
+	recordOrganizationActivity,
+} from "../services/organization-activity";
+import {
 	acceptInvitationByToken,
 	createOrganization,
 	createOrganizationInvitation,
@@ -26,20 +31,30 @@ import {
 	leaveOrganization,
 	listOrganizationInvitationCodes,
 	listOrganizationInvitations,
+	listOrganizationJoinRequests,
 	listOrganizationMembers,
+	listOrganizationRoles,
 	listOrganizationsForUser,
 	lookupInvitationCode,
 	removeOrganizationMember,
 	renameOrganization,
+	reviewOrganizationJoinRequest,
 	revokeOrganizationInvitation,
 	setOrganizationInvitationCodeLocked,
 	updateOrganizationMemberRole,
+	updateOrganizationRolePermissions,
+	updateOrganizationSettings,
 } from "../services/organization-management";
+import {
+	allOrganizationPermissions,
+	organizationMemberHasPermission,
+} from "../services/organization-permissions";
 
 const roleSchema = t.Union([
-	t.Literal("owner"),
+	t.Literal("admin"),
 	t.Literal("moderator"),
-	t.Literal("member"),
+	t.Literal("developer"),
+	t.Literal("qa_engineer"),
 ]);
 
 const organizationSummarySchema = t.Object({
@@ -47,6 +62,7 @@ const organizationSummarySchema = t.Object({
 	name: t.String({ minLength: 1 }),
 	role: t.String({ minLength: 1 }),
 	isPersonal: t.Boolean(),
+	requireInvitationApproval: t.Boolean(),
 	memberCount: t.Number({ minimum: 0 }),
 	createdAt: t.Number(),
 	joinedAt: t.Number(),
@@ -83,7 +99,7 @@ const invitationSummarySchema = t.Object({
 const invitationCodeSchema = t.Object({
 	id: t.String({ minLength: 1 }),
 	label: t.String({ minLength: 1 }),
-	role: t.Union([t.Literal("moderator"), t.Literal("member")]),
+	role: roleSchema,
 	hasPassword: t.Boolean(),
 	emailDomain: t.Union([t.String({ minLength: 1 }), t.Null()]),
 	expiresAt: t.Union([t.Number(), t.Null()]),
@@ -103,7 +119,7 @@ const createdInvitationCodeSchema = t.Composite([
 
 const createInvitationBodySchema = t.Object({
 	email: t.String({ format: "email", minLength: 3, maxLength: 200 }),
-	role: t.Optional(roleSchema),
+	role: roleSchema,
 	ttlMs: t.Optional(
 		t.Number({ minimum: 60_000, maximum: 1000 * 60 * 60 * 24 * 60 }),
 	),
@@ -111,7 +127,7 @@ const createInvitationBodySchema = t.Object({
 
 const createInvitationCodeBodySchema = t.Object({
 	label: t.String({ minLength: 1, maxLength: 80 }),
-	role: t.Optional(t.Union([t.Literal("moderator"), t.Literal("member")])),
+	role: roleSchema,
 	password: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
 	emailDomain: t.Optional(
 		t.Union([t.String({ minLength: 3, maxLength: 120 }), t.Null()]),
@@ -120,6 +136,51 @@ const createInvitationCodeBodySchema = t.Object({
 	guestExpiresAfterDays: t.Optional(
 		t.Union([t.Number({ minimum: 1, maximum: 365 }), t.Null()]),
 	),
+});
+
+const rolePermissionSchema = t.Union(
+	allOrganizationPermissions.map((permission) => t.Literal(permission)) as [
+		ReturnType<typeof t.Literal>,
+		ReturnType<typeof t.Literal>,
+		...Array<ReturnType<typeof t.Literal>>,
+	],
+);
+
+const organizationRoleSchema = t.Object({
+	key: roleSchema,
+	name: t.String({ minLength: 1 }),
+	permissions: t.Array(rolePermissionSchema),
+	isSystem: t.Boolean(),
+	updatedAt: t.Number(),
+});
+
+const joinRequestSchema = t.Object({
+	id: t.String({ minLength: 1 }),
+	organizationId: t.String({ minLength: 1 }),
+	userId: t.String({ minLength: 1 }),
+	clerkUserId: t.String({ minLength: 1 }),
+	displayName: t.String({ minLength: 1 }),
+	email: t.Union([t.String({ minLength: 1 }), t.Null()]),
+	requestedRole: t.String({ minLength: 1 }),
+	status: t.Union([
+		t.Literal("pending"),
+		t.Literal("approved"),
+		t.Literal("rejected"),
+	]),
+	createdAt: t.Number(),
+});
+
+const activityLogSchema = t.Object({
+	id: t.String({ minLength: 1 }),
+	organizationId: t.String({ minLength: 1 }),
+	actorUserId: t.Union([t.String({ minLength: 1 }), t.Null()]),
+	action: t.String({ minLength: 1 }),
+	entityType: t.String({ minLength: 1 }),
+	entityId: t.Union([t.String({ minLength: 1 }), t.Null()]),
+	message: t.String({ minLength: 1 }),
+	metadata: t.Record(t.String(), t.Unknown()),
+	ipAddress: t.Union([t.String({ minLength: 1 }), t.Null()]),
+	createdAt: t.Number(),
 });
 
 const acceptInvitationBodySchema = t.Object({
@@ -217,7 +278,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.patch(
 					"/orgs/:orgId",
-					async ({ authContext, body, db, params, requestId, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -245,6 +314,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						await renameOrganization(db, {
 							organizationId: params.orgId,
 							name: body.name,
+						});
+						await recordOrganizationActivity(db, {
+							organizationId: params.orgId,
+							actorUserId: localUserId,
+							action: "organization.renamed",
+							entity: { type: "organization", id: params.orgId },
+							message: `Renamed organization to ${body.name}`,
+							metadata: { name: body.name },
+							ipAddress: getRequestIpAddress(request),
 						});
 						return { organizationId: params.orgId, name: body.name };
 					},
@@ -297,7 +375,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/orgs/:orgId/leave",
-					async ({ authContext, db, params, requestId, set }) => {
+					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -312,6 +390,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							await leaveOrganization(db, {
 								organizationId: params.orgId,
 								localUserId,
+							});
+							await recordOrganizationActivity(db, {
+								organizationId: params.orgId,
+								actorUserId: localUserId,
+								action: "organization.member.left",
+								entity: { type: "member", id: localUserId },
+								message: "Left organization",
+								metadata: { userId: localUserId },
+								ipAddress: getRequestIpAddress(request),
 							});
 							return { ok: true };
 						} catch (error) {
@@ -389,9 +476,10 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							role: t.Optional(
 								t.Union([
 									t.Literal("all"),
-									t.Literal("owner"),
+									t.Literal("admin"),
 									t.Literal("moderator"),
-									t.Literal("member"),
+									t.Literal("developer"),
+									t.Literal("qa_engineer"),
 								]),
 							),
 							page: t.Optional(t.Number({ minimum: 1 })),
@@ -413,7 +501,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.patch(
 					"/orgs/:orgId/members/:membershipId",
-					async ({ authContext, body, db, params, requestId, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -431,6 +527,18 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 								membershipId: params.membershipId,
 								role: body.role,
 							});
+							await recordOrganizationActivity(db, {
+								organizationId: params.orgId,
+								actorUserId: localUserId,
+								action: "organization.member.role_updated",
+								entity: { type: "member", id: params.membershipId },
+								message: `Assigned member role ${body.role}`,
+								metadata: {
+									membershipId: params.membershipId,
+									role: body.role,
+								},
+								ipAddress: getRequestIpAddress(request),
+							});
 							return { ok: true };
 						} catch (error) {
 							set.status = 400;
@@ -447,7 +555,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 					{
 						params: t.Object({ orgId: t.String(), membershipId: t.String() }),
 						body: t.Object({
-							role: t.Union([t.Literal("moderator"), t.Literal("member")]),
+							role: roleSchema,
 						}),
 						response: {
 							200: t.Object({ ok: t.Boolean() }),
@@ -460,7 +568,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.delete(
 					"/orgs/:orgId/members/:membershipId",
-					async ({ authContext, db, params, requestId, set }) => {
+					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -476,6 +584,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 								organizationId: params.orgId,
 								actorLocalUserId: localUserId,
 								membershipId: params.membershipId,
+							});
+							await recordOrganizationActivity(db, {
+								organizationId: params.orgId,
+								actorUserId: localUserId,
+								action: "organization.member.removed",
+								entity: { type: "member", id: params.membershipId },
+								message: "Removed member from organization",
+								metadata: { membershipId: params.membershipId },
+								ipAddress: getRequestIpAddress(request),
 							});
 							return { ok: true };
 						} catch (error) {
@@ -495,6 +612,378 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						response: {
 							200: t.Object({ ok: t.Boolean() }),
 							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.patch(
+					"/orgs/:orgId/settings",
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const localUserId = requireLocalUser(
+							authContext.localUserId,
+							requestId,
+							set,
+						);
+						if (typeof localUserId !== "string") return localUserId;
+						if (
+							!(await ensureOrganizationOwner(db, {
+								organizationId: params.orgId,
+								localUserId: localUserId,
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"ORG_SETTINGS_FORBIDDEN",
+								"Only admins can update organization settings",
+								403,
+							);
+						}
+						const settings = await updateOrganizationSettings(db, {
+							organizationId: params.orgId,
+							requireInvitationApproval: body.requireInvitationApproval,
+						});
+						await recordOrganizationActivity(db, {
+							organizationId: params.orgId,
+							actorUserId: localUserId,
+							action: "organization.settings.updated",
+							entity: { type: "organization", id: params.orgId },
+							message: "Updated organization settings",
+							metadata: settings,
+							ipAddress: getRequestIpAddress(request),
+						});
+						return { settings };
+					},
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						body: t.Object({ requireInvitationApproval: t.Boolean() }),
+						response: {
+							200: t.Object({
+								settings: t.Object({
+									organizationId: t.String({ minLength: 1 }),
+									requireInvitationApproval: t.Boolean(),
+								}),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.get(
+					"/orgs/:orgId/roles",
+					async ({ authContext, db, params, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const localUserId = requireLocalUser(
+							authContext.localUserId,
+							requestId,
+							set,
+						);
+						if (typeof localUserId !== "string") return localUserId;
+						if (
+							!(await ensureOrganizationMember(db, {
+								organizationId: params.orgId,
+								localUserId,
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"ORG_MEMBERSHIP_REQUIRED",
+								"You must be a member of this organization",
+								403,
+							);
+						}
+						return {
+							permissions: [...allOrganizationPermissions],
+							roles: await listOrganizationRoles(db, params.orgId),
+						};
+					},
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						response: {
+							200: t.Object({
+								permissions: t.Array(rolePermissionSchema),
+								roles: t.Array(organizationRoleSchema),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.patch(
+					"/orgs/:orgId/roles/:role",
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const localUserId = requireLocalUser(
+							authContext.localUserId,
+							requestId,
+							set,
+						);
+						if (typeof localUserId !== "string") return localUserId;
+						if (
+							!(await ensureOrganizationOwner(db, {
+								organizationId: params.orgId,
+								localUserId: localUserId,
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"ORG_ROLE_MANAGE_FORBIDDEN",
+								"Only admins can update role permissions",
+								403,
+							);
+						}
+						try {
+							const role = await updateOrganizationRolePermissions(db, {
+								organizationId: params.orgId,
+								role: params.role,
+								permissions: body.permissions as string[],
+							});
+							await recordOrganizationActivity(db, {
+								organizationId: params.orgId,
+								actorUserId: localUserId,
+								action: "organization.role.updated",
+								entity: { type: "role", id: role.key },
+								message: `Updated ${role.name} permissions`,
+								metadata: { role: role.key, permissions: role.permissions },
+								ipAddress: getRequestIpAddress(request),
+							});
+							return { role };
+						} catch (error) {
+							set.status = 400;
+							return createApiError(
+								requestId,
+								"ORG_ROLE_UPDATE_FAILED",
+								error instanceof Error
+									? error.message
+									: "Unable to update role",
+								400,
+							);
+						}
+					},
+					{
+						params: t.Object({
+							orgId: t.String({ minLength: 1 }),
+							role: roleSchema,
+						}),
+						body: t.Object({ permissions: t.Array(rolePermissionSchema) }),
+						response: {
+							200: t.Object({ role: organizationRoleSchema }),
+							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.get(
+					"/orgs/:orgId/join-requests",
+					async ({ authContext, db, params, requestId, runtime, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const localUserId = requireLocalUser(
+							authContext.localUserId,
+							requestId,
+							set,
+						);
+						if (typeof localUserId !== "string") return localUserId;
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: params.orgId,
+								localUserId,
+								permission: "join_requests.manage",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"ORG_JOIN_REQUESTS_FORBIDDEN",
+								"Only moderators and admins can view join requests",
+								403,
+							);
+						}
+						return {
+							requests: await listOrganizationJoinRequests(db, {
+								organizationId: params.orgId,
+								runtime,
+							}),
+						};
+					},
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						response: {
+							200: t.Object({ requests: t.Array(joinRequestSchema) }),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.post(
+					"/orgs/:orgId/join-requests/:joinRequestId/review",
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const localUserId = requireLocalUser(
+							authContext.localUserId,
+							requestId,
+							set,
+						);
+						if (typeof localUserId !== "string") return localUserId;
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: params.orgId,
+								localUserId,
+								permission: "join_requests.manage",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"ORG_JOIN_REQUESTS_FORBIDDEN",
+								"Only moderators and admins can review join requests",
+								403,
+							);
+						}
+						const review = await reviewOrganizationJoinRequest(db, {
+							organizationId: params.orgId,
+							requestId: params.joinRequestId,
+							reviewerLocalUserId: localUserId,
+							decision: body.decision,
+						});
+						await recordOrganizationActivity(db, {
+							organizationId: params.orgId,
+							actorUserId: localUserId,
+							action: `organization.join_request.${review.status}`,
+							entity: { type: "join_request", id: review.requestId },
+							message: `${review.status === "approved" ? "Approved" : "Rejected"} join request`,
+							metadata: review,
+							ipAddress: getRequestIpAddress(request),
+						});
+						return { review };
+					},
+					{
+						params: t.Object({
+							orgId: t.String({ minLength: 1 }),
+							joinRequestId: t.String({ minLength: 1 }),
+						}),
+						body: t.Object({
+							decision: t.Union([t.Literal("approved"), t.Literal("rejected")]),
+						}),
+						response: {
+							200: t.Object({
+								review: t.Object({
+									requestId: t.String({ minLength: 1 }),
+									status: t.Union([
+										t.Literal("approved"),
+										t.Literal("rejected"),
+									]),
+								}),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.get(
+					"/orgs/:orgId/activity",
+					async ({ authContext, db, params, query, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const localUserId = requireLocalUser(
+							authContext.localUserId,
+							requestId,
+							set,
+						);
+						if (typeof localUserId !== "string") return localUserId;
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: params.orgId,
+								localUserId,
+								permission: "activity.view",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"ORG_ACTIVITY_FORBIDDEN",
+								"Only moderators and admins can view activity logs",
+								403,
+							);
+						}
+						return await listOrganizationActivityLogs(db, {
+							organizationId: params.orgId,
+							userId: query.userId,
+							action: query.action,
+							from: query.from,
+							to: query.to,
+							page: query.page,
+							limit: query.limit,
+						});
+					},
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						query: t.Object({
+							userId: t.Optional(t.String({ minLength: 1 })),
+							action: t.Optional(t.String({ minLength: 1 })),
+							from: t.Optional(t.Number({ minimum: 0 })),
+							to: t.Optional(t.Number({ minimum: 0 })),
+							page: t.Optional(t.Number({ minimum: 1 })),
+							limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
+						}),
+						response: {
+							200: t.Object({
+								logs: t.Array(activityLogSchema),
+								page: t.Number({ minimum: 1 }),
+								limit: t.Number({ minimum: 1 }),
+							}),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							503: apiErrorSchema,
@@ -524,7 +1013,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							return createApiError(
 								requestId,
 								"ORG_MANAGER_REQUIRED",
-								"Only owners and moderators can manage invitations",
+								"Only permitted members can manage invitations",
 								403,
 							);
 						}
@@ -549,7 +1038,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/orgs/:orgId/invitations",
-					async ({ authContext, body, db, params, requestId, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -561,7 +1058,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						);
 						if (typeof localUserId !== "string") return localUserId;
 						if (
-							!(await ensureOrganizationManager(db, {
+							!(await ensureOrganizationOwner(db, {
 								organizationId: params.orgId,
 								localUserId: localUserId,
 							}))
@@ -569,17 +1066,26 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							set.status = 403;
 							return createApiError(
 								requestId,
-								"ORG_MANAGER_REQUIRED",
-								"Only owners and moderators can create invitations",
+								"ORG_INVITATION_CREATE_FORBIDDEN",
+								"Only admins can create invitations",
 								403,
 							);
 						}
 						const invitation = await createOrganizationInvitation(db, {
 							organizationId: params.orgId,
 							email: body.email,
-							role: body.role ?? "member",
+							role: body.role,
 							invitedBy: localUserId,
 							...(body.ttlMs !== undefined ? { ttlMs: body.ttlMs } : {}),
+						});
+						await recordOrganizationActivity(db, {
+							organizationId: params.orgId,
+							actorUserId: localUserId,
+							action: "organization.invitation.created",
+							entity: { type: "invitation", id: invitation.id },
+							message: `Created invitation for ${invitation.email}`,
+							metadata: { role: invitation.role },
+							ipAddress: getRequestIpAddress(request),
 						});
 						return { invitation };
 					},
@@ -602,7 +1108,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/orgs/:orgId/invitation-codes",
-					async ({ authContext, body, db, params, requestId, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -614,7 +1128,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						);
 						if (typeof localUserId !== "string") return localUserId;
 						if (
-							!(await ensureOrganizationManager(db, {
+							!(await ensureOrganizationOwner(db, {
 								organizationId: params.orgId,
 								localUserId: localUserId,
 							}))
@@ -622,8 +1136,8 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							set.status = 403;
 							return createApiError(
 								requestId,
-								"ORG_MANAGER_REQUIRED",
-								"Only owners and moderators can create invitation codes",
+								"ORG_INVITATION_CREATE_FORBIDDEN",
+								"Only admins can create invitation codes",
 								403,
 							);
 						}
@@ -631,12 +1145,21 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							const code = await createOrganizationInvitationCode(db, {
 								organizationId: params.orgId,
 								label: body.label,
-								role: body.role ?? "member",
+								role: body.role,
 								createdBy: localUserId,
 								emailDomain: body.emailDomain ?? null,
 								expiresAt: body.expiresAt ?? null,
 								guestExpiresAfterDays: body.guestExpiresAfterDays ?? null,
 								...(body.password ? { password: body.password } : {}),
+							});
+							await recordOrganizationActivity(db, {
+								organizationId: params.orgId,
+								actorUserId: localUserId,
+								action: "organization.invitation_code.created",
+								entity: { type: "invitation_code", id: code.id },
+								message: `Created invitation link ${code.label}`,
+								metadata: { role: code.role },
+								ipAddress: getRequestIpAddress(request),
 							});
 							return { code };
 						} catch (error) {
@@ -665,7 +1188,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/orgs/:orgId/invitation-codes/:codeId/lock",
-					async ({ authContext, body, db, params, requestId, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -677,16 +1208,17 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						);
 						if (typeof localUserId !== "string") return localUserId;
 						if (
-							!(await ensureOrganizationOwner(db, {
+							!(await organizationMemberHasPermission(db, {
 								organizationId: params.orgId,
-								localUserId: localUserId,
+								localUserId,
+								permission: "invitations.disable",
 							}))
 						) {
 							set.status = 403;
 							return createApiError(
 								requestId,
-								"ORG_OWNER_REQUIRED",
-								"Only owners can lock invitation codes",
+								"ORG_INVITATION_DISABLE_FORBIDDEN",
+								"Only moderators and admins can disable invitation codes",
 								403,
 							);
 						}
@@ -704,6 +1236,17 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 								404,
 							);
 						}
+						await recordOrganizationActivity(db, {
+							organizationId: params.orgId,
+							actorUserId: localUserId,
+							action: body.locked
+								? "organization.invitation_code.locked"
+								: "organization.invitation_code.unlocked",
+							entity: { type: "invitation_code", id: code.id },
+							message: `${body.locked ? "Locked" : "Unlocked"} invitation link ${code.label}`,
+							metadata: { role: code.role, locked: body.locked },
+							ipAddress: getRequestIpAddress(request),
+						});
 						return { code };
 					},
 					{
@@ -720,7 +1263,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.delete(
 					"/orgs/:orgId/invitation-codes/:codeId",
-					async ({ authContext, db, params, requestId, set }) => {
+					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -732,22 +1275,32 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						);
 						if (typeof localUserId !== "string") return localUserId;
 						if (
-							!(await ensureOrganizationManager(db, {
+							!(await organizationMemberHasPermission(db, {
 								organizationId: params.orgId,
-								localUserId: localUserId,
+								localUserId,
+								permission: "invitations.disable",
 							}))
 						) {
 							set.status = 403;
 							return createApiError(
 								requestId,
-								"ORG_MANAGER_REQUIRED",
-								"Only owners and moderators can delete invitation codes",
+								"ORG_INVITATION_DISABLE_FORBIDDEN",
+								"Only moderators and admins can delete invitation codes",
 								403,
 							);
 						}
 						await deleteOrganizationInvitationCode(db, {
 							organizationId: params.orgId,
 							codeId: params.codeId,
+						});
+						await recordOrganizationActivity(db, {
+							organizationId: params.orgId,
+							actorUserId: localUserId,
+							action: "organization.invitation_code.deleted",
+							entity: { type: "invitation_code", id: params.codeId },
+							message: "Deleted invitation link",
+							metadata: { codeId: params.codeId },
+							ipAddress: getRequestIpAddress(request),
 						});
 						return { ok: true };
 					},
@@ -763,7 +1316,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/orgs/:orgId/invitations/:invitationId/revoke",
-					async ({ authContext, db, params, requestId, set }) => {
+					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -775,16 +1328,17 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						);
 						if (typeof localUserId !== "string") return localUserId;
 						if (
-							!(await ensureOrganizationManager(db, {
+							!(await organizationMemberHasPermission(db, {
 								organizationId: params.orgId,
-								localUserId: localUserId,
+								localUserId,
+								permission: "invitations.disable",
 							}))
 						) {
 							set.status = 403;
 							return createApiError(
 								requestId,
-								"ORG_MANAGER_REQUIRED",
-								"Only owners and moderators can revoke invitations",
+								"ORG_INVITATION_DISABLE_FORBIDDEN",
+								"Only moderators and admins can revoke invitations",
 								403,
 							);
 						}
@@ -801,6 +1355,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 								404,
 							);
 						}
+						await recordOrganizationActivity(db, {
+							organizationId: params.orgId,
+							actorUserId: localUserId,
+							action: "organization.invitation.revoked",
+							entity: { type: "invitation", id: revoked.id },
+							message: `Revoked invitation for ${revoked.email}`,
+							metadata: { role: revoked.role },
+							ipAddress: getRequestIpAddress(request),
+						});
 						return { invitation: revoked };
 					},
 					{
@@ -857,7 +1420,15 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/orgs/invitations/accept",
-					async ({ authContext, body, db, requestId, runtime, set }) => {
+					async ({
+						authContext,
+						body,
+						db,
+						request,
+						requestId,
+						runtime,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -879,6 +1450,27 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 								userEmail: profile.email,
 								...(body.password ? { password: body.password } : {}),
 							});
+							await recordOrganizationActivity(db, {
+								organizationId: result.organizationId,
+								actorUserId: localUserId,
+								action:
+									result.status === "accepted"
+										? "organization.invitation.accepted"
+										: "organization.join_request.created",
+								entity: {
+									type:
+										result.status === "accepted"
+											? "invitation"
+											: "invitation_code",
+									id: result.invitationId,
+								},
+								message:
+									result.status === "accepted"
+										? "Accepted organization invitation"
+										: "Requested to join organization",
+								metadata: { role: result.role, status: result.status },
+								ipAddress: getRequestIpAddress(request),
+							});
 							return result;
 						} catch (error) {
 							set.status = 400;
@@ -899,6 +1491,10 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 								organizationId: t.String(),
 								role: roleSchema,
 								invitationId: t.String(),
+								status: t.Union([
+									t.Literal("accepted"),
+									t.Literal("pending_approval"),
+								]),
 							}),
 							400: apiErrorSchema,
 							401: apiErrorSchema,

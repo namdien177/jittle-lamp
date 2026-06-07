@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/cn";
 
 export const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-sm font-medium leading-tight whitespace-nowrap [&_svg]:size-3.5",
+  "inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium leading-tight whitespace-nowrap [&_svg]:size-3.5",
   {
     variants: {
       variant: {
@@ -14,15 +14,22 @@ export const badgeVariants = cva(
         success: "border-primary/35 bg-primary/12 text-brand-300",
         warning: "border-warning/35 bg-warning/12 text-warning",
         danger: "border-destructive/40 bg-destructive/12 text-destructive",
-        muted: "border-transparent bg-white/[0.06] text-muted-foreground"
-      }
+        muted: "border-transparent bg-white/[0.06] text-muted-foreground",
+      },
     },
-    defaultVariants: { variant: "default" }
-  }
+    defaultVariants: { variant: "default" },
+  },
 );
 
-export type BadgeProps = React.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants>;
+export type BadgeProps = React.HTMLAttributes<HTMLSpanElement> &
+  VariantProps<typeof badgeVariants>;
 
-export function Badge({ className, variant, ...props }: BadgeProps): React.JSX.Element {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
+export function Badge({
+  className,
+  variant,
+  ...props
+}: BadgeProps): React.JSX.Element {
+  return (
+    <span className={cn(badgeVariants({ variant }), className)} {...props} />
+  );
 }

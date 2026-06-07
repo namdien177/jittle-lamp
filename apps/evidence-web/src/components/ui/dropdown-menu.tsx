@@ -28,7 +28,7 @@ export function DropdownMenu(props: {
             className={cn(
               "min-w-[12rem] overflow-hidden rounded-lg border border-border-strong bg-popover p-1 text-popover-foreground shadow-pop",
               "transition-[opacity,transform] data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
-              props.className
+              props.className,
             )}
           >
             {props.children}
@@ -54,7 +54,7 @@ export function DropdownMenuItem(props: {
         "data-[highlighted]:bg-white/[0.06] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         props.destructive
           ? "text-destructive data-[highlighted]:bg-destructive/12"
-          : "text-foreground"
+          : "text-foreground",
       )}
     >
       {props.children}
@@ -62,9 +62,11 @@ export function DropdownMenuItem(props: {
   );
 }
 
-export function DropdownMenuLabel(props: { children: React.ReactNode }): React.JSX.Element {
+export function DropdownMenuLabel(props: {
+  children: React.ReactNode;
+}): React.JSX.Element {
   return (
-    <div className="px-2.5 pb-1 pt-1.5 text-sm font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
+    <div className="px-2.5 pb-1 pt-1.5 font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
       {props.children}
     </div>
   );

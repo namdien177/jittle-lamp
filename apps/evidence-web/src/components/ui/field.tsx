@@ -9,8 +9,8 @@ export function Label({
   return (
     <label
       className={cn(
-        "text-sm font-semibold uppercase tracking-[0.06em] text-muted-foreground",
-        className
+        " font-semibold uppercase tracking-[0.06em] text-muted-foreground",
+        className,
       )}
       {...props}
     />
@@ -31,12 +31,14 @@ export function Field(props: {
 }): React.JSX.Element {
   return (
     <div className={cn("flex flex-col gap-1.5", props.className)}>
-      {props.label ? <Label htmlFor={props.htmlFor}>{props.label}</Label> : null}
+      {props.label ? (
+        <Label htmlFor={props.htmlFor}>{props.label}</Label>
+      ) : null}
       {props.children}
       {props.error ? (
-        <p className="text-sm font-medium text-destructive">{props.error}</p>
+        <p className=" font-medium text-destructive">{props.error}</p>
       ) : props.hint ? (
-        <p className="text-sm text-muted-foreground">{props.hint}</p>
+        <p className=" text-muted-foreground">{props.hint}</p>
       ) : null}
     </div>
   );

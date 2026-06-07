@@ -13,9 +13,10 @@ import { organizations } from "./organizations";
 import { users } from "./users";
 
 export const defaultOrganizationRoles = [
-	"owner",
+	"admin",
 	"moderator",
-	"member",
+	"developer",
+	"qa_engineer",
 ] as const;
 export const organizationRoleSchema = z.string().trim().min(1);
 export type OrganizationRole = z.infer<typeof organizationRoleSchema>;
@@ -33,7 +34,7 @@ export const organizationMembers = sqliteTable(
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
 		teamId: text("team_id"),
-		role: text("role").$type<OrganizationRole>().notNull().default("member"),
+		role: text("role").$type<OrganizationRole>().notNull().default("developer"),
 		guestExpiresAt: integer("guest_expires_at"),
 		invitationCodeId: text("invitation_code_id"),
 		createdAt: integer("created_at")

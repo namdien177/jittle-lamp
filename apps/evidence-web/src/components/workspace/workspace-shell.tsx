@@ -10,7 +10,7 @@ import {
   PanelLeft,
   Settings,
   Video,
-  X
+  X,
 } from "lucide-react";
 
 import { cn } from "../../lib/cn";
@@ -44,32 +44,43 @@ function useNavGroups(): NavGroup[] {
           to: "/evidence",
           label: "Evidence",
           icon: Video,
-          ...(evidenceCount !== undefined ? { count: evidenceCount } : {})
-        }
-      ]
+          ...(evidenceCount !== undefined ? { count: evidenceCount } : {}),
+        },
+      ],
     },
     {
       heading: "Library",
       items: [
-        { to: "/test-cases", label: "Test cases", icon: FlaskConical, soon: true },
-        { to: "/documents", label: "Documents", icon: FileText, soon: true }
-      ]
+        {
+          to: "/test-cases",
+          label: "Test cases",
+          icon: FlaskConical,
+          soon: true,
+        },
+        { to: "/documents", label: "Documents", icon: FileText, soon: true },
+      ],
     },
     {
       heading: "Tools",
-      items: [{ to: "/quick-view", label: "Quick view", icon: Archive }]
+      items: [{ to: "/quick-view", label: "Quick view", icon: Archive }],
     },
     {
       heading: "Organisation",
       items: [
         { to: "/organisations", label: "Organisations", icon: Building2 },
-        { to: "/settings", label: "Settings", icon: Settings }
-      ]
-    }
+        { to: "/settings", label: "Settings", icon: Settings },
+      ],
+    },
   ];
 }
 
-function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }): React.JSX.Element {
+function SidebarLink({
+  item,
+  onNavigate,
+}: {
+  item: NavItem;
+  onNavigate?: () => void;
+}): React.JSX.Element {
   const Icon = item.icon;
   return (
     <NavLink
@@ -81,7 +92,7 @@ function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
           "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-base font-medium transition-colors",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/80 hover:bg-white/[0.04] hover:text-foreground"
+            : "text-sidebar-foreground/80 hover:bg-white/[0.04] hover:text-foreground",
         )
       }
     >
@@ -91,16 +102,20 @@ function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
             aria-hidden
             className={cn(
               "size-[1.05rem] shrink-0 transition-colors",
-              isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+              isActive
+                ? "text-primary"
+                : "text-muted-foreground group-hover:text-foreground",
             )}
           />
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
           {item.soon ? (
-            <Badge variant="muted" className="px-1.5 py-0 text-sm uppercase">
+            <Badge variant="muted" className="px-1.5 py-0 uppercase">
               Soon
             </Badge>
           ) : item.count !== undefined ? (
-            <span className="font-mono text-sm tabular-nums text-muted-foreground">{item.count}</span>
+            <span className="font-mono tabular-nums text-muted-foreground">
+              {item.count}
+            </span>
           ) : null}
         </>
       )}
@@ -108,7 +123,11 @@ function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
   );
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }): React.JSX.Element {
+function SidebarContent({
+  onNavigate,
+}: {
+  onNavigate?: () => void;
+}): React.JSX.Element {
   const groups = useNavGroups();
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto px-3 py-5 jl-scroll">
@@ -118,11 +137,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): React.JSX.
       <nav className="flex flex-1 flex-col gap-5" aria-label="Workspace">
         {groups.map((group) => (
           <div key={group.heading} className="flex flex-col gap-1">
-            <p className="px-2.5 pb-1 text-sm font-semibold uppercase tracking-[0.09em] text-muted-foreground/70">
+            <p className="px-2.5 pb-1 font-semibold uppercase tracking-[0.09em] text-muted-foreground/70">
               {group.heading}
             </p>
             {group.items.map((item) => (
-              <SidebarLink key={item.to} item={item} {...(onNavigate ? { onNavigate } : {})} />
+              <SidebarLink
+                key={item.to}
+                item={item}
+                {...(onNavigate ? { onNavigate } : {})}
+              />
             ))}
           </div>
         ))}
@@ -131,7 +154,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): React.JSX.
   );
 }
 
-export function WorkspaceShell({ children }: { children: React.ReactNode }): React.JSX.Element {
+export function WorkspaceShell({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.JSX.Element {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
 

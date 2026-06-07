@@ -8,7 +8,13 @@ export function Table({
 }: React.TableHTMLAttributes<HTMLTableElement>): React.JSX.Element {
   return (
     <div className="w-full overflow-x-auto jl-scroll">
-      <table className={cn("w-full caption-bottom border-collapse text-base", className)} {...props} />
+      <table
+        className={cn(
+          "w-full caption-bottom border-collapse text-base",
+          className,
+        )}
+        {...props}
+      />
     </div>
   );
 }
@@ -17,7 +23,12 @@ export function TableHeader({
   className,
   ...props
 }: React.HTMLAttributes<HTMLTableSectionElement>): React.JSX.Element {
-  return <thead className={cn("[&_tr]:border-b [&_tr]:border-border", className)} {...props} />;
+  return (
+    <thead
+      className={cn("[&_tr]:border-b [&_tr]:border-border", className)}
+      {...props}
+    />
+  );
 }
 
 export function TableBody({
@@ -26,7 +37,10 @@ export function TableBody({
 }: React.HTMLAttributes<HTMLTableSectionElement>): React.JSX.Element {
   return (
     <tbody
-      className={cn("[&_tr:last-child]:border-0 [&_tr]:border-b [&_tr]:border-border", className)}
+      className={cn(
+        "[&_tr:last-child]:border-0 [&_tr]:border-b [&_tr]:border-border",
+        className,
+      )}
       {...props}
     />
   );
@@ -40,7 +54,7 @@ export function TableRow({
     <tr
       className={cn(
         "transition-colors hover:bg-white/[0.025] data-[active=true]:bg-primary/[0.06]",
-        className
+        className,
       )}
       {...props}
     />
@@ -54,8 +68,8 @@ export function TableHead({
   return (
     <th
       className={cn(
-        "h-11 px-4 text-left align-middle text-sm font-semibold uppercase tracking-[0.06em] text-muted-foreground",
-        className
+        "h-11 px-4 text-left align-middle font-semibold uppercase tracking-[0.06em] text-muted-foreground",
+        className,
       )}
       {...props}
     />
@@ -66,5 +80,7 @@ export function TableCell({
   className,
   ...props
 }: React.TdHTMLAttributes<HTMLTableCellElement>): React.JSX.Element {
-  return <td className={cn("px-4 py-3.5 align-middle", className)} {...props} />;
+  return (
+    <td className={cn("px-4 py-3.5 align-middle", className)} {...props} />
+  );
 }
