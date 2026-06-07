@@ -107,6 +107,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const autoScrollingRef = useRef(false);
   const localPlaybackUrlRef = useRef<string | null>(null);
+  const pendingRecoveredSeekSecondsRef = useRef<number | null>(null);
 
   const [mergeGroups, setMergeGroups] = useState<ActionMergeGroup[]>(loadedMergeGroups);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -126,6 +127,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
 
   useEffect(() => {
     setPlaybackVideoSrc(videoSrc);
+    pendingRecoveredSeekSecondsRef.current = null;
     return () => {
       if (localPlaybackUrlRef.current) {
         URL.revokeObjectURL(localPlaybackUrlRef.current);
@@ -334,6 +336,30 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const findNetworkItem = (rowId: string): TimelineItem | null =>
     loadedTimeline.find((item) => item.id === rowId) ?? null;
 
+  const seekAndPlayRecoveredVideo = (videoEl: HTMLVideoElement, targetSeconds: number): void => {
+    const seekAndPlay = (): void => {
+      const duration = Number.isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : targetSeconds;
+      videoEl.currentTime = Math.max(0, Math.min(targetSeconds, duration));
+      void videoEl.play().catch(() => undefined);
+    };
+
+    if (videoEl.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      seekAndPlay();
+      return;
+    }
+
+    videoEl.addEventListener("loadedmetadata", seekAndPlay, { once: true });
+    videoEl.load();
+  };
+
+  const handleVideoElementReady = (videoEl: HTMLVideoElement): void => {
+    const targetSeconds = pendingRecoveredSeekSecondsRef.current;
+    const localPlaybackUrl = localPlaybackUrlRef.current;
+    if (targetSeconds === null || !localPlaybackUrl || videoEl.src !== localPlaybackUrl) return;
+    pendingRecoveredSeekSecondsRef.current = null;
+    seekAndPlayRecoveredVideo(videoEl, targetSeconds);
+  };
+
   const ensureRecordingBytes = async (): Promise<Uint8Array | null> => {
     if (recordingBytes && recordingBytes.length > 0) return recordingBytes;
     const bytes = await fetchVideoBytes();
@@ -342,7 +368,12 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   };
 
   const recoverStalledVideoSeek = async (targetSeconds: number): Promise<void> => {
-    if (playbackVideoSrc && localPlaybackUrlRef.current === playbackVideoSrc) return;
+    if (playbackVideoSrc && localPlaybackUrlRef.current === playbackVideoSrc) {
+      pendingRecoveredSeekSecondsRef.current = null;
+      if (videoRef.current) seekAndPlayRecoveredVideo(videoRef.current, targetSeconds);
+      return;
+    }
+
     const bytes = await ensureRecordingBytes();
     if (!bytes || bytes.length === 0) {
       showFeedback("Unable to buffer recording for seeking.", "error");
@@ -354,23 +385,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     blobBytes.set(bytes);
     const blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "video/webm" }));
     localPlaybackUrlRef.current = blobUrl;
+    pendingRecoveredSeekSecondsRef.current = targetSeconds;
     setPlaybackVideoSrc(blobUrl);
-    const attachRecoveredSource = (): void => {
-      const videoEl = videoRef.current;
-      if (!videoEl) return;
-      const seekAndPlay = (): void => {
-        const duration = Number.isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : targetSeconds;
-        videoEl.currentTime = Math.max(0, Math.min(targetSeconds, duration));
-        void videoEl.play().catch(() => undefined);
-      };
-      if (videoEl.readyState >= HTMLMediaElement.HAVE_METADATA) {
-        seekAndPlay();
-        return;
-      }
-      videoEl.addEventListener("loadedmetadata", seekAndPlay, { once: true });
-      videoEl.load();
-    };
-    window.setTimeout(attachRecoveredSource, 0);
   };
 
   const handleDownloadZip = async (): Promise<void> => {
@@ -441,6 +457,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       videoRef={videoRef}
       videoSrc={playbackVideoSrc}
       videoDurationHintMs={videoDurationHintMs}
+      onVideoElementReady={handleVideoElementReady}
       notesValue=""
       notesReadOnly
       notesSaving={false}

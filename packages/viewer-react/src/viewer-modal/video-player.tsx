@@ -17,10 +17,18 @@ import { PLAYBACK_RATES, useVideoPlayer, type VideoPlayerProps } from "./use-vid
 
 export type { VideoPlayerProps } from "./use-video-player";
 
+function assignVideoRef(ref: React.RefObject<HTMLVideoElement | null>, videoEl: HTMLVideoElement | null): void {
+  (ref as { current: HTMLVideoElement | null }).current = videoEl;
+}
+
 export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   const player = useVideoPlayer(props);
   const VolumeIcon =
     player.muted || player.effectiveVolume === 0 ? VolumeX : player.effectiveVolume < 0.5 ? Volume1 : Volume2;
+  const setVideoRef = (videoEl: HTMLVideoElement | null): void => {
+    assignVideoRef(props.videoRef, videoEl);
+    if (videoEl) props.onVideoElementReady?.(videoEl);
+  };
 
   return (
     <div
@@ -35,7 +43,7 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
       <div className="jl-vm-video-inner">
         <video
           key={props.videoSrc ?? "empty-video"}
-          ref={props.videoRef}
+          ref={setVideoRef}
           src={props.videoSrc ?? undefined}
           playsInline
           preload="metadata"

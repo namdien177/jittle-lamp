@@ -7,12 +7,14 @@ export const PLAYBACK_RATES = [0.25, 0.5, 1, 1.5, 2] as const;
 const CONTROLS_HIDE_DELAY_MS = 2600;
 const SEEK_SETTLE_TOLERANCE_SECONDS = 0.35;
 const SEEK_RECOVERY_DELAY_MS = 900;
+const PLAYBACK_ADVANCE_TOLERANCE_SECONDS = 0.12;
 
 /** The subset of viewer props the player needs — a narrow, explicit contract. */
 export type VideoPlayerProps = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc?: string | null;
   videoDurationHintMs?: number;
+  onVideoElementReady?: (videoEl: HTMLVideoElement) => void;
   onVideoTimeUpdate: () => void;
   onVideoError?: () => void;
   onVideoSeekStall?: (targetSeconds: number) => void;
@@ -83,6 +85,7 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
   const [playbackPending, setPlaybackPending] = useState(false);
   const [scrubHover, setScrubHover] = useState<number | null>(null);
   const lastRequestedSeekRef = useRef<number | null>(null);
+  const playbackProofTargetRef = useRef<number | null>(null);
   const playAfterSeekRef = useRef(false);
   const seekRecoveryTimerRef = useRef<number | null>(null);
   const controlsHideTimerRef = useRef<number | null>(null);
@@ -126,6 +129,7 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
     setBuffered(0);
     setRecoveringSeek(false);
     lastRequestedSeekRef.current = null;
+    playbackProofTargetRef.current = null;
     playAfterSeekRef.current = false;
     if (seekRecoveryTimerRef.current !== null) {
       window.clearTimeout(seekRecoveryTimerRef.current);
@@ -143,16 +147,25 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
   const isNearRequestedSeek = (videoEl: HTMLVideoElement, targetSeconds: number): boolean =>
     Math.abs((videoEl.currentTime || 0) - targetSeconds) <= SEEK_SETTLE_TOLERANCE_SECONDS;
 
+  const hasAdvancedPastPlaybackTarget = (videoEl: HTMLVideoElement, targetSeconds: number): boolean =>
+    (videoEl.currentTime || 0) > targetSeconds + PLAYBACK_ADVANCE_TOLERANCE_SECONDS;
+
   const settleRequestedSeek = (videoEl: HTMLVideoElement): void => {
     const targetSeconds = lastRequestedSeekRef.current;
     if (targetSeconds === null || !isNearRequestedSeek(videoEl, targetSeconds)) return;
+    if (playbackProofTargetRef.current !== null && !hasAdvancedPastPlaybackTarget(videoEl, playbackProofTargetRef.current)) {
+      return;
+    }
     lastRequestedSeekRef.current = null;
+    playbackProofTargetRef.current = null;
     clearSeekRecoveryTimer();
     setRecoveringSeek(false);
   };
 
   const playIfRequestedAfterSeek = (videoEl: HTMLVideoElement): void => {
-    if (!playAfterSeekRef.current || lastRequestedSeekRef.current !== null) return;
+    const targetSeconds = lastRequestedSeekRef.current;
+    if (!playAfterSeekRef.current || (targetSeconds !== null && !isNearRequestedSeek(videoEl, targetSeconds))) return;
+    if (targetSeconds !== null) playbackProofTargetRef.current = targetSeconds;
     playAfterSeekRef.current = false;
     setPlaybackPending(true);
     if (videoEl.paused) {
@@ -173,7 +186,10 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
     setDuration(nextDuration);
     setPlaybackRate(videoEl.playbackRate || 1);
     if (!videoEl.paused && !videoEl.seeking && videoEl.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-      setPlaybackPending(false);
+      const proofTarget = playbackProofTargetRef.current;
+      if (proofTarget === null || hasAdvancedPastPlaybackTarget(videoEl, proofTarget)) {
+        setPlaybackPending(false);
+      }
     }
     if (videoEl.buffered.length > 0) {
       setBuffered(videoEl.buffered.end(videoEl.buffered.length - 1));
@@ -195,9 +211,13 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
       const targetSeconds = lastRequestedSeekRef.current;
       if (!videoEl || targetSeconds === null) return;
       const stillFarFromTarget = Math.abs((videoEl.currentTime || 0) - targetSeconds) > SEEK_SETTLE_TOLERANCE_SECONDS;
+      const proofTarget = playbackProofTargetRef.current;
+      const waitingForPlaybackProof =
+        proofTarget !== null && !videoEl.paused && !hasAdvancedPastPlaybackTarget(videoEl, proofTarget);
       const blocked =
         videoEl.seeking ||
         stillFarFromTarget ||
+        waitingForPlaybackProof ||
         (!videoEl.paused && videoEl.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
       if (!blocked) return;
       setRecoveringSeek(true);
@@ -211,6 +231,7 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
 
     if (playbackPending && !videoEl.paused) {
       playAfterSeekRef.current = true;
+      if (lastRequestedSeekRef.current !== null) playbackProofTargetRef.current = lastRequestedSeekRef.current;
       scheduleSeekRecovery();
       syncVideoState();
       revealControls();
@@ -219,13 +240,17 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
 
     if (videoEl.paused) {
       if (videoEl.readyState === 0) videoEl.load();
+      const requestedSeek = lastRequestedSeekRef.current;
+      if (requestedSeek !== null) {
+        playbackProofTargetRef.current = requestedSeek;
+        scheduleSeekRecovery();
+      }
       if (
-        lastRequestedSeekRef.current !== null &&
+        requestedSeek !== null &&
         (videoEl.seeking || videoEl.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
       ) {
         playAfterSeekRef.current = true;
         setPlaybackPending(true);
-        scheduleSeekRecovery();
         syncVideoState();
         revealControls();
         return;
@@ -234,6 +259,7 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
       void videoEl.play().then(syncVideoState).catch(syncVideoState);
     } else {
       playAfterSeekRef.current = false;
+      playbackProofTargetRef.current = null;
       setPlaybackPending(false);
       videoEl.pause();
     }
@@ -250,7 +276,12 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
     videoEl.currentTime = target;
     lastRequestedSeekRef.current = target;
     playAfterSeekRef.current = shouldResume;
-    if (shouldResume) setPlaybackPending(true);
+    if (shouldResume) {
+      playbackProofTargetRef.current = target;
+      setPlaybackPending(true);
+    } else {
+      playbackProofTargetRef.current = null;
+    }
     setCurrentTime(target);
     scheduleSeekRecovery();
     props.onVideoTimeUpdate();
@@ -265,7 +296,12 @@ export function useVideoPlayer(props: VideoPlayerProps): VideoPlayerController {
     videoEl.currentTime = target;
     lastRequestedSeekRef.current = target;
     playAfterSeekRef.current = shouldResume;
-    if (shouldResume) setPlaybackPending(true);
+    if (shouldResume) {
+      playbackProofTargetRef.current = target;
+      setPlaybackPending(true);
+    } else {
+      playbackProofTargetRef.current = null;
+    }
     setCurrentTime(target);
     scheduleSeekRecovery();
     props.onVideoTimeUpdate();

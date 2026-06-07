@@ -61,6 +61,7 @@ export type ViewerModalProps = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc?: string | null;
   videoDurationHintMs?: number;
+  onVideoElementReady?: (videoEl: HTMLVideoElement) => void;
   notesValue: string;
   notesReadOnly: boolean;
   notesSaving: boolean;
