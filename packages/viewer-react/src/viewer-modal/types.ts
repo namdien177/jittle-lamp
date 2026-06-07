@@ -61,8 +61,6 @@ export type ViewerModalProps = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc?: string | null;
   videoDurationHintMs?: number;
-  onVideoElementReady?: (videoEl: HTMLVideoElement) => void;
-  onVideoPlaybackRequested?: () => boolean | void;
   notesValue: string;
   notesReadOnly: boolean;
   notesSaving: boolean;
@@ -79,7 +77,6 @@ export type ViewerModalProps = {
   onSubmitDiscussion?: () => void;
   onVideoTimeUpdate: () => void;
   onVideoError?: () => void;
-  onVideoSeekStall?: (targetSeconds: number) => void;
 
   activeSection: TimelineSection;
   onSectionChange: (s: TimelineSection) => void;

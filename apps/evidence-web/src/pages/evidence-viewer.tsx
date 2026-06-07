@@ -200,7 +200,7 @@ function RemoteEvidenceLoader(props: {
       loadedTimeline={loaded.session.timeline}
       loadedMergeGroups={loaded.session.mergeGroups}
       videoSrc={loaded.session.videoUrl}
-      recordingBytesInitial={null}
+      recordingBytesInitial={loaded.session.recordingBytes}
       source={props.shareToken ? "share" : "cloud"}
       isOwner={!props.shareToken}
       shareLinkUrl={shareLinkUrl}

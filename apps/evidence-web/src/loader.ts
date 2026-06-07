@@ -47,18 +47,34 @@ export async function loadSessionZip(file: File): Promise<LoadedSession> {
 export async function loadRemoteSessionArtifacts(input: {
   archiveUrl: string;
   videoUrl: string;
+  bufferVideo?: boolean;
+  signal?: AbortSignal;
 }): Promise<LoadedSession> {
-  const response = await fetch(input.archiveUrl);
+  const fetchInit = input.signal ? { signal: input.signal } : undefined;
+  const response = await fetch(input.archiveUrl, fetchInit);
   if (!response.ok) {
     throw new Error(`Unable to load session archive (${response.status}).`);
   }
 
   const archive = parseSessionArchiveJson(await response.text());
+  const recordingArtifact = archive.artifacts.find((artifact) => artifact.kind === "recording.webm");
+  let videoUrl = input.videoUrl;
+  let recordingBytes = new Uint8Array();
+
+  if (input.bufferVideo) {
+    const videoResponse = await fetch(input.videoUrl, fetchInit);
+    if (!videoResponse.ok) {
+      throw new Error(`Unable to load recording (${videoResponse.status}).`);
+    }
+    recordingBytes = new Uint8Array(await videoResponse.arrayBuffer());
+    const stableBytes = Uint8Array.from(recordingBytes);
+    videoUrl = URL.createObjectURL(new Blob([stableBytes], { type: recordingArtifact?.mimeType || "video/webm" }));
+  }
 
   return {
     archive,
-    videoUrl: input.videoUrl,
-    recordingBytes: new Uint8Array(),
+    videoUrl,
+    recordingBytes,
     timeline: deriveTimeline(archive),
     mergeGroups: getArchiveMergeGroups(archive)
   };

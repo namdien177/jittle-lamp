@@ -688,9 +688,15 @@ export type RemoteEvidenceResult =
   | { kind: "loaded"; data: RemoteEvidenceData }
   | { kind: "restricted"; orgName: string };
 
+function shouldBufferRemoteVideoForPlayback(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /\bFirefox\//.test(navigator.userAgent);
+}
+
 async function fetchRemoteEvidence(
   getToken: FetchToken,
   locator: { shareToken?: string; remoteEvidenceId?: string },
+  signal?: AbortSignal,
 ): Promise<RemoteEvidenceResult> {
   let evidenceId: string;
   let orgId: string | undefined;
@@ -735,6 +741,8 @@ async function fetchRemoteEvidence(
   const session = await loadRemoteSessionArtifacts({
     archiveUrl: archiveReadUrl.url,
     videoUrl: videoReadUrl.url,
+    bufferVideo: shouldBufferRemoteVideoForPlayback(),
+    ...(signal ? { signal } : {}),
   });
 
   return {
@@ -764,7 +772,7 @@ export function useRemoteEvidence(locator: {
     Boolean(locator.shareToken || locator.remoteEvidenceId);
   return useQuery<RemoteEvidenceResult>({
     queryKey: queryKeys.remoteEvidence(locator),
-    queryFn: () => fetchRemoteEvidence(getToken, locator),
+    queryFn: ({ signal }) => fetchRemoteEvidence(getToken, locator, signal),
     enabled,
     staleTime: Infinity,
     gcTime: 5 * 60_000,
