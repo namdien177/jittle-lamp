@@ -17,6 +17,11 @@ export type LoadedSession = {
   mergeGroups: ActionMergeGroup[];
 };
 
+function createVideoBlob(bytes: Uint8Array, mimeType: string): Blob {
+  const stableBytes = Uint8Array.from(bytes);
+  return new Blob([stableBytes], { type: mimeType });
+}
+
 export class WebSessionZipLoader implements SessionLoader<File, LoadedSession> {
   async load(file: File): Promise<LoadedSession> {
     const buffer = await file.arrayBuffer();
@@ -26,8 +31,7 @@ export class WebSessionZipLoader implements SessionLoader<File, LoadedSession> {
     const archive = parseSessionArchiveJson(archiveJson);
 
     const recordingArtifact = archive.artifacts.find((artifact) => artifact.kind === "recording.webm");
-    const stableBuffer = Uint8Array.from(recordingWebm).buffer;
-    const blob = new Blob([stableBuffer], { type: recordingArtifact?.mimeType || "video/webm" });
+    const blob = createVideoBlob(recordingWebm, recordingArtifact?.mimeType || "video/webm");
     const videoUrl = URL.createObjectURL(blob);
 
     return {
@@ -67,8 +71,8 @@ export async function loadRemoteSessionArtifacts(input: {
       throw new Error(`Unable to load recording (${videoResponse.status}).`);
     }
     recordingBytes = new Uint8Array(await videoResponse.arrayBuffer());
-    const stableBytes = Uint8Array.from(recordingBytes);
-    videoUrl = URL.createObjectURL(new Blob([stableBytes], { type: recordingArtifact?.mimeType || "video/webm" }));
+    const blob = createVideoBlob(recordingBytes, recordingArtifact?.mimeType || "video/webm");
+    videoUrl = URL.createObjectURL(blob);
   }
 
   return {
