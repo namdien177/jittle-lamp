@@ -33,6 +33,8 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
     onVideoTimeUpdate: props.onVideoTimeUpdate,
     onVideoError: props.onVideoError
   });
+  const durationHintMsRef = useRef(props.videoDurationHintMs);
+  durationHintMsRef.current = props.videoDurationHintMs;
   latestCallbacksRef.current = {
     onVideoTimeUpdate: props.onVideoTimeUpdate,
     onVideoError: props.onVideoError
@@ -49,26 +51,50 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
       responsive: true,
       preload: "metadata",
       playbackRates,
-      controlBar: {
-        pictureInPictureToggle: false,
-        remainingTimeDisplay: false
-      },
-      sources: []
-    });
+          controlBar: {
+            currentTimeDisplay: true,
+            durationDisplay: true,
+            liveDisplay: false,
+            pictureInPictureToggle: false,
+            progressControl: true,
+            seekToLive: false,
+            remainingTimeDisplay: false
+          },
+          liveui: false,
+          sources: []
+        });
     playerRef.current = player;
 
+    const syncArchivedDuration = (): void => {
+      const durationHintMs = durationHintMsRef.current;
+      if (!durationHintMs || durationHintMs <= 0) return;
+
+      const durationHintSeconds = durationHintMs / 1000;
+      const currentDuration = player.duration();
+      if (currentDuration === undefined || !Number.isFinite(currentDuration) || currentDuration <= 0) {
+        player.duration(durationHintSeconds);
+      }
+      player.removeClass("vjs-live");
+      player.removeClass("vjs-liveui");
+    };
     const handleTimeUpdate = (): void => latestCallbacksRef.current.onVideoTimeUpdate();
+    const handleDurationChange = (): void => {
+      syncArchivedDuration();
+      handleTimeUpdate();
+    };
     const handleError = (): void => latestCallbacksRef.current.onVideoError?.();
 
     player.on("timeupdate", handleTimeUpdate);
     player.on("seeked", handleTimeUpdate);
-    player.on("loadedmetadata", handleTimeUpdate);
+    player.on("durationchange", handleDurationChange);
+    player.on("loadedmetadata", handleDurationChange);
     player.on("error", handleError);
 
     return () => {
       player.off("timeupdate", handleTimeUpdate);
       player.off("seeked", handleTimeUpdate);
-      player.off("loadedmetadata", handleTimeUpdate);
+      player.off("durationchange", handleDurationChange);
+      player.off("loadedmetadata", handleDurationChange);
       player.off("error", handleError);
       player.dispose();
       playerRef.current = null;
