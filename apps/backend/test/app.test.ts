@@ -11,6 +11,7 @@ import {
 	desktopAuthFlows,
 	deviceSessions,
 	evidenceArtifacts,
+	evidenceComments,
 	evidences,
 	organizationMembers,
 	organizations,
@@ -1908,6 +1909,124 @@ describe("routes", () => {
 		expect(payload.evidences[0]?.id).toBe(
 			inserted.find((row) => row.createdBy === recorderA.userId)?.id,
 		);
+	});
+
+	it("allows evidence members to add and list discussion comments", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_comments_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_comments_owner" },
+		});
+		const outsider = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_comments_outsider",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_comments_outsider" },
+		});
+
+		const [evidence] = await db
+			.insert(evidences)
+			.values({
+				orgId: owner.organizationId,
+				createdBy: owner.userId,
+				title: "Discussable evidence",
+				sourceType: "browser",
+				scopeType: "organization",
+				scopeId: owner.organizationId,
+			})
+			.returning({ id: evidences.id });
+		if (!evidence) {
+			throw new Error("Expected evidence to be created");
+		}
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const signToken = (subject: string) =>
+			new SignJWT({ scope: "read write" })
+				.setProtectedHeader({ alg: "RS256" })
+				.setSubject(subject)
+				.setAudience("test-audience")
+				.setIssuedAt()
+				.setExpirationTime("5m")
+				.sign(privateKey);
+
+		const ownerToken = await signToken("user_clerk_comments_owner");
+		const outsiderToken = await signToken("user_clerk_comments_outsider");
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const createResponse = await app.handle(
+			new Request(`http://localhost/evidences/${evidence.id}/comments`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${ownerToken}`,
+				},
+				body: JSON.stringify({ body: " Please check this transition. " }),
+			}),
+		);
+		expect(createResponse.status).toBe(200);
+		const createPayload = (await createResponse.json()) as {
+			comment: {
+				id: string;
+				body: string;
+				createdBy: string;
+				authorLabel: string;
+				createdAt: number;
+			};
+		};
+		expect(createPayload.comment.body).toBe("Please check this transition.");
+		expect(createPayload.comment.createdBy).toBe(owner.userId);
+		expect(createPayload.comment.authorLabel).toBe(
+			`User ${owner.userId.slice(0, 8)}`,
+		);
+		expect(createPayload.comment.createdAt).toBeNumber();
+
+		const listResponse = await app.handle(
+			new Request(`http://localhost/evidences/${evidence.id}/comments`, {
+				headers: { authorization: `Bearer ${ownerToken}` },
+			}),
+		);
+		expect(listResponse.status).toBe(200);
+		const listPayload = (await listResponse.json()) as {
+			comments: Array<{ id: string; body: string }>;
+		};
+		expect(listPayload.comments).toMatchObject([
+			{ id: createPayload.comment.id, body: "Please check this transition." },
+		]);
+
+		const outsiderResponse = await app.handle(
+			new Request(`http://localhost/evidences/${evidence.id}/comments`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${outsiderToken}`,
+				},
+				body: JSON.stringify({ body: "I should not get in" }),
+			}),
+		);
+		expect(outsiderResponse.status).toBe(404);
+
+		const stored = await db.query.evidenceComments.findMany({
+			where: eq(evidenceComments.evidenceId, evidence.id),
+			columns: { body: true },
+		});
+		expect(stored).toEqual([{ body: "Please check this transition." }]);
+		expect(outsider.organizationId).not.toBe(owner.organizationId);
 	});
 
 	it("enforces internal-only share link resolution and revoke flow", async () => {

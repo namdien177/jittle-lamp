@@ -42,6 +42,13 @@ export type ViewerModalFeedback = {
   text: string;
 };
 
+export type ViewerDiscussionComment = {
+  id: string;
+  body: string;
+  authorLabel: string;
+  createdAt: number;
+};
+
 export type ViewerContextMenuState = {
   open: boolean;
   x: number;
@@ -82,6 +89,7 @@ export type ViewerModalProps = {
   closeLabel?: string;
 
   title: string;
+  titleMeta?: string | null;
   tags: string[];
   source: ViewerSource;
   isOwner: boolean;
@@ -94,6 +102,7 @@ export type ViewerModalProps = {
 
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc?: string | null;
+  videoDurationHintMs?: number;
   notesValue: string;
   notesReadOnly: boolean;
   notesSaving: boolean;
@@ -101,6 +110,13 @@ export type ViewerModalProps = {
   notesNotice?: string | null;
   onNotesChange: (v: string) => void;
   onSaveNotes: () => void;
+  discussionComments?: ViewerDiscussionComment[];
+  discussionValue?: string;
+  discussionReadOnly?: boolean;
+  discussionSaving?: boolean;
+  discussionNotice?: string | null;
+  onDiscussionChange?: (v: string) => void;
+  onSubmitDiscussion?: () => void;
   onVideoTimeUpdate: () => void;
   onVideoError?: () => void;
 
@@ -255,7 +271,10 @@ function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
   return (
     <header className="jl-vm-header">
       <div className="jl-vm-header-left">
-        <span className="jl-vm-title">{props.title}</span>
+        <div className="jl-vm-heading">
+          <span className="jl-vm-title">{props.title}</span>
+          {props.titleMeta ? <span className="jl-vm-title-meta">{props.titleMeta}</span> : null}
+        </div>
         {props.tags.length > 0 ? (
           <span className="jl-vm-tags">
             {props.tags.map((tag) => (
@@ -306,32 +325,82 @@ function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
 }
 
 function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
+  const hasDiscussion = props.discussionComments !== undefined;
+
   return (
     <div className="jl-vm-left">
       <EvidenceVideoPlayer {...props} />
-      <div className="jl-vm-notes">
-        <div className="jl-vm-notes-label">
-          <span>Session notes</span>
-          {!props.notesReadOnly ? (
+      {hasDiscussion ? (
+        <div className="jl-vm-discussion">
+          <div className="jl-vm-notes-label">
+            <span>Discussion</span>
+            {props.discussionSaving ? <span className="jl-vm-saving">Saving...</span> : null}
+          </div>
+          {props.discussionNotice ? <div className="jl-vm-notes-notice">{props.discussionNotice}</div> : null}
+          <div className="jl-vm-comments" aria-label="Evidence discussion comments">
+            {props.discussionComments?.length ? (
+              props.discussionComments.map((comment) => (
+                <article key={comment.id} className="jl-vm-comment">
+                  <div className="jl-vm-comment-meta">
+                    <span>{comment.authorLabel}</span>
+                    <time dateTime={new Date(comment.createdAt).toISOString()}>
+                      {formatCommentTime(comment.createdAt)}
+                    </time>
+                  </div>
+                  <p>{comment.body}</p>
+                </article>
+              ))
+            ) : (
+              <div className="jl-vm-empty-line">No comments yet.</div>
+            )}
+          </div>
+          <div className="jl-vm-composer">
+            <textarea
+              className="jl-vm-notes-textarea"
+              placeholder="Leave a comment..."
+              value={props.discussionValue ?? ""}
+              readOnly={props.discussionReadOnly}
+              onChange={(event) => props.onDiscussionChange?.(event.currentTarget.value)}
+            />
             <button
               type="button"
               className="jl-vm-btn"
-              disabled={!props.notesDirty || props.notesSaving}
-              onClick={props.onSaveNotes}
+              disabled={
+                props.discussionReadOnly ||
+                props.discussionSaving ||
+                !(props.discussionValue ?? "").trim()
+              }
+              onClick={props.onSubmitDiscussion}
             >
-              {props.notesSaving ? "Saving…" : "Save"}
+              Comment
             </button>
-          ) : null}
+          </div>
         </div>
-        {props.notesNotice ? <div className="jl-vm-notes-notice">{props.notesNotice}</div> : null}
-        <textarea
-          className="jl-vm-notes-textarea"
-          placeholder="Add notes…"
-          value={props.notesValue}
-          readOnly={props.notesReadOnly}
-          onChange={(event) => props.onNotesChange(event.currentTarget.value)}
-        />
-      </div>
+      ) : (
+        <div className="jl-vm-notes">
+          <div className="jl-vm-notes-label">
+            <span>Session notes</span>
+            {!props.notesReadOnly ? (
+              <button
+                type="button"
+                className="jl-vm-btn"
+                disabled={!props.notesDirty || props.notesSaving}
+                onClick={props.onSaveNotes}
+              >
+                {props.notesSaving ? "Saving..." : "Save"}
+              </button>
+            ) : null}
+          </div>
+          {props.notesNotice ? <div className="jl-vm-notes-notice">{props.notesNotice}</div> : null}
+          <textarea
+            className="jl-vm-notes-textarea"
+            placeholder="Add notes..."
+            value={props.notesValue}
+            readOnly={props.notesReadOnly}
+            onChange={(event) => props.onNotesChange(event.currentTarget.value)}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -342,8 +411,10 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  const durationValue = Number.isFinite(duration) && duration > 0 ? duration : 0;
-  const progress = durationValue > 0 ? (currentTime / durationValue) * 100 : 0;
+  const durationHint = props.videoDurationHintMs && props.videoDurationHintMs > 0 ? props.videoDurationHintMs / 1000 : 0;
+  const durationValue = Math.max(Number.isFinite(duration) && duration > 0 ? duration : 0, durationHint);
+  const boundedCurrentTime = durationValue > 0 ? Math.min(currentTime, durationValue) : currentTime;
+  const progress = durationValue > 0 ? (boundedCurrentTime / durationValue) * 100 : 0;
 
   const resetVideoState = (): void => {
     setPaused(true);
@@ -366,7 +437,8 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
     if (!videoEl) return;
 
     if (videoEl.paused) {
-      void videoEl.play().catch(() => undefined);
+      if (videoEl.readyState === 0) videoEl.load();
+      void videoEl.play().then(syncVideoState).catch(syncVideoState);
     } else {
       videoEl.pause();
     }
@@ -376,8 +448,9 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
   const seekBy = (deltaSeconds: number): void => {
     const videoEl = props.videoRef.current;
     if (!videoEl) return;
-    const max = Number.isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : Number.POSITIVE_INFINITY;
+    const max = durationValue > 0 ? durationValue : Number.POSITIVE_INFINITY;
     videoEl.currentTime = Math.max(0, Math.min(max, videoEl.currentTime + deltaSeconds));
+    setCurrentTime(videoEl.currentTime || 0);
     syncVideoState();
     props.onVideoTimeUpdate();
   };
@@ -385,7 +458,9 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
   const seekTo = (value: string): void => {
     const videoEl = props.videoRef.current;
     if (!videoEl) return;
-    videoEl.currentTime = Number(value);
+    const nextTime = Math.max(0, Number(value));
+    videoEl.currentTime = durationValue > 0 ? Math.min(nextTime, durationValue) : nextTime;
+    setCurrentTime(videoEl.currentTime || nextTime);
     syncVideoState();
     props.onVideoTimeUpdate();
   };
@@ -414,6 +489,9 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
           onClick={togglePlayback}
           onLoadStart={resetVideoState}
           onLoadedMetadata={syncVideoState}
+          onCanPlay={syncVideoState}
+          onSeeking={syncVideoState}
+          onSeeked={syncVideoState}
           onDurationChange={syncVideoState}
           onPlay={syncVideoState}
           onPause={syncVideoState}
@@ -456,7 +534,7 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
           min="0"
           max={durationValue || 0}
           step="0.01"
-          value={durationValue > 0 ? Math.min(currentTime, durationValue) : 0}
+          value={durationValue > 0 ? boundedCurrentTime : 0}
           aria-label="Evidence video timeline"
           style={{ "--jl-vm-video-progress": `${progress}%` } as React.CSSProperties}
           onInput={(event) => seekTo(event.currentTarget.value)}
@@ -472,6 +550,13 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+function formatCommentTime(value: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
 }
 
 function mediaDuration(video: HTMLVideoElement): number {

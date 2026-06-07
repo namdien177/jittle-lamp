@@ -22,6 +22,7 @@ import {
   buildCurl,
   getResponseBodyString,
   type ViewerContextMenuState,
+  type ViewerDiscussionComment,
   type ViewerModalRow,
   type ViewerSource
 } from "@jittle-lamp/viewer-react";
@@ -47,6 +48,12 @@ export type EvidenceViewerContentProps = {
   onVideoError: (videoEl: HTMLVideoElement) => void;
   onClose: () => void;
   viewerMode?: "modal" | "page";
+  discussionComments?: ViewerDiscussionComment[];
+  discussionValue?: string;
+  discussionSaving?: boolean;
+  discussionNotice?: string | null;
+  onDiscussionChange?: (value: string) => void;
+  onSubmitDiscussion?: () => void;
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -87,7 +94,13 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     fetchVideoBytes,
     onVideoError,
     onClose,
-    viewerMode = "modal"
+    viewerMode = "modal",
+    discussionComments,
+    discussionValue,
+    discussionSaving = false,
+    discussionNotice,
+    onDiscussionChange,
+    onSubmitDiscussion
   } = props;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -112,6 +125,12 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const archive = useMemo(
     () => buildReviewedArchive({ archive: loadedArchive, mergeGroups }),
     [loadedArchive, mergeGroups]
+  );
+
+  const recordingMeta = useMemo(() => formatRecordingMeta(loadedArchive), [loadedArchive]);
+  const videoDurationHintMs = useMemo(
+    () => getVideoDurationHintMs(loadedArchive, loadedTimeline),
+    [loadedArchive, loadedTimeline]
   );
 
   const sectionItems = useMemo<SectionItem[]>(() => {
@@ -367,6 +386,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       mode={viewerMode}
       {...(viewerMode === "page" ? { closeLabel: "Back to evidence" } : {})}
       title={archive.name}
+      titleMeta={recordingMeta}
       tags={[]}
       source={source}
       isOwner={isOwner}
@@ -376,13 +396,21 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       downloadingZip={downloadingZip}
       videoRef={videoRef}
       videoSrc={videoSrc}
+      videoDurationHintMs={videoDurationHintMs}
       notesValue=""
       notesReadOnly
       notesSaving={false}
       notesDirty={false}
-      notesNotice="Notes are read-only in web evidence mode."
+      notesNotice={null}
       onNotesChange={() => undefined}
       onSaveNotes={() => undefined}
+      discussionComments={discussionComments ?? []}
+      discussionValue={discussionValue ?? ""}
+      discussionReadOnly={false}
+      discussionSaving={discussionSaving}
+      discussionNotice={discussionNotice ?? null}
+      onDiscussionChange={onDiscussionChange ?? (() => undefined)}
+      onSubmitDiscussion={onSubmitDiscussion ?? (() => undefined)}
       onVideoTimeUpdate={updateHighlight}
       onVideoError={() => {
         if (videoRef.current) onVideoError(videoRef.current);
@@ -463,4 +491,31 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       onFeedbackDismiss={dismissFeedback}
     />
   );
+}
+
+function formatRecordingMeta(archive: SessionArchive): string {
+  const started = new Date(archive.createdAt);
+  const ended = new Date(archive.updatedAt);
+  if (!Number.isFinite(started.getTime())) return "";
+  const startText = formatDateTime(started);
+  if (!Number.isFinite(ended.getTime()) || archive.updatedAt === archive.createdAt) {
+    return `Recorded ${startText}`;
+  }
+  const endText = formatDateTime(ended);
+  return `Recorded ${startText} to ${endText}`;
+}
+
+function formatDateTime(value: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(value);
+}
+
+function getVideoDurationHintMs(archive: SessionArchive, timeline: TimelineItem[]): number {
+  const start = Date.parse(archive.createdAt);
+  const end = Date.parse(archive.updatedAt);
+  const archiveDuration = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0;
+  const timelineDuration = Math.max(0, ...timeline.map((item) => item.offsetMs));
+  return Math.max(archiveDuration, timelineDuration);
 }

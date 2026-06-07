@@ -33,6 +33,7 @@ export type {
   ViewerModalProps,
   ViewerModalRow,
   ViewerSource,
+  ViewerDiscussionComment,
   ViewerModalFeedback,
   ViewerContextMenuState
 } from "./viewer-modal";

@@ -5,6 +5,7 @@ import {
   api,
   type ApiAccountProfile,
   type ApiCreatedInvitationCode,
+  type ApiEvidenceComment,
   type ApiEvidenceListResponse,
   type ApiEvidenceSummary,
   type ApiInvitation,
@@ -68,6 +69,8 @@ export const queryKeys = {
     ] as const,
   evidenceArtifacts: (evidenceId: string, orgId: string | undefined) =>
     ["evidence-artifacts", evidenceId, orgId ?? null] as const,
+  evidenceComments: (evidenceId: string, orgId: string | undefined) =>
+    ["evidence-comments", evidenceId, orgId ?? null] as const,
   shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
   remoteEvidence: (key: { shareToken?: string; remoteEvidenceId?: string }) =>
     ["remote-evidence", key.shareToken ?? null, key.remoteEvidenceId ?? null] as const
@@ -136,6 +139,28 @@ export function useRenameEvidence() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: input.evidenceId })
       });
+    }
+  });
+}
+
+export function useEvidenceComments(evidenceId: string | null, orgId?: string) {
+  const auth = useAuth();
+  const getToken = useAuthToken();
+  return useQuery<{ comments: ApiEvidenceComment[] }>({
+    queryKey: queryKeys.evidenceComments(evidenceId ?? "none", orgId),
+    queryFn: () => api.listEvidenceComments(getToken, evidenceId ?? "", orgId),
+    enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(evidenceId)
+  });
+}
+
+export function useCreateEvidenceComment() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { evidenceId: string; body: string; orgId?: string }) =>
+      api.createEvidenceComment(getToken, input.evidenceId, input.body, input.orgId),
+    onSuccess: (_data, input) => {
+      return queryClient.invalidateQueries({ queryKey: queryKeys.evidenceComments(input.evidenceId, input.orgId) });
     }
   });
 }
@@ -343,6 +368,7 @@ export function useDeleteInvitationCode() {
 
 export type RemoteEvidenceData = {
   session: LoadedSession;
+  evidence: ApiEvidenceSummary;
   evidenceId: string;
   orgId: string | undefined;
   recordingArtifact: EvidenceArtifact;
@@ -385,6 +411,7 @@ async function fetchRemoteEvidence(
     api.createArtifactReadUrl(getToken, evidenceId, recordingArtifact.id, orgId),
     api.createArtifactReadUrl(getToken, evidenceId, archiveArtifact.id, orgId)
   ]);
+  const evidenceResult = await api.loadEvidence(getToken, evidenceId, orgId);
   const session = await loadRemoteSessionArtifacts({
     archiveUrl: archiveReadUrl.url,
     videoUrl: videoReadUrl.url
@@ -392,7 +419,16 @@ async function fetchRemoteEvidence(
 
   return {
     kind: "loaded",
-    data: { session, evidenceId, orgId, recordingArtifact, archiveArtifact, videoReadUrl, archiveReadUrl }
+    data: {
+      session,
+      evidence: evidenceResult.evidence,
+      evidenceId,
+      orgId,
+      recordingArtifact,
+      archiveArtifact,
+      videoReadUrl,
+      archiveReadUrl
+    }
   };
 }
 

@@ -160,6 +160,24 @@ export type ApiEvidenceListResponse = {
   limit: number;
 };
 
+export type ApiEvidenceResponse = {
+  evidence: ApiEvidenceSummary;
+};
+
+export type ApiEvidenceComment = {
+  id: string;
+  evidenceId: string;
+  body: string;
+  createdBy: string;
+  authorLabel: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ApiEvidenceCommentsResponse = {
+  comments: ApiEvidenceComment[];
+};
+
 export type ResolveShareLinkResponse = {
   shareLink: {
     id: string;
@@ -214,6 +232,12 @@ export const api = {
     return authedFetch<ApiEvidenceListResponse>(getToken, `/evidences${suffix}`);
   },
 
+  loadEvidence: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
+    authedFetch<ApiEvidenceResponse>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
+    ),
+
   deleteEvidence: (getToken: FetchToken, evidenceId: string) =>
     authedFetch<{ evidence: { id: string; orgId: string; deletedAt: number; deletePurgesAt: number } }>(
       getToken,
@@ -241,6 +265,19 @@ export const api = {
     authedFetch<{ artifacts: EvidenceArtifact[] }>(
       getToken,
       `/evidences/${encodeURIComponent(evidenceId)}/artifacts${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
+    ),
+
+  listEvidenceComments: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
+    authedFetch<ApiEvidenceCommentsResponse>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}/comments${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
+    ),
+
+  createEvidenceComment: (getToken: FetchToken, evidenceId: string, body: string, orgId?: string) =>
+    authedFetch<{ comment: ApiEvidenceComment }>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}/comments${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`,
+      { method: "POST", body: JSON.stringify({ body }) }
     ),
 
   createArtifactReadUrl: (getToken: FetchToken, evidenceId: string, artifactId: string, orgId?: string) =>

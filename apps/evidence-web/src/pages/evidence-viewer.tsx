@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { useNavigate, useParams } from "react-router";
 
@@ -7,7 +7,12 @@ import { Button } from "../components/ui/button";
 import { StatusScreen } from "../components/status-screen";
 import { RequireAuth } from "../components/workspace/require-auth";
 import { EvidenceViewerContent } from "../evidence-viewer-content";
-import { useRemoteEvidence, type RemoteEvidenceData } from "../queries";
+import {
+  useCreateEvidenceComment,
+  useEvidenceComments,
+  useRemoteEvidence,
+  type RemoteEvidenceData
+} from "../queries";
 
 function RestrictedShareScreen({ orgName }: { orgName: string }): React.JSX.Element {
   const navigate = useNavigate();
@@ -83,6 +88,9 @@ function RemoteEvidenceLoader(props: {
   const stableGetToken: FetchToken = useRef(() => auth.getToken()).current;
   const latestUrlsRef = useRef<{ videoReadUrl: ArtifactReadUrl; archiveReadUrl: ArtifactReadUrl } | null>(null);
   const loaded: RemoteEvidenceData | null = query.data?.kind === "loaded" ? query.data.data : null;
+  const [commentDraft, setCommentDraft] = useState("");
+  const commentsQuery = useEvidenceComments(loaded?.evidenceId ?? null, loaded?.orgId);
+  const createComment = useCreateEvidenceComment();
 
   if (loaded) {
     latestUrlsRef.current = { videoReadUrl: loaded.videoReadUrl, archiveReadUrl: loaded.archiveReadUrl };
@@ -150,6 +158,41 @@ function RemoteEvidenceLoader(props: {
     if (!wasPaused) void videoEl.play().catch(() => undefined);
   };
 
+  const submitComment = async (): Promise<void> => {
+    const body = commentDraft.trim();
+    if (!body || createComment.isPending) return;
+    try {
+      await createComment.mutateAsync({
+        evidenceId: loaded.evidenceId,
+        body,
+        ...(loaded.orgId ? { orgId: loaded.orgId } : {})
+      });
+      setCommentDraft("");
+    } catch {
+      // The mutation state drives the inline discussion notice.
+    }
+  };
+
+  const comments = (commentsQuery.data?.comments ?? []).map((comment) => ({
+    id: comment.id,
+    body: comment.body,
+    authorLabel: comment.authorLabel,
+    createdAt: comment.createdAt
+  }));
+
+  const discussionNotice =
+    commentsQuery.isError
+      ? commentsQuery.error instanceof Error
+        ? commentsQuery.error.message
+        : "Unable to load discussion."
+      : createComment.isError
+        ? createComment.error instanceof Error
+          ? createComment.error.message
+          : "Unable to add comment."
+        : commentsQuery.isPending
+          ? "Loading discussion..."
+          : null;
+
   return (
     <EvidenceViewerContent
       key={loaded.evidenceId}
@@ -164,6 +207,12 @@ function RemoteEvidenceLoader(props: {
       fetchVideoBytes={fetchVideoBytes}
       onVideoError={handleVideoError}
       onClose={() => navigate(props.viewerMode === "page" ? "/evidence" : "/")}
+      discussionComments={comments}
+      discussionValue={commentDraft}
+      discussionSaving={createComment.isPending}
+      discussionNotice={discussionNotice}
+      onDiscussionChange={setCommentDraft}
+      onSubmitDiscussion={() => void submitComment()}
       {...(props.viewerMode ? { viewerMode: props.viewerMode } : {})}
     />
   );

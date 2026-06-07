@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 
 import {
 	desktopRecordingSessions,
+	evidenceComments,
 	evidences,
 	organizationMembers,
 	organizations,
@@ -19,6 +20,7 @@ import {
 } from "../plugins/clerk-auth";
 import { EVIDENCE_BIN_RETENTION_MS } from "../services/evidence-maintenance";
 import { createEvidencePolicy } from "../services/evidence-policy";
+import type { BackendDb } from "../services/user-provisioning";
 
 const moveEvidenceBodySchema = t.Object({
 	targetOrgId: t.String({ minLength: 1 }),
@@ -40,6 +42,14 @@ const moveEvidenceResponseSchema = t.Object({
 
 const renameEvidenceBodySchema = t.Object({
 	title: t.String({ minLength: 1, maxLength: 200 }),
+});
+
+const createEvidenceCommentBodySchema = t.Object({
+	body: t.String({ minLength: 1, maxLength: 4000 }),
+});
+
+const evidenceOrgQuerySchema = t.Object({
+	orgId: t.Optional(t.String({ minLength: 1 })),
 });
 
 const bulkDeleteEvidenceBodySchema = t.Object({
@@ -80,14 +90,255 @@ const bulkDeleteEvidenceResponseSchema = t.Object({
 	}),
 });
 
+const evidenceCommentSchema = t.Object({
+	id: t.String({ minLength: 1 }),
+	evidenceId: t.String({ minLength: 1 }),
+	body: t.String({ minLength: 1 }),
+	createdBy: t.String({ minLength: 1 }),
+	authorLabel: t.String({ minLength: 1 }),
+	createdAt: t.Number(),
+	updatedAt: t.Number(),
+});
+
+const listEvidenceCommentsResponseSchema = t.Object({
+	comments: t.Array(evidenceCommentSchema),
+});
+
+const createEvidenceCommentResponseSchema = t.Object({
+	comment: evidenceCommentSchema,
+});
+
 const isElevatedEvidenceManager = (role: string): boolean =>
 	role === "owner" || role === "admin" || role === "moderator";
+
+const createAuthorLabel = (userId: string): string =>
+	`User ${userId.slice(0, 8)}`;
+
+const findAccessibleEvidence = async (
+	db: BackendDb,
+	input: {
+		evidenceId: string;
+		orgId?: string | undefined;
+		userId: string;
+	},
+) => {
+	const evidence = await db.query.evidences.findFirst({
+		where: and(
+			eq(evidences.id, input.evidenceId),
+			input.orgId ? eq(evidences.orgId, input.orgId) : undefined,
+			isNull(evidences.deletedAt),
+		),
+		columns: { id: true, orgId: true },
+	});
+	if (!evidence) return null;
+
+	const membership = await db.query.organizationMembers.findFirst({
+		where: and(
+			eq(organizationMembers.organizationId, evidence.orgId),
+			eq(organizationMembers.userId, input.userId),
+			isNull(organizationMembers.teamId),
+		),
+		columns: { id: true },
+	});
+
+	return membership ? evidence : null;
+};
 
 export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 	new Elysia({ name: "evidence-routes" })
 		.use(auth)
 		.guard({ auth: true }, (app) =>
 			app
+				.get(
+					"/evidences/:id/comments",
+					async ({ authContext, db, params, query, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						if (!authContext.localUserId) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_COMMENTS_FORBIDDEN",
+								"Only workspace members can view this discussion",
+								403,
+							);
+						}
+
+						const evidence = await findAccessibleEvidence(db, {
+							evidenceId: params.id,
+							orgId: query.orgId,
+							userId: authContext.localUserId,
+						});
+						if (!evidence) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+
+						const comments = await db.query.evidenceComments.findMany({
+							where: eq(evidenceComments.evidenceId, evidence.id),
+							columns: {
+								id: true,
+								evidenceId: true,
+								body: true,
+								createdBy: true,
+								createdAt: true,
+								updatedAt: true,
+							},
+							orderBy: asc(evidenceComments.createdAt),
+						});
+
+						return {
+							comments: comments.map((comment) => ({
+								...comment,
+								authorLabel: createAuthorLabel(comment.createdBy),
+							})),
+						};
+					},
+					{
+						params: t.Object({ id: t.String({ minLength: 1 }) }),
+						query: evidenceOrgQuerySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Lists discussion comments for an evidence record",
+						},
+						response: {
+							200: listEvidenceCommentsResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.post(
+					"/evidences/:id/comments",
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						query,
+						requestId,
+						requestLogger,
+						set,
+					}) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						if (!authContext.localUserId) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_COMMENTS_FORBIDDEN",
+								"Only workspace members can comment on this evidence",
+								403,
+							);
+						}
+
+						const bodyText = body.body.trim();
+						if (!bodyText) {
+							set.status = 422;
+							return createApiError(
+								requestId,
+								"EVIDENCE_COMMENT_REQUIRED",
+								"Comment body is required",
+								422,
+							);
+						}
+
+						const evidence = await findAccessibleEvidence(db, {
+							evidenceId: params.id,
+							orgId: query.orgId,
+							userId: authContext.localUserId,
+						});
+						if (!evidence) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+
+						const now = Date.now();
+						const [inserted] = await db
+							.insert(evidenceComments)
+							.values({
+								evidenceId: evidence.id,
+								createdBy: authContext.localUserId,
+								body: bodyText,
+								createdAt: now,
+								updatedAt: now,
+							})
+							.returning({
+								id: evidenceComments.id,
+								evidenceId: evidenceComments.evidenceId,
+								body: evidenceComments.body,
+								createdBy: evidenceComments.createdBy,
+								createdAt: evidenceComments.createdAt,
+								updatedAt: evidenceComments.updatedAt,
+							});
+
+						if (!inserted) {
+							set.status = 500;
+							return createApiError(
+								requestId,
+								"EVIDENCE_COMMENT_CREATE_FAILED",
+								"Failed to add comment",
+								500,
+							);
+						}
+
+						requestLogger.info(
+							{
+								event: "evidence.comment-created",
+								evidenceId: evidence.id,
+								orgId: evidence.orgId,
+								commentId: inserted.id,
+								createdByUserId: authContext.localUserId,
+								requestId,
+							},
+							"evidence comment created",
+						);
+
+						return {
+							comment: {
+								...inserted,
+								authorLabel: createAuthorLabel(inserted.createdBy),
+							},
+						};
+					},
+					{
+						params: t.Object({ id: t.String({ minLength: 1 }) }),
+						query: evidenceOrgQuerySchema,
+						body: createEvidenceCommentBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Adds a discussion comment to an evidence record",
+						},
+						response: {
+							200: createEvidenceCommentResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							422: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
 				.delete(
 					"/evidences/:id",
 					async ({

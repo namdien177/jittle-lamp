@@ -17,6 +17,10 @@ export {
 	evidenceArtifactUploadStatusSchema,
 } from "./tables/evidence-artifacts";
 export {
+	createEvidenceCommentInputSchema,
+	evidenceComments,
+} from "./tables/evidence-comments";
+export {
 	createEvidenceInputSchema,
 	evidenceScopeTypeSchema,
 	evidences,

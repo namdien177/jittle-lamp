@@ -21,6 +21,7 @@ export const viewerModalStyles = `
   height: 90vh;
   background: var(--surface, #0d1117);
   color: var(--text, #e6edf3);
+  font-size: 16px;
   border: 1px solid var(--border-strong, #30363d);
   border-radius: 14px;
   overflow: hidden;
@@ -77,9 +78,24 @@ export const viewerModalStyles = `
   min-width: 0;
 }
 
+.jl-vm-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
 .jl-vm-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jl-vm-title-meta {
+  color: var(--text-muted, #8b949e);
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -93,8 +109,8 @@ export const viewerModalStyles = `
 }
 
 .jl-vm-tag {
-  font-size: 11px;
-  padding: 2px 8px;
+  font-size: 12px;
+  padding: 3px 8px;
   border-radius: 999px;
   background: rgba(99, 110, 123, 0.18);
   color: var(--text-soft, #c9d1d9);
@@ -112,7 +128,7 @@ export const viewerModalStyles = `
   border: 1px solid var(--border, #30363d);
   background: var(--surface-raised, #161b22);
   color: var(--text, #e6edf3);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   padding: 6px 12px;
   border-radius: 6px;
@@ -233,26 +249,28 @@ export const viewerModalStyles = `
   bottom: 14px;
   z-index: 2;
   display: grid;
-  grid-template-columns: 34px 38px 34px auto minmax(120px, 1fr) auto 34px 34px;
-  gap: 8px;
+  grid-template-columns: 38px 42px 38px auto minmax(140px, 1fr) auto 38px 38px;
+  gap: 9px;
   align-items: center;
-  padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(7, 9, 12, 0.72);
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)),
+    rgba(8, 10, 13, 0.52);
   color: #fff;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(24px) saturate(135%);
 }
 
 .jl-vm-video-control {
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.09);
   color: #fff;
-  width: 34px;
-  height: 30px;
-  border-radius: 6px;
+  width: 38px;
+  height: 34px;
+  border-radius: 9px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -260,13 +278,13 @@ export const viewerModalStyles = `
 }
 
 .jl-vm-video-control:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.18);
   border-color: rgba(255, 255, 255, 0.24);
 }
 
 .jl-vm-video-play {
-  width: 38px;
-  background: #f4f7fb;
+  width: 42px;
+  background: rgba(255, 255, 255, 0.94);
   border-color: transparent;
   color: #0a0d12;
 }
@@ -277,8 +295,8 @@ export const viewerModalStyles = `
 
 .jl-vm-video-time {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.82);
   white-space: nowrap;
   min-width: 34px;
   text-align: center;
@@ -287,14 +305,14 @@ export const viewerModalStyles = `
 .jl-vm-video-scrub {
   width: 100%;
   min-width: 0;
-  height: 18px;
+  height: 22px;
   accent-color: #f4f7fb;
   cursor: pointer;
   background: transparent;
 }
 
 .jl-vm-video-scrub::-webkit-slider-runnable-track {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
   background: linear-gradient(
     to right,
@@ -307,29 +325,29 @@ export const viewerModalStyles = `
 
 .jl-vm-video-scrub::-webkit-slider-thumb {
   appearance: none;
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   background: #fff;
-  margin-top: -4px;
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14);
+  margin-top: -5px;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.14);
 }
 
 .jl-vm-video-scrub::-moz-range-track {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.2);
 }
 
 .jl-vm-video-scrub::-moz-range-progress {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
   background: #f4f7fb;
 }
 
 .jl-vm-video-scrub::-moz-range-thumb {
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   border: 0;
   border-radius: 999px;
   background: #fff;
@@ -345,8 +363,17 @@ export const viewerModalStyles = `
   min-height: 0;
 }
 
+.jl-vm-discussion {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  min-height: 0;
+}
+
 .jl-vm-notes-label {
-  font-size: 10.5px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-soft, #c9d1d9);
@@ -354,6 +381,65 @@ export const viewerModalStyles = `
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.jl-vm-saving {
+  color: var(--text-muted, #8b949e);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.jl-vm-comments {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.jl-vm-comment {
+  border: 1px solid var(--border, #30363d);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised, #161b22) 72%, transparent);
+  padding: 10px 12px;
+}
+
+.jl-vm-comment-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted, #8b949e);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.jl-vm-comment-meta span {
+  color: var(--text-soft, #c9d1d9);
+  font-weight: 600;
+}
+
+.jl-vm-comment p {
+  margin: 0;
+  color: var(--text, #e6edf3);
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.jl-vm-composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.jl-vm-composer .jl-vm-notes-textarea {
+  min-height: 76px;
 }
 
 .jl-vm-notes-textarea {
@@ -366,11 +452,12 @@ export const viewerModalStyles = `
   border-radius: 6px;
   padding: 8px 10px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 16px;
+  line-height: 1.45;
 }
 
 .jl-vm-notes-notice {
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--warning, #f0883e);
   background: rgba(240, 136, 62, 0.12);
   padding: 6px 8px;
@@ -403,7 +490,7 @@ export const viewerModalStyles = `
   background: transparent;
   border: 0;
   color: var(--text-muted, #8b949e);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   padding: 6px 10px;
   border-radius: 6px;
@@ -433,7 +520,7 @@ export const viewerModalStyles = `
   color: var(--text, #e6edf3);
   border-radius: 6px;
   padding: 5px 9px;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .jl-vm-filters {
@@ -449,7 +536,7 @@ export const viewerModalStyles = `
   border: 1px solid var(--border, #30363d);
   background: transparent;
   color: var(--text-muted, #8b949e);
-  font-size: 11px;
+  font-size: 13px;
   padding: 3px 8px;
   border-radius: 999px;
   cursor: pointer;
@@ -485,15 +572,15 @@ export const viewerModalStyles = `
 
 .jl-vm-row {
   display: grid;
-  grid-template-columns: 64px 1fr auto;
-  gap: 8px;
-  padding: 6px 8px;
+  grid-template-columns: 76px 1fr auto;
+  gap: 10px;
+  padding: 8px 10px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
   text-align: left;
-  font-size: 12px;
+  font-size: 15px;
   color: var(--text, #e6edf3);
   align-items: center;
   min-width: 0;
@@ -515,7 +602,7 @@ export const viewerModalStyles = `
 
 .jl-vm-row-offset {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--text-muted, #8b949e);
 }
 
@@ -527,7 +614,7 @@ export const viewerModalStyles = `
 }
 
 .jl-vm-row-status {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--text-muted, #8b949e);
   font-family: var(--font-mono, ui-monospace, monospace);
 }
@@ -538,7 +625,7 @@ export const viewerModalStyles = `
 .jl-vm-empty {
   padding: 24px 16px;
   color: var(--text-muted, #8b949e);
-  font-size: 12px;
+  font-size: 15px;
   text-align: center;
 }
 
@@ -551,7 +638,7 @@ export const viewerModalStyles = `
   border: 0;
   border-radius: 999px;
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
 }
@@ -573,7 +660,7 @@ export const viewerModalStyles = `
   justify-content: space-between;
   padding: 8px 14px;
   border-bottom: 1px solid var(--border, #30363d);
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-soft, #c9d1d9);
@@ -596,7 +683,7 @@ export const viewerModalStyles = `
 }
 
 .jl-vm-drawer-label {
-  font-size: 10.5px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-soft, #c9d1d9);
@@ -607,7 +694,7 @@ export const viewerModalStyles = `
   display: grid;
   grid-template-columns: 110px 1fr;
   gap: 8px;
-  font-size: 12px;
+  font-size: 14px;
   align-items: baseline;
 }
 
@@ -625,7 +712,7 @@ export const viewerModalStyles = `
   cursor: pointer;
   word-break: break-all;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .jl-vm-kv-val:hover {
@@ -641,7 +728,7 @@ export const viewerModalStyles = `
   border-radius: 6px;
   padding: 8px 10px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: 13px;
   white-space: pre-wrap;
   word-break: break-word;
   margin: 0;
@@ -656,7 +743,7 @@ export const viewerModalStyles = `
 }
 
 .jl-vm-empty-line {
-  font-size: 11.5px;
+  font-size: 14px;
   color: var(--text-muted, #8b949e);
 }
 
@@ -679,7 +766,7 @@ export const viewerModalStyles = `
   border: 0;
   text-align: left;
   color: var(--text, #e6edf3);
-  font-size: 12px;
+  font-size: 14px;
   padding: 7px 10px;
   border-radius: 5px;
   cursor: pointer;
@@ -696,7 +783,7 @@ export const viewerModalStyles = `
   right: 16px;
   padding: 8px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 14px;
   background: var(--surface-raised, #161b22);
   border: 1px solid var(--border, #30363d);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
