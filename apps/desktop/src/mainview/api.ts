@@ -394,7 +394,7 @@ export const api = {
       thumbnailMimeType?: string;
       replaceEvidenceId?: string;
       artifacts: Array<{
-        key: "recording" | "archive";
+        key: "recording" | "archive" | "playback";
         kind: "recording" | "network-log";
         mimeType: string;
         bytes: number;

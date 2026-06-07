@@ -143,12 +143,14 @@ const handlers: DesktopHandlerMap = {
       throw new Error("Invalid sessionId: path traversal detected.");
     }
 
-    const [recordingPayload, archivePayload] = await Promise.all([
+    const [recordingPayload, archivePayload, playbackPayload] = await Promise.all([
       readFile(join(sessionFolder, recordingFileName)),
-      readFile(join(sessionFolder, sessionArchiveFileName))
+      readFile(join(sessionFolder, sessionArchiveFileName)),
+      readFile(join(sessionFolder, "recording.mp4")).catch(() => null)
     ]);
     const recordingBytes = new Uint8Array(recordingPayload);
     const archiveBytes = new Uint8Array(archivePayload);
+    const playbackBytes = playbackPayload ? new Uint8Array(playbackPayload) : null;
     return {
       sessionId,
       title: sessionId,
@@ -161,6 +163,18 @@ const handlers: DesktopHandlerMap = {
           checksum: `sha256:${await sha256Hex(recordingBytes)}`,
           payload: recordingBytes
         },
+        ...(playbackBytes
+          ? [
+              {
+                key: "playback" as const,
+                kind: "recording" as const,
+                mimeType: "video/mp4",
+                bytes: playbackBytes.byteLength,
+                checksum: `sha256:${await sha256Hex(playbackBytes)}`,
+                payload: playbackBytes
+              }
+            ]
+          : []),
         {
           key: "archive" as const,
           kind: "network-log" as const,

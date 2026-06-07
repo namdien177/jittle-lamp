@@ -54,7 +54,11 @@ const startDesktopSessionSyncBodySchema = t.Object({
 	replaceEvidenceId: t.Optional(t.String({ minLength: 1 })),
 	artifacts: t.Array(
 		t.Object({
-			key: t.Union([t.Literal("recording"), t.Literal("archive")]),
+			key: t.Union([
+				t.Literal("recording"),
+				t.Literal("archive"),
+				t.Literal("playback"),
+			]),
 			kind: t.Union(
 				evidenceArtifactKindSchema.options.map((value) => t.Literal(value)),
 			),
@@ -62,7 +66,7 @@ const startDesktopSessionSyncBodySchema = t.Object({
 			bytes: t.Number({ minimum: 0 }),
 			checksum: t.String({ minLength: 1 }),
 		}),
-		{ minItems: 2, maxItems: 2 },
+		{ minItems: 2, maxItems: 3 },
 	),
 });
 

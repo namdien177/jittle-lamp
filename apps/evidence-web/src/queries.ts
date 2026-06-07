@@ -679,6 +679,7 @@ export type RemoteEvidenceData = {
   evidenceId: string;
   orgId: string | undefined;
   recordingArtifact: EvidenceArtifact;
+  videoArtifact: EvidenceArtifact;
   archiveArtifact: EvidenceArtifact;
   videoReadUrl: ArtifactReadUrl;
   archiveReadUrl: ArtifactReadUrl;
@@ -691,6 +692,40 @@ export type RemoteEvidenceResult =
 function shouldBufferRemoteVideoForPlayback(): boolean {
   if (typeof navigator === "undefined") return false;
   return /\bFirefox\//.test(navigator.userAgent);
+}
+
+function isPlaybackRecordingArtifact(artifact: EvidenceArtifact): boolean {
+  return (
+    artifact.kind === "recording" &&
+    artifact.uploadStatus === "uploaded" &&
+    (artifact.mimeType === "video/mp4" ||
+      artifact.mimeType === "application/x-mpegURL" ||
+      artifact.mimeType === "application/vnd.apple.mpegurl")
+  );
+}
+
+function isOriginalRecordingArtifact(artifact: EvidenceArtifact): boolean {
+  return (
+    artifact.kind === "recording" &&
+    artifact.uploadStatus === "uploaded" &&
+    artifact.mimeType === "video/webm"
+  );
+}
+
+function selectEvidenceVideoArtifact(artifacts: EvidenceArtifact[]): {
+  recordingArtifact: EvidenceArtifact | undefined;
+  videoArtifact: EvidenceArtifact | undefined;
+} {
+  const recordingArtifact = artifacts.find(isOriginalRecordingArtifact);
+  const videoArtifact =
+    artifacts.find(isPlaybackRecordingArtifact) ??
+    recordingArtifact ??
+    artifacts.find(
+      (artifact) =>
+        artifact.kind === "recording" && artifact.uploadStatus === "uploaded",
+    );
+
+  return { recordingArtifact, videoArtifact };
 }
 
 async function fetchRemoteEvidence(
@@ -718,13 +753,14 @@ async function fetchRemoteEvidence(
     evidenceId,
     orgId,
   );
-  const recordingArtifact = artifactResult.artifacts.find(
-    (artifact) => artifact.kind === "recording",
+  const { recordingArtifact, videoArtifact } = selectEvidenceVideoArtifact(
+    artifactResult.artifacts,
   );
   const archiveArtifact = artifactResult.artifacts.find(
-    (artifact) => artifact.kind === "network-log",
+    (artifact) =>
+      artifact.kind === "network-log" && artifact.uploadStatus === "uploaded",
   );
-  if (!recordingArtifact || !archiveArtifact) {
+  if (!videoArtifact || !archiveArtifact) {
     throw new Error("Evidence is missing recording or archive artifacts.");
   }
 
@@ -732,7 +768,7 @@ async function fetchRemoteEvidence(
     api.createArtifactReadUrl(
       getToken,
       evidenceId,
-      recordingArtifact.id,
+      videoArtifact.id,
       orgId,
     ),
     api.createArtifactReadUrl(getToken, evidenceId, archiveArtifact.id, orgId),
@@ -741,7 +777,10 @@ async function fetchRemoteEvidence(
   const session = await loadRemoteSessionArtifacts({
     archiveUrl: archiveReadUrl.url,
     videoUrl: videoReadUrl.url,
-    bufferVideo: shouldBufferRemoteVideoForPlayback(),
+    videoMimeType: videoArtifact.mimeType,
+    bufferVideo:
+      videoArtifact.mimeType === "video/webm" &&
+      shouldBufferRemoteVideoForPlayback(),
     ...(signal ? { signal } : {}),
   });
 
@@ -752,7 +791,8 @@ async function fetchRemoteEvidence(
       evidence: evidenceResult.evidence,
       evidenceId,
       orgId,
-      recordingArtifact,
+      recordingArtifact: recordingArtifact ?? videoArtifact,
+      videoArtifact,
       archiveArtifact,
       videoReadUrl,
       archiveReadUrl,

@@ -943,6 +943,13 @@ describe("routes", () => {
 								bytes: 2,
 								checksum: `sha256:${await sha256Hex("{}")}`,
 							},
+							{
+								key: "playback",
+								kind: "recording",
+								mimeType: "video/mp4",
+								bytes: 12,
+								checksum: `sha256:${await sha256Hex("mp4 playback")}`,
+							},
 						],
 					}),
 				},
@@ -952,7 +959,7 @@ describe("routes", () => {
 		const syncPayload = (await syncResponse.json()) as {
 			uploadSessions: Array<{ uploadUrl: string }>;
 		};
-		expect(syncPayload.uploadSessions).toHaveLength(2);
+		expect(syncPayload.uploadSessions).toHaveLength(3);
 		for (const uploadSession of syncPayload.uploadSessions) {
 			expect(uploadSession.uploadUrl).toStartWith(
 				"https://jl-api.monthlyparty.com/evidences/uploads/",

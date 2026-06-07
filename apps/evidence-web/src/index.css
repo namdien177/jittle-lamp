@@ -5,6 +5,7 @@
 
 @import "tailwindcss";
 @import "video.js/dist/video-js.css" layer(legacy);
+@import "@videojs/themes/dist/city/index.css" layer(legacy);
 
 /* Legacy styling that the shared viewer (`@jittle-lamp/viewer-react`) and the
    `@jittle-lamp/ui` primitives render against. The redesigned workspace shell

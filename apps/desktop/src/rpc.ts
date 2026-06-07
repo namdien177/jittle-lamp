@@ -156,7 +156,7 @@ export type DesktopRequestMap = {
       sessionId: string;
       title: string;
       artifacts: Array<{
-        key: "recording" | "archive";
+        key: "recording" | "archive" | "playback";
         kind: "recording" | "network-log";
         mimeType: string;
         bytes: number;

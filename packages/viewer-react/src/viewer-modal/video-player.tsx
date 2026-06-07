@@ -19,7 +19,13 @@ function assignVideoRef(ref: React.RefObject<HTMLVideoElement | null>, videoEl: 
 
 function videoSourceType(source: string | null | undefined): string {
   if (!source) return "video/webm";
-  const pathname = source.startsWith("blob:") ? "" : new URL(source, window.location.href).pathname.toLowerCase();
+  const url = source.startsWith("blob:") ? null : new URL(source, window.location.href);
+  const responseContentType = url?.searchParams.get("response-content-type")?.toLowerCase();
+  if (responseContentType?.includes("video/mp4")) return "video/mp4";
+  if (responseContentType?.includes("mpegurl")) return "application/x-mpegURL";
+  if (responseContentType?.includes("dash+xml")) return "application/dash+xml";
+
+  const pathname = url?.pathname.toLowerCase() ?? "";
   if (pathname.endsWith(".mp4")) return "video/mp4";
   if (pathname.endsWith(".m3u8")) return "application/x-mpegURL";
   if (pathname.endsWith(".mpd")) return "application/dash+xml";
@@ -123,7 +129,7 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
             videoNodeRef.current = videoEl;
             assignVideoRef(props.videoRef, videoEl);
           }}
-          className="video-js vjs-big-play-centered"
+          className="video-js vjs-big-play-centered vjs-theme-city"
           playsInline
           preload="metadata"
         />

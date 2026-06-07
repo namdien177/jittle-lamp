@@ -51,6 +51,7 @@ export async function loadSessionZip(file: File): Promise<LoadedSession> {
 export async function loadRemoteSessionArtifacts(input: {
   archiveUrl: string;
   videoUrl: string;
+  videoMimeType?: string;
   bufferVideo?: boolean;
   signal?: AbortSignal;
 }): Promise<LoadedSession> {
@@ -71,7 +72,7 @@ export async function loadRemoteSessionArtifacts(input: {
       throw new Error(`Unable to load recording (${videoResponse.status}).`);
     }
     recordingBytes = new Uint8Array(await videoResponse.arrayBuffer());
-    const blob = createVideoBlob(recordingBytes, recordingArtifact?.mimeType || "video/webm");
+    const blob = createVideoBlob(recordingBytes, input.videoMimeType || recordingArtifact?.mimeType || "video/webm");
     videoUrl = URL.createObjectURL(blob);
   }
 

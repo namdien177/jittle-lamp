@@ -55,7 +55,7 @@ function useRenewArtifactUrls(input: {
     const renew = async (): Promise<void> => {
       try {
         const [videoReadUrl, archiveReadUrl] = await Promise.all([
-          api.createArtifactReadUrl(getToken, loaded.evidenceId, loaded.recordingArtifact.id, loaded.orgId),
+          api.createArtifactReadUrl(getToken, loaded.evidenceId, loaded.videoArtifact.id, loaded.orgId),
           api.createArtifactReadUrl(getToken, loaded.evidenceId, loaded.archiveArtifact.id, loaded.orgId)
         ]);
         if (cancelled) return;
@@ -136,7 +136,21 @@ function RemoteEvidenceLoader(props: {
     : null;
 
   const fetchVideoBytes = async (): Promise<Uint8Array | null> => {
-    const url = latestUrlsRef.current?.videoReadUrl.url ?? loaded.videoReadUrl.url;
+    let url = latestUrlsRef.current?.videoReadUrl.url ?? loaded.videoReadUrl.url;
+    if (loaded.recordingArtifact.id !== loaded.videoArtifact.id) {
+      try {
+        url = (
+          await api.createArtifactReadUrl(
+            stableGetToken,
+            loaded.evidenceId,
+            loaded.recordingArtifact.id,
+            loaded.orgId
+          )
+        ).url;
+      } catch {
+        return null;
+      }
+    }
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Failed to fetch recording (${response.status}).`);
