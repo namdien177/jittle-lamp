@@ -21,7 +21,8 @@
     "@jittle-lamp/shared": "workspace:*",
     "@jittle-lamp/viewer-core": "workspace:*",
     "clsx": "2.1.1",
-    "lucide-react": "^1.14.0"
+    "lucide-react": "^1.14.0",
+    "video.js": "8.23.7"
   },
   "peerDependencies": {
     "react": "19.2.0",
