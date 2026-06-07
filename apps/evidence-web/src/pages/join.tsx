@@ -80,7 +80,7 @@ function JoinForm(): React.JSX.Element {
           <KeyRound className="size-5 text-primary" aria-hidden />
           <h1 className="font-display text-xl font-semibold tracking-tight">Join an organisation</h1>
         </div>
-        <p className="mb-6 text-sm text-muted-foreground">
+        <p className="mb-6 text-base text-muted-foreground">
           Paste the invitation code an organisation owner shared with you.
         </p>
         <form
@@ -98,7 +98,7 @@ function JoinForm(): React.JSX.Element {
               <Input type="password" disabled={busy} {...form.register("password")} />
             </Field>
           ) : null}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? <p className="text-base text-destructive">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={busy}>
             {busy ? "Joining…" : checking ? "Checking…" : "Join workspace"}
           </Button>

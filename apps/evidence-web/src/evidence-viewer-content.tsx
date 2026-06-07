@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildVisibleActionRows,
   buildSectionTimeline,
@@ -106,6 +106,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const autoScrollingRef = useRef(false);
+  const localPlaybackUrlRef = useRef<string | null>(null);
 
   const [mergeGroups, setMergeGroups] = useState<ActionMergeGroup[]>(loadedMergeGroups);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -121,6 +122,17 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [recordingBytes, setRecordingBytes] = useState<Uint8Array | null>(recordingBytesInitial);
+  const [playbackVideoSrc, setPlaybackVideoSrc] = useState<string | null>(videoSrc);
+
+  useEffect(() => {
+    setPlaybackVideoSrc(videoSrc);
+    return () => {
+      if (localPlaybackUrlRef.current) {
+        URL.revokeObjectURL(localPlaybackUrlRef.current);
+        localPlaybackUrlRef.current = null;
+      }
+    };
+  }, [videoSrc]);
 
   const archive = useMemo(
     () => buildReviewedArchive({ archive: loadedArchive, mergeGroups }),
@@ -329,6 +341,28 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     return bytes;
   };
 
+  const recoverStalledVideoSeek = async (targetSeconds: number): Promise<void> => {
+    if (playbackVideoSrc && localPlaybackUrlRef.current === playbackVideoSrc) return;
+    const bytes = await ensureRecordingBytes();
+    if (!bytes || bytes.length === 0) {
+      showFeedback("Unable to buffer recording for seeking.", "error");
+      return;
+    }
+
+    if (localPlaybackUrlRef.current) URL.revokeObjectURL(localPlaybackUrlRef.current);
+    const blobBytes = new Uint8Array(bytes.byteLength);
+    blobBytes.set(bytes);
+    const blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "video/webm" }));
+    localPlaybackUrlRef.current = blobUrl;
+    setPlaybackVideoSrc(blobUrl);
+    window.setTimeout(() => {
+      const videoEl = videoRef.current;
+      if (!videoEl) return;
+      videoEl.currentTime = targetSeconds;
+      void videoEl.play().catch(() => undefined);
+    }, 0);
+  };
+
   const handleDownloadZip = async (): Promise<void> => {
     setDownloadingZip(true);
     try {
@@ -395,7 +429,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       onDownloadZip={() => void handleDownloadZip()}
       downloadingZip={downloadingZip}
       videoRef={videoRef}
-      videoSrc={videoSrc}
+      videoSrc={playbackVideoSrc}
       videoDurationHintMs={videoDurationHintMs}
       notesValue=""
       notesReadOnly
@@ -415,6 +449,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       onVideoError={() => {
         if (videoRef.current) onVideoError(videoRef.current);
       }}
+      onVideoSeekStall={(targetSeconds) => void recoverStalledVideoSeek(targetSeconds)}
       activeSection={activeSection}
       onSectionChange={(section) => {
         setActiveSection(section);

@@ -34,11 +34,11 @@ export function PrivacyPage(): React.JSX.Element {
     <div className="min-h-screen bg-background">
       <PublicTopbar />
       <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
-        <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-primary">
+        <p className="font-mono text-sm font-semibold uppercase tracking-[0.12em] text-primary">
           Jittle Lamp
         </p>
         <h1 className="mt-2 font-display text-4xl font-bold tracking-tight">Privacy Policy</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Last updated: April 27, 2026</p>
+        <p className="mt-2 text-base text-muted-foreground">Last updated: April 27, 2026</p>
         <div className="mt-10 space-y-10">
           {SECTIONS.map((section) => (
             <section key={section.heading} className="border-t border-border pt-6">

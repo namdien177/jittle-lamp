@@ -411,19 +411,19 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         </div>
 
         {error ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-base text-destructive">
             {error}
           </div>
         ) : null}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {loading
               ? "Loading…"
               : `${filtered.length} shown · ${total} total · latest first`}
           </p>
           {filtered.length > 0 ? (
-            <label className="inline-flex w-fit items-center gap-2 text-xs text-muted-foreground">
+            <label className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground">
               <input
                 type="checkbox"
                 checked={allFilteredSelected}
@@ -440,10 +440,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
 
         {hasSelection ? (
           <div className="flex flex-col gap-3 rounded-md border border-border-strong bg-secondary px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm font-medium text-foreground">
+            <span className="text-base font-medium text-foreground">
               {selectedEvidences.length} selected
               {selectedUndeletableCount > 0 ? (
-                <span className="ml-2 text-xs font-normal text-destructive">
+                <span className="ml-2 text-sm font-normal text-destructive">
                   {selectedUndeletableCount} cannot be deleted by your role
                 </span>
               ) : null}
@@ -541,13 +541,13 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
                   className="min-w-0 text-left"
                 >
-                  <span className="block truncate text-sm font-semibold text-foreground group-hover:text-primary">
+                  <span className="block truncate text-base font-semibold text-foreground group-hover:text-primary">
                     {evidence.title}
                   </span>
-                  <span className="mt-0.5 block truncate font-mono text-xs text-muted-foreground">
+                  <span className="mt-0.5 block truncate font-mono text-sm text-muted-foreground">
                     {evidence.id.slice(0, 18)}…
                   </span>
-                  <span className="mt-1 block truncate text-xs text-muted-foreground">
+                  <span className="mt-1 block truncate text-sm text-muted-foreground">
                     Recorded by {memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
                   </span>
                 </button>
@@ -558,7 +558,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                     </Badge>
                     {evidence.status === "pending" ? <Badge variant="muted">Pending</Badge> : null}
                   </div>
-                  <span className="text-xs text-muted-foreground" title={new Date(evidence.createdAt).toISOString()}>
+                  <span className="text-sm text-muted-foreground" title={new Date(evidence.createdAt).toISOString()}>
                     {formatRelativeTime(evidence.createdAt)}
                   </span>
                 </div>
@@ -623,16 +623,16 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       >
                         <EvidenceThumbnail evidence={evidence} className="h-10 w-16" />
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-foreground hover:text-primary">
+                          <span className="block truncate text-base font-medium text-foreground hover:text-primary">
                             {evidence.title}
                           </span>
-                          <span className="block truncate font-mono text-xs text-muted-foreground">
+                          <span className="block truncate font-mono text-sm text-muted-foreground">
                             {evidence.id.slice(0, 16)}…
                           </span>
                         </span>
                       </button>
                     </TableCell>
-                    <TableCell className="hidden max-w-[12rem] truncate text-sm text-muted-foreground sm:table-cell">
+                    <TableCell className="hidden max-w-[12rem] truncate text-base text-muted-foreground sm:table-cell">
                       {memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
@@ -643,7 +643,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                         {evidence.status === "pending" ? <Badge variant="muted">Pending</Badge> : null}
                       </div>
                     </TableCell>
-                    <TableCell className="hidden whitespace-nowrap text-sm text-muted-foreground lg:table-cell">
+                    <TableCell className="hidden whitespace-nowrap text-base text-muted-foreground lg:table-cell">
                       {formatRelativeTime(evidence.createdAt)}
                     </TableCell>
                     <TableCell>
@@ -666,7 +666,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         )}
         {!loading && totalPages > 1 ? (
           <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Page {Math.min(page, totalPages)} of {totalPages}
             </p>
             <div className="flex items-center gap-2">

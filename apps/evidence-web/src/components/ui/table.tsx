@@ -8,7 +8,7 @@ export function Table({
 }: React.TableHTMLAttributes<HTMLTableElement>): React.JSX.Element {
   return (
     <div className="w-full overflow-x-auto jl-scroll">
-      <table className={cn("w-full caption-bottom border-collapse text-sm", className)} {...props} />
+      <table className={cn("w-full caption-bottom border-collapse text-base", className)} {...props} />
     </div>
   );
 }
@@ -54,7 +54,7 @@ export function TableHead({
   return (
     <th
       className={cn(
-        "h-10 px-4 text-left align-middle text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground",
+        "h-11 px-4 text-left align-middle text-sm font-semibold uppercase tracking-[0.06em] text-muted-foreground",
         className
       )}
       {...props}
@@ -66,5 +66,5 @@ export function TableCell({
   className,
   ...props
 }: React.TdHTMLAttributes<HTMLTableCellElement>): React.JSX.Element {
-  return <td className={cn("px-4 py-3 align-middle", className)} {...props} />;
+  return <td className={cn("px-4 py-3.5 align-middle", className)} {...props} />;
 }

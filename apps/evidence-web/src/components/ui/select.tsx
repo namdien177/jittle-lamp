@@ -32,10 +32,10 @@ export function Select<TValue extends string>(props: {
       <BaseSelect.Trigger
         aria-label={ariaLabel}
         className={cn(
-          "inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-black/20 px-3 text-sm text-foreground shadow-soft outline-none transition-colors",
+          "inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-black/20 px-3 text-base text-foreground shadow-soft outline-none transition-colors",
           "hover:border-white/20 focus-visible:border-ring/70 focus-visible:ring-2 focus-visible:ring-ring/30",
           "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
-          size === "sm" ? "h-8" : "h-9",
+          size === "sm" ? "h-9" : "h-10",
           className
         )}
       >
@@ -58,7 +58,7 @@ export function Select<TValue extends string>(props: {
                   key={option.value}
                   value={option.value}
                   className={cn(
-                    "flex min-h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm text-muted-foreground outline-none",
+                    "flex min-h-9 cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 text-base text-muted-foreground outline-none",
                     "data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-foreground",
                     "data-[selected]:bg-primary/12 data-[selected]:text-foreground"
                   )}

@@ -33,13 +33,13 @@ export function EvidenceSearch(): React.JSX.Element {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Search evidence"
-        className="inline-flex h-9 items-center gap-2 rounded-md border border-border-strong bg-secondary px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:border-white/20 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 sm:w-60 sm:justify-between"
+        className="inline-flex h-10 items-center gap-2 rounded-md border border-border-strong bg-secondary px-3 text-base text-muted-foreground outline-none transition-colors hover:border-white/20 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 sm:w-64 sm:justify-between"
       >
         <span className="inline-flex items-center gap-2">
           <Search aria-hidden className="size-4" />
           <span className="hidden sm:inline">Search evidence…</span>
         </span>
-        <kbd className="hidden items-center gap-0.5 rounded border border-border-strong bg-background px-1.5 py-0.5 font-mono text-[0.65rem] text-muted-foreground sm:inline-flex">
+        <kbd className="hidden items-center gap-0.5 rounded border border-border-strong bg-background px-1.5 py-0.5 font-mono text-sm text-muted-foreground sm:inline-flex">
           {isMac ? "⌘" : "Ctrl"}K
         </kbd>
       </button>
@@ -130,7 +130,7 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
                 onChange={(e) => setQuery(e.currentTarget.value)}
                 onKeyDown={onInputKeyDown}
                 placeholder="Search evidence by name, type, or id…"
-                className="h-12 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                className="h-12 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 aria-label="Search evidence"
               />
               <button
@@ -145,9 +145,9 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
 
             <div ref={listRef} className="jl-scroll max-h-[min(24rem,55vh)] overflow-y-auto p-1.5">
               {evidencesQuery.isPending ? (
-                <p className="px-3 py-8 text-center text-sm text-muted-foreground">Loading evidence…</p>
+                <p className="px-3 py-8 text-center text-base text-muted-foreground">Loading evidence…</p>
               ) : results.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <p className="px-3 py-8 text-center text-base text-muted-foreground">
                   {all.length === 0 ? "No evidence in this workspace yet." : "No matches found."}
                 </p>
               ) : (
@@ -182,7 +182,7 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
                             }
                           }}
                           onBlur={() => commitRename(evidence)}
-                          className="h-7 flex-1 rounded border border-ring/70 bg-black/30 px-2 text-sm text-foreground outline-none ring-2 ring-ring/30"
+                          className="h-7 flex-1 rounded border border-ring/70 bg-black/30 px-2 text-base text-foreground outline-none ring-2 ring-ring/30"
                           aria-label="Rename evidence"
                         />
                       ) : (
@@ -191,10 +191,10 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
                           onClick={() => openEvidence(evidence)}
                           className="flex min-w-0 flex-1 flex-col items-start text-left"
                         >
-                          <span className="w-full truncate text-sm font-medium text-foreground">
+                          <span className="w-full truncate text-base font-medium text-foreground">
                             {evidence.title}
                           </span>
-                          <span className="w-full truncate font-mono text-xs text-muted-foreground">
+                          <span className="w-full truncate font-mono text-sm text-muted-foreground">
                             {evidence.sourceType} · {evidence.id.slice(0, 16)}… ·{" "}
                             {formatRelativeTime(evidence.updatedAt)}
                           </span>
@@ -223,7 +223,7 @@ function SearchPalette({ onClose }: { onClose: () => void }): React.JSX.Element 
               )}
             </div>
 
-            <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-[0.7rem] text-muted-foreground">
+            <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <CornerDownLeft className="size-3" aria-hidden /> open
               </span>

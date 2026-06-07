@@ -94,11 +94,11 @@ export function QuickViewPage(): React.JSX.Element {
       <PublicTopbar />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6">
         <div className="mb-8 text-center">
-          <span className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-primary">
+          <span className="font-mono text-sm font-semibold uppercase tracking-[0.12em] text-primary">
             Quick view
           </span>
           <h1 className="mt-2 font-display text-3xl font-bold tracking-tight">Review a session locally</h1>
-          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          <p className="mx-auto mt-2 max-w-md text-base text-muted-foreground">
             Drop a session ZIP to replay it instantly. Nothing is uploaded — the archive is read
             entirely in your browser.
           </p>
@@ -128,12 +128,12 @@ export function QuickViewPage(): React.JSX.Element {
             <p className="text-base font-semibold text-foreground">
               {isLoading ? "Extracting and validating…" : "Drop a session ZIP here"}
             </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               {isLoading ? "This can take a moment for large recordings." : "or click to browse your files"}
             </p>
           </div>
           {phase.kind === "error" ? (
-            <p className="max-w-md break-words text-sm text-destructive">{phase.error}</p>
+            <p className="max-w-md break-words text-base text-destructive">{phase.error}</p>
           ) : null}
           {!isLoading ? (
             <span className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "pointer-events-none")}>
@@ -149,7 +149,7 @@ export function QuickViewPage(): React.JSX.Element {
           />
         </div>
 
-        <p className="mt-5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <p className="mt-5 inline-flex items-center gap-1.5 text-sm text-muted-foreground">
           <ShieldCheck className="size-3.5 text-primary" aria-hidden />
           Processed locally in your browser — never uploaded.
         </p>

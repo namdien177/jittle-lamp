@@ -70,7 +70,7 @@ export function StatusScreen(props: {
             {props.title}
           </h1>
           {props.detail ? (
-            <p className={cn("mt-2 text-sm text-muted-foreground", isLoading ? "mx-auto max-w-sm" : null)}>
+            <p className={cn("mt-2 text-base text-muted-foreground", isLoading ? "mx-auto max-w-sm" : null)}>
               {props.detail}
             </p>
           ) : null}

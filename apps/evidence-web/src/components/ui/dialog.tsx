@@ -63,7 +63,7 @@ export function Dialog(props: DialogProps): React.JSX.Element | null {
                   {title}
                 </BaseDialog.Title>
                 {description ? (
-                  <BaseDialog.Description className="text-sm text-muted-foreground">
+                  <BaseDialog.Description className="text-base text-muted-foreground">
                     {description}
                   </BaseDialog.Description>
                 ) : null}
@@ -135,7 +135,7 @@ export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element | nu
         </>
       }
     >
-      <p className="text-sm text-muted-foreground">{description}</p>
+      <p className="text-base text-muted-foreground">{description}</p>
     </Dialog>
   );
 }

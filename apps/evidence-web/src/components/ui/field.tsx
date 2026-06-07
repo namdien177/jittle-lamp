@@ -9,7 +9,7 @@ export function Label({
   return (
     <label
       className={cn(
-        "text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground",
+        "text-sm font-semibold uppercase tracking-[0.06em] text-muted-foreground",
         className
       )}
       {...props}
@@ -34,9 +34,9 @@ export function Field(props: {
       {props.label ? <Label htmlFor={props.htmlFor}>{props.label}</Label> : null}
       {props.children}
       {props.error ? (
-        <p className="text-xs font-medium text-destructive">{props.error}</p>
+        <p className="text-sm font-medium text-destructive">{props.error}</p>
       ) : props.hint ? (
-        <p className="text-xs text-muted-foreground">{props.hint}</p>
+        <p className="text-sm text-muted-foreground">{props.hint}</p>
       ) : null}
     </div>
   );

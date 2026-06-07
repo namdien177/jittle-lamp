@@ -19,7 +19,7 @@ export function PageHeader(props: {
     >
       <div className="min-w-0 space-y-1.5">
         {props.eyebrow ? (
-          <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-primary">
+          <p className="font-mono text-sm font-semibold uppercase tracking-[0.12em] text-primary">
             {props.eyebrow}
           </p>
         ) : null}
@@ -27,7 +27,7 @@ export function PageHeader(props: {
           {props.title}
         </h1>
         {props.description ? (
-          <p className="max-w-2xl text-sm text-muted-foreground">{props.description}</p>
+          <p className="max-w-2xl text-base text-muted-foreground">{props.description}</p>
         ) : null}
       </div>
       {props.actions ? (
@@ -64,7 +64,7 @@ export function PageTabs(props: { items: TabItem[]; className?: string }): React
           end={item.end ?? false}
           className={({ isActive }) =>
             cn(
-              "-mb-px border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
+              "-mb-px border-b-2 px-3 py-2.5 text-base font-medium transition-colors",
               isActive
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"

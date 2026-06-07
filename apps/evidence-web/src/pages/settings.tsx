@@ -23,9 +23,9 @@ function SettingCard(props: {
   return (
     <Card className="p-0">
       <div className="border-b border-border px-5 py-4">
-        <h2 className="text-sm font-semibold">{props.title}</h2>
+        <h2 className="text-base font-semibold">{props.title}</h2>
         {props.description ? (
-          <p className="text-sm text-muted-foreground">{props.description}</p>
+          <p className="text-base text-muted-foreground">{props.description}</p>
         ) : null}
       </div>
       <CardContent className="p-5 pt-5">{props.children}</CardContent>
@@ -74,15 +74,15 @@ export function SettingsPage(): React.JSX.Element {
                   className="size-11 rounded-lg border border-border object-cover"
                 />
               ) : (
-                <span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-sm font-semibold">
+                <span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-base font-semibold">
                   {initials}
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">
+                <p className="truncate text-base font-semibold text-foreground">
                   {profile?.user.displayName ?? "Signed in"}
                 </p>
-                <p className="truncate text-sm text-muted-foreground">{profile?.user.email ?? "—"}</p>
+                <p className="truncate text-base text-muted-foreground">{profile?.user.email ?? "—"}</p>
               </div>
               <Button variant="outline" size="sm" onClick={() => clerk.openUserProfile()}>
                 <UserCog aria-hidden />
@@ -101,10 +101,10 @@ export function SettingsPage(): React.JSX.Element {
               <Building2 className="size-5" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-foreground">
+              <p className="truncate text-base font-semibold text-foreground">
                 {activeOrg?.name ?? "No active workspace"}
               </p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 {profile ? `${profile.organizations.length} organisation${profile.organizations.length === 1 ? "" : "s"}` : "—"}
               </p>
             </div>
@@ -119,7 +119,7 @@ export function SettingsPage(): React.JSX.Element {
           title="Desktop companion"
           description="Install the macOS companion to receive captures from the extension."
         >
-          <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border bg-black/30 pl-3 pr-1.5 font-mono text-sm">
+          <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
             <Terminal aria-hidden className="size-4 shrink-0 text-primary" />
             <code className="flex-1 truncate py-2.5 text-muted-foreground" title={INSTALL_COMMAND}>
               curl ... | bash
@@ -127,7 +127,7 @@ export function SettingsPage(): React.JSX.Element {
             <button
               type="button"
               onClick={onCopy}
-              className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+              className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08]"
             >
               {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
               {copied ? "Copied" : "Copy"}

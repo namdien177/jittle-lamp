@@ -3,7 +3,7 @@ import React from "react";
 import { cn } from "../../lib/cn";
 
 export const inputClass =
-  "flex h-9 w-full rounded-md border border-input bg-black/20 px-3 py-1 text-sm text-foreground shadow-soft transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring/70 focus-visible:bg-black/30 focus-visible:ring-2 focus-visible:ring-ring/30 outline-none disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-10 w-full rounded-md border border-input bg-black/20 px-3 py-1.5 text-base text-foreground shadow-soft transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring/70 focus-visible:bg-black/30 focus-visible:ring-2 focus-visible:ring-ring/30 outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
 

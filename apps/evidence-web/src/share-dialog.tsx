@@ -116,11 +116,11 @@ export function ShareDialog(props: {
 
       {createdLink ? (
         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/[0.07] p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-brand-300">
+          <p className="text-base font-semibold uppercase tracking-[0.06em] text-brand-300">
             Copy now — this URL won’t be shown again
           </p>
           <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-xs text-muted-foreground">
+            <code className="min-w-0 flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-base text-muted-foreground">
               {buildShareUrl(createdLink.token)}
             </code>
             <Button size="sm" onClick={() => void handleCopy(createdLink.token)}>
@@ -132,7 +132,7 @@ export function ShareDialog(props: {
       ) : null}
 
       <section className="space-y-2">
-        <h3 className="text-sm font-semibold">Active links ({activeLinks.length})</h3>
+        <h3 className="text-base font-semibold">Active links ({activeLinks.length})</h3>
         {loading ? (
           <Skeleton className="h-10 w-full" />
         ) : activeLinks.length === 0 ? (
@@ -156,11 +156,11 @@ export function ShareDialog(props: {
               <TableBody>
                 {activeLinks.map((link) => (
                   <TableRow key={link.id}>
-                    <TableCell className="font-mono text-xs">{link.id.slice(0, 14)}…</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="font-mono text-base">{link.id.slice(0, 14)}…</TableCell>
+                    <TableCell className="text-base text-muted-foreground">
                       {formatRelativeTime(link.createdAt)}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="text-base text-muted-foreground">
                       {formatRelativeTime(link.expiresAt)}
                     </TableCell>
                     <TableCell className="text-right">
@@ -183,7 +183,7 @@ export function ShareDialog(props: {
 
       {inactiveLinks.length > 0 ? (
         <section className="space-y-2">
-          <h3 className="text-sm font-semibold">History ({inactiveLinks.length})</h3>
+          <h3 className="text-base font-semibold">History ({inactiveLinks.length})</h3>
           <div className="overflow-hidden rounded-lg border border-border">
             <Table>
               <TableHeader>
@@ -198,13 +198,13 @@ export function ShareDialog(props: {
                   const revoked = link.revokedAt !== null;
                   return (
                     <TableRow key={link.id}>
-                      <TableCell className="font-mono text-xs">{link.id.slice(0, 14)}…</TableCell>
+                      <TableCell className="font-mono text-base">{link.id.slice(0, 14)}…</TableCell>
                       <TableCell>
                         <Badge variant={revoked ? "danger" : "warning"}>
                           {revoked ? "Revoked" : "Expired"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="text-base text-muted-foreground">
                         {formatRelativeTime(link.revokedAt ?? link.expiresAt)}
                       </TableCell>
                     </TableRow>

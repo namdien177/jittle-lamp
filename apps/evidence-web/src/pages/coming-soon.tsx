@@ -54,7 +54,7 @@ export function ComingSoonPage({ variant }: { variant: Variant }): React.JSX.Ele
             </div>
             <div className="relative space-y-3">
               <Badge variant="brand">On the roadmap</Badge>
-              <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+              <p className="max-w-xl text-base leading-relaxed text-muted-foreground">
                 This area of the workspace is being built. The evidence you capture today will plug
                 straight into it — nothing you record now goes to waste.
               </p>
@@ -65,8 +65,8 @@ export function ComingSoonPage({ variant }: { variant: Variant }): React.JSX.Ele
           {copy.bullets.map((bullet) => (
             <Card key={bullet.title}>
               <CardContent className="space-y-1.5 p-5">
-                <p className="text-sm font-semibold text-foreground">{bullet.title}</p>
-                <p className="text-sm text-muted-foreground">{bullet.body}</p>
+                <p className="text-base font-semibold text-foreground">{bullet.title}</p>
+                <p className="text-base text-muted-foreground">{bullet.body}</p>
               </CardContent>
             </Card>
           ))}

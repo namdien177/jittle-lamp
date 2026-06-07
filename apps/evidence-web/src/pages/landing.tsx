@@ -19,7 +19,7 @@ function CopyInstall(): React.JSX.Element {
     void copyToClipboard(INSTALL_COMMAND).catch(() => undefined);
   };
   return (
-    <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border-strong bg-black/40 pl-3 pr-1.5 font-mono text-sm">
+    <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border-strong bg-black/40 pl-3 pr-1.5 font-mono text-base">
       <Terminal aria-hidden className="size-4 shrink-0 text-primary" />
       <code className="flex-1 truncate py-2.5 text-muted-foreground" title={INSTALL_COMMAND}>
         curl ... | bash
@@ -27,7 +27,7 @@ function CopyInstall(): React.JSX.Element {
       <button
         type="button"
         onClick={onCopy}
-        className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+        className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08]"
       >
         {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
         {copied ? "Copied" : "Copy"}
@@ -96,7 +96,7 @@ export function LandingPage(): React.JSX.Element {
                 </Link>
               </div>
               <div className="max-w-md space-y-2 pt-2">
-                <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                <p className="text-sm font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   Install the desktop companion
                 </p>
                 <CopyInstall />
@@ -121,16 +121,16 @@ export function LandingPage(): React.JSX.Element {
                     <span className="flex size-10 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary [&_svg]:size-5">
                       {step.icon}
                     </span>
-                    <span className="font-mono text-sm text-muted-foreground/60">{step.n}</span>
+                    <span className="font-mono text-base text-muted-foreground/60">{step.n}</span>
                   </div>
                   <h3 className="mt-4 font-display text-lg font-semibold tracking-tight">{step.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{step.body}</p>
+                  <p className="mt-1.5 text-base leading-relaxed text-muted-foreground">{step.body}</p>
                 </div>
               ))}
             </div>
           </section>
 
-          <footer className="flex flex-col items-center justify-between gap-3 border-t border-border py-8 text-sm text-muted-foreground sm:flex-row">
+          <footer className="flex flex-col items-center justify-between gap-3 border-t border-border py-8 text-base text-muted-foreground sm:flex-row">
             <span>© {new Date().getFullYear()} Jittle Lamp</span>
             <Link to="/privacy" className="transition-colors hover:text-foreground">
               Privacy
@@ -157,7 +157,7 @@ function MockReviewer(): React.JSX.Element {
         <span className="size-2.5 rounded-full bg-destructive/70" />
         <span className="size-2.5 rounded-full bg-warning/70" />
         <span className="size-2.5 rounded-full bg-primary/70" />
-        <span className="ml-2 truncate font-mono text-xs text-muted-foreground">
+        <span className="ml-2 truncate font-mono text-sm text-muted-foreground">
           checkout-regression.webm
         </span>
       </div>
@@ -176,12 +176,12 @@ function MockReviewer(): React.JSX.Element {
             <li
               key={i}
               className={cn(
-                "flex items-center gap-2 px-3 py-2.5 text-xs",
+                "flex items-center gap-2 px-3 py-2.5 text-sm",
                 row.tone === "err" ? "text-destructive" : "text-muted-foreground",
                 i === 2 && "bg-primary/[0.06]"
               )}
             >
-              <span className="font-mono text-[0.65rem] text-muted-foreground/60">{row.t}</span>
+              <span className="font-mono text-sm text-muted-foreground/60">{row.t}</span>
               <span className="truncate">{row.label}</span>
             </li>
           ))}

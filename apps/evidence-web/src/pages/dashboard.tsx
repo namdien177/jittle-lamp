@@ -21,11 +21,11 @@ function StatCard(props: {
     <Card>
       <CardContent className="flex items-start justify-between gap-3 p-5">
         <div className="space-y-1">
-          <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+          <p className="text-sm font-medium uppercase tracking-[0.06em] text-muted-foreground">
             {props.label}
           </p>
           <p className="font-display text-3xl font-bold tracking-tight tabular-nums">{props.value}</p>
-          {props.hint ? <p className="text-xs text-muted-foreground">{props.hint}</p> : null}
+          {props.hint ? <p className="text-sm text-muted-foreground">{props.hint}</p> : null}
         </div>
         <span className="flex size-10 items-center justify-center rounded-lg border border-border bg-secondary text-primary [&_svg]:size-5">
           {props.icon}
@@ -106,7 +106,7 @@ export function DashboardPage(): React.JSX.Element {
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
               <h2 className="font-display text-base font-semibold tracking-tight">Recent evidence</h2>
-              <p className="text-sm text-muted-foreground">The latest sessions uploaded here.</p>
+              <p className="text-base text-muted-foreground">The latest sessions uploaded here.</p>
             </div>
             <Link
               to="/evidence"
@@ -149,17 +149,17 @@ export function DashboardPage(): React.JSX.Element {
                         <Video aria-hidden className="size-4" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">
+                        <span className="block truncate text-base font-medium text-foreground">
                           {evidence.title}
                         </span>
-                        <span className="block truncate font-mono text-xs text-muted-foreground">
+                        <span className="block truncate font-mono text-sm text-muted-foreground">
                           {evidence.id.slice(0, 16)}…
                         </span>
                       </span>
                       <Badge variant="muted" className="capitalize">
                         {evidence.sourceType}
                       </Badge>
-                      <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
+                      <span className="hidden shrink-0 text-sm text-muted-foreground sm:block">
                         {formatRelativeTime(evidence.updatedAt)}
                       </span>
                       <ArrowRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />

@@ -50,7 +50,7 @@ export function DropdownMenuItem(props: {
       disabled={props.disabled ?? false}
       onClick={props.onClick ?? (() => undefined)}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm outline-none [&_svg]:size-4",
+        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-base outline-none [&_svg]:size-4",
         "data-[highlighted]:bg-white/[0.06] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         props.destructive
           ? "text-destructive data-[highlighted]:bg-destructive/12"
@@ -64,7 +64,7 @@ export function DropdownMenuItem(props: {
 
 export function DropdownMenuLabel(props: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="px-2.5 pb-1 pt-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
+    <div className="px-2.5 pb-1 pt-1.5 text-sm font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
       {props.children}
     </div>
   );

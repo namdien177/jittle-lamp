@@ -199,15 +199,15 @@ export function OrganisationsListPage(): React.JSX.Element {
       />
       <PageBody>
         {error ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-base text-destructive">
             {error}
           </div>
         ) : null}
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             {orgs.length} organisation{orgs.length === 1 ? "" : "s"}
           </span>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-base text-muted-foreground">
             <span>Order by</span>
             <div className="w-40">
               <Select ariaLabel="Order organisations" size="sm" options={sortOptions} value={sort} onValueChange={setSort} />
@@ -248,15 +248,15 @@ export function OrganisationsListPage(): React.JSX.Element {
                         <span className="font-medium text-foreground">{org.name}</span>
                         {org.id === activeOrgId ? <Badge variant="brand">Active</Badge> : null}
                       </div>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         {org.isPersonal ? "Personal workspace" : "Organisation workspace"}
                       </span>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{roleBadge(org.role)}</TableCell>
-                    <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">
                       {relTime(org.joinedAt)}
                     </TableCell>
-                    <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">
                       {org.memberCount}
                     </TableCell>
                     <TableCell>
@@ -385,7 +385,7 @@ export function OrganisationDetailLayout(): React.JSX.Element {
           ]}
         />
         {error || queryError ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-base text-destructive">
             {error ?? queryError}
           </div>
         ) : null}
@@ -466,7 +466,7 @@ export function OrgMembersTab(): React.JSX.Element {
         </div>
       </div>
       {memberError ? (
-        <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-base text-destructive">
           {memberError}
         </div>
       ) : null}
@@ -497,13 +497,13 @@ export function OrgMembersTab(): React.JSX.Element {
               <TableRow key={member.membershipId}>
                 <TableCell>
                   <span className="block font-medium text-foreground">{memberName(member)}</span>
-                  <span className="block text-xs text-muted-foreground">{member.email ?? "No email"}</span>
+                  <span className="block text-sm text-muted-foreground">{member.email ?? "No email"}</span>
                 </TableCell>
                 <TableCell className="hidden sm:table-cell">{roleBadge(member.role)}</TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                <TableCell className="hidden text-base text-muted-foreground md:table-cell">
                   {relTime(member.joinedAt)}
                 </TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
+                <TableCell className="hidden text-base text-muted-foreground lg:table-cell">
                   {member.guestExpiresAt ? relTime(member.guestExpiresAt) : "Permanent"}
                 </TableCell>
                 <TableCell>
@@ -546,7 +546,7 @@ export function OrgMembersTab(): React.JSX.Element {
           )}
           {!loading && result.members.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+              <TableCell colSpan={5} className="py-8 text-center text-base text-muted-foreground">
                 No members match this filter.
               </TableCell>
             </TableRow>
@@ -554,14 +554,14 @@ export function OrgMembersTab(): React.JSX.Element {
         </TableBody>
       </Table>
       <div className="flex items-center justify-between gap-3 border-t border-border p-3">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-sm text-muted-foreground">
           {result.total} member{result.total === 1 ? "" : "s"}
         </span>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon-sm" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage(page - 1)}>
             <ChevronLeft className="size-4" aria-hidden />
           </Button>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             Page {page} of {pages}
           </span>
           <Button variant="ghost" size="icon-sm" aria-label="Next page" disabled={page >= pages} onClick={() => setPage(page + 1)}>
@@ -668,8 +668,8 @@ export function OrgInvitationsTab(): React.JSX.Element {
       <Card className="p-0">
         <div className="flex items-center justify-between gap-3 border-b border-border p-4">
           <div>
-            <h2 className="text-sm font-semibold">Invitation codes</h2>
-            <p className="text-sm text-muted-foreground">Reusable codes for member onboarding.</p>
+            <h2 className="text-base font-semibold">Invitation codes</h2>
+            <p className="text-base text-muted-foreground">Reusable codes for member onboarding.</p>
           </div>
           <Button onClick={() => setShowCreate(true)} disabled={busy || codes.length >= 3}>
             <Plus aria-hidden />
@@ -677,17 +677,17 @@ export function OrgInvitationsTab(): React.JSX.Element {
           </Button>
         </div>
         {invitationError ? (
-          <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-base text-destructive">
             {invitationError}
           </div>
         ) : null}
         {createdCode ? (
           <div className="m-4 space-y-2 rounded-lg border border-primary/30 bg-primary/[0.07] p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.06em] text-brand-300">
+            <p className="text-sm font-semibold uppercase tracking-[0.06em] text-brand-300">
               New static joining code
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-sm">
+              <code className="flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-base">
                 {createdCode}
               </code>
               <Button variant="ghost" size="sm" onClick={() => setCreatedCode(null)}>
@@ -720,9 +720,9 @@ export function OrgInvitationsTab(): React.JSX.Element {
               <TableRow key={code.id}>
                 <TableCell>
                   <span className="block font-medium text-foreground">{code.label}</span>
-                  <span className="block text-xs capitalize text-muted-foreground">{code.role}</span>
+                  <span className="block text-sm capitalize text-muted-foreground">{code.role}</span>
                 </TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                <TableCell className="hidden text-base text-muted-foreground md:table-cell">
                   {[
                     code.hasPassword ? "password" : null,
                     code.emailDomain ? `@${code.emailDomain}` : null,
@@ -731,7 +731,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
                     .filter(Boolean)
                     .join(" · ") || "None"}
                 </TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
+                <TableCell className="hidden text-base text-muted-foreground lg:table-cell">
                   {code.guestExpiresAfterDays ? `${code.guestExpiresAfterDays} days` : "Permanent"}
                 </TableCell>
                 <TableCell>
@@ -754,7 +754,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
             )}
             {!invitationsQuery.isPending && codes.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={5} className="py-8 text-center text-base text-muted-foreground">
                   No static codes yet.
                 </TableCell>
               </TableRow>
@@ -766,7 +766,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
       {invitations.length > 0 ? (
         <Card className="p-0">
           <div className="border-b border-border p-4">
-            <h2 className="text-sm font-semibold">Direct invitations</h2>
+            <h2 className="text-base font-semibold">Direct invitations</h2>
           </div>
           <Table>
             <TableHeader>
@@ -779,9 +779,9 @@ export function OrgInvitationsTab(): React.JSX.Element {
             <TableBody>
               {invitations.map((invitation) => (
                 <TableRow key={invitation.id}>
-                  <TableCell className="text-sm">{invitation.email}</TableCell>
+                  <TableCell className="text-base">{invitation.email}</TableCell>
                   <TableCell>{roleBadge(invitation.role)}</TableCell>
-                  <TableCell className="text-sm capitalize text-muted-foreground">{invitation.status}</TableCell>
+                  <TableCell className="text-base capitalize text-muted-foreground">{invitation.status}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -870,7 +870,7 @@ export function OrgLibraryTab(): React.JSX.Element {
   return (
     <Card className="overflow-hidden p-0">
       {libraryError ? (
-        <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+        <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-base text-destructive">
           {libraryError}
         </div>
       ) : null}
@@ -898,9 +898,9 @@ export function OrgLibraryTab(): React.JSX.Element {
               <TableRow key={evidence.id}>
                 <TableCell>
                   <span className="block font-medium text-foreground">{evidence.title}</span>
-                  <span className="block truncate font-mono text-xs text-muted-foreground">{evidence.id}</span>
+                  <span className="block truncate font-mono text-sm text-muted-foreground">{evidence.id}</span>
                 </TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                <TableCell className="hidden text-base text-muted-foreground md:table-cell">
                   {creators.get(evidence.createdBy) ?? evidence.createdBy}
                 </TableCell>
                 <TableCell className="hidden sm:table-cell">
@@ -908,7 +908,7 @@ export function OrgLibraryTab(): React.JSX.Element {
                     {evidence.sourceType}
                   </Badge>
                 </TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
+                <TableCell className="hidden text-base text-muted-foreground lg:table-cell">
                   {relTime(evidence.updatedAt)}
                 </TableCell>
                 <TableCell className="text-right">
@@ -950,11 +950,11 @@ export function OrgOptionsTab(): React.JSX.Element {
     <Card className="divide-y divide-border p-0">
       <div className="flex items-center justify-between gap-3 p-4">
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
+          <h3 className="flex items-center gap-2 text-base font-semibold">
             <LogOut className="size-4 text-muted-foreground" aria-hidden />
             Leave organisation
           </h3>
-          <p className="text-sm text-muted-foreground">Remove your membership from this organisation.</p>
+          <p className="text-base text-muted-foreground">Remove your membership from this organisation.</p>
         </div>
         <Button variant="destructive" disabled={leaveOrganization.isPending || ctx.org.isPersonal} onClick={() => void leave()}>
           Leave
@@ -963,8 +963,8 @@ export function OrgOptionsTab(): React.JSX.Element {
       {ctx.isOwner ? (
         <div className="flex items-center justify-between gap-3 p-4">
           <div>
-            <h3 className="text-sm font-semibold">Transfer organisation</h3>
-            <p className="text-sm text-muted-foreground">
+            <h3 className="text-base font-semibold">Transfer organisation</h3>
+            <p className="text-base text-muted-foreground">
               Transfer ownership to another member before stepping away.
             </p>
           </div>
@@ -1025,7 +1025,7 @@ function CreateOrganizationDialog(props: {
           <Input autoFocus {...form.register("name")} />
         </Field>
       </form>
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-base text-destructive">{error}</p> : null}
     </Dialog>
   );
 }
@@ -1103,7 +1103,7 @@ function AcceptInvitationDialog(props: {
           </Field>
         ) : null}
       </form>
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-base text-destructive">{error}</p> : null}
     </Dialog>
   );
 }

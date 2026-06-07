@@ -36,7 +36,7 @@ export function Wordmark({
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       {showMark ? <BrandMark /> : null}
-      <span className="font-display text-[0.95rem] font-bold leading-none tracking-tight text-foreground">
+      <span className="font-display text-base font-bold leading-none tracking-tight text-foreground">
         Jittle&nbsp;Lamp
       </span>
     </span>

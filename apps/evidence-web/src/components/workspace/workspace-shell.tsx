@@ -78,7 +78,7 @@ function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(
-          "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
+          "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-base font-medium transition-colors",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
             : "text-sidebar-foreground/80 hover:bg-white/[0.04] hover:text-foreground"
@@ -96,11 +96,11 @@ function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
           />
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
           {item.soon ? (
-            <Badge variant="muted" className="px-1.5 py-0 text-[0.62rem] uppercase">
+            <Badge variant="muted" className="px-1.5 py-0 text-sm uppercase">
               Soon
             </Badge>
           ) : item.count !== undefined ? (
-            <span className="font-mono text-xs tabular-nums text-muted-foreground">{item.count}</span>
+            <span className="font-mono text-sm tabular-nums text-muted-foreground">{item.count}</span>
           ) : null}
         </>
       )}
@@ -118,7 +118,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): React.JSX.
       <nav className="flex flex-1 flex-col gap-5" aria-label="Workspace">
         {groups.map((group) => (
           <div key={group.heading} className="flex flex-col gap-1">
-            <p className="px-2.5 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.09em] text-muted-foreground/70">
+            <p className="px-2.5 pb-1 text-sm font-semibold uppercase tracking-[0.09em] text-muted-foreground/70">
               {group.heading}
             </p>
             {group.items.map((item) => (

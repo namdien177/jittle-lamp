@@ -119,6 +119,7 @@ export type ViewerModalProps = {
   onSubmitDiscussion?: () => void;
   onVideoTimeUpdate: () => void;
   onVideoError?: () => void;
+  onVideoSeekStall?: (targetSeconds: number) => void;
 
   activeSection: TimelineSection;
   onSectionChange: (s: TimelineSection) => void;
@@ -410,6 +411,9 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
   const [muted, setMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [recoveringSeek, setRecoveringSeek] = useState(false);
+  const lastRequestedSeekRef = useRef<number | null>(null);
+  const seekRecoveryTimerRef = useRef<number | null>(null);
 
   const durationHint = props.videoDurationHintMs && props.videoDurationHintMs > 0 ? props.videoDurationHintMs / 1000 : 0;
   const durationValue = Math.max(Number.isFinite(duration) && duration > 0 ? duration : 0, durationHint);
@@ -420,6 +424,12 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
     setPaused(true);
     setCurrentTime(0);
     setDuration(0);
+    setRecoveringSeek(false);
+    lastRequestedSeekRef.current = null;
+    if (seekRecoveryTimerRef.current !== null) {
+      window.clearTimeout(seekRecoveryTimerRef.current);
+      seekRecoveryTimerRef.current = null;
+    }
   };
 
   const syncVideoState = (): void => {
@@ -430,6 +440,25 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
     setMuted(videoEl.muted || videoEl.volume === 0);
     setCurrentTime(videoEl.currentTime || 0);
     setDuration(nextDuration);
+    if (!videoEl.seeking && videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      setRecoveringSeek(false);
+    }
+  };
+
+  const scheduleSeekRecovery = (): void => {
+    if (!props.onVideoSeekStall || lastRequestedSeekRef.current === null || seekRecoveryTimerRef.current !== null) return;
+    seekRecoveryTimerRef.current = window.setTimeout(() => {
+      seekRecoveryTimerRef.current = null;
+      const videoEl = props.videoRef.current;
+      const targetSeconds = lastRequestedSeekRef.current;
+      if (!videoEl || targetSeconds === null) return;
+      const blocked =
+        videoEl.seeking ||
+        (!videoEl.paused && videoEl.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
+      if (!blocked) return;
+      setRecoveringSeek(true);
+      props.onVideoSeekStall?.(targetSeconds);
+    }, 1200);
   };
 
   const togglePlayback = (): void => {
@@ -450,8 +479,10 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
     if (!videoEl) return;
     const max = durationValue > 0 ? durationValue : Number.POSITIVE_INFINITY;
     videoEl.currentTime = Math.max(0, Math.min(max, videoEl.currentTime + deltaSeconds));
+    lastRequestedSeekRef.current = videoEl.currentTime || 0;
     setCurrentTime(videoEl.currentTime || 0);
     syncVideoState();
+    scheduleSeekRecovery();
     props.onVideoTimeUpdate();
   };
 
@@ -460,8 +491,10 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
     if (!videoEl) return;
     const nextTime = Math.max(0, Number(value));
     videoEl.currentTime = durationValue > 0 ? Math.min(nextTime, durationValue) : nextTime;
+    lastRequestedSeekRef.current = videoEl.currentTime || nextTime;
     setCurrentTime(videoEl.currentTime || nextTime);
     syncVideoState();
+    scheduleSeekRecovery();
     props.onVideoTimeUpdate();
   };
 
@@ -491,7 +524,12 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
           onLoadedMetadata={syncVideoState}
           onCanPlay={syncVideoState}
           onSeeking={syncVideoState}
-          onSeeked={syncVideoState}
+          onSeeked={() => {
+            lastRequestedSeekRef.current = null;
+            syncVideoState();
+          }}
+          onWaiting={scheduleSeekRecovery}
+          onStalled={scheduleSeekRecovery}
           onDurationChange={syncVideoState}
           onPlay={syncVideoState}
           onPause={syncVideoState}
@@ -541,6 +579,7 @@ function EvidenceVideoPlayer(props: ViewerModalProps): React.JSX.Element {
           onChange={(event) => seekTo(event.currentTarget.value)}
         />
         <span className="jl-vm-video-time">{durationValue > 0 ? formatClockTime(durationValue) : "0:00"}</span>
+        {recoveringSeek ? <span className="jl-vm-video-recovering">Buffering seek...</span> : null}
         <button type="button" className="jl-vm-video-control" aria-label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
           {muted ? <VolumeX aria-hidden size={16} strokeWidth={2.1} /> : <Volume2 aria-hidden size={16} strokeWidth={2.1} />}
         </button>

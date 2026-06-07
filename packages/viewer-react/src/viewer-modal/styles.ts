@@ -302,6 +302,19 @@ export const viewerModalStyles = `
   text-align: center;
 }
 
+.jl-vm-video-recovering {
+  position: absolute;
+  right: 0;
+  top: -30px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(8, 10, 13, 0.62);
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 12px;
+  padding: 4px 9px;
+  backdrop-filter: blur(16px);
+}
+
 .jl-vm-video-scrub {
   width: 100%;
   min-width: 0;

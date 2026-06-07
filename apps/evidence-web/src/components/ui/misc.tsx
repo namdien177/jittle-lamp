@@ -65,9 +65,9 @@ export function EmptyState(props: {
         </div>
       ) : null}
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-foreground">{props.title}</p>
+        <p className="text-base font-semibold text-foreground">{props.title}</p>
         {props.description ? (
-          <p className="mx-auto max-w-sm text-sm text-muted-foreground">{props.description}</p>
+          <p className="mx-auto max-w-sm text-base text-muted-foreground">{props.description}</p>
         ) : null}
       </div>
       {props.action ? <div className="mt-1">{props.action}</div> : null}
