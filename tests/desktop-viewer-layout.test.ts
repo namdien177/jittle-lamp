@@ -18,8 +18,10 @@ describe("viewer modal layout CSS", () => {
     expect(css).toMatch(/\.jl-vm-right\s*\{[\s\S]*?min-width:\s*0;/);
   });
 
-  test("video container uses 4:3 aspect ratio", () => {
-    expect(css).toMatch(/\.jl-vm-video-inner\s*\{[\s\S]*?aspect-ratio:\s*4\s*\/\s*3;/);
+  test("video player fills the available pane without cropping", () => {
+    expect(css).toMatch(/\.jl-vm-video-inner\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
+    expect(css).toMatch(/\.jl-vm-video-inner \.video-js\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
+    expect(css).toMatch(/\.jl-vm-video-inner \.video-js \.vjs-tech\s*\{[\s\S]*?object-fit:\s*contain;/);
   });
 
   test("drawer can grow to at most 70% of the right pane", () => {
