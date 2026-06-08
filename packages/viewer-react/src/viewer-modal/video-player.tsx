@@ -129,7 +129,7 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
             videoNodeRef.current = videoEl;
             assignVideoRef(props.videoRef, videoEl);
           }}
-          className="video-js vjs-big-play-centered vjs-theme-city"
+          className="video-js vjs-big-play-centered"
           playsInline
           preload="metadata"
         />
