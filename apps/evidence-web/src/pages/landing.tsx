@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Check,
   Copy,
+  ExternalLink,
   Network,
   PlayCircle,
   ShieldCheck,
@@ -18,6 +19,8 @@ import { copyToClipboard } from "../utils";
 
 const INSTALL_COMMAND =
   "curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash";
+const CHROME_EXTENSION_URL =
+  "https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh";
 
 function CopyInstall(): React.JSX.Element {
   const [copied, setCopied] = useState(false);
@@ -125,11 +128,35 @@ export function LandingPage(): React.JSX.Element {
                   Go to workspace
                 </Link>
               </div>
-              <div className="max-w-md space-y-2 pt-2">
-                <p className=" font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                  Install the desktop companion
+              <div className="max-w-2xl space-y-3 pt-2">
+                <p className="font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  Install Jittle Lamp
                 </p>
-                <CopyInstall />
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div className="min-w-0 space-y-1.5">
+                    <p className="text-base font-medium text-foreground">
+                      Desktop companion
+                    </p>
+                    <CopyInstall />
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-base font-medium text-foreground">
+                      Chrome extension
+                    </p>
+                    <a
+                      href={CHROME_EXTENSION_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(
+                        buttonVariants({ variant: "primary", size: "lg" }),
+                        "w-full sm:w-auto",
+                      )}
+                    >
+                      Add to Chrome
+                      <ExternalLink aria-hidden />
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
 
