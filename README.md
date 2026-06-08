@@ -57,6 +57,28 @@ bun run build
 bun run release:check-version
 ```
 
+## Local Test Auth
+
+Use this when you want the full web workspace without signing in with a real Clerk account:
+
+```bash
+bun run dev:test-auth
+```
+
+The command writes `.env.dev-auth`, builds `apps/evidence-web`, starts the backend on `http://127.0.0.1:3001`, and serves the web app on `http://127.0.0.1:4173`.
+
+It uses a generated local JWT public key in `CLERK_JWT_KEY` plus a signed test token injected into the web build. The backend still verifies `Authorization: Bearer ...`; the browser skips Clerk UI and signs in as:
+
+```text
+dev+clerk_test@jittlelamp.local
+```
+
+To only refresh the generated env file:
+
+```bash
+bun run dev:test-auth:setup
+```
+
 ## How to use the software
 
 ### 1. Record a session with the extension

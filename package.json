@@ -14,6 +14,8 @@
     "build:extension": "bun run --cwd apps/extension build",
     "build:desktop": "bun run --cwd apps/desktop build",
     "build:web": "bun run --cwd apps/evidence-web build",
+    "dev:test-auth": "bun run ./scripts/dev/test-auth-env.ts run",
+    "dev:test-auth:setup": "bun run ./scripts/dev/test-auth-env.ts setup",
     "release": "bun run ./scripts/release/release.ts",
     "release:check-version": "bun run ./scripts/release/check-version-sync.ts",
     "release:set-version": "bun run ./scripts/release/set-version.ts",
@@ -35,6 +37,7 @@
     "@types/react-dom": "19.2.2",
     "bun-types": "latest",
     "fflate": "^0.8.2",
+    "jose": "5.10.0",
     "typescript": "6.0.3"
   }
 }

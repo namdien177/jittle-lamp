@@ -31,9 +31,9 @@ function StatCard(props: {
           <p className=" font-medium uppercase tracking-[0.06em] text-muted-foreground">
             {props.label}
           </p>
-          <p className="font-display text-3xl font-bold tracking-tight tabular-nums">
+          <div className="font-display text-3xl font-bold tracking-tight tabular-nums">
             {props.value}
-          </p>
+          </div>
           {props.hint ? (
             <p className=" text-muted-foreground">{props.hint}</p>
           ) : null}

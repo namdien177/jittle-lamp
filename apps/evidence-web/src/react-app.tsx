@@ -1,10 +1,9 @@
 import { createRoot } from "react-dom/client";
 import { Analytics } from "@vercel/analytics/react";
 import { RouterProvider } from "react-router";
-import { ClerkProvider } from "@clerk/clerk-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 
-import { clerkAppearance } from "./clerk-appearance";
+import { AuthProvider } from "./auth";
 import { clerkPublishableKey } from "./env";
 import { startExtensionAuthBridge } from "./extension-auth-bridge";
 import { createQueryClient } from "./queries";
@@ -30,13 +29,5 @@ export function bootstrap(): void {
     </QueryClientProvider>
   );
 
-  createRoot(root).render(
-    clerkPublishableKey ? (
-      <ClerkProvider publishableKey={clerkPublishableKey} appearance={clerkAppearance}>
-        {app}
-      </ClerkProvider>
-    ) : (
-      app
-    )
-  );
+  createRoot(root).render(<AuthProvider>{app}</AuthProvider>);
 }

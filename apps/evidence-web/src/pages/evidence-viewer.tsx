@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useAuth } from "@clerk/clerk-react";
 import { useNavigate, useParams } from "react-router";
 
+import { useAuth } from "../auth";
 import { api, type ArtifactReadUrl, type FetchToken } from "../api";
 import { Button } from "../components/ui/button";
 import { StatusScreen } from "../components/status-screen";

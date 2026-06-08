@@ -43,6 +43,9 @@ export type RuntimeConfig = {
 
 const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, "");
 
+const normalizePem = (value: string | undefined): string | undefined =>
+	value?.replace(/\\n/g, "\n");
+
 const parseAuthorizedParties = (
 	authorizedParties: string | undefined,
 ): string[] | undefined => {
@@ -115,7 +118,7 @@ export const buildRuntimeConfig = (env: AppEnv): RuntimeConfig => {
 		enableOpenApi: defaults.enableOpenApi,
 		clerkPublishableKey: env.CLERK_PUBLISHABLE_KEY,
 		clerkSecretKey: env.CLERK_SECRET_KEY,
-		clerkJwtKey: env.CLERK_JWT_KEY,
+		clerkJwtKey: normalizePem(env.CLERK_JWT_KEY),
 		clerkAudience: env.CLERK_AUDIENCE,
 		clerkAuthorizedParties: parseAuthorizedParties(
 			env.CLERK_AUTHORIZED_PARTIES,

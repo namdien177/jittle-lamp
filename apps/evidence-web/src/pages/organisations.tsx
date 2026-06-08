@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useAuth } from "@clerk/clerk-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import {
@@ -22,6 +21,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { useAuth } from "../auth";
 import {
   api,
   type ApiActivityLog,

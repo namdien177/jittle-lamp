@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useClerk } from "@clerk/clerk-react";
 import { Link } from "react-router";
 import {
   Building2,
@@ -10,6 +9,7 @@ import {
   UserCog,
 } from "lucide-react";
 
+import { useClerk } from "../auth";
 import { PageBody, PageHeader } from "../components/page";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";

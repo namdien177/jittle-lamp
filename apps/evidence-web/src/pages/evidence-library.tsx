@@ -42,7 +42,7 @@ import { ConfirmDialog, Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { cn } from "../lib/cn";
 import type { ApiEvidenceSummary, FetchToken } from "../api";
-import { useAuth } from "@clerk/clerk-react";
+import { useAuth } from "../auth";
 import {
   useAccountProfile,
   useBulkDeleteEvidences,

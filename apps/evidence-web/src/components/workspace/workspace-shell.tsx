@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { UserButton } from "@clerk/clerk-react";
 import { Link, NavLink, useLocation } from "react-router";
 import {
   Archive,
@@ -16,13 +15,13 @@ import {
 } from "lucide-react";
 
 import { cn } from "../../lib/cn";
+import { UserButton } from "../../auth";
 import { useEvidences } from "../../queries";
 import { Badge } from "../ui/badge";
 import { buttonVariants } from "../ui/button";
 import { Wordmark } from "../brand";
 import { EvidenceSearch } from "./evidence-search";
 import { OrgSwitcher } from "./org-switcher";
-import { userButtonAppearance } from "../../clerk-appearance";
 
 const CHROME_EXTENSION_URL =
   "https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh";
@@ -246,10 +245,7 @@ export function WorkspaceShell({
             </a>
             <OrgSwitcher />
             <div className="h-6 w-px bg-border" aria-hidden />
-            <UserButton
-              appearance={userButtonAppearance}
-              userProfileMode="modal"
-            />
+            <UserButton />
           </div>
         </header>
         <main className="flex flex-1 flex-col">{children}</main>

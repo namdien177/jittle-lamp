@@ -1,8 +1,8 @@
 import React from "react";
 import { Link } from "react-router";
-import { SignInButton, SignedIn, SignedOut } from "@clerk/clerk-react";
 
-import { clerkPublishableKey } from "../env";
+import { SignInButton, SignedIn, SignedOut } from "../auth";
+import { clerkPublishableKey, devAuthEnabled } from "../env";
 import { Wordmark } from "./brand";
 import { buttonVariants } from "./ui/button";
 import { cn } from "../lib/cn";
@@ -25,7 +25,7 @@ export function PublicTopbar(): React.JSX.Element {
           <Link to="/privacy" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
             Privacy
           </Link>
-          {clerkPublishableKey ? (
+          {clerkPublishableKey || devAuthEnabled ? (
             <>
               <SignedOut>
                 <SignInButton mode="modal">

@@ -8,33 +8,43 @@ export const nodeEnvSchema = z.enum([
 ]);
 export type NodeEnv = z.infer<typeof nodeEnvSchema>;
 
+const optionalNonEmptyString = z.preprocess(
+	(value) => (value === "" ? undefined : value),
+	z.string().min(1).optional(),
+);
+
+const optionalUrlString = z.preprocess(
+	(value) => (value === "" ? undefined : value),
+	z.string().url().optional(),
+);
+
 const envSchema = z
 	.object({
 		NODE_ENV: nodeEnvSchema.default("local"),
 		PORT: z.coerce.number().int().min(1).max(65535).default(3001),
 		HOST: z.string().default("0.0.0.0"),
 		APP_VERSION: z.string().default("0.1.3"),
-		APP_SECRET: z.string().min(24).optional(),
-		DATABASE_URL: z.string().url().optional(),
+		APP_SECRET: optionalNonEmptyString.pipe(z.string().min(24).optional()),
+		DATABASE_URL: optionalUrlString,
 		RUN_DB_MIGRATIONS: z.string().optional(),
-		TURSO_AUTH_TOKEN: z.string().min(1).optional(),
-		S3_BUCKET: z.string().min(1).optional(),
-		S3_REGION: z.string().min(1).optional(),
-		S3_ENDPOINT: z.string().url().optional(),
-		S3_ACCESS_KEY_ID: z.string().min(1).optional(),
-		S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+		TURSO_AUTH_TOKEN: optionalNonEmptyString,
+		S3_BUCKET: optionalNonEmptyString,
+		S3_REGION: optionalNonEmptyString,
+		S3_ENDPOINT: optionalUrlString,
+		S3_ACCESS_KEY_ID: optionalNonEmptyString,
+		S3_SECRET_ACCESS_KEY: optionalNonEmptyString,
 		S3_FORCE_PATH_STYLE: z.string().optional(),
 		S3_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(60).optional(),
 		LOG_LEVEL: z
 			.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
 			.optional(),
-		CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
-		CLERK_SECRET_KEY: z.string().min(1).optional(),
-		CLERK_JWT_KEY: z.string().min(1).optional(),
-		CLERK_AUDIENCE: z.string().min(1).optional(),
-		CLERK_AUTHORIZED_PARTIES: z.string().min(1).optional(),
-		WEB_APP_ORIGIN: z.string().url().optional(),
-		JITTLE_LAMP_API_ORIGIN: z.string().url().optional(),
+		CLERK_PUBLISHABLE_KEY: optionalNonEmptyString,
+		CLERK_SECRET_KEY: optionalNonEmptyString,
+		CLERK_JWT_KEY: optionalNonEmptyString,
+		CLERK_AUDIENCE: optionalNonEmptyString,
+		CLERK_AUTHORIZED_PARTIES: optionalNonEmptyString,
+		WEB_APP_ORIGIN: optionalUrlString,
+		JITTLE_LAMP_API_ORIGIN: optionalUrlString,
 	})
 	.superRefine((env, ctx) => {
 		if (env.NODE_ENV === "production" && !env.APP_SECRET) {

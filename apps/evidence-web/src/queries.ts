@@ -4,8 +4,8 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useAuth } from "@clerk/clerk-react";
 
+import { useAuth } from "./auth";
 import {
   api,
   type ApiAccountProfile,

@@ -1,16 +1,7 @@
 import React from "react";
-import {
-  ClerkDegraded,
-  ClerkFailed,
-  ClerkLoaded,
-  ClerkLoading,
-  SignIn,
-  SignedIn,
-  SignedOut
-} from "@clerk/clerk-react";
 
-import { clerkAppearance } from "../../clerk-appearance";
-import { clerkPublishableKey } from "../../env";
+import { SignIn, useAuth } from "../../auth";
+import { clerkPublishableKey, devAuthEnabled } from "../../env";
 import { StatusScreen } from "../status-screen";
 
 export function SignInScreen(): React.JSX.Element {
@@ -25,7 +16,6 @@ export function SignInScreen(): React.JSX.Element {
       <div className="relative animate-rise">
         <SignIn
           routing="hash"
-          appearance={clerkAppearance}
           forceRedirectUrl={currentUrl}
           fallbackRedirectUrl={currentUrl}
           signUpForceRedirectUrl={currentUrl}
@@ -46,7 +36,7 @@ export function RequireAuth(props: {
   signedOut?: React.ReactNode;
   notConfigured?: React.ReactNode;
 }): React.JSX.Element {
-  if (!clerkPublishableKey) {
+  if (!clerkPublishableKey && !devAuthEnabled) {
     return (
       <>
         {props.notConfigured ?? (
@@ -60,29 +50,14 @@ export function RequireAuth(props: {
     );
   }
 
-  return (
-    <>
-      <ClerkFailed>
-        <StatusScreen
-          tone="error"
-          title="Unable to load sign-in"
-          detail="Check the Clerk publishable key and network access, then reload."
-        />
-      </ClerkFailed>
-      <ClerkDegraded>
-        <StatusScreen
-          tone="error"
-          title="Unable to load sign-in"
-          detail="Check the Clerk publishable key and network access, then reload."
-        />
-      </ClerkDegraded>
-      <ClerkLoading>
-        <StatusScreen loading title="Loading workspace" />
-      </ClerkLoading>
-      <ClerkLoaded>
-        <SignedOut>{props.signedOut ?? <SignInScreen />}</SignedOut>
-        <SignedIn>{props.children}</SignedIn>
-      </ClerkLoaded>
-    </>
-  );
+  const auth = useAuth();
+  if (!auth.isLoaded) {
+    return <StatusScreen loading title="Loading workspace" />;
+  }
+
+  if (!auth.isSignedIn) {
+    return <>{props.signedOut ?? <SignInScreen />}</>;
+  }
+
+  return <>{props.children}</>;
 }

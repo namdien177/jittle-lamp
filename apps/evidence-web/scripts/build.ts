@@ -7,8 +7,7 @@ const workspaceRoot = new URL("../../../", import.meta.url);
 const distRoot = new URL("../dist/", import.meta.url);
 
 function getWorkspaceEnvValue(name: string): string {
-  const currentValue = process.env[name];
-  if (currentValue) return currentValue;
+  if (process.env[name] !== undefined) return process.env[name] ?? "";
 
   const envFile = new URL(".env", workspaceRoot);
   if (!existsSync(envFile)) return "";
@@ -35,6 +34,11 @@ function getWebApiOrigin(): string {
 const browserDefines = {
   "process.env.CLERK_PUBLISHABLE_KEY": JSON.stringify(getWorkspaceEnvValue("CLERK_PUBLISHABLE_KEY")),
   "process.env.JITTLE_LAMP_API_ORIGIN": JSON.stringify(getWebApiOrigin()),
+  "process.env.JITTLE_LAMP_DEV_AUTH_ENABLED": JSON.stringify(getWorkspaceEnvValue("JITTLE_LAMP_DEV_AUTH_ENABLED")),
+  "process.env.JITTLE_LAMP_DEV_AUTH_TOKEN": JSON.stringify(getWorkspaceEnvValue("JITTLE_LAMP_DEV_AUTH_TOKEN")),
+  "process.env.JITTLE_LAMP_DEV_AUTH_USER_ID": JSON.stringify(getWorkspaceEnvValue("JITTLE_LAMP_DEV_AUTH_USER_ID")),
+  "process.env.JITTLE_LAMP_DEV_AUTH_EMAIL": JSON.stringify(getWorkspaceEnvValue("JITTLE_LAMP_DEV_AUTH_EMAIL")),
+  "process.env.JITTLE_LAMP_DEV_AUTH_NAME": JSON.stringify(getWorkspaceEnvValue("JITTLE_LAMP_DEV_AUTH_NAME")),
   "process.env.REACT_APP_VERCEL_OBSERVABILITY_BASEPATH": JSON.stringify(getFirstWorkspaceEnvValue([
     "REACT_APP_VERCEL_OBSERVABILITY_BASEPATH",
     "VERCEL_OBSERVABILITY_BASEPATH"

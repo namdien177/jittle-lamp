@@ -1,11 +1,11 @@
 import React, { useState } from "react";
-import { useAuth } from "@clerk/clerk-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useNavigate, useSearchParams } from "react-router";
 import { z } from "zod/v4";
 import { KeyRound } from "lucide-react";
 
+import { useAuth } from "../auth";
 import { api } from "../api";
 import { Wordmark } from "../components/brand";
 import { Button } from "../components/ui/button";

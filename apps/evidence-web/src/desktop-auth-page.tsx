@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "@clerk/clerk-react";
 
+import { useAuth } from "./auth";
 import { StatusScreen } from "./components/status-screen";
 import { RequireAuth } from "./components/workspace/require-auth";
 import { apiOrigin } from "./env";
