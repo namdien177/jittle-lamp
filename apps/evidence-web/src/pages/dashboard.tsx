@@ -69,7 +69,7 @@ export function DashboardPage(): React.JSX.Element {
       <PageHeader
         eyebrow={activeOrg ? activeOrg.name : "Workspace"}
         title={`Welcome back, ${firstName}`}
-        description="Your QA evidence at a glance. Capture from the extension, review here, and share scoped links with your team."
+        description="Capture. Review. Share."
         actions={
           <>
             <Link
@@ -92,7 +92,7 @@ export function DashboardPage(): React.JSX.Element {
             icon={<Video aria-hidden />}
             label="Evidence captured"
             value={loading ? <Skeleton className="h-8 w-12" /> : evidenceTotal}
-            hint="in this workspace"
+            hint="workspace"
           />
           <StatCard
             icon={<Building2 aria-hidden />}
@@ -104,9 +104,7 @@ export function DashboardPage(): React.JSX.Element {
                 (profile?.organizations.length ?? 0)
               )
             }
-            hint={
-              activeOrg ? `Active: ${activeOrg.name}` : "No active workspace"
-            }
+            hint={activeOrg?.name ?? "No active workspace"}
           />
           <StatCard
             icon={<Clock aria-hidden />}
@@ -132,9 +130,6 @@ export function DashboardPage(): React.JSX.Element {
               <h2 className="font-display text-base font-semibold tracking-tight">
                 Recent evidence
               </h2>
-              <p className="text-base text-muted-foreground">
-                The latest sessions uploaded here.
-              </p>
             </div>
             <Link
               to="/evidence"
@@ -156,7 +151,7 @@ export function DashboardPage(): React.JSX.Element {
                 className="m-2 border-0 bg-transparent py-10"
                 icon={<Video aria-hidden />}
                 title="No evidence yet"
-                description="Capture a session with the extension or open a local ZIP to get started."
+                description="Install the extension or open a ZIP."
                 action={
                   <Button size="sm" onClick={() => navigate("/quick-view")}>
                     <Plus aria-hidden />

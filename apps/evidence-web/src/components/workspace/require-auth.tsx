@@ -9,41 +9,9 @@ import {
   SignedOut
 } from "@clerk/clerk-react";
 
+import { clerkAppearance } from "../../clerk-appearance";
 import { clerkPublishableKey } from "../../env";
 import { StatusScreen } from "../status-screen";
-
-const clerkAppearance = {
-  variables: {
-    colorPrimary: "#22c55e",
-    colorBackground: "#111314",
-    colorText: "#ededed",
-    colorTextSecondary: "#8b9590",
-    colorInputBackground: "#0b0d0e",
-    colorInputText: "#ededed",
-    borderRadius: "0.5rem",
-    fontFamily: '"Geist", system-ui, sans-serif'
-  },
-  elements: {
-    card: {
-      backgroundColor: "#111314",
-      color: "#ededed"
-    },
-    modalContent: {
-      backgroundColor: "#111314",
-      color: "#ededed"
-    },
-    headerTitle: { color: "#ededed" },
-    headerSubtitle: { color: "#8b9590" },
-    formFieldLabel: { color: "#d7ddd9" },
-    formFieldInput: {
-      backgroundColor: "#0b0d0e",
-      color: "#ededed",
-      borderColor: "#303633"
-    },
-    footerActionText: { color: "#8b9590" },
-    footerActionLink: { color: "#4ade80" }
-  }
-} as const;
 
 export function SignInScreen(): React.JSX.Element {
   const currentUrl = window.location.href;
@@ -109,7 +77,7 @@ export function RequireAuth(props: {
         />
       </ClerkDegraded>
       <ClerkLoading>
-        <StatusScreen loading title="Preparing your workspace" detail="Verifying your session…" />
+        <StatusScreen loading title="Loading workspace" />
       </ClerkLoading>
       <ClerkLoaded>
         <SignedOut>{props.signedOut ?? <SignInScreen />}</SignedOut>

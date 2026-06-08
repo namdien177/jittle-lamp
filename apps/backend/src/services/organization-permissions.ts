@@ -48,7 +48,12 @@ export const defaultRoleLabels = {
 } as const satisfies Record<OrganizationRoleKey, string>;
 
 export const defaultRolePermissions = {
-	developer: ["evidence.view", "evidence.download", "evidence.comment"],
+	developer: [
+		"evidence.view",
+		"evidence.download",
+		"evidence.comment",
+		"evidence.create",
+	],
 	qa_engineer: [
 		"evidence.view",
 		"evidence.download",

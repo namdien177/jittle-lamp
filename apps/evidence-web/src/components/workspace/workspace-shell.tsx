@@ -4,10 +4,12 @@ import { Link, NavLink, useLocation } from "react-router";
 import {
   Archive,
   Building2,
+  ExternalLink,
   FileText,
   FlaskConical,
   LayoutDashboard,
   PanelLeft,
+  Puzzle,
   Settings,
   Video,
   X,
@@ -16,9 +18,14 @@ import {
 import { cn } from "../../lib/cn";
 import { useEvidences } from "../../queries";
 import { Badge } from "../ui/badge";
+import { buttonVariants } from "../ui/button";
 import { Wordmark } from "../brand";
 import { EvidenceSearch } from "./evidence-search";
 import { OrgSwitcher } from "./org-switcher";
+import { userButtonAppearance } from "../../clerk-appearance";
+
+const CHROME_EXTENSION_URL =
+  "https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh";
 
 type NavItem = {
   to: string;
@@ -211,10 +218,36 @@ export function WorkspaceShell({
           </div>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
             <EvidenceSearch />
+            <a
+              href={CHROME_EXTENSION_URL}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Install Chrome Extension"
+              title="Install Chrome Extension"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "icon" }),
+                "sm:hidden",
+              )}
+            >
+              <Puzzle aria-hidden />
+            </a>
+            <a
+              href={CHROME_EXTENSION_URL}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "hidden sm:inline-flex",
+              )}
+            >
+              <Puzzle aria-hidden />
+              Install Chrome Extension
+              <ExternalLink aria-hidden className="size-3.5" />
+            </a>
             <OrgSwitcher />
             <div className="h-6 w-px bg-border" aria-hidden />
             <UserButton
-              appearance={{ elements: { avatarBox: "size-8 rounded-md" } }}
+              appearance={userButtonAppearance}
               userProfileMode="modal"
             />
           </div>

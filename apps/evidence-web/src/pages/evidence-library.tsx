@@ -392,7 +392,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
       <PageHeader
         eyebrow="Workspace"
         title="Evidence"
-        description="Browser sessions uploaded to this organisation. Open one to review the synced video, timeline, console, and network."
+        description="Search, review, share."
         actions={
           <Button
             variant="outline"
@@ -998,7 +998,7 @@ function RenameEvidenceDialog(props: {
       onClose={props.onClose}
       size="sm"
       title="Rename evidence"
-      description="Give this session a clear, searchable name."
+      description="Keep it searchable."
       footer={
         <>
           <Button

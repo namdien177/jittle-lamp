@@ -701,6 +701,85 @@ describe("routes", () => {
 		});
 	});
 
+	it("allows developer members to start evidence uploads", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const provisioned = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_uploads_developer",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_uploads_developer" },
+		});
+
+		const [teamOrganization] = await db
+			.insert(organizations)
+			.values({ name: "Developer Uploads", isPersonal: false })
+			.returning({ id: organizations.id });
+		if (!teamOrganization) {
+			throw new Error("Failed to create team organization");
+		}
+
+		await db.insert(organizationMembers).values({
+			organizationId: teamOrganization.id,
+			userId: provisioned.userId,
+			role: "developer",
+		});
+		await db
+			.update(users)
+			.set({ activeOrgId: teamOrganization.id, updatedAt: Date.now() })
+			.where(eq(users.id, provisioned.userId));
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const token = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_uploads_developer")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const startResponse = await app.handle(
+			new Request("http://localhost/evidences/uploads/start", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					title: "Developer upload draft",
+					sourceType: "browser",
+					artifact: {
+						kind: "recording",
+						mimeType: "video/webm",
+						bytes: 11,
+						checksum: `sha256:${await sha256Hex("hello world")}`,
+					},
+				}),
+			}),
+		);
+
+		expect(startResponse.status).toBe(200);
+		const startPayload = (await startResponse.json()) as {
+			organizationId: string;
+		};
+		expect(startPayload.organizationId).toBe(teamOrganization.id);
+	});
+
 	it("scopes upload lifecycle to the active organization", async () => {
 		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
 		await applyMigrations(databaseUrl);

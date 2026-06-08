@@ -4,6 +4,7 @@ import { RouterProvider } from "react-router";
 import { ClerkProvider } from "@clerk/clerk-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 
+import { clerkAppearance } from "./clerk-appearance";
 import { clerkPublishableKey } from "./env";
 import { startExtensionAuthBridge } from "./extension-auth-bridge";
 import { createQueryClient } from "./queries";
@@ -12,39 +13,6 @@ import { ToastProvider } from "./toast";
 
 const queryClient = createQueryClient();
 const isVercelDeployment = process.env.VERCEL === "1";
-
-const clerkAppearance = {
-  variables: {
-    colorPrimary: "#22c55e",
-    colorBackground: "#111314",
-    colorText: "#ededed",
-    colorTextSecondary: "#8b9590",
-    colorInputBackground: "#0b0d0e",
-    colorInputText: "#ededed",
-    borderRadius: "0.5rem",
-    fontFamily: '"Geist", system-ui, sans-serif'
-  },
-  elements: {
-    card: {
-      backgroundColor: "#111314",
-      color: "#ededed"
-    },
-    modalContent: {
-      backgroundColor: "#111314",
-      color: "#ededed"
-    },
-    headerTitle: { color: "#ededed" },
-    headerSubtitle: { color: "#8b9590" },
-    formFieldLabel: { color: "#d7ddd9" },
-    formFieldInput: {
-      backgroundColor: "#0b0d0e",
-      color: "#ededed",
-      borderColor: "#303633"
-    },
-    footerActionText: { color: "#8b9590" },
-    footerActionLink: { color: "#4ade80" }
-  }
-} as const;
 
 export function bootstrap(): void {
   const root = document.getElementById("app");

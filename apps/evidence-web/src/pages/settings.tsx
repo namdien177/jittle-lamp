@@ -66,13 +66,9 @@ export function SettingsPage(): React.JSX.Element {
       <PageHeader
         eyebrow="Workspace"
         title="Settings"
-        description="Manage your account, active workspace, and the desktop companion."
       />
       <PageBody className="max-w-3xl">
-        <SettingCard
-          title="Account"
-          description="Your profile is managed by Clerk."
-        >
+        <SettingCard title="Account">
           {profileQuery.isPending ? (
             <Skeleton className="h-12 w-full" />
           ) : (
@@ -110,7 +106,7 @@ export function SettingsPage(): React.JSX.Element {
 
         <SettingCard
           title="Active workspace"
-          description="New uploads land in the active organisation."
+          description="Upload target."
         >
           <div className="flex items-center gap-3">
             <span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-primary">
@@ -138,7 +134,7 @@ export function SettingsPage(): React.JSX.Element {
 
         <SettingCard
           title="Desktop companion"
-          description="Install the macOS companion to receive captures from the extension."
+          description="Local capture bridge."
         >
           <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
             <Terminal aria-hidden className="size-4 shrink-0 text-primary" />

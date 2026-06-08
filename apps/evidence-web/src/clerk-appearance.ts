@@ -1,0 +1,80 @@
+export const clerkAppearance = {
+  variables: {
+    colorPrimary: "#22c55e",
+    colorBackground: "#111314",
+    colorText: "#f1f5f2",
+    colorTextSecondary: "#a9b3ae",
+    colorInputBackground: "#0b0d0e",
+    colorInputText: "#f1f5f2",
+    colorDanger: "#f87171",
+    colorSuccess: "#22c55e",
+    borderRadius: "0.5rem",
+    fontFamily: '"Geist", system-ui, sans-serif',
+  },
+  elements: {
+    rootBox: { color: "#f1f5f2" },
+    card: {
+      backgroundColor: "#111314",
+      border: "1px solid rgba(255,255,255,0.12)",
+      boxShadow: "0 24px 70px -36px rgba(0,0,0,0.95)",
+      color: "#f1f5f2",
+    },
+    modalBackdrop: { backgroundColor: "rgba(0,0,0,0.72)" },
+    modalContent: {
+      backgroundColor: "#111314",
+      color: "#f1f5f2",
+    },
+    headerTitle: { color: "#f1f5f2" },
+    headerSubtitle: { color: "#a9b3ae" },
+    socialButtonsBlockButton: {
+      backgroundColor: "#171a1c",
+      borderColor: "rgba(255,255,255,0.14)",
+      color: "#f1f5f2",
+    },
+    socialButtonsBlockButtonText: { color: "#f1f5f2" },
+    dividerLine: { backgroundColor: "rgba(255,255,255,0.12)" },
+    dividerText: { color: "#a9b3ae" },
+    formFieldLabel: { color: "#dbe5df" },
+    formFieldHintText: { color: "#a9b3ae" },
+    formFieldInput: {
+      backgroundColor: "#0b0d0e",
+      borderColor: "#303633",
+      color: "#f1f5f2",
+    },
+    formFieldInputShowPasswordButton: { color: "#dbe5df" },
+    formFieldSuccessText: { color: "#86efac" },
+    formFieldErrorText: { color: "#fca5a5" },
+    formButtonPrimary: {
+      backgroundColor: "#22c55e",
+      color: "#04140a",
+      fontWeight: 700,
+    },
+    footer: { backgroundColor: "transparent" },
+    footerActionText: { color: "#a9b3ae" },
+    footerActionLink: { color: "#86efac" },
+    identityPreviewText: { color: "#f1f5f2" },
+    identityPreviewEditButton: { color: "#86efac" },
+    userPreviewText: { color: "#f1f5f2" },
+    userPreviewSecondaryIdentifier: { color: "#a9b3ae" },
+    navbarButton: { color: "#dbe5df" },
+    navbarButtonIcon: { color: "#a9b3ae" },
+    pageScrollBox: { backgroundColor: "#111314" },
+    profileSectionTitleText: { color: "#f1f5f2" },
+    profileSectionContent: { color: "#dbe5df" },
+    profileSectionPrimaryButton: { color: "#04140a" },
+    badge: { color: "#04140a" },
+  },
+} as const;
+
+export const userButtonAppearance = {
+  elements: {
+    avatarBox: "size-8 rounded-md",
+    userButtonPopoverCard:
+      "border border-border-strong bg-card text-foreground shadow-pop",
+    userButtonPopoverActionButton:
+      "text-foreground hover:bg-white/[0.06]",
+    userButtonPopoverActionButtonText: "text-foreground",
+    userButtonPopoverActionButtonIcon: "text-muted-foreground",
+    userButtonPopoverFooter: "hidden",
+  },
+} as const;
