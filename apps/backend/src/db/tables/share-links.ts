@@ -15,6 +15,8 @@ import { evidences } from "./evidences";
 import { organizations } from "./organizations";
 import { users } from "./users";
 
+export const PERMANENT_EXPIRY = 0;
+
 export const shareLinkScopeTypeSchema = z.enum([
 	"organization",
 	"team",

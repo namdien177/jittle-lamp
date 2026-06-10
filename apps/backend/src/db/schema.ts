@@ -71,6 +71,7 @@ export {
 } from "./tables/provisioning-events";
 export {
 	createShareLinkInputSchema,
+	PERMANENT_EXPIRY,
 	shareLinkScopeTypeSchema,
 	shareLinks,
 } from "./tables/share-links";

@@ -21,13 +21,14 @@ import { useToast } from "./toast";
 import { copyToClipboard, formatRelativeTime } from "./utils";
 
 const EXPIRY_OPTIONS = [
+  { label: "Permanent", value: "0" },
   { label: "1 hour", value: "3600000" },
   { label: "24 hours", value: "86400000" },
   { label: "7 days", value: "604800000" },
   { label: "30 days", value: "2592000000" }
 ];
 
-const DEFAULT_EXPIRY = "604800000";
+const DEFAULT_EXPIRY = "0";
 
 function buildShareUrl(token: string): string {
   return `${window.location.origin}/share/${encodeURIComponent(token)}`;
@@ -83,8 +84,8 @@ export function ShareDialog(props: {
     }
   };
 
-  const activeLinks = shareLinks.filter((l) => l.revokedAt === null && l.expiresAt > Date.now());
-  const inactiveLinks = shareLinks.filter((l) => !(l.revokedAt === null && l.expiresAt > Date.now()));
+  const activeLinks = shareLinks.filter((l) => l.revokedAt === null && (l.expiresAt === 0 || l.expiresAt > Date.now()));
+  const inactiveLinks = shareLinks.filter((l) => !(l.revokedAt === null && (l.expiresAt === 0 || l.expiresAt > Date.now())));
 
   return (
     <Dialog
@@ -161,7 +162,7 @@ export function ShareDialog(props: {
                       {formatRelativeTime(link.createdAt)}
                     </TableCell>
                     <TableCell className="text-base text-muted-foreground">
-                      {formatRelativeTime(link.expiresAt)}
+                      {link.expiresAt === 0 ? "Never" : formatRelativeTime(link.expiresAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

@@ -8,6 +8,7 @@ import { useToast } from "../ui/toast";
 import { copyToClipboard, formatRelativeTime } from "../utils";
 
 const EXPIRY_OPTIONS = [
+  { label: "Permanent", value: 0 },
   { label: "1 hour", value: 60 * 60 * 1000 },
   { label: "24 hours", value: 24 * 60 * 60 * 1000 },
   { label: "7 days", value: 7 * 24 * 60 * 60 * 1000 },
@@ -146,7 +147,7 @@ function ShareDialog(props: {
   const shareLinksQuery = useShareLinks(evidence.id);
   const createShareLink = useCreateShareLink();
   const revokeShareLink = useRevokeShareLink();
-  const [expiry, setExpiry] = useState<number>(EXPIRY_OPTIONS[2]?.value ?? 7 * 24 * 60 * 60 * 1000);
+  const [expiry, setExpiry] = useState<number>(0);
   const [createdToken, setCreatedToken] = useState<{ id: string; token: string; expiresAt: number } | null>(null);
 
   const shareLinks = shareLinksQuery.data?.shareLinks ?? [];
@@ -176,8 +177,8 @@ function ShareDialog(props: {
     }
   };
 
-  const activeLinks = shareLinks.filter((link) => link.revokedAt === null && link.expiresAt > Date.now());
-  const inactiveLinks = shareLinks.filter((link) => !(link.revokedAt === null && link.expiresAt > Date.now()));
+  const activeLinks = shareLinks.filter((link) => link.revokedAt === null && (link.expiresAt === 0 || link.expiresAt > Date.now()));
+  const inactiveLinks = shareLinks.filter((link) => !(link.revokedAt === null && (link.expiresAt === 0 || link.expiresAt > Date.now())));
 
   return (
     <Dialog
@@ -265,7 +266,7 @@ function ShareDialog(props: {
                 <tr key={link.id}>
                   <td className="mono" style={{ fontSize: 11 }}>{link.id.slice(0, 14)}…</td>
                   <td className="muted">{formatRelativeTime(link.createdAt)}</td>
-                  <td className="muted">{formatRelativeTime(link.expiresAt)}</td>
+                  <td className="muted">{link.expiresAt === 0 ? "Never" : formatRelativeTime(link.expiresAt)}</td>
                   <td>
                     <div className="table-actions">
                       <button className="button ghost xs" type="button" onClick={() => void handleRevoke(link.id)} disabled={busy}>

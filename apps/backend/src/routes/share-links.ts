@@ -1,7 +1,8 @@
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 
 import { evidences, organizations, shareLinks } from "../db/schema";
+import { PERMANENT_EXPIRY } from "../db/tables/share-links";
 import {
 	apiErrorSchema,
 	createApiError,
@@ -16,7 +17,7 @@ import { createEvidencePolicy } from "../services/evidence-policy";
 const createShareLinkBodySchema = t.Object({
 	expiresInMs: t.Optional(
 		t.Number({
-			minimum: 60_000,
+			minimum: 0,
 			maximum: 1000 * 60 * 60 * 24 * 365,
 		}),
 	),
@@ -153,7 +154,9 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 
 						const rawToken = crypto.randomUUID();
 						const now = Date.now();
-						const expiresAt = now + (body.expiresInMs ?? 1000 * 60 * 60 * 24);
+						const expiresInMs = body.expiresInMs ?? 0;
+						const expiresAt =
+							expiresInMs === 0 ? PERMANENT_EXPIRY : now + expiresInMs;
 						const tokenHash = await hashToken(rawToken);
 
 						const [inserted] = await db
@@ -313,7 +316,10 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						const shareLink = await db.query.shareLinks.findFirst({
 							where: and(
 								eq(shareLinks.tokenHash, tokenHash),
-								gt(shareLinks.expiresAt, Date.now()),
+								or(
+									eq(shareLinks.expiresAt, PERMANENT_EXPIRY),
+									gt(shareLinks.expiresAt, Date.now()),
+								),
 								isNull(shareLinks.revokedAt),
 							),
 							columns: {
