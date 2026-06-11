@@ -3198,6 +3198,97 @@ describe("routes", () => {
 		expect(listPayload.evidences).toHaveLength(0);
 	});
 
+	it("allows members to delete their own evidence without delete role permissions", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_own_delete_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_own_delete_owner" },
+		});
+		const member = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_own_delete_member",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_own_delete_member" },
+		});
+		await db.insert(organizationMembers).values({
+			organizationId: owner.organizationId,
+			userId: member.userId,
+			role: "developer",
+		});
+
+		const [ownEvidence, othersEvidence] = await db
+			.insert(evidences)
+			.values([
+				{
+					orgId: owner.organizationId,
+					createdBy: member.userId,
+					title: "Member-owned evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+				},
+				{
+					orgId: owner.organizationId,
+					createdBy: owner.userId,
+					title: "Owner evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+				},
+			])
+			.returning({ id: evidences.id });
+		if (!ownEvidence || !othersEvidence) {
+			throw new Error("Expected evidence records to be created");
+		}
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const memberToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_own_delete_member")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const ownResponse = await app.handle(
+			new Request(`http://localhost/evidences/${ownEvidence.id}`, {
+				method: "DELETE",
+				headers: { authorization: `Bearer ${memberToken}` },
+			}),
+		);
+		expect(ownResponse.status).toBe(200);
+
+		const othersResponse = await app.handle(
+			new Request(`http://localhost/evidences/${othersEvidence.id}`, {
+				method: "DELETE",
+				headers: { authorization: `Bearer ${memberToken}` },
+			}),
+		);
+		expect(othersResponse.status).toBe(403);
+		await expectApiError(othersResponse, {
+			code: "EVIDENCE_DELETE_FORBIDDEN",
+			message:
+				"Only the recorder, admins, or moderators can delete this evidence",
+			status: 403,
+		});
+	});
+
 	it("returns 404 (not 403) when a non-member targets evidence in another org", async () => {
 		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
 		await applyMigrations(databaseUrl);
