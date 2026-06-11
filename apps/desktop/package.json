@@ -1,6 +1,6 @@
 {
   "name": "@jittle-lamp/desktop",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Jittle Lamp desktop companion, evidence reviewer, uploader, and updater.",
   "private": true,
   "type": "module",
