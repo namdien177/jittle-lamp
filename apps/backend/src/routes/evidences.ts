@@ -127,7 +127,10 @@ const roleCanManageEvidence = async (
 		isCreator: boolean;
 	},
 ): Promise<boolean> => {
-	if ((input.action === "delete" || input.action === "update") && input.isCreator) {
+	if (
+		(input.action === "delete" || input.action === "update") &&
+		input.isCreator
+	) {
 		return true;
 	}
 

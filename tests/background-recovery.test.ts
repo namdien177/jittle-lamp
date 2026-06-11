@@ -91,7 +91,7 @@ describe("background recovery", () => {
     expect(alarmInfo?.when).toBe(new Date("2026-01-01T00:05:00.000Z").getTime());
   });
 
-  test("does not inject the page network probe when debugger capture starts", async () => {
+  test("injects the page network probe when debugger capture starts", async () => {
     chromeHarness.setTab({
       id: 7,
       status: "complete",
@@ -105,7 +105,85 @@ describe("background recovery", () => {
 
     expect(result.responded).toBeTrue();
     expect(chromeHarness.debuggerAttachTabs).toContain(7);
-    expect(chromeHarness.executeScriptCalls.some((call) => call.files?.includes("network-probe.js"))).toBeFalse();
+    expect(chromeHarness.executeScriptCalls.some((call) => call.files?.includes("network-probe.js"))).toBeTrue();
+  });
+
+  test("records page-probe network messages for the active tab", async () => {
+    const draft = createRecordingDraft();
+    await backgroundTest.saveDraft(draft);
+
+    const result = await chromeHarness.dispatchRuntimeMessage(
+      {
+        type: "jl/network",
+        sessionId: draft.sessionId,
+        payload: {
+          kind: "network",
+          method: "POST",
+          url: "https://example.com/api/login",
+          subtype: "fetch",
+          status: 200,
+          statusText: "OK",
+          durationMs: 32,
+          requestId: "page-fetch-test",
+          request: {
+            headers: [{ name: "content-type", value: "application/json" }],
+            cookies: [],
+            body: {
+              disposition: "captured",
+              encoding: "utf8",
+              mimeType: "application/json",
+              value: "{\"username\":\"demo\"}",
+              byteLength: 19
+            }
+          },
+          response: {
+            headers: [{ name: "content-type", value: "application/json" }],
+            setCookieHeaders: [],
+            setCookies: [],
+            body: {
+              disposition: "captured",
+              encoding: "utf8",
+              mimeType: "application/json",
+              value: "{\"ok\":true}",
+              byteLength: 11
+            }
+          }
+        }
+      },
+      { tab: { id: 7 } as chrome.tabs.Tab }
+    );
+
+    const activeDraft = await backgroundTest.readDraft();
+    const networkEvents = activeDraft?.events.filter((event) => event.payload.kind === "network") ?? [];
+
+    expect(result.responded).toBeTrue();
+    expect(networkEvents).toHaveLength(1);
+    expect(networkEvents[0]?.payload.kind === "network" ? networkEvents[0].payload.url : undefined).toBe(
+      "https://example.com/api/login"
+    );
+  });
+
+  test("starts recording with the page probe when the debugger API is unavailable", async () => {
+    chromeHarness.setDebuggerApiAvailable(false);
+    chromeHarness.setNetworkPermissionGranted(false);
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording"
+    });
+
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(result.responded).toBeTrue();
+    expect(chromeHarness.debuggerAttachTabs).toEqual([]);
+    expect(chromeHarness.executeScriptCalls.some((call) => call.files?.includes("network-probe.js"))).toBeTrue();
+    expect(activeDraft?.phase).toBe("recording");
+    expect(lastLifecycleDetail(activeDraft)).toContain("fetch/XHR capture will use the page probe");
   });
 
   test("does not request optional network permission from the background start path", async () => {
@@ -682,6 +760,33 @@ function createChromeHarness() {
     eventBytes: 64
   };
 
+  const debuggerApi = {
+    onEvent: {
+      addListener(listener: (source: chrome.debugger.Debuggee, method: string, params?: unknown) => void): void {
+        debuggerEventListeners.push(listener);
+      }
+    },
+    onDetach: {
+      addListener(listener: (source: chrome.debugger.Debuggee, reason: string) => void): void {
+        debuggerDetachListeners.push(listener);
+      }
+    },
+    async attach(debuggee: chrome.debugger.Debuggee): Promise<void> {
+      if (typeof debuggee.tabId === "number") {
+        debuggerAttachTabs.push(debuggee.tabId);
+      }
+    },
+    async sendCommand(debuggee: chrome.debugger.Debuggee, method: string): Promise<unknown> {
+      debuggerCommands.push({ tabId: debuggee.tabId ?? -1, method });
+      return {};
+    },
+    async detach(debuggee: chrome.debugger.Debuggee): Promise<void> {
+      if (typeof debuggee.tabId === "number") {
+        debuggerDetachTabs.push(debuggee.tabId);
+      }
+    }
+  };
+
   const chrome = {
     runtime: {
       lastError: undefined,
@@ -718,32 +823,7 @@ function createChromeHarness() {
         return `chrome-extension://test/${path}`;
       }
     },
-    debugger: {
-      onEvent: {
-        addListener(listener: (source: chrome.debugger.Debuggee, method: string, params?: unknown) => void): void {
-          debuggerEventListeners.push(listener);
-        }
-      },
-      onDetach: {
-        addListener(listener: (source: chrome.debugger.Debuggee, reason: string) => void): void {
-          debuggerDetachListeners.push(listener);
-        }
-      },
-      async attach(debuggee: chrome.debugger.Debuggee): Promise<void> {
-        if (typeof debuggee.tabId === "number") {
-          debuggerAttachTabs.push(debuggee.tabId);
-        }
-      },
-      async sendCommand(debuggee: chrome.debugger.Debuggee, method: string): Promise<unknown> {
-        debuggerCommands.push({ tabId: debuggee.tabId ?? -1, method });
-        return {};
-      },
-      async detach(debuggee: chrome.debugger.Debuggee): Promise<void> {
-        if (typeof debuggee.tabId === "number") {
-          debuggerDetachTabs.push(debuggee.tabId);
-        }
-      }
-    },
+    debugger: debuggerApi,
     tabs: {
       onUpdated: {
         addListener(listener: (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void): void {
@@ -905,6 +985,13 @@ function createChromeHarness() {
     setNetworkPermissionGranted(granted: boolean): void {
       networkPermissionGranted = granted;
     },
+    setDebuggerApiAvailable(available: boolean): void {
+      if (available) {
+        (chrome as { debugger?: typeof debuggerApi }).debugger = debuggerApi;
+      } else {
+        delete (chrome as { debugger?: typeof debuggerApi }).debugger;
+      }
+    },
     setNextPermissionRequestResult(granted: boolean): void {
       nextPermissionRequestResult = granted;
     },
@@ -1006,6 +1093,7 @@ function createChromeHarness() {
         recordingBytes: 128,
         eventBytes: 64
       };
+      (chrome as { debugger?: typeof debuggerApi }).debugger = debuggerApi;
 
       if (!options?.preserveStorage) {
         sessionStorage.clear();

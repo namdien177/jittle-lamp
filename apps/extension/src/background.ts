@@ -294,13 +294,17 @@ chrome.action?.onClicked?.addListener((tab) => {
   void toggleFloatingWidget(tab);
 });
 
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  void queueDraftMutation(() => handleDebuggerEvent(source, method, params));
-});
+const debuggerApi = getDebuggerApi();
 
-chrome.debugger.onDetach.addListener((source, reason) => {
-  void queueDraftMutation(() => handleDebuggerDetach(source, reason));
-});
+if (debuggerApi) {
+  debuggerApi.onEvent.addListener((source, method, params) => {
+    void queueDraftMutation(() => handleDebuggerEvent(source, method, params));
+  });
+
+  debuggerApi.onDetach.addListener((source, reason) => {
+    void queueDraftMutation(() => handleDebuggerDetach(source, reason));
+  });
+}
 
 registerWebRequestFallbackListeners();
 
@@ -442,7 +446,7 @@ async function startRecordingSession(
     await ensureOffscreenDocument();
     await ensureRecordableTab(tab.id, "before tab capture", targetPage);
     const streamId = await getTabMediaStreamId(tab.id);
-    await ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: false });
+    await ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: true });
     await ensureRecordableTab(tab.id, "before debugger attach", targetPage);
     const debuggerAttached = await attachDebugger(tab.id, { canUseWebRequestFallback });
 
@@ -800,7 +804,7 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
         registerWebRequestFallbackListeners();
       }
       const debuggerAttached = await attachDebugger(tabId, { canUseWebRequestFallback });
-      await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: false });
+      await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: true });
       clearPendingRecovery(tabId);
       await clearPendingRecoveryAlarm(tabId);
       await saveDraft(
@@ -821,7 +825,7 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
     }
   }
 
-  await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: false });
+  await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: true });
 }
 
 async function handleContentRuntimeMessage(
@@ -883,10 +887,6 @@ async function handleContentRuntimeMessage(
       return;
 
     case "jl/network":
-      if (!webRequestFallbackTabIds.has(currentDraft.page.tabId ?? -1)) {
-        return;
-      }
-
       await saveDraft(appendDraftEvent(currentDraft, normalizeContentNetworkPayload(message.payload)));
       return;
   }
@@ -1735,11 +1735,15 @@ async function ensureWidgetBridge(tabId: number): Promise<void> {
 }
 
 async function ensureNetworkProbe(tabId: number): Promise<void> {
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    world: "MAIN",
-    files: ["network-probe.js"]
-  });
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      files: ["network-probe.js"]
+    });
+  } catch (error: unknown) {
+    console.warn("[jittle-lamp] Unable to inject page network probe.", errorMessage(error));
+  }
 }
 
 async function signalContentCaptureEnded(tabId: number, sessionId: string): Promise<void> {
@@ -1761,13 +1765,20 @@ async function attachDebugger(
   tabId: number,
   options: { canUseWebRequestFallback?: boolean } = {}
 ): Promise<boolean> {
+  const debuggerApi = getDebuggerApi();
+
+  if (!debuggerApi) {
+    setWebRequestFallback(tabId, options.canUseWebRequestFallback ?? true);
+    return false;
+  }
+
   const debuggee = { tabId };
 
   try {
-    await chrome.debugger.attach(debuggee, debuggerProtocolVersion);
-    await chrome.debugger.sendCommand(debuggee, "Network.enable");
-    await chrome.debugger.sendCommand(debuggee, "Runtime.enable");
-    await chrome.debugger.sendCommand(debuggee, "Page.enable");
+    await debuggerApi.attach(debuggee, debuggerProtocolVersion);
+    await debuggerApi.sendCommand(debuggee, "Network.enable");
+    await debuggerApi.sendCommand(debuggee, "Runtime.enable");
+    await debuggerApi.sendCommand(debuggee, "Page.enable");
     webRequestFallbackTabIds.delete(tabId);
     return true;
   } catch (error: unknown) {
@@ -1780,18 +1791,20 @@ async function attachDebugger(
       reason: rawErrorMessage(error)
     });
     await safeDetachDebugger(tabId);
-    if (options.canUseWebRequestFallback ?? true) {
-      webRequestFallbackTabIds.add(tabId);
-    } else {
-      webRequestFallbackTabIds.delete(tabId);
-    }
+    setWebRequestFallback(tabId, options.canUseWebRequestFallback ?? true);
     return false;
   }
 }
 
 async function safeDetachDebugger(tabId: number): Promise<void> {
+  const debuggerApi = getDebuggerApi();
+
+  if (!debuggerApi) {
+    return;
+  }
+
   try {
-    await chrome.debugger.detach({ tabId });
+    await debuggerApi.detach({ tabId });
   } catch (error: unknown) {
     const message = rawErrorMessage(error);
 
@@ -1802,6 +1815,31 @@ async function safeDetachDebugger(tabId: number): Promise<void> {
     ) {
       console.warn(message);
     }
+  }
+}
+
+function getDebuggerApi(): typeof chrome.debugger | undefined {
+  const candidate = chrome.debugger;
+
+  if (
+    !candidate ||
+    typeof candidate.attach !== "function" ||
+    typeof candidate.detach !== "function" ||
+    typeof candidate.sendCommand !== "function" ||
+    !candidate.onEvent ||
+    !candidate.onDetach
+  ) {
+    return undefined;
+  }
+
+  return candidate;
+}
+
+function setWebRequestFallback(tabId: number, enabled: boolean): void {
+  if (enabled) {
+    webRequestFallbackTabIds.add(tabId);
+  } else {
+    webRequestFallbackTabIds.delete(tabId);
   }
 }
 
@@ -3726,10 +3764,10 @@ function isCrossExtensionAccessMessage(message: string): boolean {
 
 function debuggerUnavailableDetail(canUseWebRequestFallback = true): string {
   if (canUseWebRequestFallback) {
-    return "Started active-tab recording. Edge blocked debugger access to an extension frame, so console capture and response-body capture are unavailable; network metadata will use the browser request observer.";
+    return "Started active-tab recording. Browser debugger capture is unavailable, so console capture and CDP response-body capture are unavailable; network metadata will use the browser request observer and fetch/XHR bodies will use the page probe.";
   }
 
-  return "Started active-tab recording. Edge blocked debugger access to an extension frame, so console capture, response-body capture, and fallback network metadata are unavailable until network recording permission is granted from the extension popup.";
+  return "Started active-tab recording. Browser debugger capture is unavailable, so console capture and CDP response-body capture are unavailable; fetch/XHR capture will use the page probe. Grant network recording permission for browser-level metadata.";
 }
 
 function rawErrorMessage(error: unknown): string {
