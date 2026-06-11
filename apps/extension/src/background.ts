@@ -18,7 +18,8 @@ import {
   type NetworkSubtype,
   type PopupResponse,
   type PopupSessionSummary,
-  type PopupState
+  type PopupState,
+  type SessionEvent
 } from "@jittle-lamp/shared";
 
 import { createDraftStorageCheckpoint } from "./draft-storage";
@@ -46,8 +47,13 @@ const configuredCloudApiOrigin = (
 ).replace(/\/+$/, "");
 const fallbackCloudWebOrigins = ["https://jittlelamp.dev", "http://127.0.0.1:3000", "http://localhost:3000"];
 const cloudWebOrigins = [...new Set([configuredCloudWebOrigin, ...fallbackCloudWebOrigins].filter(Boolean))];
+const optionalNetworkCapturePermissions: chrome.permissions.Permissions = {
+  permissions: ["webRequest"],
+  origins: ["http://*/*", "https://*/*"]
+};
 const networkBodyCaptureByteLimit = 64 * 1024;
 const networkBodyFetchByteLimit = 512 * 1024;
+const networkDuplicateWindowMs = 1_000;
 const pendingRecoveryTimeoutMs = 15_000;
 const pendingRecoveryAlarmPrefix = "jittle-lamp.pending-recovery.";
 const maxRecordingDurationMs = 5 * 60 * 1000;
@@ -55,6 +61,7 @@ const staleProcessingDraftTimeoutMs = maxRecordingDurationMs;
 const maxRecordingDurationAlarmName = "jittle-lamp.recording-duration-limit";
 
 const networkRequestsByTab = new Map<number, Map<string, NetworkRequestState>>();
+const recentNetworkEventFingerprintsByTab = new Map<number, NetworkEventFingerprint[]>();
 const webRequestFallbackTabIds = new Set<number>();
 
 type RecordingPageOverride = {
@@ -116,6 +123,16 @@ type NetworkRequestState = {
   responseMimeType?: string;
   requestBody?: NetworkBodyCapture;
   failureText?: string;
+};
+
+type NetworkEventPayload = Extract<SessionEvent["payload"], { kind: "network" }>;
+
+type NetworkCaptureSource = "content" | "debugger" | "webRequest";
+
+type NetworkEventFingerprint = {
+  key: string;
+  source: NetworkCaptureSource;
+  atMs: number;
 };
 
 type NetworkHeaderEntry = {
@@ -339,10 +356,12 @@ async function handleIncomingMessage(
         const targetTabId = popupRequest.data.tabId;
         const targetPage = popupRequest.data.page;
         const playTabAudio = popupRequest.data.playTabAudio ?? false;
+        const requestSiteAccess = popupRequest.data.requestSiteAccess ?? false;
         return queueDraftMutation(async () => {
           try {
             await startRecordingSession(targetTabId, targetPage, {
-              playTabAudio
+              playTabAudio,
+              requestSiteAccess
             });
             return buildPopupResponse(true);
           } catch (error: unknown) {
@@ -413,7 +432,7 @@ async function handleIncomingMessage(
 async function startRecordingSession(
   targetTabId?: number,
   targetPage?: RecordingPageOverride,
-  options: { playTabAudio?: boolean } = {}
+  options: { playTabAudio?: boolean; requestSiteAccess?: boolean } = {}
 ): Promise<void> {
   const existingDraft = await readDraft();
 
@@ -439,6 +458,10 @@ async function startRecordingSession(
   await saveDraft(draft);
 
   try {
+    if (options.requestSiteAccess) {
+      await requestOptionalNetworkCapturePermission();
+    }
+
     const canUseWebRequestFallback = await hasNetworkCapturePermission();
     if (canUseWebRequestFallback) {
       registerWebRequestFallbackListeners();
@@ -475,6 +498,7 @@ async function startRecordingSession(
   } catch (error: unknown) {
     webRequestFallbackTabIds.delete(tab.id);
     networkRequestsByTab.delete(tab.id);
+    recentNetworkEventFingerprintsByTab.delete(tab.id);
     await saveDraft(
       transitionDraftPhase(draft, "failed", `Failed to start recording: ${errorMessage(error)}`)
     );
@@ -488,14 +512,22 @@ async function startRecordingSession(
 }
 
 async function hasNetworkCapturePermission(): Promise<boolean> {
-  const requiredPermissions: chrome.permissions.Permissions = {
-    permissions: ["webRequest"],
-    origins: ["http://*/*", "https://*/*"]
-  };
+  try {
+    return await chrome.permissions.contains(optionalNetworkCapturePermissions);
+  } catch {
+    return false;
+  }
+}
+
+async function requestOptionalNetworkCapturePermission(): Promise<boolean> {
+  if (!("permissions" in chrome) || !chrome.permissions?.request) {
+    return false;
+  }
 
   try {
-    return await chrome.permissions.contains(requiredPermissions);
-  } catch {
+    return await chrome.permissions.request(optionalNetworkCapturePermissions);
+  } catch (error: unknown) {
+    console.warn("[jittle-lamp] Unable to request optional site access for recording.", errorMessage(error));
     return false;
   }
 }
@@ -504,8 +536,13 @@ async function toggleFloatingWidget(tabHint?: chrome.tabs.Tab): Promise<void> {
   try {
     const tab = await resolveRecordableTabForWidget(tabHint);
     const response = await buildPopupResponse(true);
+    const activeDraft = await readDraft();
 
-    await ensureWidgetBridge(tab.id);
+    if (activeDraft?.page.tabId === tab.id && activeDraft.phase === "recording") {
+      await ensureContentBridge(tab.id, activeDraft.sessionId, { injectNetworkProbe: true });
+    } else {
+      await ensureWidgetBridge(tab.id);
+    }
     await chrome.tabs.sendMessage(tab.id, {
       type: "jl/content-toggle-widget",
       state: response.state
@@ -674,6 +711,7 @@ async function stopRecordingSession(detail: string): Promise<void> {
     stoppingTabIds.delete(tabId);
     webRequestFallbackTabIds.delete(tabId);
     networkRequestsByTab.delete(tabId);
+    recentNetworkEventFingerprintsByTab.delete(tabId);
     if (!keepOffscreenForRetry) {
       await closeOffscreenDocumentIfPresent();
     }
@@ -804,14 +842,11 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
         registerWebRequestFallbackListeners();
       }
       const debuggerAttached = await attachDebugger(tabId, { canUseWebRequestFallback });
-      await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: true });
       clearPendingRecovery(tabId);
       await clearPendingRecoveryAlarm(tabId);
       await saveDraft(
-        appendDraftEvent(nextDraft, {
-          kind: "lifecycle",
-          phase: "recording",
-          detail: debuggerAttached
+        await reconnectContentBridgeForRecording(tabId, nextDraft, {
+          successDetail: debuggerAttached
             ? "Resumed capture after same-tab navigation."
             : debuggerUnavailableDetail(canUseWebRequestFallback)
         })
@@ -825,7 +860,48 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
     }
   }
 
-  await ensureContentBridge(tabId, nextDraft.sessionId, { injectNetworkProbe: true });
+  const reconnectSuccessDetail =
+    draft.page.url !== sanitizedUrl || draft.page.title !== (tab.title ?? sanitizedUrl)
+      ? "Resumed page action capture after navigation."
+      : undefined;
+  const reconnectedDraft = await reconnectContentBridgeForRecording(
+    tabId,
+    nextDraft,
+    reconnectSuccessDetail ? { successDetail: reconnectSuccessDetail } : {}
+  );
+
+  if (reconnectedDraft !== nextDraft) {
+    await saveDraft(reconnectedDraft);
+  }
+}
+
+async function reconnectContentBridgeForRecording(
+  tabId: number,
+  draft: CaptureSessionDraft,
+  options: { successDetail?: string } = {}
+): Promise<CaptureSessionDraft> {
+  try {
+    await ensureContentBridge(tabId, draft.sessionId, { injectNetworkProbe: true });
+
+    if (!options.successDetail) {
+      return draft;
+    }
+
+    return appendDraftEvent(draft, {
+      kind: "lifecycle",
+      phase: draft.phase,
+      detail: options.successDetail
+    });
+  } catch (error: unknown) {
+    const detail = pageActionCapturePausedDetail(error);
+    console.warn(`[jittle-lamp] ${detail}`);
+
+    return appendDraftEvent(draft, {
+      kind: "lifecycle",
+      phase: draft.phase,
+      detail
+    });
+  }
 }
 
 async function handleContentRuntimeMessage(
@@ -887,7 +963,14 @@ async function handleContentRuntimeMessage(
       return;
 
     case "jl/network":
-      await saveDraft(appendDraftEvent(currentDraft, normalizeContentNetworkPayload(message.payload)));
+      await saveDraft(
+        appendNetworkEventIfNew(
+          currentDraft,
+          currentDraft.page.tabId,
+          normalizeContentNetworkPayload(message.payload),
+          "content"
+        )
+      );
       return;
   }
 }
@@ -1009,14 +1092,16 @@ async function handleFallbackRequestCompleted(details: chrome.webRequest.WebResp
   }
 
   await saveDraft(
-    appendDraftEvent(
+    appendNetworkEventIfNew(
       currentDraft,
+      details.tabId,
       buildNetworkEventPayload({
         requestState,
         requestId: details.requestId,
         durationMs: Math.max(0, Date.now() - requestState.startedAtMs),
         ...(requestState.requestBody ? { requestBody: requestState.requestBody } : {})
-      })
+      }),
+      "webRequest"
     )
   );
 }
@@ -1042,14 +1127,16 @@ async function handleFallbackRequestFailed(details: chrome.webRequest.WebRespons
   requestState.failureText = details.error || `Network request failed for ${requestState.url}`;
 
   await saveDraft(
-    appendDraftEvent(
+    appendNetworkEventIfNew(
       currentDraft,
+      details.tabId,
       buildNetworkEventPayload({
         requestState,
         requestId: details.requestId,
         durationMs: Math.max(0, Date.now() - requestState.startedAtMs),
         ...(requestState.requestBody ? { requestBody: requestState.requestBody } : {})
-      })
+      }),
+      "webRequest"
     )
   );
 }
@@ -1260,15 +1347,17 @@ async function handleDebuggerEvent(
           false
         );
 
-        nextDraft = appendDraftEvent(
+        nextDraft = appendNetworkEventIfNew(
           nextDraft,
+          tabId,
           buildNetworkEventPayload({
             requestState: existingRequestState,
             requestId,
             durationMs: Date.now() - existingRequestState.startedAtMs,
             ...(requestBody ? { requestBody } : {}),
             ...(responseBody ? { responseBody } : {})
-          })
+          }),
+          "debugger"
         );
       }
 
@@ -1369,15 +1458,17 @@ async function handleDebuggerEvent(
       const { requestBody, responseBody } = await captureNetworkBodies(tabId, requestId, requestState, true);
       getNetworkRequests(tabId).delete(requestId);
       await saveDraft(
-        appendDraftEvent(
+        appendNetworkEventIfNew(
           currentDraft,
+          tabId,
           buildNetworkEventPayload({
             requestState,
             requestId,
             durationMs: Date.now() - requestState.startedAtMs,
             ...(requestBody ? { requestBody } : {}),
             ...(responseBody ? { responseBody } : {})
-          })
+          }),
+          "debugger"
         )
       );
       return;
@@ -1404,15 +1495,17 @@ async function handleDebuggerEvent(
 
       requestState.failureText = payload.errorText || `Network request failed for ${requestState.url}`;
       const { requestBody, responseBody } = await captureNetworkBodies(tabId, requestId, requestState, false);
-      const failedDraft = appendDraftEvent(
+      const failedDraft = appendNetworkEventIfNew(
         currentDraft,
+        tabId,
         buildNetworkEventPayload({
           requestState,
           requestId,
           durationMs: Date.now() - requestState.startedAtMs,
           ...(requestBody ? { requestBody } : {}),
           ...(responseBody ? { responseBody } : {})
-        })
+        }),
+        "debugger"
       );
 
       await saveDraft(
@@ -1477,6 +1570,7 @@ async function handleDebuggerDetach(
   }
 
   networkRequestsByTab.delete(tabId);
+  recentNetworkEventFingerprintsByTab.delete(tabId);
 
   if (stoppingTabIds.has(tabId)) {
     return;
@@ -2088,6 +2182,52 @@ function buildNetworkEventPayload(input: {
       : {}),
     ...(requestState.failureText ? { failureText: requestState.failureText } : {})
   };
+}
+
+function appendNetworkEventIfNew(
+  draft: CaptureSessionDraft,
+  tabId: number | undefined,
+  payload: NetworkEventPayload,
+  source: NetworkCaptureSource
+): CaptureSessionDraft {
+  if (isDuplicateNetworkEvent(tabId, payload, source)) {
+    return draft;
+  }
+
+  return appendDraftEvent(draft, payload);
+}
+
+function isDuplicateNetworkEvent(
+  tabId: number | undefined,
+  payload: NetworkEventPayload,
+  source: NetworkCaptureSource
+): boolean {
+  if (typeof tabId !== "number") {
+    return false;
+  }
+
+  const nowMs = Date.now();
+  const key = networkEventFingerprint(payload);
+  const freshEntries = (recentNetworkEventFingerprintsByTab.get(tabId) ?? []).filter(
+    (entry) => nowMs - entry.atMs <= networkDuplicateWindowMs
+  );
+  const hasCrossSourceDuplicate = freshEntries.some((entry) => entry.source !== source && entry.key === key);
+
+  if (!hasCrossSourceDuplicate) {
+    freshEntries.push({ key, source, atMs: nowMs });
+  }
+
+  recentNetworkEventFingerprintsByTab.set(tabId, freshEntries.slice(-100));
+  return hasCrossSourceDuplicate;
+}
+
+function networkEventFingerprint(payload: NetworkEventPayload): string {
+  return [
+    payload.method.toUpperCase(),
+    payload.url,
+    payload.status?.toString() ?? "",
+    payload.failureText ?? ""
+  ].join("\n");
 }
 
 function deriveNetworkSubtype(resourceType: string | undefined): NetworkSubtype {
@@ -3770,6 +3910,15 @@ function debuggerUnavailableDetail(canUseWebRequestFallback = true): string {
   return "Started active-tab recording. Browser debugger capture is unavailable, so console capture and CDP response-body capture are unavailable; fetch/XHR capture will use the page probe. Grant network recording permission for browser-level metadata.";
 }
 
+function pageActionCapturePausedDetail(error: unknown): string {
+  return [
+    "Page action capture paused after navigation because Jittle Lamp could not access the new page.",
+    "Video and browser-level network capture continue.",
+    "Open the extension on this tab or grant site access to resume action capture.",
+    `Reason: ${errorMessage(error)}`
+  ].join(" ");
+}
+
 function rawErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -3824,6 +3973,7 @@ async function flushDraftMutations(): Promise<void> {
 
 async function resetForTests(options?: { preserveStorage?: boolean }): Promise<void> {
   networkRequestsByTab.clear();
+  recentNetworkEventFingerprintsByTab.clear();
   stoppingTabIds.clear();
   draftMutationQueue = Promise.resolve();
   offscreenCreationPromise = null;

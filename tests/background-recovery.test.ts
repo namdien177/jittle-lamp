@@ -163,6 +163,61 @@ describe("background recovery", () => {
     );
   });
 
+  test("does not duplicate page-probe requests when CDP reports the same request", async () => {
+    const draft = createRecordingDraft();
+    await backgroundTest.saveDraft(draft);
+
+    await chromeHarness.dispatchRuntimeMessage(
+      {
+        type: "jl/network",
+        sessionId: draft.sessionId,
+        payload: {
+          kind: "network",
+          method: "GET",
+          url: "https://example.com/api/users",
+          subtype: "fetch",
+          status: 200,
+          requestId: "page-fetch-users",
+          request: {
+            headers: [],
+            cookies: []
+          }
+        }
+      },
+      { tab: { id: 7 } as chrome.tabs.Tab }
+    );
+
+    await chromeHarness.emitDebuggerEvent({ tabId: 7 }, "Network.requestWillBeSent", {
+      requestId: "cdp-fetch-users",
+      request: {
+        method: "GET",
+        url: "https://example.com/api/users",
+        headers: {}
+      }
+    });
+    await chromeHarness.emitDebuggerEvent({ tabId: 7 }, "Network.responseReceived", {
+      requestId: "cdp-fetch-users",
+      type: "Fetch",
+      response: {
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        mimeType: "application/json"
+      }
+    });
+    await chromeHarness.emitDebuggerEvent({ tabId: 7 }, "Network.loadingFinished", {
+      requestId: "cdp-fetch-users"
+    });
+
+    const activeDraft = await backgroundTest.readDraft();
+    const networkEvents = activeDraft?.events.filter((event) => event.payload.kind === "network") ?? [];
+
+    expect(networkEvents).toHaveLength(1);
+    expect(networkEvents[0]?.payload.kind === "network" ? networkEvents[0].payload.requestId : undefined).toBe(
+      "page-fetch-users"
+    );
+  });
+
   test("starts recording with the page probe when the debugger API is unavailable", async () => {
     chromeHarness.setDebuggerApiAvailable(false);
     chromeHarness.setNetworkPermissionGranted(false);
@@ -201,6 +256,30 @@ describe("background recovery", () => {
 
     expect(result.responded).toBeTrue();
     expect(chromeHarness.permissionRequests).toEqual([]);
+    expect(chromeHarness.debuggerAttachTabs).toContain(7);
+  });
+
+  test("requests optional site access when a widget start asks for it", async () => {
+    chromeHarness.setNetworkPermissionGranted(false);
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording",
+      requestSiteAccess: true
+    });
+
+    expect(result.responded).toBeTrue();
+    expect(chromeHarness.permissionRequests).toEqual([
+      {
+        permissions: ["webRequest"],
+        origins: ["http://*/*", "https://*/*"]
+      }
+    ]);
     expect(chromeHarness.debuggerAttachTabs).toContain(7);
   });
 
@@ -491,6 +570,26 @@ describe("background recovery", () => {
     expect(lastLifecycleDetail(activeDraft)).toBe("Resumed capture after same-tab navigation.");
   });
 
+  test("keeps recording and marks page action capture paused when navigation reinjection is blocked", async () => {
+    await backgroundTest.saveDraft(createRecordingDraft());
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "After",
+      url: "https://different.example/after"
+    });
+    chromeHarness.setNextTabMessageError("Receiving end does not exist.");
+    chromeHarness.setNextExecuteScriptError("Cannot access contents of url \"https://different.example/after\".");
+
+    await backgroundTest.handleCompletedTabUpdate(7);
+
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(activeDraft?.phase).toBe("recording");
+    expect(lastLifecycleDetail(activeDraft)).toContain("Page action capture paused after navigation");
+    expect(lastLifecycleDetail(activeDraft)).toContain("Video and browser-level network capture continue");
+  });
+
   test("exports the partial session when the recovery alarm fires after timeout", async () => {
     const restoreDetachedTime = freezeSystemTime("2026-01-01T00:00:00.000Z");
     chromeHarness.setTab({
@@ -750,6 +849,8 @@ function createChromeHarness() {
   let offscreenPresent = false;
   let networkPermissionGranted = true;
   let nextPermissionRequestResult = true;
+  let nextTabMessageError: string | null = null;
+  let nextExecuteScriptError: string | null = null;
   let offscreenStartResponse: unknown = {
     ok: true
   };
@@ -848,6 +949,12 @@ function createChromeHarness() {
         return [...tabsById.values()].map((tab) => ({ ...tab }));
       },
       async sendMessage(tabId: number, message: unknown): Promise<void> {
+        if (nextTabMessageError) {
+          const message = nextTabMessageError;
+          nextTabMessageError = null;
+          throw new Error(message);
+        }
+
         tabMessages.push({ tabId, message });
       }
     },
@@ -907,6 +1014,12 @@ function createChromeHarness() {
         files?: string[];
         func?: () => unknown;
       }): Promise<Array<{ result?: unknown }>> {
+        if (nextExecuteScriptError) {
+          const message = nextExecuteScriptError;
+          nextExecuteScriptError = null;
+          throw new Error(message);
+        }
+
         executeScriptCalls.push({
           ...(input.target?.tabId !== undefined ? { tabId: input.target.tabId } : {}),
           ...(input.files !== undefined ? { files: input.files } : {}),
@@ -985,6 +1098,12 @@ function createChromeHarness() {
     setNetworkPermissionGranted(granted: boolean): void {
       networkPermissionGranted = granted;
     },
+    setNextTabMessageError(message: string): void {
+      nextTabMessageError = message;
+    },
+    setNextExecuteScriptError(message: string): void {
+      nextExecuteScriptError = message;
+    },
     setDebuggerApiAvailable(available: boolean): void {
       if (available) {
         (chrome as { debugger?: typeof debuggerApi }).debugger = debuggerApi;
@@ -1054,6 +1173,17 @@ function createChromeHarness() {
         });
       });
     },
+    async emitDebuggerEvent(
+      source: chrome.debugger.Debuggee,
+      method: string,
+      params?: unknown
+    ): Promise<void> {
+      for (const listener of debuggerEventListeners) {
+        listener(source, method, params);
+      }
+
+      await backgroundTest.flushDraftMutations();
+    },
     setOffscreenStartResponse(response: unknown): void {
       offscreenStartResponse = response;
     },
@@ -1084,6 +1214,8 @@ function createChromeHarness() {
       offscreenPresent = false;
       networkPermissionGranted = true;
       nextPermissionRequestResult = true;
+      nextTabMessageError = null;
+      nextExecuteScriptError = null;
       offscreenStartResponse = {
         ok: true
       };

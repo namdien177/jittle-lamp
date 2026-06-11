@@ -853,7 +853,12 @@ async function sendPopupRequest(
   return popupResponseSchema.parse(
     await chrome.runtime.sendMessage({
       type,
-      ...(type === "jl/popup-start-recording" ? { playTabAudio: options.playTabAudio ?? false } : {})
+      ...(type === "jl/popup-start-recording"
+        ? {
+            playTabAudio: options.playTabAudio ?? false,
+            requestSiteAccess: true
+          }
+        : {})
     })
   );
 }

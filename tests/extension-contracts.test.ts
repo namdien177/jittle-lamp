@@ -284,7 +284,8 @@ describe("extension contracts", () => {
   test("parses tab audio playback preference on recorder start requests", () => {
     const popupRequest = popupRequestSchema.parse({
       type: "jl/popup-start-recording",
-      playTabAudio: false
+      playTabAudio: false,
+      requestSiteAccess: true
     });
     const offscreenRequest = offscreenRequestSchema.parse({
       type: "jl/offscreen-start-recording",
@@ -300,6 +301,7 @@ describe("extension contracts", () => {
     }
 
     expect(popupRequest.playTabAudio).toBe(false);
+    expect(popupRequest.requestSiteAccess).toBe(true);
     expect(offscreenRequest.playTabAudio).toBe(true);
   });
 
