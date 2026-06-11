@@ -4,15 +4,21 @@ import { useNavigate, useParams } from "react-router";
 import { useAuth } from "../auth";
 import { api, type ArtifactReadUrl, type FetchToken } from "../api";
 import { Button } from "../components/ui/button";
+import { Dialog } from "../components/ui/dialog";
+import { Field } from "../components/ui/field";
+import { Input } from "../components/ui/input";
 import { StatusScreen } from "../components/status-screen";
 import { RequireAuth } from "../components/workspace/require-auth";
 import { EvidenceViewerContent } from "../evidence-viewer-content";
 import {
+  useAccountProfile,
   useCreateEvidenceComment,
   useEvidenceComments,
+  useRenameEvidence,
   useRemoteEvidence,
   type RemoteEvidenceData
 } from "../queries";
+import { useToast } from "../toast";
 
 function RestrictedShareScreen({ orgName }: { orgName: string }): React.JSX.Element {
   const navigate = useNavigate();
@@ -80,17 +86,22 @@ function RemoteEvidenceLoader(props: {
 }): React.JSX.Element {
   const navigate = useNavigate();
   const auth = useAuth();
+  const toast = useToast();
   const query = useRemoteEvidence({
     ...(props.shareToken !== undefined ? { shareToken: props.shareToken } : {}),
     ...(props.remoteEvidenceId !== undefined ? { remoteEvidenceId: props.remoteEvidenceId } : {})
   });
+  const accountQuery = useAccountProfile();
 
   const stableGetToken: FetchToken = useRef(() => auth.getToken()).current;
   const latestUrlsRef = useRef<{ videoReadUrl: ArtifactReadUrl; archiveReadUrl: ArtifactReadUrl } | null>(null);
   const loaded: RemoteEvidenceData | null = query.data?.kind === "loaded" ? query.data.data : null;
   const [commentDraft, setCommentDraft] = useState("");
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
   const commentsQuery = useEvidenceComments(loaded?.evidenceId ?? null, loaded?.orgId);
   const createComment = useCreateEvidenceComment();
+  const renameEvidence = useRenameEvidence();
 
   if (loaded) {
     latestUrlsRef.current = { videoReadUrl: loaded.videoReadUrl, archiveReadUrl: loaded.archiveReadUrl };
@@ -134,6 +145,43 @@ function RemoteEvidenceLoader(props: {
   const shareLinkUrl = props.shareToken
     ? `${window.location.origin}/share/${encodeURIComponent(props.shareToken)}`
     : null;
+  const currentUserId = accountQuery.data?.localUserId ?? accountQuery.data?.userId ?? null;
+  const canRenameEvidence =
+    !props.shareToken &&
+    currentUserId !== null &&
+    (loaded.evidence.createdBy === currentUserId ||
+      accountQuery.data?.organizations.some(
+        (org) =>
+          org.id === loaded.evidence.orgId &&
+          (org.role === "owner" || org.role === "admin" || org.role === "moderator"),
+      ) === true);
+
+  const openRenameDialog = (): void => {
+    setRenameValue(loaded.evidence.title || loaded.session.archive.name);
+    setRenameOpen(true);
+  };
+
+  const submitRename = (): void => {
+    const title = renameValue.trim();
+    if (title.length === 0 || title === loaded.evidence.title) {
+      setRenameOpen(false);
+      return;
+    }
+    renameEvidence.mutate(
+      { evidenceId: loaded.evidenceId, title },
+      {
+        onSuccess: () => {
+          toast.success("Evidence renamed", title);
+          setRenameOpen(false);
+        },
+        onError: (error) =>
+          toast.error(
+            "Rename failed",
+            error instanceof Error ? error.message : undefined,
+          ),
+      },
+    );
+  };
 
   const fetchVideoBytes = async (): Promise<Uint8Array | null> => {
     let url = latestUrlsRef.current?.videoReadUrl.url ?? loaded.videoReadUrl.url;
@@ -206,11 +254,16 @@ function RemoteEvidenceLoader(props: {
         : commentsQuery.isPending
           ? "Loading discussion..."
           : null;
+  const viewerArchive =
+    loaded.evidence.title === loaded.session.archive.name
+      ? loaded.session.archive
+      : { ...loaded.session.archive, name: loaded.evidence.title };
 
   return (
+    <>
     <EvidenceViewerContent
       key={loaded.evidenceId}
-      loadedArchive={loaded.session.archive}
+      loadedArchive={viewerArchive}
       loadedTimeline={loaded.session.timeline}
       loadedMergeGroups={loaded.session.mergeGroups}
       videoSrc={loaded.session.videoUrl}
@@ -227,8 +280,57 @@ function RemoteEvidenceLoader(props: {
       discussionNotice={discussionNotice}
       onDiscussionChange={setCommentDraft}
       onSubmitDiscussion={() => void submitComment()}
+      {...(canRenameEvidence ? { onRenameEvidence: openRenameDialog } : {})}
+      {...(canRenameEvidence ? { renamingEvidence: renameEvidence.isPending } : {})}
       {...(props.viewerMode ? { viewerMode: props.viewerMode } : {})}
     />
+      <Dialog
+        open={renameOpen}
+        onClose={() => setRenameOpen(false)}
+        size="sm"
+        title="Rename evidence"
+        description="Keep it searchable."
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRenameOpen(false)}
+              disabled={renameEvidence.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={submitRename}
+              disabled={
+                renameEvidence.isPending ||
+                renameValue.trim().length === 0 ||
+                renameValue.trim() === loaded.evidence.title
+              }
+            >
+              {renameEvidence.isPending ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitRename();
+          }}
+        >
+          <Field label="Session name">
+            <Input
+              autoFocus
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.currentTarget.value)}
+              maxLength={200}
+            />
+          </Field>
+        </form>
+      </Dialog>
+    </>
   );
 }
 

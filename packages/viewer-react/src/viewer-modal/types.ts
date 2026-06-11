@@ -54,7 +54,9 @@ export type ViewerModalProps = {
   shareLinkUrl: string | null;
   onCopyShareLink?: () => void;
   onCreateShareLink?: () => void;
+  onRename?: () => void;
   onDownloadZip?: () => void;
+  renaming?: boolean;
   downloadingZip?: boolean;
   creatingShareLink?: boolean;
 

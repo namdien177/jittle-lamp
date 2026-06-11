@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 
 import type { ViewerModalProps } from "./types";
 
@@ -7,6 +7,7 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
   const showCopyLink = props.shareLinkUrl !== null && props.onCopyShareLink !== undefined;
   const showCreateLink =
     props.isOwner && props.shareLinkUrl === null && props.onCreateShareLink !== undefined;
+  const showRename = props.onRename !== undefined;
   const showDownloadZip = props.onDownloadZip !== undefined;
   const isPage = (props.mode ?? "modal") === "page";
   const closeLabel = props.closeLabel ?? "Close viewer";
@@ -42,6 +43,17 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
             onClick={props.onCreateShareLink}
           >
             {props.creatingShareLink ? "Creating…" : "Create share link"}
+          </button>
+        ) : null}
+        {showRename ? (
+          <button
+            type="button"
+            className="jl-vm-btn"
+            disabled={props.renaming}
+            onClick={props.onRename}
+          >
+            <Pencil aria-hidden size={14} strokeWidth={2} />
+            {props.renaming ? "Saving…" : "Edit name"}
           </button>
         ) : null}
         {showDownloadZip ? (

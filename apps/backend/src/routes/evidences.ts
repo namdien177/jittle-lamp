@@ -127,7 +127,9 @@ const roleCanManageEvidence = async (
 		isCreator: boolean;
 	},
 ): Promise<boolean> => {
-	if (input.action === "delete" && input.isCreator) return true;
+	if ((input.action === "delete" || input.action === "update") && input.isCreator) {
+		return true;
+	}
 
 	const permissions = await getOrganizationRolePermissions(db, {
 		organizationId: input.orgId,

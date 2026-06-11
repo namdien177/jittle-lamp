@@ -2779,6 +2779,105 @@ describe("routes", () => {
 		expect(renamed?.title).toBe("Renamed checkout regression");
 	});
 
+	it("allows members to rename their own evidence without update role permissions", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_own_rename_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_own_rename_owner" },
+		});
+		const member = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_own_rename_member",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_own_rename_member" },
+		});
+		await db.insert(organizationMembers).values({
+			organizationId: owner.organizationId,
+			userId: member.userId,
+			role: "developer",
+		});
+
+		const [ownEvidence, othersEvidence] = await db
+			.insert(evidences)
+			.values([
+				{
+					orgId: owner.organizationId,
+					createdBy: member.userId,
+					title: "Member-owned evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+				},
+				{
+					orgId: owner.organizationId,
+					createdBy: owner.userId,
+					title: "Owner evidence",
+					sourceType: "browser",
+					scopeType: "organization",
+					scopeId: owner.organizationId,
+				},
+			])
+			.returning({ id: evidences.id });
+		if (!ownEvidence || !othersEvidence) {
+			throw new Error("Expected evidence records to be created");
+		}
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const memberToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_own_rename_member")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const ownResponse = await app.handle(
+			new Request(`http://localhost/evidences/${ownEvidence.id}`, {
+				method: "PATCH",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${memberToken}`,
+				},
+				body: JSON.stringify({ title: "Renamed by creator" }),
+			}),
+		);
+		expect(ownResponse.status).toBe(200);
+
+		const othersResponse = await app.handle(
+			new Request(`http://localhost/evidences/${othersEvidence.id}`, {
+				method: "PATCH",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${memberToken}`,
+				},
+				body: JSON.stringify({ title: "Should not rename" }),
+			}),
+		);
+		expect(othersResponse.status).toBe(403);
+		await expectApiError(othersResponse, {
+			code: "EVIDENCE_RENAME_FORBIDDEN",
+			message:
+				"Only permitted owners or evidence managers can rename this evidence",
+			status: 403,
+		});
+	});
+
 	it("mints a desktop token only once per approved flow", async () => {
 		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
 		await applyMigrations(databaseUrl);

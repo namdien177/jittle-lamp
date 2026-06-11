@@ -54,6 +54,8 @@ export type EvidenceViewerContentProps = {
   discussionNotice?: string | null;
   onDiscussionChange?: (value: string) => void;
   onSubmitDiscussion?: () => void;
+  onRenameEvidence?: () => void;
+  renamingEvidence?: boolean;
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -100,7 +102,9 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     discussionSaving = false,
     discussionNotice,
     onDiscussionChange,
-    onSubmitDiscussion
+    onSubmitDiscussion,
+    onRenameEvidence,
+    renamingEvidence = false
   } = props;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -396,6 +400,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       isOwner={isOwner}
       shareLinkUrl={shareLinkUrl}
       {...(shareLinkUrl ? { onCopyShareLink: () => onCopy(shareLinkUrl, "share link") } : {})}
+      {...(onRenameEvidence ? { onRename: onRenameEvidence } : {})}
+      {...(onRenameEvidence ? { renaming: renamingEvidence } : {})}
       onDownloadZip={() => void handleDownloadZip()}
       downloadingZip={downloadingZip}
       videoRef={videoRef}
