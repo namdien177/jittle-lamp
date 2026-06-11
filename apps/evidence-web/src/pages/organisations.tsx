@@ -18,6 +18,7 @@ import {
   LogOut,
   Plus,
   Search,
+  Trash2,
   Users,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ import { useAuth } from "../auth";
 import {
   api,
   type ApiActivityLog,
+  type ApiEvidenceSummary,
   type ApiInvitationCode,
   type ApiJoinRequest,
   type ApiMember,
@@ -40,7 +42,7 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Field } from "../components/ui/field";
 import { Select } from "../components/ui/select";
-import { Dialog } from "../components/ui/dialog";
+import { ConfirmDialog, Dialog } from "../components/ui/dialog";
 import { EmptyState, Skeleton } from "../components/ui/misc";
 import {
   Table,
@@ -57,6 +59,7 @@ import {
   useCreateInvitationCode,
   useCreateOrganization,
   useDeleteInvitationCode,
+  useDeleteEvidence,
   useEvidences,
   useLeaveOrganization,
   useOrganizationActivity,
@@ -171,6 +174,10 @@ function roleBadge(role: string): React.JSX.Element {
   const variant =
     role === "admin" ? "brand" : role === "moderator" ? "default" : "muted";
   return <Badge variant={variant}>{roleLabel(role)}</Badge>;
+}
+
+function canManageOthersEvidence(role: string | undefined): boolean {
+  return role === "owner" || role === "admin" || role === "moderator";
 }
 
 function sortOrganizations(
@@ -1735,13 +1742,20 @@ function JoinRequestsPanel(props: {
 export function OrgLibraryTab(): React.JSX.Element {
   const ctx = useOrgContext();
   const navigate = useNavigate();
+  const toast = useToast();
+  const accountQuery = useAccountProfile();
   const evidencesQuery = useEvidences({
     orgId: ctx.orgId,
     page: 1,
     limit: 100,
   });
   const membersQuery = useOrganizationMembers(ctx.orgId, { limit: 100 });
+  const deleteEvidence = useDeleteEvidence();
+  const [pendingDelete, setPendingDelete] = useState<ApiEvidenceSummary | null>(
+    null,
+  );
   const evidences = evidencesQuery.data?.evidences ?? [];
+  const currentUserId = accountQuery.data?.userId ?? null;
   const creators = useMemo(
     () =>
       new Map(
@@ -1758,76 +1772,138 @@ export function OrgLibraryTab(): React.JSX.Element {
       ? evidencesQuery.error.message
       : membersQuery.error instanceof Error
         ? membersQuery.error.message
+        : deleteEvidence.error instanceof Error
+          ? deleteEvidence.error.message
         : null;
+  const canDelete = (evidence: ApiEvidenceSummary): boolean =>
+    evidence.createdBy === currentUserId ||
+    canManageOthersEvidence(ctx.org?.role);
+
+  const confirmDelete = (): void => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    deleteEvidence.mutate(target.id, {
+      onSuccess: () => {
+        toast.success("Evidence moved to bin", "It will purge after 30 days.");
+        setPendingDelete(null);
+      },
+      onError: (error) => {
+        toast.error(
+          "Delete failed",
+          error instanceof Error ? error.message : undefined,
+        );
+      },
+    });
+  };
 
   return (
-    <Card className="overflow-hidden p-0">
-      {libraryError ? (
-        <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-base text-destructive">
-          {libraryError}
-        </div>
-      ) : null}
-      {loading ? (
-        <div className="space-y-2 p-4">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
-        </div>
-      ) : evidences.length === 0 ? (
-        <EmptyState
-          className="m-2 border-0"
-          title="No organisation evidence yet"
-        />
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Evidence</TableHead>
-              <TableHead className="hidden md:table-cell">Creator</TableHead>
-              <TableHead className="hidden sm:table-cell">Type</TableHead>
-              <TableHead className="hidden lg:table-cell">Updated</TableHead>
-              <TableHead className="text-right">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {evidences.map((evidence) => (
-              <TableRow key={evidence.id}>
-                <TableCell>
-                  <span className="block font-medium text-foreground">
-                    {evidence.title}
-                  </span>
-                  <span className="block truncate font-mono text-muted-foreground">
-                    {evidence.id}
-                  </span>
-                </TableCell>
-                <TableCell className="hidden text-base text-muted-foreground md:table-cell">
-                  {creators.get(evidence.createdBy) ?? evidence.createdBy}
-                </TableCell>
-                <TableCell className="hidden sm:table-cell">
-                  <Badge variant="muted" className="capitalize">
-                    {evidence.sourceType}
-                  </Badge>
-                </TableCell>
-                <TableCell className="hidden text-base text-muted-foreground lg:table-cell">
-                  {relTime(evidence.updatedAt)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
-                    }
-                  >
-                    Open
-                  </Button>
-                </TableCell>
-              </TableRow>
+    <>
+      <Card className="overflow-hidden p-0">
+        {libraryError ? (
+          <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-base text-destructive">
+            {libraryError}
+          </div>
+        ) : null}
+        {loading ? (
+          <div className="space-y-2 p-4">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
             ))}
-          </TableBody>
-        </Table>
-      )}
-    </Card>
+          </div>
+        ) : evidences.length === 0 ? (
+          <EmptyState
+            className="m-2 border-0"
+            title="No organisation evidence yet"
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Evidence</TableHead>
+                <TableHead className="hidden md:table-cell">Creator</TableHead>
+                <TableHead className="hidden sm:table-cell">Type</TableHead>
+                <TableHead className="hidden lg:table-cell">Updated</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {evidences.map((evidence) => {
+                const deletable = canDelete(evidence);
+
+                return (
+                  <TableRow key={evidence.id}>
+                    <TableCell>
+                      <span className="block font-medium text-foreground">
+                        {evidence.title}
+                      </span>
+                      <span className="block truncate font-mono text-muted-foreground">
+                        {evidence.id}
+                      </span>
+                    </TableCell>
+                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">
+                      {creators.get(evidence.createdBy) ?? evidence.createdBy}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <Badge variant="muted" className="capitalize">
+                        {evidence.sourceType}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="hidden text-base text-muted-foreground lg:table-cell">
+                      {relTime(evidence.updatedAt)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            navigate(
+                              `/evidence/${encodeURIComponent(evidence.id)}`,
+                            )
+                          }
+                        >
+                          Open
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!deletable || deleteEvidence.isPending}
+                          title={
+                            deletable
+                              ? "Delete evidence"
+                              : "Only the creator or evidence managers can delete this evidence"
+                          }
+                          onClick={() => setPendingDelete(evidence)}
+                        >
+                          <Trash2 aria-hidden />
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this evidence?"
+        description={
+          pendingDelete
+            ? `“${pendingDelete.title}” will move to the bin and auto-purge after 30 days.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={deleteEvidence.isPending}
+        onConfirm={confirmDelete}
+        onCancel={() =>
+          deleteEvidence.isPending ? null : setPendingDelete(null)
+        }
+      />
+    </>
   );
 }
 

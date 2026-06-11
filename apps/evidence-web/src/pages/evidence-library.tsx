@@ -553,7 +553,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               {selectedEvidences.length} selected
               {selectedUndeletableCount > 0 ? (
                 <span className="ml-2 font-normal text-destructive">
-                  {selectedUndeletableCount} cannot be deleted by your role
+                  {selectedUndeletableCount} cannot be deleted because they belong to someone else
                 </span>
               ) : null}
             </span>
