@@ -334,9 +334,12 @@ async function handleIncomingMessage(
       case "jl/popup-start-recording": {
         const targetTabId = popupRequest.data.tabId;
         const targetPage = popupRequest.data.page;
+        const playTabAudio = popupRequest.data.playTabAudio ?? false;
         return queueDraftMutation(async () => {
           try {
-            await startRecordingSession(targetTabId, targetPage);
+            await startRecordingSession(targetTabId, targetPage, {
+              playTabAudio
+            });
             return buildPopupResponse(true);
           } catch (error: unknown) {
             return buildPopupResponse(false, errorMessage(error));
@@ -405,7 +408,8 @@ async function handleIncomingMessage(
 
 async function startRecordingSession(
   targetTabId?: number,
-  targetPage?: RecordingPageOverride
+  targetPage?: RecordingPageOverride,
+  options: { playTabAudio?: boolean } = {}
 ): Promise<void> {
   const existingDraft = await readDraft();
 
@@ -446,7 +450,8 @@ async function startRecordingSession(
       type: "jl/offscreen-start-recording",
       sessionId: draft.sessionId,
       tabId: tab.id,
-      streamId
+      streamId,
+      playTabAudio: options.playTabAudio ?? false
     });
 
     if (!offscreenResponse.ok) {
@@ -3734,6 +3739,7 @@ async function sendOffscreenMessage(
         sessionId: string;
         tabId: number;
         streamId: string;
+        playTabAudio?: boolean;
       }
     | {
         type: "jl/offscreen-stop-and-export";

@@ -17,7 +17,8 @@ export const popupGetStateRequestSchema = z.object({
 export const popupStartRecordingRequestSchema = z.object({
   type: z.literal("jl/popup-start-recording"),
   tabId: z.number().int().nonnegative().optional(),
-  page: pageContextSchema.pick({ title: true, url: true }).partial().optional()
+  page: pageContextSchema.pick({ title: true, url: true }).partial().optional(),
+  playTabAudio: z.boolean().optional()
 });
 
 export const popupStopRecordingRequestSchema = z.object({
@@ -164,7 +165,8 @@ export const offscreenStartRecordingRequestSchema = z.object({
   type: z.literal("jl/offscreen-start-recording"),
   sessionId: sessionIdSchema,
   tabId: z.number().int().nonnegative(),
-  streamId: z.string().min(1)
+  streamId: z.string().min(1),
+  playTabAudio: z.boolean().optional()
 });
 
 export const offscreenStopAndExportRequestSchema = z.object({

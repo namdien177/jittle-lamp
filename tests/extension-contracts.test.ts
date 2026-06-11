@@ -13,6 +13,7 @@ import {
   createSessionDraft,
   offscreenResponseSchema,
   offscreenRequestSchema,
+  popupRequestSchema,
   popupResponseSchema,
   transitionDraftPhase
 } from "@jittle-lamp/shared";
@@ -244,6 +245,28 @@ describe("extension contracts", () => {
     });
 
     expect(message.type).toBe("jl/content-refresh-widget");
+  });
+
+  test("parses tab audio playback preference on recorder start requests", () => {
+    const popupRequest = popupRequestSchema.parse({
+      type: "jl/popup-start-recording",
+      playTabAudio: false
+    });
+    const offscreenRequest = offscreenRequestSchema.parse({
+      type: "jl/offscreen-start-recording",
+      sessionId: "jl_test1234",
+      tabId: 7,
+      streamId: "stream-123",
+      playTabAudio: true
+    });
+
+    expect(popupRequest.type).toBe("jl/popup-start-recording");
+    if (popupRequest.type !== "jl/popup-start-recording" || offscreenRequest.type !== "jl/offscreen-start-recording") {
+      throw new Error("Expected recorder start requests.");
+    }
+
+    expect(popupRequest.playTabAudio).toBe(false);
+    expect(offscreenRequest.playTabAudio).toBe(true);
   });
 
   test("parses offscreen export requests with full session archives", () => {

@@ -361,12 +361,14 @@ class FloatingWidgetController {
   private readonly statusText: HTMLSpanElement;
   private readonly phasePill: HTMLSpanElement;
   private readonly startButton: HTMLButtonElement;
+  private readonly tabAudioToggleLabel: HTMLLabelElement;
+  private readonly tabAudioToggle: HTMLInputElement;
   private readonly stopButton: HTMLButtonElement;
   private readonly signInButton: HTMLButtonElement;
   private readonly linkChip: HTMLButtonElement;
   private readonly linkChipLabel: HTMLSpanElement;
   private readonly openLinkButton: HTMLButtonElement;
-  private readonly closeButton: HTMLButtonElement;
+  private readonly closeButtons: HTMLButtonElement[];
   private readonly dragHandles: HTMLElement[];
   private refreshTimer: number | null = null;
   private lastTitle = "";
@@ -388,7 +390,7 @@ class FloatingWidgetController {
     this.host.style.top = "auto";
     this.host.style.transform = "translateX(-50%)";
     this.host.style.zIndex = "2147483647";
-    this.host.style.width = "420px";
+    this.host.style.width = "480px";
     this.host.style.maxWidth = "calc(100vw - 16px)";
     this.host.style.pointerEvents = "auto";
 
@@ -410,12 +412,14 @@ class FloatingWidgetController {
     this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
     this.phasePill = this.require<HTMLSpanElement>("[data-role='phase']");
     this.startButton = this.require<HTMLButtonElement>("[data-role='start']");
+    this.tabAudioToggleLabel = this.require<HTMLLabelElement>("[data-role='tab-audio-toggle']");
+    this.tabAudioToggle = this.require<HTMLInputElement>("[data-role='tab-audio']");
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
     this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
     this.linkChip = this.require<HTMLButtonElement>("[data-role='link-chip']");
     this.linkChipLabel = this.require<HTMLSpanElement>("[data-role='link-label']");
     this.openLinkButton = this.require<HTMLButtonElement>("[data-role='open-link']");
-    this.closeButton = this.require<HTMLButtonElement>("[data-role='close']");
+    this.closeButtons = this.requireAll<HTMLButtonElement>("[data-role='close']");
     this.dragHandles = this.requireAll<HTMLElement>("[data-role='drag']");
     this.host.dataset.compact = "true";
     this.syncCollapseButton();
@@ -474,8 +478,19 @@ class FloatingWidgetController {
 
   private bind(): void {
     this.startButton.addEventListener("click", () => {
-      void this.performAction("jl/popup-start-recording");
+      void this.performAction("jl/popup-start-recording", {
+        playTabAudio: this.tabAudioToggle.checked
+      });
     });
+
+    for (const audioToggleElement of [this.tabAudioToggleLabel, this.tabAudioToggle]) {
+      audioToggleElement.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      audioToggleElement.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+    }
 
     this.stopButton.addEventListener("click", () => {
       void this.performAction("jl/popup-stop-recording");
@@ -553,16 +568,18 @@ class FloatingWidgetController {
       });
     }
 
-    this.closeButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.destroy();
-      floatingWidget = null;
-    });
-    this.closeButton.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
+    for (const closeButton of this.closeButtons) {
+      closeButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.destroy();
+        floatingWidget = null;
+      });
+      closeButton.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+    }
 
     for (const dragHandle of this.dragHandles) {
       dragHandle.addEventListener("pointerdown", (event) => {
@@ -578,11 +595,12 @@ class FloatingWidgetController {
       | "jl/popup-start-recording"
       | "jl/popup-stop-recording"
       | "jl/popup-start-cloud-sign-in"
-      | "jl/popup-logout-cloud"
+      | "jl/popup-logout-cloud",
+    options: { playTabAudio?: boolean } = {}
   ): Promise<void> {
     this.setBusy(true);
     try {
-      const response = await sendPopupRequest(type);
+      const response = await sendPopupRequest(type, options);
       this.render(response.state, response.error);
     } catch (error: unknown) {
       await this.refresh(error instanceof Error ? error.message : String(error));
@@ -648,6 +666,7 @@ class FloatingWidgetController {
     this.logoutButton.hidden = state.cloud.status !== "signed-in";
     this.logoutButton.disabled = state.cloud.status !== "signed-in";
     this.startButton.disabled = !state.canStart;
+    this.tabAudioToggle.disabled = !state.canStart;
     this.stopButton.disabled = !state.canStop;
   }
 
@@ -666,6 +685,7 @@ class FloatingWidgetController {
 
   private setBusy(busy: boolean): void {
     this.startButton.disabled = busy || this.startButton.hidden === true;
+    this.tabAudioToggle.disabled = busy || this.startButton.hidden === true;
     this.stopButton.disabled = busy || this.stopButton.hidden === true;
     this.signInButton.disabled = busy || this.signInButton.hidden === true;
     this.logoutButton.disabled = busy || this.logoutButton.hidden === true;
@@ -749,11 +769,13 @@ async function sendPopupRequest(
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
     | "jl/popup-start-cloud-sign-in"
-    | "jl/popup-logout-cloud"
+    | "jl/popup-logout-cloud",
+  options: { playTabAudio?: boolean } = {}
 ): Promise<PopupResponse> {
   return popupResponseSchema.parse(
     await chrome.runtime.sendMessage({
-      type
+      type,
+      ...(type === "jl/popup-start-recording" ? { playTabAudio: options.playTabAudio ?? false } : {})
     })
   );
 }
@@ -1043,8 +1065,8 @@ function floatingWidgetTemplate(): string {
         position: relative;
         display: inline-grid;
         place-items: center;
-        flex: 0 0 46px;
-        width: 46px;
+        flex: 0 0 32px;
+        width: 32px;
         height: 32px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 4px;
@@ -1276,11 +1298,64 @@ function floatingWidgetTemplate(): string {
       .jl-start {
         position: relative;
         display: grid;
-        grid-template-columns: 34px minmax(0, 1fr);
+        grid-template-columns: 34px minmax(0, 1fr) auto;
         align-items: center;
         gap: 10px;
         background: #181818;
         color: #efefef;
+      }
+
+      .jl-audio-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 126px;
+        color: #888888;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .jl-audio-toggle input {
+        appearance: none;
+        position: relative;
+        width: 38px;
+        height: 22px;
+        margin: 0;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        background: #0f0f0f;
+        cursor: pointer;
+      }
+
+      .jl-audio-toggle input::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        background: #888888;
+        transition: transform 120ms ease, background-color 120ms ease;
+      }
+
+      .jl-audio-toggle input:checked {
+        border-color: rgba(34, 197, 94, 0.55);
+        background: rgba(34, 197, 94, 0.18);
+      }
+
+      .jl-audio-toggle input:checked::after {
+        transform: translateX(16px);
+        background: #22c55e;
+      }
+
+      .jl-audio-toggle input:disabled {
+        cursor: default;
+        opacity: 0.55;
       }
 
       .jl-start:hover:not(:disabled) {
@@ -1420,7 +1495,7 @@ function floatingWidgetTemplate(): string {
       }
 
       :host([data-compact="false"]) {
-        width: min(420px, calc(100vw - 16px));
+        width: min(480px, calc(100vw - 16px));
       }
 
       :host([data-compact="false"]) .jl-compact {
@@ -1456,6 +1531,9 @@ function floatingWidgetTemplate(): string {
             <button class="jl-tool-button" data-role="collapse" type="button" title="Expand details" aria-label="Expand details">
               <span data-icon="Maximize2"></span>
             </button>
+            <button class="jl-tool-button" data-role="close" type="button" title="Close overlay" aria-label="Close overlay">
+              <span data-icon="X"></span>
+            </button>
           </div>
         </div>
         <div class="jl-expanded-head">
@@ -1471,12 +1549,19 @@ function floatingWidgetTemplate(): string {
             <button class="jl-tool-button" data-role="collapse" type="button" title="Minimize" aria-label="Minimize">
               <span data-icon="Minimize2"></span>
             </button>
+            <button class="jl-tool-button" data-role="close" type="button" title="Close overlay" aria-label="Close overlay">
+              <span data-icon="X"></span>
+            </button>
           </div>
         </div>
         <div class="jl-actions">
           <button class="jl-button jl-start" data-role="start" type="button">
             <span class="jl-action-icon" data-icon="Play"></span>
             <span>Record tab</span>
+            <label class="jl-audio-toggle" data-role="tab-audio-toggle" title="Play browser tab sound while recording">
+              <span>Tab sound</span>
+              <input data-role="tab-audio" type="checkbox" aria-label="Play browser tab sound while recording" />
+            </label>
           </button>
           <button class="jl-button jl-stop" data-role="stop" type="button" hidden>
             <span class="jl-action-icon" data-icon="CircleStop"></span>

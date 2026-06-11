@@ -124,7 +124,7 @@ async function handleRequest(
 }> {
   switch (request.type) {
     case "jl/offscreen-start-recording":
-      await startRecorder(request.sessionId, request.streamId);
+      await startRecorder(request.sessionId, request.streamId, request.playTabAudio ?? false);
       return { ok: true };
 
     case "jl/offscreen-stop-and-export": {
@@ -631,7 +631,7 @@ async function uploadArtifactToCompanion(
   }
 }
 
-async function startRecorder(sessionId: string, streamId: string): Promise<void> {
+async function startRecorder(sessionId: string, streamId: string, playTabAudio: boolean): Promise<void> {
   if (activeRecorderState?.sessionId === sessionId) {
     return;
   }
@@ -655,7 +655,7 @@ async function startRecorder(sessionId: string, streamId: string): Promise<void>
       }
     } as MediaTrackConstraints
   });
-  const audioContext = keepCapturedTabAudioAudible(stream);
+  const audioContext = playTabAudio ? keepCapturedTabAudioAudible(stream) : null;
 
   const mimeType = preferredMimeType();
   const chunks: Blob[] = [];
