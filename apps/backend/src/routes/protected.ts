@@ -35,6 +35,7 @@ const organizationSummarySchema = t.Object({
 
 const protectedMeResponseSchema = t.Object({
 	userId: t.String({ minLength: 1 }),
+	localUserId: t.Union([t.String({ minLength: 1 }), t.Null()]),
 	orgId: t.Union([t.String({ minLength: 1 }), t.Null()]),
 	activeOrgId: t.Union([t.String({ minLength: 1 }), t.Null()]),
 	roles: t.Array(t.String({ minLength: 1 })),
@@ -120,6 +121,7 @@ export const createProtectedRoutes = (auth: ClerkAuthPlugin) =>
 
 					return {
 						userId: authContext.userId,
+						localUserId: authContext.localUserId,
 						orgId: authContext.orgId,
 						activeOrgId: authContext.activeOrgId,
 						roles: authContext.roles,

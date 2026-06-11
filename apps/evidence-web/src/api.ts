@@ -179,6 +179,7 @@ export type ApiInvitationLookup = {
 
 export type ApiAccountProfile = {
   userId: string;
+  localUserId: string | null;
   activeOrgId: string | null;
   user: {
     id: string;

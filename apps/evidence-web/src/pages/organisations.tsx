@@ -1755,7 +1755,8 @@ export function OrgLibraryTab(): React.JSX.Element {
     null,
   );
   const evidences = evidencesQuery.data?.evidences ?? [];
-  const currentUserId = accountQuery.data?.userId ?? null;
+  const currentUserId =
+    accountQuery.data?.localUserId ?? accountQuery.data?.userId ?? null;
   const creators = useMemo(
     () =>
       new Map(

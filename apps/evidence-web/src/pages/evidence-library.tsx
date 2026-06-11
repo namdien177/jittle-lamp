@@ -77,7 +77,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const activeOrg = accountQuery.data?.organizations.find(
     (org) => org.isActive,
   );
-  const currentUserId = accountQuery.data?.userId ?? null;
+  const currentUserId =
+    accountQuery.data?.localUserId ?? accountQuery.data?.userId ?? null;
   const selectedCreatorIds = useMemo(
     () =>
       (params.get("people") ?? "")

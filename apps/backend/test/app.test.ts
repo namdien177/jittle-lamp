@@ -368,6 +368,8 @@ describe("routes", () => {
 
 		expect(response.status).toBe(200);
 		const payload = (await response.json()) as {
+			userId: string;
+			localUserId: string | null;
 			user: { displayName: string; email: string | null };
 			activeOrgId: string | null;
 			organizations: Array<{
@@ -378,6 +380,8 @@ describe("routes", () => {
 				isActive: boolean;
 			}>;
 		};
+		expect(payload.userId).toBe("user_clerk_settings_profile");
+		expect(payload.localUserId).toBe(provisioned.userId);
 		expect(payload.user).toMatchObject({
 			displayName: "user_clerk_settings_profile",
 			email: null,
