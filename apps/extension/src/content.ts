@@ -28,6 +28,7 @@ let floatingWidget: FloatingWidgetController | null = null;
 const configuredCloudWebOrigin = (
   typeof __JITTLE_LAMP_WEB_ORIGIN__ === "string" ? __JITTLE_LAMP_WEB_ORIGIN__.trim() : "https://jittlelamp.dev"
 ).replace(/\/+$/, "");
+const selectionCaptureDebounceMs = 180;
 
 type NetworkProbeBody = {
   disposition: "captured" | "truncated" | "omitted" | "unavailable";
@@ -53,6 +54,9 @@ type NetworkProbePayload = {
   responseBody?: NetworkProbeBody;
   failureText?: string;
 };
+
+let selectionCaptureTimer: number | null = null;
+let lastSelectionFingerprint = "";
 
 function bootContentBridge(): void {
   if (window.__jittleLampBootstrapped__) {
@@ -253,6 +257,14 @@ function bootContentBridge(): void {
     { capture: true, passive: true }
   );
 
+  document.addEventListener(
+    "selectionchange",
+    () => {
+      scheduleSelectionCapture();
+    },
+    { passive: true }
+  );
+
   window.addEventListener("popstate", () => {
     void announceNavigation("popstate");
   });
@@ -339,6 +351,72 @@ async function sendNetworkEvent(payload: NetworkProbePayload): Promise<void> {
         : {}),
       ...(payload.failureText ? { failureText: payload.failureText } : {})
     }
+  });
+}
+
+function scheduleSelectionCapture(): void {
+  if (!activeSessionId) {
+    return;
+  }
+
+  if (selectionCaptureTimer !== null) {
+    window.clearTimeout(selectionCaptureTimer);
+  }
+
+  selectionCaptureTimer = window.setTimeout(() => {
+    selectionCaptureTimer = null;
+    void captureSelectionInteraction();
+  }, selectionCaptureDebounceMs);
+}
+
+async function captureSelectionInteraction(): Promise<void> {
+  if (!activeSessionId) {
+    return;
+  }
+
+  const selection = document.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    lastSelectionFingerprint = "";
+    return;
+  }
+
+  const selectedText = sanitizeSelectedText(selection.toString());
+  if (!selectedText) {
+    lastSelectionFingerprint = "";
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  const anchorElement = nodeToElement(selection.anchorNode);
+  const focusElement = nodeToElement(selection.focusNode);
+  const commonElement = nodeToElement(range.commonAncestorContainer);
+  const descriptor = describeElementTarget(commonElement);
+  const anchorSelector = describeElement(anchorElement);
+  const focusSelector = describeElement(focusElement);
+  const fingerprint = [
+    selectedText,
+    descriptor.selector ?? "",
+    anchorSelector ?? "",
+    focusSelector ?? "",
+    String(selection.anchorOffset),
+    String(selection.focusOffset)
+  ].join("|");
+
+  if (fingerprint === lastSelectionFingerprint) {
+    return;
+  }
+  lastSelectionFingerprint = fingerprint;
+
+  await sendInteraction({
+    kind: "interaction",
+    type: "selection",
+    ...(descriptor.selector ? { selector: descriptor.selector } : {}),
+    ...(descriptor.target ? { target: descriptor.target } : {}),
+    page: collectPageMetrics(),
+    selectedText,
+    selectedTextLength: selectedText.length,
+    ...(anchorSelector ? { anchorSelector } : {}),
+    ...(focusSelector ? { focusSelector } : {})
   });
 }
 
@@ -1645,6 +1723,22 @@ function describeElement(element: Element | null): string | undefined {
   }
 
   return buildRelativeDomSelector(element);
+}
+
+function nodeToElement(node: Node | null): Element | null {
+  if (!node) {
+    return null;
+  }
+
+  if (node instanceof Element) {
+    return node;
+  }
+
+  return node.parentElement;
+}
+
+function sanitizeSelectedText(input: string): string {
+  return input.trim().replace(/\s+/g, " ").slice(0, 500);
 }
 
 function buildRelativeDomSelector(element: Element): string | undefined {

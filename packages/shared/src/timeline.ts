@@ -269,6 +269,9 @@ function buildInteractionLabel(payload: SessionArchive["sections"]["actions"][nu
       }
       return selector ? `keyboard ${selector}` : "keyboard";
 
+    case "selection":
+      return `Highlight "${truncateLabelText(payload.selectedText)}"`;
+
     case "navigation":
       return payload.title ? `Navigate to "${truncateLabelText(payload.title)}"` : `navigation ${payload.url}`;
   }

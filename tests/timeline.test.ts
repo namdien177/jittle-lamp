@@ -121,6 +121,20 @@ describe("buildTimeline", () => {
   test("builds readable labels", () => {
     expect(buildTimeline(makeArchive([makeLifecycle(T0, "recording", "Started capture")]))[0]!.label).toBe("recording: Started capture");
     expect(buildTimeline(makeArchive([makeInteraction(T0, "click", "#submit-btn")]))[0]!.label).toBe("click #submit-btn");
+    expect(
+      buildTimeline(
+        makeArchive([
+          {
+            at: T0,
+            payload: {
+              kind: "interaction",
+              type: "selection",
+              selectedText: "Important highlighted text"
+            }
+          }
+        ])
+      )[0]!.label
+    ).toBe('Highlight "Important highlighted text"');
     expect(buildTimeline(makeArchive([makeNetwork(T0, "POST", "https://api.example.com/data")]))[0]!.label).toBe("POST https://api.example.com/data");
     expect(buildTimeline(makeArchive([makeConsole(T0, "console output here")]))[0]!.label).toBe("console output here");
     expect(buildTimeline(makeArchive([makeError(T0, "TypeError: undefined")]))[0]!.label).toBe("TypeError: undefined");

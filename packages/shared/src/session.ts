@@ -232,12 +232,21 @@ export const keyboardInteractionEventSchema = baseInteractionSchema.extend({
   modifiers: interactionModifiersSchema.optional()
 });
 
+export const selectionInteractionEventSchema = baseInteractionSchema.extend({
+  type: z.literal("selection"),
+  selectedText: z.string().min(1).max(500),
+  selectedTextLength: z.number().int().positive().optional(),
+  anchorSelector: z.string().min(1).optional(),
+  focusSelector: z.string().min(1).optional()
+});
+
 export const interactionEventSchema = z.discriminatedUnion("type", [
   clickInteractionEventSchema,
   inputInteractionEventSchema,
   submitInteractionEventSchema,
   navigationInteractionEventSchema,
-  keyboardInteractionEventSchema
+  keyboardInteractionEventSchema,
+  selectionInteractionEventSchema
 ]);
 
 export const errorEventSchema = z.object({

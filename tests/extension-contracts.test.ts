@@ -177,6 +177,40 @@ describe("extension contracts", () => {
     expect(message.payload.target?.inputType).toBe("email");
   });
 
+  test("parses text selection highlight interaction messages", () => {
+    const message = contentRuntimeMessageSchema.parse({
+      type: "jl/interaction",
+      sessionId: "jl_test1234",
+      payload: {
+        kind: "interaction",
+        type: "selection",
+        selector: "main > p:nth-of-type(1)",
+        selectedText: "Important highlighted text",
+        selectedTextLength: 26,
+        anchorSelector: "main > p:nth-of-type(1)",
+        focusSelector: "main > p:nth-of-type(1)",
+        page: {
+          viewport: { width: 1280, height: 720 },
+          document: { width: 1280, height: 1600 },
+          scroll: { x: 0, y: 24 }
+        },
+        target: {
+          selector: "main > p:nth-of-type(1)",
+          selectorAlternates: ["main > p:nth-of-type(1)"],
+          tagName: "p",
+          textPreview: "Important highlighted text in a paragraph."
+        }
+      }
+    });
+
+    if (message.type !== "jl/interaction" || message.payload.type !== "selection") {
+      throw new Error("Expected a selection interaction message.");
+    }
+
+    expect(message.payload.selectedText).toBe("Important highlighted text");
+    expect(message.payload.anchorSelector).toBe("main > p:nth-of-type(1)");
+  });
+
   test("parses content-captured API network responses with payloads", () => {
     const message = contentRuntimeMessageSchema.parse({
       type: "jl/network",

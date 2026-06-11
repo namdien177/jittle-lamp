@@ -1201,6 +1201,14 @@ function normalizeInteractionPayload(message: Extract<ContentRuntimeMessage, { t
         ...message,
         ...(selector ? { selector } : {})
       };
+
+    case "selection":
+      return {
+        ...message,
+        ...(selector ? { selector } : {}),
+        selectedText: message.selectedText.slice(0, 500),
+        selectedTextLength: message.selectedTextLength ?? message.selectedText.length
+      };
   }
 }
 
