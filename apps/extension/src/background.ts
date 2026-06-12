@@ -1859,6 +1859,11 @@ async function attachDebugger(
   tabId: number,
   options: { canUseWebRequestFallback?: boolean } = {}
 ): Promise<boolean> {
+  if (shouldSkipDebuggerCaptureForBrowser()) {
+    setWebRequestFallback(tabId, options.canUseWebRequestFallback ?? true);
+    return false;
+  }
+
   const debuggerApi = getDebuggerApi();
 
   if (!debuggerApi) {
@@ -1927,6 +1932,25 @@ function getDebuggerApi(): typeof chrome.debugger | undefined {
   }
 
   return candidate;
+}
+
+function shouldSkipDebuggerCaptureForBrowser(): boolean {
+  const navigatorLike = globalThis.navigator as
+    | (Navigator & {
+        userAgentData?: {
+          brands?: Array<{
+            brand?: string;
+          }>;
+        };
+      })
+    | undefined;
+  const brands = navigatorLike?.userAgentData?.brands ?? [];
+
+  if (brands.some((brand) => brand.brand?.toLowerCase().includes("microsoft edge"))) {
+    return true;
+  }
+
+  return /\bEdg(?:e|A|iOS)?\//.test(navigatorLike?.userAgent ?? "");
 }
 
 function setWebRequestFallback(tabId: number, enabled: boolean): void {

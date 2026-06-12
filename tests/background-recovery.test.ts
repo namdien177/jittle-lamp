@@ -241,6 +241,37 @@ describe("background recovery", () => {
     expect(lastLifecycleDetail(activeDraft)).toContain("fetch/XHR capture will use the page probe");
   });
 
+  test("skips debugger capture on Microsoft Edge while recording", async () => {
+    const restoreNavigator = setNavigatorForTest({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.4022.52"
+    });
+
+    try {
+      chromeHarness.setTab({
+        id: 7,
+        status: "complete",
+        title: "Example",
+        url: "https://example.com/start"
+      });
+
+      const result = await chromeHarness.dispatchRuntimeMessage({
+        type: "jl/popup-start-recording"
+      });
+
+      const activeDraft = await backgroundTest.readDraft();
+
+      expect(result.responded).toBeTrue();
+      expect(chromeHarness.debuggerAttachTabs).toEqual([]);
+      expect(chromeHarness.debuggerCommands).toEqual([]);
+      expect(chromeHarness.executeScriptCalls.some((call) => call.files?.includes("network-probe.js"))).toBeTrue();
+      expect(activeDraft?.phase).toBe("recording");
+      expect(lastLifecycleDetail(activeDraft)).toContain("Browser debugger capture is unavailable");
+    } finally {
+      restoreNavigator();
+    }
+  });
+
   test("does not request optional network permission from the background start path", async () => {
     chromeHarness.setNetworkPermissionGranted(false);
     chromeHarness.setTab({
@@ -817,6 +848,31 @@ function freezeSystemTime(isoTimestamp: string): () => void {
       configurable: true,
       value: realDate
     });
+  };
+}
+
+function setNavigatorForTest(navigatorValue: {
+  userAgent?: string;
+  userAgentData?: {
+    brands?: Array<{
+      brand?: string;
+    }>;
+  };
+}): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: navigatorValue
+  });
+
+  return () => {
+    if (descriptor) {
+      Object.defineProperty(globalThis, "navigator", descriptor);
+      return;
+    }
+
+    Reflect.deleteProperty(globalThis, "navigator");
   };
 }
 
