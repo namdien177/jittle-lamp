@@ -318,6 +318,19 @@ describe("extension contracts", () => {
     expect(popupRequest.name).toBe("Checkout failure repro");
   });
 
+  test("parses abort recording requests", () => {
+    const popupRequest = popupRequestSchema.parse({
+      type: "jl/popup-abort-recording"
+    });
+    const offscreenRequest = offscreenRequestSchema.parse({
+      type: "jl/offscreen-abort-recording",
+      sessionId: "jl_test1234"
+    });
+
+    expect(popupRequest.type).toBe("jl/popup-abort-recording");
+    expect(offscreenRequest.type).toBe("jl/offscreen-abort-recording");
+  });
+
   test("parses offscreen export requests with full session archives", () => {
     const draft = transitionDraftPhase(
       createSessionDraft({

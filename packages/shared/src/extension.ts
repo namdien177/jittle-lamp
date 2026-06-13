@@ -27,6 +27,10 @@ export const popupStopRecordingRequestSchema = z.object({
   type: z.literal("jl/popup-stop-recording")
 });
 
+export const popupAbortRecordingRequestSchema = z.object({
+  type: z.literal("jl/popup-abort-recording")
+});
+
 export const popupRetryUploadRequestSchema = z.object({
   type: z.literal("jl/popup-retry-upload")
 });
@@ -52,6 +56,7 @@ export const popupRequestSchema = z.discriminatedUnion("type", [
   popupGetStateRequestSchema,
   popupStartRecordingRequestSchema,
   popupStopRecordingRequestSchema,
+  popupAbortRecordingRequestSchema,
   popupRetryUploadRequestSchema,
   popupStartCloudSignInRequestSchema,
   popupOpenEvidenceListRequestSchema,
@@ -179,6 +184,11 @@ export const offscreenStopAndExportRequestSchema = z.object({
   cloudAuthToken: z.string().min(1).optional()
 });
 
+export const offscreenAbortRecordingRequestSchema = z.object({
+  type: z.literal("jl/offscreen-abort-recording"),
+  sessionId: sessionIdSchema
+});
+
 export const offscreenRetryCloudUploadRequestSchema = z.object({
   type: z.literal("jl/offscreen-retry-cloud-upload"),
   sessionId: sessionIdSchema,
@@ -188,6 +198,7 @@ export const offscreenRetryCloudUploadRequestSchema = z.object({
 export const offscreenRequestSchema = z.discriminatedUnion("type", [
   offscreenStartRecordingRequestSchema,
   offscreenStopAndExportRequestSchema,
+  offscreenAbortRecordingRequestSchema,
   offscreenRetryCloudUploadRequestSchema
 ]);
 

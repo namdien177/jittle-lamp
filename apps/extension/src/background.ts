@@ -382,6 +382,16 @@ async function handleIncomingMessage(
           }
         });
 
+      case "jl/popup-abort-recording":
+        return queueDraftMutation(async () => {
+          try {
+            await abortRecordingSession();
+            return buildPopupResponse(true, "Recording aborted and discarded.");
+          } catch (error: unknown) {
+            return buildPopupResponse(false, errorMessage(error));
+          }
+        });
+
       case "jl/popup-retry-upload":
         return queueDraftMutation(async () => {
           try {
@@ -720,6 +730,49 @@ async function stopRecordingSession(detail: string): Promise<void> {
     if (!keepOffscreenForRetry) {
       await closeOffscreenDocumentIfPresent();
     }
+  }
+}
+
+async function abortRecordingSession(): Promise<void> {
+  const currentDraft = await readDraft();
+
+  if (!currentDraft) {
+    return;
+  }
+
+  if (currentDraft.phase !== "armed" && currentDraft.phase !== "recording") {
+    return;
+  }
+
+  const tabId = currentDraft.page.tabId;
+
+  if (typeof tabId !== "number") {
+    throw new Error("The active session is missing its tab identifier.");
+  }
+
+  clearPendingRecovery(tabId);
+  await clearPendingRecoveryAlarm(tabId);
+  await clearMaxRecordingDurationAlarm();
+
+  try {
+    stoppingTabIds.add(tabId);
+    await signalContentCaptureEnded(tabId, currentDraft.sessionId);
+    await safeDetachDebugger(tabId);
+    if (currentDraft.phase === "recording") {
+      await sendOffscreenMessage({
+        type: "jl/offscreen-abort-recording",
+        sessionId: currentDraft.sessionId
+      }).catch((error: unknown) => {
+        console.warn("Unable to confirm offscreen recording abort.", error);
+      });
+    }
+  } finally {
+    stoppingTabIds.delete(tabId);
+    webRequestFallbackTabIds.delete(tabId);
+    networkRequestsByTab.delete(tabId);
+    recentNetworkEventFingerprintsByTab.delete(tabId);
+    await clearDraft();
+    await closeOffscreenDocumentIfPresent();
   }
 }
 
@@ -3971,6 +4024,10 @@ async function sendOffscreenMessage(
         archive: ReturnType<typeof createSessionArchive>;
         cloudRequired?: boolean;
         cloudAuthToken?: string;
+      }
+    | {
+        type: "jl/offscreen-abort-recording";
+        sessionId: string;
       }
     | {
         type: "jl/offscreen-retry-cloud-upload";

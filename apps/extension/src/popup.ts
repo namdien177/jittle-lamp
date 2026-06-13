@@ -1,5 +1,5 @@
 import { popupResponseSchema, type PopupResponse, type PopupState } from "@jittle-lamp/shared";
-import { CircleStop, createIcons, Play } from "lucide";
+import { CircleStop, createIcons, Play, X } from "lucide";
 
 const refreshIntervalMs = 1_500;
 const networkFallbackPermissions: chrome.permissions.Permissions = {
@@ -27,6 +27,7 @@ const artifactValue = requireElement<HTMLSpanElement>("[data-role='artifact-valu
 const messageValue = requireElement<HTMLParagraphElement>("[data-role='message-value']");
 const startButton = requireElement<HTMLButtonElement>("[data-role='start-button']");
 const stopButton = requireElement<HTMLButtonElement>("[data-role='stop-button']");
+const abortButton = requireElement<HTMLButtonElement>("[data-role='abort-button']");
 const draftTitleValue = requireElement<HTMLInputElement>("[data-role='draft-title-value']");
 
 let requestInFlight = false;
@@ -35,7 +36,7 @@ let draftTitleEdited = false;
 const targetTabId = parseTargetTabId();
 const targetPage = parseTargetPage();
 
-createIcons({ icons: { CircleStop, Play } });
+createIcons({ icons: { CircleStop, Play, X } });
 void refreshState();
 setInterval(() => {
   void refreshState();
@@ -51,6 +52,10 @@ draftTitleValue.addEventListener("input", () => {
 
 stopButton.addEventListener("click", () => {
   void performAction("jl/popup-stop-recording");
+});
+
+abortButton.addEventListener("click", () => {
+  void performAction("jl/popup-abort-recording");
 });
 
 statusBadge.addEventListener("click", () => {
@@ -107,6 +112,7 @@ async function performAction(
   type:
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
+    | "jl/popup-abort-recording"
     | "jl/popup-retry-upload"
     | "jl/popup-open-evidence-list"
     | "jl/popup-logout-cloud"
@@ -168,6 +174,7 @@ async function sendPopupMessage(
     | "jl/popup-get-state"
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
+    | "jl/popup-abort-recording"
     | "jl/popup-retry-upload"
     | "jl/popup-open-evidence-list"
     | "jl/popup-logout-cloud"
@@ -335,8 +342,10 @@ function renderState(state: PopupState, error?: string): void {
 
   startButton.disabled = requestInFlight || !state.canStart;
   stopButton.disabled = requestInFlight || !state.canStop;
+  abortButton.disabled = requestInFlight || activeSession?.phase !== "recording";
   startButton.hidden = !state.canStart;
   stopButton.hidden = !state.canStop;
+  abortButton.hidden = activeSession?.phase !== "recording";
 }
 
 function readDraftSessionName(): { name?: string } {
@@ -347,6 +356,7 @@ function readDraftSessionName(): { name?: string } {
 function setButtonsDisabled(disabled: boolean): void {
   startButton.disabled = disabled;
   stopButton.disabled = disabled;
+  abortButton.disabled = disabled;
   cloudMenuButton.disabled = disabled;
 }
 

@@ -82,10 +82,20 @@
       </section>
 
       <footer class="actions">
-        <button class="button primary" data-role="start-button" type="button">
-          <i data-lucide="play" aria-hidden="true"></i>
-          <span>Start capture</span>
-        </button>
+        <div class="recording-control-row">
+          <button class="button primary" data-role="start-button" type="button">
+            <i data-lucide="play" aria-hidden="true"></i>
+            <span>Start capture</span>
+          </button>
+          <button class="button secondary" data-role="stop-button" type="button">
+            <i data-lucide="circle-stop" aria-hidden="true"></i>
+            <span>Stop</span>
+          </button>
+          <button class="button danger abort-button" data-role="abort-button" type="button" hidden>
+            <i data-lucide="x" aria-hidden="true"></i>
+            <span>Abort</span>
+          </button>
+        </div>
         <label class="recording-name-field">
           <span class="label">New recording name</span>
           <input
@@ -96,10 +106,6 @@
             placeholder="Use current page title"
           />
         </label>
-        <button class="button secondary" data-role="stop-button" type="button">
-          <i data-lucide="circle-stop" aria-hidden="true"></i>
-          <span>Stop</span>
-        </button>
       </footer>
     </main>
 

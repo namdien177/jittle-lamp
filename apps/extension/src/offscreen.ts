@@ -186,6 +186,11 @@ async function handleRequest(
       };
     }
 
+    case "jl/offscreen-abort-recording":
+      await stopRecorder(request.sessionId).catch(() => undefined);
+      pendingCloudRetry = null;
+      return { ok: true };
+
     case "jl/offscreen-retry-cloud-upload": {
       const retry = pendingCloudRetry;
 

@@ -110,6 +110,25 @@ describe("background recovery", () => {
     expect(activeDraft?.nameEdited).toBeTrue();
   });
 
+  test("aborts active recordings without exporting artifacts", async () => {
+    const draft = createRecordingDraft();
+    await backgroundTest.saveDraft(draft);
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-abort-recording"
+    });
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(result.responded).toBeTrue();
+    expect(activeDraft).toBeNull();
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-abort-recording"))
+    ).toBeTrue();
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-stop-and-export"))
+    ).toBeFalse();
+  });
+
   test("injects the page network probe when debugger capture starts", async () => {
     chromeHarness.setTab({
       id: 7,
