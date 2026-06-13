@@ -23,6 +23,16 @@ type ChromeTabCaptureTrackConstraints = MediaTrackConstraints & {
   };
 };
 
+type ChromeDesktopCaptureTrackConstraints = MediaTrackConstraints & {
+  mandatory: {
+    chromeMediaSource: "desktop";
+    chromeMediaSourceId: string;
+    maxFrameRate?: number;
+  };
+};
+
+type CaptureTarget = "tab" | "desktop";
+
 type ActiveRecorderState = {
   sessionId: string;
   stream: MediaStream;
@@ -124,7 +134,13 @@ async function handleRequest(
 }> {
   switch (request.type) {
     case "jl/offscreen-start-recording":
-      await startRecorder(request.sessionId, request.streamId, request.playTabAudio ?? false);
+      await startRecorder({
+        sessionId: request.sessionId,
+        streamId: request.streamId,
+        captureTarget: request.captureTarget,
+        captureAudio: request.captureAudio ?? (request.captureTarget === "tab"),
+        playCapturedAudio: request.playTabAudio ?? false
+      });
       return { ok: true };
 
     case "jl/offscreen-stop-and-export": {
@@ -636,7 +652,15 @@ async function uploadArtifactToCompanion(
   }
 }
 
-async function startRecorder(sessionId: string, streamId: string, playTabAudio: boolean): Promise<void> {
+async function startRecorder(input: {
+  sessionId: string;
+  streamId: string;
+  captureTarget: CaptureTarget;
+  captureAudio: boolean;
+  playCapturedAudio: boolean;
+}): Promise<void> {
+  const { sessionId, streamId, captureTarget, captureAudio, playCapturedAudio } = input;
+
   if (activeRecorderState?.sessionId === sessionId) {
     return;
   }
@@ -645,22 +669,12 @@ async function startRecorder(sessionId: string, streamId: string, playTabAudio: 
     throw new Error("An offscreen recording is already active.");
   }
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      mandatory: {
-        chromeMediaSource: "tab",
-        chromeMediaSourceId: streamId,
-        maxFrameRate: 30
-      }
-    } as ChromeTabCaptureTrackConstraints,
-    audio: {
-      mandatory: {
-        chromeMediaSource: "tab",
-        chromeMediaSourceId: streamId
-      }
-    } as MediaTrackConstraints
-  });
-  const audioContext = playTabAudio ? keepCapturedTabAudioAudible(stream) : null;
+  const stream = await navigator.mediaDevices.getUserMedia(buildCaptureConstraints({
+    captureTarget,
+    streamId,
+    captureAudio
+  }));
+  const audioContext = playCapturedAudio ? keepCapturedAudioAudible(stream) : null;
 
   const mimeType = preferredMimeType();
   const chunks: Blob[] = [];
@@ -737,7 +751,39 @@ function preferredMimeType(): string | undefined {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
 }
 
-function keepCapturedTabAudioAudible(stream: MediaStream): AudioContext | null {
+function buildCaptureConstraints(input: {
+  captureTarget: CaptureTarget;
+  streamId: string;
+  captureAudio: boolean;
+}): MediaStreamConstraints {
+  const chromeMediaSource = input.captureTarget;
+  const videoConstraints = {
+    mandatory: {
+      chromeMediaSource,
+      chromeMediaSourceId: input.streamId,
+      maxFrameRate: 30
+    }
+  } as ChromeTabCaptureTrackConstraints | ChromeDesktopCaptureTrackConstraints;
+
+  if (!input.captureAudio) {
+    return {
+      video: videoConstraints,
+      audio: false
+    };
+  }
+
+  return {
+    video: videoConstraints,
+    audio: {
+      mandatory: {
+        chromeMediaSource,
+        chromeMediaSourceId: input.streamId
+      }
+    } as ChromeTabCaptureTrackConstraints | ChromeDesktopCaptureTrackConstraints
+  };
+}
+
+function keepCapturedAudioAudible(stream: MediaStream): AudioContext | null {
   if (stream.getAudioTracks().length === 0) {
     return null;
   }

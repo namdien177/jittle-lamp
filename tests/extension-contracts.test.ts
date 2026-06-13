@@ -284,6 +284,7 @@ describe("extension contracts", () => {
   test("parses tab audio playback preference on recorder start requests", () => {
     const popupRequest = popupRequestSchema.parse({
       type: "jl/popup-start-recording",
+      captureTarget: "desktop",
       playTabAudio: false,
       requestSiteAccess: true
     });
@@ -292,6 +293,8 @@ describe("extension contracts", () => {
       sessionId: "jl_test1234",
       tabId: 7,
       streamId: "stream-123",
+      captureTarget: "desktop",
+      captureAudio: false,
       playTabAudio: true
     });
 
@@ -300,10 +303,33 @@ describe("extension contracts", () => {
       throw new Error("Expected recorder start requests.");
     }
 
+    expect(popupRequest.captureTarget).toBe("desktop");
     expect(popupRequest.playTabAudio).toBe(false);
     expect(popupRequest.requestSiteAccess).toBe(true);
+    expect(offscreenRequest.captureTarget).toBe("desktop");
+    expect(offscreenRequest.captureAudio).toBe(false);
     expect(offscreenRequest.playTabAudio).toBe(true);
   });
+
+  test("defaults recorder start target to active tab", () => {
+    const popupRequest = popupRequestSchema.parse({
+      type: "jl/popup-start-recording"
+    });
+    const offscreenRequest = offscreenRequestSchema.parse({
+      type: "jl/offscreen-start-recording",
+      sessionId: "jl_test1234",
+      tabId: 7,
+      streamId: "stream-123"
+    });
+
+    if (popupRequest.type !== "jl/popup-start-recording" || offscreenRequest.type !== "jl/offscreen-start-recording") {
+      throw new Error("Expected recorder start requests.");
+    }
+
+    expect(popupRequest.captureTarget).toBe("tab");
+    expect(offscreenRequest.captureTarget).toBe("tab");
+  });
+
 
   test("parses optional recorder start names", () => {
     const popupRequest = popupRequestSchema.parse({

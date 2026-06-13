@@ -16,6 +16,7 @@ import {
   type CompanionState,
   type ContentRuntimeMessage,
   type NetworkSubtype,
+  type OffscreenRequest,
   type PopupResponse,
   type PopupSessionSummary,
   type PopupState,
@@ -67,6 +68,11 @@ const webRequestFallbackTabIds = new Set<number>();
 type RecordingPageOverride = {
   title?: string | undefined;
   url?: string | undefined;
+};
+type CaptureTarget = "tab" | "desktop";
+type RecorderStreamSelection = {
+  streamId: string;
+  captureAudio: boolean;
 };
 const stoppingTabIds = new Set<number>();
 
@@ -356,12 +362,14 @@ async function handleIncomingMessage(
         const targetTabId = popupRequest.data.tabId;
         const targetPage = popupRequest.data.page;
         const sessionName = popupRequest.data.name;
+        const captureTarget = popupRequest.data.captureTarget;
         const playTabAudio = popupRequest.data.playTabAudio ?? false;
         const requestSiteAccess = popupRequest.data.requestSiteAccess ?? false;
         return queueDraftMutation(async () => {
           try {
             await startRecordingSession(targetTabId, targetPage, {
               ...(sessionName ? { sessionName } : {}),
+              captureTarget,
               playTabAudio,
               requestSiteAccess
             });
@@ -444,7 +452,7 @@ async function handleIncomingMessage(
 async function startRecordingSession(
   targetTabId?: number,
   targetPage?: RecordingPageOverride,
-  options: { sessionName?: string; playTabAudio?: boolean; requestSiteAccess?: boolean } = {}
+  options: { sessionName?: string; captureTarget?: CaptureTarget; playTabAudio?: boolean; requestSiteAccess?: boolean } = {}
 ): Promise<void> {
   const existingDraft = await readDraft();
 
@@ -458,6 +466,7 @@ async function startRecordingSession(
     await clearDraft();
   }
 
+  const captureTarget = options.captureTarget ?? "tab";
   const tab = await resolveRecordingTab(targetTabId, targetPage);
   const baseDraft = createSessionDraft({
     page: {
@@ -483,7 +492,7 @@ async function startRecordingSession(
     }
     await ensureOffscreenDocument();
     await ensureRecordableTab(tab.id, "before tab capture", targetPage);
-    const streamId = await getTabMediaStreamId(tab.id);
+    const streamSelection = await getRecorderStreamSelection(tab.id, captureTarget, options.playTabAudio ?? false);
     await ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: true });
     await ensureRecordableTab(tab.id, "before debugger attach", targetPage);
     const debuggerAttached = await attachDebugger(tab.id, { canUseWebRequestFallback });
@@ -492,7 +501,9 @@ async function startRecordingSession(
       type: "jl/offscreen-start-recording",
       sessionId: draft.sessionId,
       tabId: tab.id,
-      streamId,
+      streamId: streamSelection.streamId,
+      captureTarget,
+      captureAudio: streamSelection.captureAudio,
       playTabAudio: options.playTabAudio ?? false
     });
 
@@ -504,9 +515,7 @@ async function startRecordingSession(
       transitionDraftPhase(
         draft,
         "recording",
-        debuggerAttached
-          ? "Started active-tab recording in the offscreen document."
-          : debuggerUnavailableDetail(canUseWebRequestFallback)
+        startRecordingDetail(captureTarget, debuggerAttached, canUseWebRequestFallback)
       )
     );
     scheduleMaxRecordingDurationAlarm();
@@ -2028,8 +2037,8 @@ async function ensureOffscreenDocument(): Promise<void> {
     offscreenCreationPromise = chrome.offscreen
       .createDocument({
         url: offscreenDocumentPath,
-        reasons: ["USER_MEDIA", "BLOBS"],
-        justification: "Record the active tab and export the local session bundle."
+        reasons: ["USER_MEDIA", "DISPLAY_MEDIA", "BLOBS"],
+        justification: "Record browser tabs or selected desktop surfaces and export the local session bundle."
       })
       .finally(() => {
         offscreenCreationPromise = null;
@@ -2763,6 +2772,21 @@ function toNetworkCookie(cookie: CdpCookie | undefined): NetworkCookie | null {
   };
 }
 
+async function getRecorderStreamSelection(
+  tabId: number,
+  captureTarget: CaptureTarget,
+  requestAudio: boolean
+): Promise<RecorderStreamSelection> {
+  if (captureTarget === "desktop") {
+    return getDesktopMediaStreamSelection(requestAudio);
+  }
+
+  return {
+    streamId: await getTabMediaStreamId(tabId),
+    captureAudio: true
+  };
+}
+
 async function getTabMediaStreamId(tabId: number): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     chrome.tabCapture.getMediaStreamId(
@@ -2783,6 +2807,33 @@ async function getTabMediaStreamId(tabId: number): Promise<string> {
         resolve(streamId);
       }
     );
+  });
+}
+
+async function getDesktopMediaStreamSelection(requestAudio: boolean): Promise<RecorderStreamSelection> {
+  if (!chrome.desktopCapture?.chooseDesktopMedia) {
+    throw new Error("Desktop capture is unavailable in this Chromium build.");
+  }
+
+  const sources = requestAudio ? ["screen", "window", "audio"] : ["screen", "window"];
+
+  return new Promise<RecorderStreamSelection>((resolve, reject) => {
+    chrome.desktopCapture.chooseDesktopMedia(sources, (streamId, options) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      if (!streamId) {
+        reject(new Error("Desktop capture picker was canceled."));
+        return;
+      }
+
+      resolve({
+        streamId,
+        captureAudio: requestAudio && options.canRequestAudioTrack
+      });
+    });
   });
 }
 
@@ -3992,6 +4043,24 @@ function debuggerUnavailableDetail(canUseWebRequestFallback = true): string {
   return "Started active-tab recording. Browser debugger capture is unavailable, so console capture and CDP response-body capture are unavailable; fetch/XHR capture will use the page probe. Grant network recording permission for browser-level metadata.";
 }
 
+function startRecordingDetail(
+  captureTarget: CaptureTarget,
+  debuggerAttached: boolean,
+  canUseWebRequestFallback: boolean
+): string {
+  if (captureTarget === "desktop") {
+    if (debuggerAttached) {
+      return "Started desktop recording in the offscreen document. Active-tab actions and network capture are also recording from the tab where the session started.";
+    }
+
+    return `${debuggerUnavailableDetail(canUseWebRequestFallback)} Desktop video capture is recording the selected screen or window.`;
+  }
+
+  return debuggerAttached
+    ? "Started active-tab recording in the offscreen document."
+    : debuggerUnavailableDetail(canUseWebRequestFallback);
+}
+
 function pageActionCapturePausedDetail(error: unknown): string {
   return [
     "Page action capture paused after navigation because Jittle Lamp could not access the new page.",
@@ -4009,32 +4078,7 @@ function isHandledRuntimeMessage(rawMessage: unknown): boolean {
   return popupRequestSchema.safeParse(rawMessage).success || contentRuntimeMessageSchema.safeParse(rawMessage).success;
 }
 
-async function sendOffscreenMessage(
-  message:
-    | {
-        type: "jl/offscreen-start-recording";
-        sessionId: string;
-        tabId: number;
-        streamId: string;
-        playTabAudio?: boolean;
-      }
-    | {
-        type: "jl/offscreen-stop-and-export";
-        sessionId: string;
-        archive: ReturnType<typeof createSessionArchive>;
-        cloudRequired?: boolean;
-        cloudAuthToken?: string;
-      }
-    | {
-        type: "jl/offscreen-abort-recording";
-        sessionId: string;
-      }
-    | {
-        type: "jl/offscreen-retry-cloud-upload";
-        sessionId: string;
-        cloudAuthToken: string;
-      }
-) {
+async function sendOffscreenMessage(message: OffscreenRequest) {
   const rawResponse = await chrome.runtime.sendMessage(message);
 
   if (rawResponse === undefined) {

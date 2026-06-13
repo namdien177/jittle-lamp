@@ -49,6 +49,7 @@ export const extensionManifest = {
     "alarms",
     "downloads",
     "tabCapture",
+    "desktopCapture",
     "debugger",
     "offscreen"
   ],

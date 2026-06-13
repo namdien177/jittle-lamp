@@ -82,17 +82,62 @@
       </section>
 
       <footer class="actions">
+        <div class="recording-options" aria-label="Recording options">
+          <label class="recording-option sound-option" title="Play captured sound while recording">
+            <span class="option-label">Sound</span>
+            <input data-role="sound-toggle" type="checkbox" aria-label="Play captured sound while recording" />
+          </label>
+          <div class="recording-option target-option">
+            <span class="option-label">Target</span>
+            <div class="target-segment" role="group" aria-label="Recording target">
+              <button
+                class="target-button"
+                data-capture-target="tab"
+                type="button"
+                title="Record active tab"
+                aria-label="Record active tab"
+                aria-pressed="true"
+              >
+                <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+                  <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+                  <path d="M3 9h18"></path>
+                </svg>
+              </button>
+              <button
+                class="target-button"
+                data-capture-target="desktop"
+                type="button"
+                title="Record selected screen or window"
+                aria-label="Record selected screen or window"
+                aria-pressed="false"
+              >
+                <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+                  <rect width="20" height="14" x="2" y="3" rx="2"></rect>
+                  <line x1="8" x2="16" y1="21" y2="21"></line>
+                  <line x1="12" x2="12" y1="17" y2="21"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
         <div class="recording-control-row">
           <button class="button primary" data-role="start-button" type="button">
-            <i data-lucide="play" aria-hidden="true"></i>
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+              <polygon points="6 3 20 12 6 21 6 3"></polygon>
+            </svg>
             <span>Start capture</span>
           </button>
-          <button class="button secondary" data-role="stop-button" type="button">
-            <i data-lucide="circle-stop" aria-hidden="true"></i>
-            <span>Stop</span>
+          <button class="button secondary icon-button stop-icon-button" data-role="stop-button" type="button" title="Stop recording" aria-label="Stop recording" hidden>
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+              <rect x="9" y="9" width="6" height="6" rx="1"></rect>
+            </svg>
           </button>
           <button class="button danger abort-button" data-role="abort-button" type="button" hidden>
-            <i data-lucide="x" aria-hidden="true"></i>
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+              <path d="M18 6 6 18"></path>
+              <path d="m6 6 12 12"></path>
+            </svg>
             <span>Abort</span>
           </button>
         </div>

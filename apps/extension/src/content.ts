@@ -15,6 +15,7 @@ import {
   Minimize2,
   Monitor,
   Move,
+  PanelTop,
   Play,
   User,
   X,
@@ -54,6 +55,8 @@ type NetworkProbePayload = {
   responseBody?: NetworkProbeBody;
   failureText?: string;
 };
+
+type CaptureTarget = "tab" | "desktop";
 
 let selectionCaptureTimer: number | null = null;
 let lastSelectionFingerprint = "";
@@ -103,6 +106,9 @@ function bootContentBridge(): void {
         return;
 
       case "jl/content-widget-ping":
+        if (floatingWidget && !floatingWidget.isMounted()) {
+          floatingWidget = null;
+        }
         return;
     }
   });
@@ -441,6 +447,7 @@ class FloatingWidgetController {
   private readonly startButton: HTMLButtonElement;
   private readonly tabAudioToggleLabel: HTMLLabelElement;
   private readonly tabAudioToggle: HTMLInputElement;
+  private readonly targetButtons: HTMLButtonElement[];
   private readonly stopButton: HTMLButtonElement;
   private readonly signInButton: HTMLButtonElement;
   private readonly linkChip: HTMLButtonElement;
@@ -471,6 +478,7 @@ class FloatingWidgetController {
     this.host.style.width = "480px";
     this.host.style.maxWidth = "calc(100vw - 16px)";
     this.host.style.pointerEvents = "auto";
+    this.host.hidden = true;
 
     this.shadow = this.host.attachShadow({ mode: "closed" });
     this.shadow.innerHTML = floatingWidgetTemplate();
@@ -492,6 +500,7 @@ class FloatingWidgetController {
     this.startButton = this.require<HTMLButtonElement>("[data-role='start']");
     this.tabAudioToggleLabel = this.require<HTMLLabelElement>("[data-role='tab-audio-toggle']");
     this.tabAudioToggle = this.require<HTMLInputElement>("[data-role='tab-audio']");
+    this.targetButtons = this.requireAll<HTMLButtonElement>("[data-capture-target]");
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
     this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
     this.linkChip = this.require<HTMLButtonElement>("[data-role='link-chip']");
@@ -506,6 +515,12 @@ class FloatingWidgetController {
   }
 
   show(initialState?: PopupState): void {
+    if (!this.isMounted()) {
+      floatingWidget = new FloatingWidgetController();
+      floatingWidget.show(initialState);
+      return;
+    }
+
     this.host.hidden = false;
     if (initialState) {
       this.render(initialState);
@@ -528,6 +543,12 @@ class FloatingWidgetController {
   }
 
   toggle(initialState?: PopupState): void {
+    if (!this.isMounted()) {
+      floatingWidget = new FloatingWidgetController();
+      floatingWidget.show(initialState);
+      return;
+    }
+
     if (this.host.hidden) {
       this.show(initialState);
       return;
@@ -557,16 +578,26 @@ class FloatingWidgetController {
   private bind(): void {
     this.startButton.addEventListener("click", () => {
       void this.performAction("jl/popup-start-recording", {
-        playTabAudio: this.tabAudioToggle.checked
+        playTabAudio: this.tabAudioToggle.checked,
+        captureTarget: this.selectedCaptureTarget()
       });
     });
 
-    for (const audioToggleElement of [this.tabAudioToggleLabel, this.tabAudioToggle]) {
-      audioToggleElement.addEventListener("click", (event) => {
+    for (const recorderOptionElement of [this.tabAudioToggleLabel, this.tabAudioToggle, ...this.targetButtons]) {
+      recorderOptionElement.addEventListener("click", (event) => {
         event.stopPropagation();
       });
-      audioToggleElement.addEventListener("pointerdown", (event) => {
+      recorderOptionElement.addEventListener("pointerdown", (event) => {
         event.stopPropagation();
+      });
+    }
+
+    for (const targetButton of this.targetButtons) {
+      targetButton.addEventListener("click", () => {
+        const target = targetButton.dataset.captureTarget;
+        if (target === "tab" || target === "desktop") {
+          this.setCaptureTarget(target);
+        }
       });
     }
 
@@ -674,7 +705,7 @@ class FloatingWidgetController {
       | "jl/popup-stop-recording"
       | "jl/popup-start-cloud-sign-in"
       | "jl/popup-logout-cloud",
-    options: { playTabAudio?: boolean } = {}
+    options: { playTabAudio?: boolean; captureTarget?: CaptureTarget } = {}
   ): Promise<void> {
     this.setBusy(true);
     try {
@@ -738,14 +769,19 @@ class FloatingWidgetController {
     this.outputCopyButton.setAttribute("aria-label", cloudUrl ? "Copy evidence link" : "No recent evidence session");
     this.outputCopyButton.dataset.cloudUrl = cloudUrl ?? "";
 
+    const isRecording = activeSession?.phase === "recording";
     this.startButton.hidden = !state.canStart;
-    this.stopButton.hidden = !state.canStop;
+    this.stopButton.hidden = !isRecording;
     this.signInButton.hidden = state.cloud.status === "signed-in";
     this.logoutButton.hidden = state.cloud.status !== "signed-in";
     this.logoutButton.disabled = state.cloud.status !== "signed-in";
     this.startButton.disabled = !state.canStart;
     this.tabAudioToggle.disabled = !state.canStart;
-    this.stopButton.disabled = !state.canStop;
+    for (const targetButton of this.targetButtons) {
+      targetButton.disabled = !state.canStart;
+    }
+    this.syncCaptureTargetButtons();
+    this.stopButton.disabled = !isRecording || !state.canStop;
   }
 
   private renderError(message: string): void {
@@ -764,6 +800,9 @@ class FloatingWidgetController {
   private setBusy(busy: boolean): void {
     this.startButton.disabled = busy || this.startButton.hidden === true;
     this.tabAudioToggle.disabled = busy || this.startButton.hidden === true;
+    for (const targetButton of this.targetButtons) {
+      targetButton.disabled = busy || this.startButton.hidden === true;
+    }
     this.stopButton.disabled = busy || this.stopButton.hidden === true;
     this.signInButton.disabled = busy || this.signInButton.hidden === true;
     this.logoutButton.disabled = busy || this.logoutButton.hidden === true;
@@ -780,9 +819,30 @@ class FloatingWidgetController {
     }
   }
 
+  private selectedCaptureTarget(): CaptureTarget {
+    const activeButton = this.targetButtons.find((button) => button.dataset.active === "true");
+    return activeButton?.dataset.captureTarget === "desktop" ? "desktop" : "tab";
+  }
+
+  private setCaptureTarget(captureTarget: CaptureTarget): void {
+    for (const targetButton of this.targetButtons) {
+      const active = targetButton.dataset.captureTarget === captureTarget;
+      targetButton.dataset.active = String(active);
+      targetButton.setAttribute("aria-pressed", String(active));
+    }
+  }
+
+  private syncCaptureTargetButtons(): void {
+    this.setCaptureTarget(this.selectedCaptureTarget());
+  }
+
   private destroy(): void {
     this.hide();
     this.host.remove();
+  }
+
+  isMounted(): boolean {
+    return this.host.isConnected && document.getElementById(floatingWidgetHostId) === this.host;
   }
 
   private beginDrag(event: PointerEvent, dragHandle: HTMLElement): void {
@@ -848,7 +908,7 @@ async function sendPopupRequest(
     | "jl/popup-stop-recording"
     | "jl/popup-start-cloud-sign-in"
     | "jl/popup-logout-cloud",
-  options: { playTabAudio?: boolean } = {}
+  options: { playTabAudio?: boolean; captureTarget?: CaptureTarget } = {}
 ): Promise<PopupResponse> {
   return popupResponseSchema.parse(
     await chrome.runtime.sendMessage({
@@ -856,6 +916,7 @@ async function sendPopupRequest(
       ...(type === "jl/popup-start-recording"
         ? {
             playTabAudio: options.playTabAudio ?? false,
+            captureTarget: options.captureTarget ?? "tab",
             requestSiteAccess: true
           }
         : {})
@@ -864,13 +925,19 @@ async function sendPopupRequest(
 }
 
 function showFloatingWidget(initialState?: PopupState): void {
-  floatingWidget ??= new FloatingWidgetController();
-  floatingWidget.show(initialState);
+  ensureFloatingWidget().show(initialState);
 }
 
 function toggleFloatingWidget(initialState?: PopupState): void {
-  floatingWidget ??= new FloatingWidgetController();
-  floatingWidget.toggle(initialState);
+  ensureFloatingWidget().toggle(initialState);
+}
+
+function ensureFloatingWidget(): FloatingWidgetController {
+  if (!floatingWidget || !floatingWidget.isMounted()) {
+    floatingWidget = new FloatingWidgetController();
+  }
+
+  return floatingWidget;
 }
 
 function isFloatingWidgetEvent(event: Event): boolean {
@@ -967,6 +1034,7 @@ const floatingWidgetIcons = {
   Minimize2,
   Monitor,
   Move,
+  PanelTop,
   Play,
   User,
   X
@@ -1359,6 +1427,13 @@ function floatingWidgetTemplate(): string {
         gap: 8px;
       }
 
+      .jl-record-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) max-content;
+        align-items: center;
+        gap: 8px;
+      }
+
       .jl-button {
         width: 100%;
         min-height: 56px;
@@ -1381,19 +1456,58 @@ function floatingWidgetTemplate(): string {
       .jl-start {
         position: relative;
         display: grid;
-        grid-template-columns: 34px minmax(0, 1fr) auto;
+        grid-template-columns: 34px minmax(0, 1fr);
         align-items: center;
         gap: 10px;
         background: #181818;
         color: #efefef;
       }
 
-      .jl-audio-toggle {
-        display: inline-flex;
+      .jl-rec-options {
+        display: grid;
+        grid-template-columns: max-content max-content;
+        grid-template-rows: 10px 30px;
         align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-        min-width: 126px;
+        column-gap: 10px;
+        row-gap: 5px;
+        justify-items: start;
+      }
+
+      .jl-rec-option {
+        display: contents;
+      }
+
+      .jl-rec-label {
+        color: #505050;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0;
+        line-height: 1;
+        text-transform: uppercase;
+      }
+
+      .jl-audio-toggle .jl-rec-label {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .jl-audio-toggle input {
+        grid-column: 1;
+        grid-row: 2;
+      }
+
+      .jl-rec-option:not(.jl-audio-toggle) .jl-rec-label {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      .jl-target-segment {
+        grid-column: 2;
+        grid-row: 2;
+      }
+
+      .jl-audio-toggle {
+        display: contents;
         color: #888888;
         font-size: 11px;
         font-weight: 700;
@@ -1404,6 +1518,7 @@ function floatingWidgetTemplate(): string {
 
       .jl-audio-toggle input {
         appearance: none;
+        align-self: center;
         position: relative;
         width: 38px;
         height: 22px;
@@ -1441,6 +1556,44 @@ function floatingWidgetTemplate(): string {
         opacity: 0.55;
       }
 
+      .jl-target-segment {
+        display: inline-grid;
+        align-self: center;
+        grid-template-columns: repeat(2, 30px);
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 6px;
+        background: #0f0f0f;
+      }
+
+      .jl-target-button {
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 24px;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: #888888;
+        cursor: pointer;
+      }
+
+      .jl-target-button[data-active="true"] {
+        background: rgba(34, 197, 94, 0.18);
+        color: #22c55e;
+      }
+
+      .jl-target-button:hover:not(:disabled) {
+        color: #efefef;
+      }
+
+      .jl-target-button:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+
       .jl-start:hover:not(:disabled) {
         border-color: rgba(34, 197, 94, 0.4);
         background: #1f1f1f;
@@ -1463,10 +1616,12 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-stop {
-        display: grid;
-        grid-template-columns: 34px minmax(0, 1fr);
-        align-items: center;
-        gap: 10px;
+        display: inline-grid;
+        place-items: center;
+        width: 56px;
+        min-width: 56px;
+        max-width: 56px;
+        padding: 0;
         background: rgba(239, 68, 68, 0.14);
         color: #efefef;
         border-color: rgba(239, 68, 68, 0.32);
@@ -1482,6 +1637,10 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-button[hidden] {
+        display: none;
+      }
+
+      .jl-record-panel:has(.jl-start[hidden]) {
         display: none;
       }
 
@@ -1638,17 +1797,47 @@ function floatingWidgetTemplate(): string {
           </div>
         </div>
         <div class="jl-actions">
-          <button class="jl-button jl-start" data-role="start" type="button">
-            <span class="jl-action-icon" data-icon="Play"></span>
-            <span>Record tab</span>
-            <label class="jl-audio-toggle" data-role="tab-audio-toggle" title="Play browser tab sound while recording">
-              <span>Tab sound</span>
-              <input data-role="tab-audio" type="checkbox" aria-label="Play browser tab sound while recording" />
-            </label>
-          </button>
-          <button class="jl-button jl-stop" data-role="stop" type="button" hidden>
+          <div class="jl-record-panel">
+            <button class="jl-button jl-start" data-role="start" type="button">
+              <span class="jl-action-icon" data-icon="Play"></span>
+              <span>Start capture</span>
+            </button>
+            <div class="jl-rec-options" aria-label="Recording options">
+              <label class="jl-audio-toggle jl-rec-option" data-role="tab-audio-toggle" title="Play captured sound while recording">
+                <span class="jl-rec-label">Sound</span>
+                <input data-role="tab-audio" type="checkbox" aria-label="Play captured sound while recording" />
+              </label>
+              <div class="jl-rec-option">
+                <span class="jl-rec-label">Target</span>
+                <div class="jl-target-segment" role="group" aria-label="Recording target">
+                  <button
+                    class="jl-target-button"
+                    data-capture-target="tab"
+                    data-active="true"
+                    type="button"
+                    title="Record active tab"
+                    aria-label="Record active tab"
+                    aria-pressed="true"
+                  >
+                    <span data-icon="PanelTop"></span>
+                  </button>
+                  <button
+                    class="jl-target-button"
+                    data-capture-target="desktop"
+                    data-active="false"
+                    type="button"
+                    title="Record selected screen or window"
+                    aria-label="Record selected screen or window"
+                    aria-pressed="false"
+                  >
+                    <span data-icon="Monitor"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="jl-button jl-stop" data-role="stop" type="button" title="Stop recording" aria-label="Stop recording" hidden>
             <span class="jl-action-icon" data-icon="CircleStop"></span>
-            <span>Stop recording</span>
           </button>
         </div>
         <div class="jl-expanded">

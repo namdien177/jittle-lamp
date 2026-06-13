@@ -19,6 +19,7 @@ export const popupStartRecordingRequestSchema = z.object({
   tabId: z.number().int().nonnegative().optional(),
   page: pageContextSchema.pick({ title: true, url: true }).partial().optional(),
   name: z.string().trim().min(1).max(160).optional(),
+  captureTarget: z.enum(["tab", "desktop"]).default("tab"),
   playTabAudio: z.boolean().optional(),
   requestSiteAccess: z.boolean().optional()
 });
@@ -173,6 +174,8 @@ export const offscreenStartRecordingRequestSchema = z.object({
   sessionId: sessionIdSchema,
   tabId: z.number().int().nonnegative(),
   streamId: z.string().min(1),
+  captureTarget: z.enum(["tab", "desktop"]).default("tab"),
+  captureAudio: z.boolean().optional(),
   playTabAudio: z.boolean().optional()
 });
 
