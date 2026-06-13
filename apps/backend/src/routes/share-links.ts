@@ -27,13 +27,14 @@ const evidenceIdParamsSchema = t.Object({
 	id: t.String({ minLength: 1 }),
 });
 
-const tokenParamsSchema = t.Object({
-	token: t.String({ minLength: 1 }),
+const shareLocatorParamsSchema = t.Object({
+	locator: t.String({ minLength: 1 }),
 });
 
 const shareLinkResponseSchema = t.Object({
 	shareLink: t.Object({
 		id: t.String({ minLength: 1 }),
+		slug: t.String({ minLength: 1 }),
 		token: t.String({ minLength: 1 }),
 		evidenceId: t.String({ minLength: 1 }),
 		orgId: t.String({ minLength: 1 }),
@@ -45,6 +46,7 @@ const shareLinkResponseSchema = t.Object({
 const resolvedShareLinkResponseSchema = t.Object({
 	shareLink: t.Object({
 		id: t.String({ minLength: 1 }),
+		slug: t.String({ minLength: 1 }),
 		evidenceId: t.String({ minLength: 1 }),
 		orgId: t.String({ minLength: 1 }),
 		expiresAt: t.Number(),
@@ -65,6 +67,7 @@ const revokedShareLinkResponseSchema = t.Object({
 
 const shareLinkSummarySchema = t.Object({
 	id: t.String({ minLength: 1 }),
+	slug: t.String({ minLength: 1 }),
 	evidenceId: t.String({ minLength: 1 }),
 	orgId: t.String({ minLength: 1 }),
 	scope: t.Literal("internal"),
@@ -174,6 +177,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							})
 							.returning({
 								id: shareLinks.id,
+								slug: shareLinks.slug,
 								evidenceId: shareLinks.evidenceId,
 								orgId: shareLinks.orgId,
 								expiresAt: shareLinks.expiresAt,
@@ -192,6 +196,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						return {
 							shareLink: {
 								id: inserted.id,
+								slug: inserted.slug,
 								token: rawToken,
 								evidenceId: inserted.evidenceId,
 								orgId: inserted.orgId,
@@ -258,6 +263,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						const rows = await db
 							.select({
 								id: shareLinks.id,
+								slug: shareLinks.slug,
 								evidenceId: shareLinks.evidenceId,
 								orgId: shareLinks.orgId,
 								createdAt: shareLinks.createdAt,
@@ -272,6 +278,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						return {
 							shareLinks: rows.map((row) => ({
 								id: row.id,
+								slug: row.slug,
 								evidenceId: row.evidenceId,
 								orgId: row.orgId,
 								scope: "internal" as const,
@@ -299,7 +306,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 					},
 				)
 				.get(
-					"/share-links/:token/resolve",
+					"/share-links/:locator/resolve",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -311,11 +318,14 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							return createForbiddenPayload(requestId);
 						}
 
-						const tokenHash = await hashToken(params.token);
+						const tokenHash = await hashToken(params.locator);
 						const evidencePolicy = createEvidencePolicy();
 						const shareLink = await db.query.shareLinks.findFirst({
 							where: and(
-								eq(shareLinks.tokenHash, tokenHash),
+								or(
+									eq(shareLinks.slug, params.locator),
+									eq(shareLinks.tokenHash, tokenHash),
+								),
 								or(
 									eq(shareLinks.expiresAt, PERMANENT_EXPIRY),
 									gt(shareLinks.expiresAt, Date.now()),
@@ -324,6 +334,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							),
 							columns: {
 								id: true,
+								slug: true,
 								evidenceId: true,
 								orgId: true,
 								teamId: true,
@@ -370,6 +381,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						return {
 							shareLink: {
 								id: shareLink.id,
+								slug: shareLink.slug,
 								evidenceId: shareLink.evidenceId,
 								orgId: shareLink.orgId,
 								expiresAt: shareLink.expiresAt,
@@ -382,7 +394,7 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 						};
 					},
 					{
-						params: tokenParamsSchema,
+						params: shareLocatorParamsSchema,
 						detail: {
 							tags: ["evidences"],
 							summary:

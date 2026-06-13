@@ -20,6 +20,19 @@ import {
 } from "../queries";
 import { useToast } from "../toast";
 
+const evidenceTitlePrefix = "Jittle Lamp";
+const evidenceTitleMaxLength = 80;
+
+function formatEvidenceDocumentTitle(title: string): string {
+  const trimmed = title.trim().replace(/\s+/g, " ");
+  if (!trimmed) return `${evidenceTitlePrefix} | Evidence`;
+  const suffix =
+    trimmed.length > evidenceTitleMaxLength
+      ? `${trimmed.slice(0, evidenceTitleMaxLength - 1).trimEnd()}…`
+      : trimmed;
+  return `${evidenceTitlePrefix} | ${suffix}`;
+}
+
 function RestrictedShareScreen({ orgName }: { orgName: string }): React.JSX.Element {
   const navigate = useNavigate();
   return (
@@ -107,6 +120,15 @@ function RemoteEvidenceLoader(props: {
     latestUrlsRef.current = { videoReadUrl: loaded.videoReadUrl, archiveReadUrl: loaded.archiveReadUrl };
   }
 
+  useEffect(() => {
+    if (!loaded) return;
+    const previousTitle = document.title;
+    document.title = formatEvidenceDocumentTitle(loaded.evidence.title || loaded.session.archive.name);
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [loaded]);
+
   useRenewArtifactUrls({
     enabled: Boolean(loaded && auth.isSignedIn),
     loaded,
@@ -142,8 +164,8 @@ function RemoteEvidenceLoader(props: {
   }
   if (!loaded) return <StatusScreen loading title="Loading evidence" />;
 
-  const shareLinkUrl = props.shareToken
-    ? `${window.location.origin}/share/${encodeURIComponent(props.shareToken)}`
+  const shareLinkUrl = loaded.shareSlug
+    ? `${window.location.origin}/share/${encodeURIComponent(loaded.shareSlug)}`
     : null;
   const currentUserId = accountQuery.data?.localUserId ?? accountQuery.data?.userId ?? null;
   const canRenameEvidence =

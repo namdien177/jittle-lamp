@@ -385,7 +385,7 @@ function SessionCard(props: {
       const evidenceId = session.remoteEvidenceId ?? evidence?.id;
       if (!evidenceId) return;
       const result = await api.createShareLink(auth.getToken, evidenceId);
-      const url = `${webOrigin}/share/${encodeURIComponent(result.shareLink.token)}`;
+      const url = `${webOrigin}/share/${encodeURIComponent(result.shareLink.slug)}`;
       await navigator.clipboard?.writeText(url);
       toast.success("Share link created", "Link copied to clipboard.");
     } catch (error) {

@@ -30,8 +30,8 @@ const EXPIRY_OPTIONS = [
 
 const DEFAULT_EXPIRY = "0";
 
-function buildShareUrl(token: string): string {
-  return `${window.location.origin}/share/${encodeURIComponent(token)}`;
+function buildShareUrl(slug: string): string {
+  return `${window.location.origin}/share/${encodeURIComponent(slug)}`;
 }
 
 export function ShareDialog(props: {
@@ -44,8 +44,8 @@ export function ShareDialog(props: {
   const createShareLink = useCreateShareLink();
   const revokeShareLink = useRevokeShareLink();
   const [expiry, setExpiry] = useState<string>(DEFAULT_EXPIRY);
-  const [createdLink, setCreatedLink] = useState<{ token: string; expiresAt: number } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [createdLink, setCreatedLink] = useState<{ slug: string; expiresAt: number } | null>(null);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
 
   const shareLinks = shareLinksQuery.data?.shareLinks ?? [];
   const loading = shareLinksQuery.isFetching;
@@ -57,7 +57,7 @@ export function ShareDialog(props: {
         evidenceId: evidence.id,
         expiresInMs: Number.parseInt(expiry, 10)
       });
-      setCreatedLink({ token: result.shareLink.token, expiresAt: result.shareLink.expiresAt });
+      setCreatedLink({ slug: result.shareLink.slug, expiresAt: result.shareLink.expiresAt });
       toast.success("Share link created");
     } catch (error) {
       toast.error("Unable to create share link", error instanceof Error ? error.message : undefined);
@@ -73,11 +73,11 @@ export function ShareDialog(props: {
     }
   };
 
-  const handleCopy = async (token: string): Promise<void> => {
+  const handleCopy = async (slug: string, copiedId: string): Promise<void> => {
     try {
-      await copyToClipboard(buildShareUrl(token));
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
+      await copyToClipboard(buildShareUrl(slug));
+      setCopiedLinkId(copiedId);
+      window.setTimeout(() => setCopiedLinkId((current) => (current === copiedId ? null : current)), 1800);
       toast.success("Share URL copied");
     } catch (error) {
       toast.error("Unable to copy URL", error instanceof Error ? error.message : undefined);
@@ -93,7 +93,7 @@ export function ShareDialog(props: {
       onClose={onClose}
       size="lg"
       title={`Share · ${evidence.title}`}
-      description="Internal share links open in this workspace for members of your organisation. The full URL is shown only once, on creation."
+      description="Internal share links open in this workspace for members of your organisation. Active links can be copied again later."
       footer={
         <Button variant="secondary" size="sm" onClick={onClose}>
           Close
@@ -118,15 +118,15 @@ export function ShareDialog(props: {
       {createdLink ? (
         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/[0.07] p-3">
           <p className="text-base font-semibold uppercase tracking-[0.06em] text-brand-300">
-            Copy now — this URL won’t be shown again
+            Share URL ready
           </p>
           <div className="flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-base text-muted-foreground">
-              {buildShareUrl(createdLink.token)}
+              {buildShareUrl(createdLink.slug)}
             </code>
-            <Button size="sm" onClick={() => void handleCopy(createdLink.token)}>
-              {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-              {copied ? "Copied" : "Copy"}
+            <Button size="sm" onClick={() => void handleCopy(createdLink.slug, "created")}>
+              {copiedLinkId === "created" ? <Check aria-hidden /> : <Copy aria-hidden />}
+              {copiedLinkId === "created" ? "Copied" : "Copy"}
             </Button>
           </div>
         </div>
@@ -165,6 +165,15 @@ export function ShareDialog(props: {
                       {link.expiresAt === 0 ? "Never" : formatRelativeTime(link.expiresAt)}
                     </TableCell>
                     <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void handleCopy(link.slug, link.id)}
+                        disabled={busy}
+                      >
+                        {copiedLinkId === link.id ? <Check aria-hidden /> : <Copy aria-hidden />}
+                        {copiedLinkId === link.id ? "Copied" : "Copy"}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"

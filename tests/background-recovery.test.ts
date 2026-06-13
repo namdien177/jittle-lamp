@@ -91,6 +91,25 @@ describe("background recovery", () => {
     expect(alarmInfo?.when).toBe(new Date("2026-01-01T00:05:00.000Z").getTime());
   });
 
+  test("uses a popup-provided name for new recording sessions", async () => {
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording",
+      name: "Checkout failure repro"
+    });
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(result.responded).toBeTrue();
+    expect(activeDraft?.name).toBe("Checkout failure repro");
+    expect(activeDraft?.nameEdited).toBeTrue();
+  });
+
   test("injects the page network probe when debugger capture starts", async () => {
     chromeHarness.setTab({
       id: 7,

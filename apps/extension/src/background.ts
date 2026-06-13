@@ -355,11 +355,13 @@ async function handleIncomingMessage(
       case "jl/popup-start-recording": {
         const targetTabId = popupRequest.data.tabId;
         const targetPage = popupRequest.data.page;
+        const sessionName = popupRequest.data.name;
         const playTabAudio = popupRequest.data.playTabAudio ?? false;
         const requestSiteAccess = popupRequest.data.requestSiteAccess ?? false;
         return queueDraftMutation(async () => {
           try {
             await startRecordingSession(targetTabId, targetPage, {
+              ...(sessionName ? { sessionName } : {}),
               playTabAudio,
               requestSiteAccess
             });
@@ -432,7 +434,7 @@ async function handleIncomingMessage(
 async function startRecordingSession(
   targetTabId?: number,
   targetPage?: RecordingPageOverride,
-  options: { playTabAudio?: boolean; requestSiteAccess?: boolean } = {}
+  options: { sessionName?: string; playTabAudio?: boolean; requestSiteAccess?: boolean } = {}
 ): Promise<void> {
   const existingDraft = await readDraft();
 
@@ -447,13 +449,16 @@ async function startRecordingSession(
   }
 
   const tab = await resolveRecordingTab(targetTabId, targetPage);
-  const draft = createSessionDraft({
+  const baseDraft = createSessionDraft({
     page: {
       tabId: tab.id,
       title: tab.title ?? tab.url,
       url: tab.url
     }
   });
+  const draft = options.sessionName
+    ? renameSessionDraft(baseDraft, options.sessionName)
+    : baseDraft;
 
   await saveDraft(draft);
 

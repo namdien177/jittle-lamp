@@ -677,6 +677,7 @@ export type RemoteEvidenceData = {
   session: LoadedSession;
   evidence: ApiEvidenceSummary;
   evidenceId: string;
+  shareSlug: string | null;
   orgId: string | undefined;
   recordingArtifact: EvidenceArtifact;
   videoArtifact: EvidenceArtifact;
@@ -734,6 +735,7 @@ async function fetchRemoteEvidence(
   signal?: AbortSignal,
 ): Promise<RemoteEvidenceResult> {
   let evidenceId: string;
+  let shareSlug: string | null = null;
   let orgId: string | undefined;
   if (locator.shareToken) {
     const resolved = await api.resolveShareLink(getToken, locator.shareToken);
@@ -741,6 +743,7 @@ async function fetchRemoteEvidence(
       return { kind: "restricted", orgName: resolved.organization.name };
     }
     evidenceId = resolved.shareLink.evidenceId;
+    shareSlug = resolved.shareLink.slug;
     orgId = resolved.shareLink.orgId;
   } else if (locator.remoteEvidenceId) {
     evidenceId = locator.remoteEvidenceId;
@@ -790,6 +793,7 @@ async function fetchRemoteEvidence(
       session,
       evidence: evidenceResult.evidence,
       evidenceId,
+      shareSlug,
       orgId,
       recordingArtifact: recordingArtifact ?? videoArtifact,
       videoArtifact,

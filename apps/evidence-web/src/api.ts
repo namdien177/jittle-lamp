@@ -252,6 +252,7 @@ export type ApiEvidenceCommentsResponse = {
 export type ResolveShareLinkResponse = {
   shareLink: {
     id: string;
+    slug: string;
     evidenceId: string;
     orgId: string;
     expiresAt: number;
@@ -265,6 +266,7 @@ export type ResolveShareLinkResponse = {
 
 export type ApiShareLinkSummary = {
   id: string;
+  slug: string;
   evidenceId: string;
   orgId: string;
   scope: "internal";
@@ -276,6 +278,7 @@ export type ApiShareLinkSummary = {
 
 export type CreatedShareLink = {
   id: string;
+  slug: string;
   token: string;
   evidenceId: string;
   orgId: string;
@@ -284,10 +287,10 @@ export type CreatedShareLink = {
 };
 
 export const api = {
-  resolveShareLink: (getToken: FetchToken, token: string) =>
+  resolveShareLink: (getToken: FetchToken, locator: string) =>
     authedFetch<ResolveShareLinkResponse>(
       getToken,
-      `/share-links/${encodeURIComponent(token)}/resolve`,
+      `/share-links/${encodeURIComponent(locator)}/resolve`,
     ),
 
   listEvidences: (

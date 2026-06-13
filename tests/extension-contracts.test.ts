@@ -305,6 +305,19 @@ describe("extension contracts", () => {
     expect(offscreenRequest.playTabAudio).toBe(true);
   });
 
+  test("parses optional recorder start names", () => {
+    const popupRequest = popupRequestSchema.parse({
+      type: "jl/popup-start-recording",
+      name: "Checkout failure repro"
+    });
+
+    expect(popupRequest.type).toBe("jl/popup-start-recording");
+    if (popupRequest.type !== "jl/popup-start-recording") {
+      throw new Error("Expected recorder start request.");
+    }
+    expect(popupRequest.name).toBe("Checkout failure repro");
+  });
+
   test("parses offscreen export requests with full session archives", () => {
     const draft = transitionDraftPhase(
       createSessionDraft({

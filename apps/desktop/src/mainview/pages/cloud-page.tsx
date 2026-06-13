@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
-import type { ApiEvidenceSummary } from "../api";
+import { webOrigin, type ApiEvidenceSummary } from "../api";
 import { useCreateShareLink, useEvidences, useRevokeShareLink, useShareLinks } from "../queries";
 import { Dialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
@@ -148,7 +148,7 @@ function ShareDialog(props: {
   const createShareLink = useCreateShareLink();
   const revokeShareLink = useRevokeShareLink();
   const [expiry, setExpiry] = useState<number>(0);
-  const [createdToken, setCreatedToken] = useState<{ id: string; token: string; expiresAt: number } | null>(null);
+  const [createdLink, setCreatedLink] = useState<{ id: string; slug: string; expiresAt: number } | null>(null);
 
   const shareLinks = shareLinksQuery.data?.shareLinks ?? [];
   const loading = shareLinksQuery.isFetching;
@@ -157,9 +157,9 @@ function ShareDialog(props: {
   const handleCreate = async (): Promise<void> => {
     try {
       const result = await createShareLink.mutateAsync({ evidenceId: evidence.id, expiresInMs: expiry });
-      setCreatedToken({
+      setCreatedLink({
         id: result.shareLink.id,
-        token: result.shareLink.token,
+        slug: result.shareLink.slug,
         expiresAt: result.shareLink.expiresAt
       });
       onMessage("Share link created", "success");
@@ -186,7 +186,7 @@ function ShareDialog(props: {
       onClose={onClose}
       size="lg"
       title={`Share · ${evidence.title}`}
-      description="Internal share links can be opened by other members of your organisation. Tokens are shown only once after creation."
+      description="Internal share links can be opened by other members of your organisation. Active links can be copied again later."
       footer={
         <button className="button secondary sm" type="button" onClick={onClose}>
           Close
@@ -214,27 +214,27 @@ function ShareDialog(props: {
             {busy ? "Working…" : "Generate link"}
           </button>
         </div>
-        {createdToken ? (
+        {createdLink ? (
           <div className="invite-token-box" style={{ marginTop: 12 }}>
             <span className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Share token (copy now — won't be shown again)
+              Share URL ready
             </span>
-            <span>{createdToken.token}</span>
+            <span>{`${webOrigin}/share/${encodeURIComponent(createdLink.slug)}`}</span>
             <div className="row" style={{ gap: 6 }}>
               <button
                 className="button primary xs"
                 type="button"
                 onClick={async () => {
-                  await copyToClipboard(createdToken.token);
-                  onMessage("Token copied to clipboard", "success");
+                  await copyToClipboard(`${webOrigin}/share/${encodeURIComponent(createdLink.slug)}`);
+                  onMessage("Share URL copied to clipboard", "success");
                 }}
               >
-                Copy token
+                Copy URL
               </button>
               <button
                 className="button ghost xs"
                 type="button"
-                onClick={() => setCreatedToken(null)}
+                onClick={() => setCreatedLink(null)}
               >
                 Done
               </button>
@@ -269,6 +269,17 @@ function ShareDialog(props: {
                   <td className="muted">{link.expiresAt === 0 ? "Never" : formatRelativeTime(link.expiresAt)}</td>
                   <td>
                     <div className="table-actions">
+                      <button
+                        className="button ghost xs"
+                        type="button"
+                        onClick={async () => {
+                          await copyToClipboard(`${webOrigin}/share/${encodeURIComponent(link.slug)}`);
+                          onMessage("Share URL copied to clipboard", "success");
+                        }}
+                        disabled={busy}
+                      >
+                        Copy
+                      </button>
                       <button className="button ghost xs" type="button" onClick={() => void handleRevoke(link.id)} disabled={busy}>
                         Revoke
                       </button>

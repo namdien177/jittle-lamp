@@ -30,6 +30,9 @@ export const shareLinks = sqliteTable(
 		id: text("id")
 			.primaryKey()
 			.$defaultFn(() => createUuidV7()),
+		slug: text("slug")
+			.notNull()
+			.$defaultFn(() => createUuidV7()),
 		tokenHash: text("token_hash").notNull(),
 		evidenceId: text("evidence_id").notNull(),
 		orgId: text("org_id")
@@ -54,6 +57,7 @@ export const shareLinks = sqliteTable(
 			.$defaultFn(() => Date.now()),
 	},
 	(table) => [
+		uniqueIndex("share_links_slug_unique").on(table.slug),
 		uniqueIndex("share_links_token_hash_unique").on(table.tokenHash),
 		index("share_links_org_id_idx").on(table.orgId),
 		index("share_links_evidence_id_idx").on(table.evidenceId),
@@ -73,6 +77,7 @@ export const shareLinks = sqliteTable(
 );
 
 export const createShareLinkInputSchema = z.object({
+	slug: z.string().uuid().optional(),
 	tokenHash: z.string().trim().min(32),
 	evidenceId: z.string().uuid(),
 	orgId: z.string().uuid(),

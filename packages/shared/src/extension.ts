@@ -18,6 +18,7 @@ export const popupStartRecordingRequestSchema = z.object({
   type: z.literal("jl/popup-start-recording"),
   tabId: z.number().int().nonnegative().optional(),
   page: pageContextSchema.pick({ title: true, url: true }).partial().optional(),
+  name: z.string().trim().min(1).max(160).optional(),
   playTabAudio: z.boolean().optional(),
   requestSiteAccess: z.boolean().optional()
 });

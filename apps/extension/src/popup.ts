@@ -27,9 +27,11 @@ const artifactValue = requireElement<HTMLSpanElement>("[data-role='artifact-valu
 const messageValue = requireElement<HTMLParagraphElement>("[data-role='message-value']");
 const startButton = requireElement<HTMLButtonElement>("[data-role='start-button']");
 const stopButton = requireElement<HTMLButtonElement>("[data-role='stop-button']");
+const draftTitleValue = requireElement<HTMLInputElement>("[data-role='draft-title-value']");
 
 let requestInFlight = false;
 let lastRenderedTitle = "";
+let draftTitleEdited = false;
 const targetTabId = parseTargetTabId();
 const targetPage = parseTargetPage();
 
@@ -41,6 +43,10 @@ setInterval(() => {
 
 startButton.addEventListener("click", () => {
   void performAction("jl/popup-start-recording");
+});
+
+draftTitleValue.addEventListener("input", () => {
+  draftTitleEdited = true;
 });
 
 stopButton.addEventListener("click", () => {
@@ -168,8 +174,15 @@ async function sendPopupMessage(
 ): Promise<PopupResponse> {
   const message =
     type === "jl/popup-start-recording" && typeof targetTabId === "number"
-      ? { type, tabId: targetTabId, page: targetPage }
-      : { type };
+      ? {
+          type,
+          tabId: targetTabId,
+          page: targetPage,
+          ...readDraftSessionName()
+        }
+      : type === "jl/popup-start-recording"
+        ? { type, ...readDraftSessionName() }
+        : { type };
 
   return popupResponseSchema.parse(
     await chrome.runtime.sendMessage(message)
@@ -233,6 +246,7 @@ async function persistTitleEdit(): Promise<void> {
 
 function renderState(state: PopupState, error?: string): void {
   const activeSession = state.activeSession;
+  const canEditDraftTitle = state.canStart && !requestInFlight;
 
   statusBadge.textContent = activeSession?.phase ?? "idle";
   statusBadge.dataset.phase = activeSession?.phase ?? "idle";
@@ -277,6 +291,10 @@ function renderState(state: PopupState, error?: string): void {
   }
   titleValue.title = titleText;
   titleValue.disabled = !activeSession || activeSession.phase === "processing";
+  if (!draftTitleEdited && !activeSession) {
+    draftTitleValue.value = targetPage?.title ?? "";
+  }
+  draftTitleValue.disabled = !canEditDraftTitle;
   urlValue.textContent = urlText;
   urlValue.title = urlText;
   sessionValue.textContent = activeSession?.sessionId ?? "—";
@@ -319,6 +337,11 @@ function renderState(state: PopupState, error?: string): void {
   stopButton.disabled = requestInFlight || !state.canStop;
   startButton.hidden = !state.canStart;
   stopButton.hidden = !state.canStop;
+}
+
+function readDraftSessionName(): { name?: string } {
+  const name = draftTitleValue.value.trim();
+  return name ? { name } : {};
 }
 
 function setButtonsDisabled(disabled: boolean): void {

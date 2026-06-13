@@ -106,6 +106,13 @@
       "when": 1749513600000,
       "tag": "0014_permanent_share_links",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1781395200000,
+      "tag": "0015_share_link_slugs",
+      "breakpoints": true
     }
   ]
 }

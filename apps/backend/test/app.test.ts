@@ -2334,19 +2334,20 @@ describe("routes", () => {
 		);
 		expect(createResponse.status).toBe(200);
 		const createdPayload = (await createResponse.json()) as {
-			shareLink: { id: string; token: string };
+			shareLink: { id: string; slug: string; token: string };
 		};
+		expect(createdPayload.shareLink.slug).toBeString();
 
 		const unauthResolve = await app.handle(
 			new Request(
-				`http://localhost/share-links/${createdPayload.shareLink.token}/resolve`,
+				`http://localhost/share-links/${createdPayload.shareLink.slug}/resolve`,
 			),
 		);
 		expect(unauthResolve.status).toBe(401);
 
 		const outsiderResolve = await app.handle(
 			new Request(
-				`http://localhost/share-links/${createdPayload.shareLink.token}/resolve`,
+				`http://localhost/share-links/${createdPayload.shareLink.slug}/resolve`,
 				{
 					headers: { authorization: `Bearer ${outsiderToken}` },
 				},
@@ -2363,7 +2364,7 @@ describe("routes", () => {
 
 		const ownerResolve = await app.handle(
 			new Request(
-				`http://localhost/share-links/${createdPayload.shareLink.token}/resolve`,
+				`http://localhost/share-links/${createdPayload.shareLink.slug}/resolve`,
 				{
 					headers: { authorization: `Bearer ${ownerToken}` },
 				},
@@ -2384,7 +2385,7 @@ describe("routes", () => {
 
 		const revokedResolve = await app.handle(
 			new Request(
-				`http://localhost/share-links/${createdPayload.shareLink.token}/resolve`,
+				`http://localhost/share-links/${createdPayload.shareLink.slug}/resolve`,
 				{
 					headers: { authorization: `Bearer ${ownerToken}` },
 				},
@@ -2461,7 +2462,7 @@ describe("routes", () => {
 		);
 		expect(createResponse.status).toBe(200);
 		const payload = (await createResponse.json()) as {
-			shareLink: { token: string };
+			shareLink: { slug: string; token: string };
 		};
 
 		const now = Date.now();
@@ -2472,7 +2473,7 @@ describe("routes", () => {
 
 		const resolveResponse = await app.handle(
 			new Request(
-				`http://localhost/share-links/${payload.shareLink.token}/resolve`,
+				`http://localhost/share-links/${payload.shareLink.slug}/resolve`,
 				{ headers: { authorization: `Bearer ${token}` } },
 			),
 		);
