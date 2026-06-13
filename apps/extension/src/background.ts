@@ -383,10 +383,10 @@ async function handleIncomingMessage(
       case "jl/popup-stop-recording":
         return queueDraftMutation(async () => {
           try {
-            await stopRecordingSession("Stopped recording from the popup.");
+            await stopRecordingSession("Finished recording from the popup.");
             return buildPopupResponse(true);
-	          } catch (error: unknown) {
-	            return buildPopupResponse(false, errorMessage(error));
+          } catch (error: unknown) {
+            return buildPopupResponse(false, errorMessage(error));
           }
         });
 

@@ -449,6 +449,8 @@ class FloatingWidgetController {
   private readonly tabAudioToggle: HTMLInputElement;
   private readonly targetButtons: HTMLButtonElement[];
   private readonly stopButton: HTMLButtonElement;
+  private readonly abortButton: HTMLButtonElement;
+  private readonly recordingActions: HTMLDivElement;
   private readonly signInButton: HTMLButtonElement;
   private readonly linkChip: HTMLButtonElement;
   private readonly linkChipLabel: HTMLSpanElement;
@@ -502,6 +504,8 @@ class FloatingWidgetController {
     this.tabAudioToggle = this.require<HTMLInputElement>("[data-role='tab-audio']");
     this.targetButtons = this.requireAll<HTMLButtonElement>("[data-capture-target]");
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
+    this.abortButton = this.require<HTMLButtonElement>("[data-role='abort']");
+    this.recordingActions = this.require<HTMLDivElement>("[data-role='recording-actions']");
     this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
     this.linkChip = this.require<HTMLButtonElement>("[data-role='link-chip']");
     this.linkChipLabel = this.require<HTMLSpanElement>("[data-role='link-label']");
@@ -605,6 +609,10 @@ class FloatingWidgetController {
       void this.performAction("jl/popup-stop-recording");
     });
 
+    this.abortButton.addEventListener("click", () => {
+      void this.performAction("jl/popup-abort-recording");
+    });
+
     this.signInButton.addEventListener("click", () => {
       void this.performAction("jl/popup-start-cloud-sign-in");
     });
@@ -703,6 +711,7 @@ class FloatingWidgetController {
     type:
       | "jl/popup-start-recording"
       | "jl/popup-stop-recording"
+      | "jl/popup-abort-recording"
       | "jl/popup-start-cloud-sign-in"
       | "jl/popup-logout-cloud",
     options: { playTabAudio?: boolean; captureTarget?: CaptureTarget } = {}
@@ -772,6 +781,8 @@ class FloatingWidgetController {
     const isRecording = activeSession?.phase === "recording";
     this.startButton.hidden = !state.canStart;
     this.stopButton.hidden = !isRecording;
+    this.abortButton.hidden = !isRecording;
+    this.recordingActions.hidden = !isRecording;
     this.signInButton.hidden = state.cloud.status === "signed-in";
     this.logoutButton.hidden = state.cloud.status !== "signed-in";
     this.logoutButton.disabled = state.cloud.status !== "signed-in";
@@ -782,6 +793,7 @@ class FloatingWidgetController {
     }
     this.syncCaptureTargetButtons();
     this.stopButton.disabled = !isRecording || !state.canStop;
+    this.abortButton.disabled = !isRecording;
   }
 
   private renderError(message: string): void {
@@ -804,6 +816,7 @@ class FloatingWidgetController {
       targetButton.disabled = busy || this.startButton.hidden === true;
     }
     this.stopButton.disabled = busy || this.stopButton.hidden === true;
+    this.abortButton.disabled = busy || this.abortButton.hidden === true;
     this.signInButton.disabled = busy || this.signInButton.hidden === true;
     this.logoutButton.disabled = busy || this.logoutButton.hidden === true;
     this.outputCopyButton.disabled = busy || this.outputCopyButton.hidden === true;
@@ -906,6 +919,7 @@ async function sendPopupRequest(
     | "jl/popup-get-state"
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
+    | "jl/popup-abort-recording"
     | "jl/popup-start-cloud-sign-in"
     | "jl/popup-logout-cloud",
   options: { playTabAudio?: boolean; captureTarget?: CaptureTarget } = {}
@@ -949,10 +963,10 @@ function isFloatingWidgetEvent(event: Event): boolean {
 function widgetStatusText(state: PopupState): string {
   if (state.activeSession?.phase === "recording") {
     return state.cloud.status === "signed-in"
-      ? "Recording. Stop to upload to cloud."
+      ? "Recording. Finish to upload to cloud, or abort to discard."
       : state.companion.status === "online"
-        ? "Recording. Stop to save locally."
-        : "Recording. Stop to download locally.";
+        ? "Recording. Finish to save locally, or abort to discard."
+        : "Recording. Finish to download locally, or abort to discard.";
   }
 
   if (state.cloud.status === "signed-in") {
@@ -1615,24 +1629,47 @@ function floatingWidgetTemplate(): string {
         content: none;
       }
 
-      .jl-stop {
+      .jl-recording-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .jl-recording-actions[hidden] {
+        display: none;
+      }
+
+      .jl-record-action {
         display: inline-grid;
         place-items: center;
         width: 56px;
         min-width: 56px;
         max-width: 56px;
         padding: 0;
+      }
+
+      .jl-finish {
+        background: rgba(34, 197, 94, 0.12);
+        color: #efefef;
+        border-color: rgba(34, 197, 94, 0.32);
+      }
+
+      .jl-abort {
         background: rgba(239, 68, 68, 0.14);
         color: #efefef;
         border-color: rgba(239, 68, 68, 0.32);
       }
 
-      .jl-stop .jl-action-icon {
+      .jl-finish .jl-action-icon {
+        background: rgba(34, 197, 94, 0.14);
+        color: #22c55e;
+      }
+
+      .jl-abort .jl-action-icon {
         background: rgba(239, 68, 68, 0.14);
         color: #ef4444;
       }
 
-      .jl-stop::after {
+      .jl-record-action::after {
         content: none;
       }
 
@@ -1836,9 +1873,14 @@ function floatingWidgetTemplate(): string {
               </div>
             </div>
           </div>
-          <button class="jl-button jl-stop" data-role="stop" type="button" title="Stop recording" aria-label="Stop recording" hidden>
-            <span class="jl-action-icon" data-icon="CircleStop"></span>
-          </button>
+          <div class="jl-recording-actions" data-role="recording-actions" hidden>
+            <button class="jl-button jl-record-action jl-finish" data-role="stop" type="button" title="Finish recording" aria-label="Finish recording" hidden>
+              <span class="jl-action-icon" data-icon="CircleStop"></span>
+            </button>
+            <button class="jl-button jl-record-action jl-abort" data-role="abort" type="button" title="Abort recording" aria-label="Abort recording" hidden>
+              <span class="jl-action-icon" data-icon="X"></span>
+            </button>
+          </div>
         </div>
         <div class="jl-expanded">
           <span class="jl-title" data-role="title">Jittle Lamp session</span>

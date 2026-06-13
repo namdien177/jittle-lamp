@@ -341,10 +341,10 @@ function renderState(state: PopupState, error?: string): void {
   } else if (activeSession?.phase === "recording") {
     setStatusMessage(
       state.cloud.status === "signed-in"
-        ? "Recording the active tab. Stop to upload directly to cloud."
+        ? "Recording the active tab. Finish to upload directly to cloud."
         : state.companion.status === "online"
-        ? `Recording the active tab. Stop to save directly into ${state.companion.outputDir ?? "the desktop companion folder"}.`
-        : "Recording the active tab. Stop to download the session through Chromium."
+        ? `Recording the active tab. Finish to save directly into ${state.companion.outputDir ?? "the desktop companion folder"}.`
+        : "Recording the active tab. Finish to download the session through Chromium."
     );
     messageValue.dataset.tone = "neutral";
   } else if (state.cloud.status === "signed-in") {
