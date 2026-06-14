@@ -1,10 +1,12 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte } from "drizzle-orm";
 
 import {
 	createOrganizationActivityLogInputSchema,
 	organizationActivityLogs,
 } from "../db/schema";
 import type { BackendDb } from "./user-provisioning";
+
+export const ORGANIZATION_ACTIVITY_RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
 
 export type OrganizationActivityEntity = {
 	type: string;
@@ -120,4 +122,17 @@ export const listOrganizationActivityLogs = async (
 		page,
 		limit,
 	};
+};
+
+export const cleanupExpiredOrganizationActivityLogs = async (
+	db: BackendDb,
+	now = Date.now(),
+	retentionMs = ORGANIZATION_ACTIVITY_RETENTION_MS,
+): Promise<number> => {
+	const cutoff = now - retentionMs;
+	const removed = await db
+		.delete(organizationActivityLogs)
+		.where(lt(organizationActivityLogs.createdAt, cutoff))
+		.returning({ id: organizationActivityLogs.id });
+	return removed.length;
 };

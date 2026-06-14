@@ -213,6 +213,45 @@ export function useRenameEvidence() {
   });
 }
 
+export function useCopyEvidence() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { evidenceId: string; targetOrgId: string }) =>
+      api.copyEvidence(getToken, input.evidenceId, input.targetOrgId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationActivity(data.copy.fromOrgId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationActivity(data.copy.toOrgId),
+      });
+    },
+  });
+}
+
+export function useMoveEvidence() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { evidenceId: string; targetOrgId: string }) =>
+      api.moveEvidence(getToken, input.evidenceId, input.targetOrgId),
+    onSuccess: (data, input) => {
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
+      queryClient.removeQueries({
+        queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: input.evidenceId }),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationActivity(data.move.fromOrgId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organizationActivity(data.move.toOrgId),
+      });
+    },
+  });
+}
+
 export function useEvidenceComments(evidenceId: string | null, orgId?: string) {
   const auth = useAuth();
   const getToken = useAuthToken();
@@ -354,6 +393,26 @@ export function useLeaveOrganization() {
       queryClient.removeQueries({ queryKey: ["organization-members", orgId] });
       queryClient.removeQueries({
         queryKey: queryKeys.organizationInvitations(orgId),
+      });
+      queryClient.invalidateQueries({ queryKey: ["evidences"] });
+    },
+  });
+}
+
+export function useDeleteOrganization() {
+  const getToken = useAuthToken();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orgId: string) => api.deleteOrganization(getToken, orgId),
+    onSuccess: (_data, orgId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
+      queryClient.removeQueries({ queryKey: ["organization-members", orgId] });
+      queryClient.removeQueries({
+        queryKey: queryKeys.organizationInvitations(orgId),
+      });
+      queryClient.removeQueries({
+        queryKey: queryKeys.organizationActivity(orgId),
       });
       queryClient.invalidateQueries({ queryKey: ["evidences"] });
     },

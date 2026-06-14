@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { Pencil, X } from "lucide-react";
+import { ArrowRightLeft, Copy, Pencil, X } from "lucide-react";
 
 import type { ViewerModalProps } from "./types";
 
@@ -8,6 +8,8 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
   const showCreateLink =
     props.isOwner && props.shareLinkUrl === null && props.onCreateShareLink !== undefined;
   const showRename = props.onRename !== undefined;
+  const showCopyEvidence = props.onCopyEvidence !== undefined;
+  const showTransferEvidence = props.onTransferEvidence !== undefined;
   const showDownloadZip = props.onDownloadZip !== undefined;
   const isPage = (props.mode ?? "modal") === "page";
   const closeLabel = props.closeLabel ?? "Close viewer";
@@ -54,6 +56,18 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
           >
             <Pencil aria-hidden size={14} strokeWidth={2} />
             {props.renaming ? "Saving…" : "Edit name"}
+          </button>
+        ) : null}
+        {showCopyEvidence ? (
+          <button type="button" className="jl-vm-btn" onClick={props.onCopyEvidence}>
+            <Copy aria-hidden size={14} strokeWidth={2} />
+            Copy
+          </button>
+        ) : null}
+        {showTransferEvidence ? (
+          <button type="button" className="jl-vm-btn" onClick={props.onTransferEvidence}>
+            <ArrowRightLeft aria-hidden size={14} strokeWidth={2} />
+            Transfer
           </button>
         ) : null}
         {showDownloadZip ? (

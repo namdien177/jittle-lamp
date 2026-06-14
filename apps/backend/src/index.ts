@@ -4,6 +4,7 @@ import {
 	cleanupAbandonedEvidenceUploads,
 	purgeExpiredDeletedEvidences,
 } from "./services/evidence-maintenance";
+import { cleanupExpiredOrganizationActivityLogs } from "./services/organization-activity";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
 import { runDatabaseMigrations } from "./startup/run-database-migrations";
 
@@ -69,6 +70,21 @@ try {
 				}
 			} catch (err) {
 				logger.error({ err }, "failed to clean up expired device sessions");
+			}
+
+			try {
+				const removed = await cleanupExpiredOrganizationActivityLogs(db);
+				if (removed > 0) {
+					logger.info(
+						{ removed },
+						"expired organization activity logs cleaned up",
+					);
+				}
+			} catch (err) {
+				logger.error(
+					{ err },
+					"failed to clean up expired organization activity logs",
+				);
 			}
 		};
 		setInterval(() => void runMaintenance(), 60 * 60 * 1000).unref();

@@ -55,6 +55,8 @@ export type ViewerModalProps = {
   onCopyShareLink?: () => void;
   onCreateShareLink?: () => void;
   onRename?: () => void;
+  onCopyEvidence?: () => void;
+  onTransferEvidence?: () => void;
   onDownloadZip?: () => void;
   renaming?: boolean;
   downloadingZip?: boolean;

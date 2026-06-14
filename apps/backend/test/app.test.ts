@@ -13,6 +13,7 @@ import {
 	evidenceArtifacts,
 	evidenceComments,
 	evidences,
+	organizationActivityLogs,
 	organizationJoinRequests,
 	organizationMembers,
 	organizations,
@@ -24,6 +25,7 @@ import {
 	cleanupExpiredDeviceAuthState,
 	revokeDeviceSession,
 } from "../src/services/desktop-auth";
+import { cleanupExpiredOrganizationActivityLogs } from "../src/services/organization-activity";
 import {
 	acceptInvitationByToken,
 	createOrganizationInvitationCode,
@@ -933,6 +935,59 @@ describe("routes", () => {
 		);
 	});
 
+	it("retains organization activity logs for 60 days", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const provisioned = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_activity_retention",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_activity_retention" },
+		});
+
+		const now = Date.now();
+		await db.insert(organizationActivityLogs).values([
+			{
+				organizationId: provisioned.organizationId,
+				actorUserId: provisioned.userId,
+				action: "evidence.copied.out",
+				entityType: "evidence",
+				entityId: crypto.randomUUID(),
+				message: "Expired copy log",
+				metadataJson: "{}",
+				createdAt: now - 61 * 24 * 60 * 60 * 1000,
+			},
+			{
+				organizationId: provisioned.organizationId,
+				actorUserId: provisioned.userId,
+				action: "evidence.copied.in",
+				entityType: "evidence",
+				entityId: crypto.randomUUID(),
+				message: "Retained copy log",
+				metadataJson: "{}",
+				createdAt: now - 60 * 24 * 60 * 60 * 1000,
+			},
+		]);
+
+		const removed = await cleanupExpiredOrganizationActivityLogs(db, now);
+		expect(removed).toBe(1);
+
+		const remaining = await db.query.organizationActivityLogs.findMany({
+			where: eq(
+				organizationActivityLogs.organizationId,
+				provisioned.organizationId,
+			),
+			columns: { message: true },
+		});
+		expect(remaining).toEqual([{ message: "Retained copy log" }]);
+	});
+
 	it("uses forwarded proxy origin when returning blob upload URLs", async () => {
 		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
 		await applyMigrations(databaseUrl);
@@ -1800,6 +1855,156 @@ describe("routes", () => {
 		expect(evidence?.orgId).toBe(teamOrganization.id);
 	});
 
+	it("deletes a non-personal organization when the current user is the last admin", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const provisioned = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_delete_org_admin",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_delete_org_admin" },
+		});
+
+		const [teamOrganization] = await db
+			.insert(organizations)
+			.values({ name: "Disposable org", isPersonal: false })
+			.returning({ id: organizations.id });
+		if (!teamOrganization) {
+			throw new Error("Expected organization to be created");
+		}
+
+		await db.insert(organizationMembers).values({
+			organizationId: teamOrganization.id,
+			userId: provisioned.userId,
+			role: "admin",
+		});
+		await db
+			.update(users)
+			.set({ activeOrgId: teamOrganization.id })
+			.where(eq(users.id, provisioned.userId));
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const token = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_delete_org_admin")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const response = await app.handle(
+			new Request(`http://localhost/orgs/${teamOrganization.id}`, {
+				method: "DELETE",
+				headers: { authorization: `Bearer ${token}` },
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ ok: true });
+
+		const deleted = await db.query.organizations.findFirst({
+			where: eq(organizations.id, teamOrganization.id),
+			columns: { id: true },
+		});
+		expect(deleted).toBeUndefined();
+
+		const user = await db.query.users.findFirst({
+			where: eq(users.id, provisioned.userId),
+			columns: { activeOrgId: true },
+		});
+		expect(user?.activeOrgId).toBe(provisioned.organizationId);
+	});
+
+	it("does not delete an organization while another member remains", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const admin = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_delete_org_blocked_admin",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_delete_org_blocked_admin" },
+		});
+		const member = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_delete_org_blocked_member",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_delete_org_blocked_member" },
+		});
+
+		const [teamOrganization] = await db
+			.insert(organizations)
+			.values({ name: "Shared org", isPersonal: false })
+			.returning({ id: organizations.id });
+		if (!teamOrganization) {
+			throw new Error("Expected organization to be created");
+		}
+
+		await db.insert(organizationMembers).values([
+			{
+				organizationId: teamOrganization.id,
+				userId: admin.userId,
+				role: "admin",
+			},
+			{
+				organizationId: teamOrganization.id,
+				userId: member.userId,
+				role: "developer",
+			},
+		]);
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const token = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_delete_org_blocked_admin")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const response = await app.handle(
+			new Request(`http://localhost/orgs/${teamOrganization.id}`, {
+				method: "DELETE",
+				headers: { authorization: `Bearer ${token}` },
+			}),
+		);
+
+		expect(response.status).toBe(400);
+		await expectApiError(response, {
+			code: "ORG_DELETE_FAILED",
+			message: "Only the last remaining admin can delete this organization.",
+			status: 400,
+		});
+	});
+
 	it("returns persisted active org for already-provisioned users", async () => {
 		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
 		await applyMigrations(databaseUrl);
@@ -2579,8 +2784,161 @@ describe("routes", () => {
 		expect(response.status).toBe(403);
 		await expectApiError(response, {
 			code: "EVIDENCE_MOVE_FORBIDDEN",
-			message: "Only permitted creators can move this evidence",
+			message: "Only the recorder can move this evidence",
 			status: 403,
+		});
+	});
+
+	it("copies evidence to another workspace and keeps the original in place", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_copy_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_copy_owner" },
+		});
+		const copier = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_copy_member",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_copy_member" },
+		});
+
+		const [targetOrg] = await db
+			.insert(organizations)
+			.values({ name: "Copy destination", isPersonal: false })
+			.returning({ id: organizations.id });
+		if (!targetOrg) {
+			throw new Error("Expected target organization to be created");
+		}
+
+		await db.insert(organizationMembers).values([
+			{
+				organizationId: owner.organizationId,
+				userId: copier.userId,
+				role: "member",
+			},
+			{
+				organizationId: targetOrg.id,
+				userId: copier.userId,
+				role: "owner",
+			},
+		]);
+
+		const [evidence] = await db
+			.insert(evidences)
+			.values({
+				orgId: owner.organizationId,
+				createdBy: owner.userId,
+				title: "Copyable evidence",
+				sourceType: "browser",
+				scopeType: "organization",
+				scopeId: owner.organizationId,
+			})
+			.returning({ id: evidences.id });
+		if (!evidence) {
+			throw new Error("Expected evidence to be created");
+		}
+
+		await db.insert(evidenceArtifacts).values({
+			evidenceId: evidence.id,
+			kind: "recording",
+			s3Key: `uploads/${owner.organizationId}/${evidence.id}/recording`,
+			mimeType: "video/webm",
+			bytes: 123,
+			checksum: "checksum-copy-source",
+			uploadStatus: "uploaded",
+		});
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const copierToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_copy_member")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const response = await app.handle(
+			new Request(`http://localhost/evidences/${evidence.id}/copy`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${copierToken}`,
+				},
+				body: JSON.stringify({ targetOrgId: targetOrg.id }),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const payload = (await response.json()) as {
+			evidence: { id: string; orgId: string; sourceEvidenceId: string };
+			copy: { artifactCount: number; fromOrgId: string; toOrgId: string };
+		};
+		expect(payload.evidence.id).not.toBe(evidence.id);
+		expect(payload.evidence.orgId).toBe(targetOrg.id);
+		expect(payload.evidence.sourceEvidenceId).toBe(evidence.id);
+		expect(payload.copy.artifactCount).toBe(1);
+		expect(payload.copy.fromOrgId).toBe(owner.organizationId);
+		expect(payload.copy.toOrgId).toBe(targetOrg.id);
+
+		const original = await db.query.evidences.findFirst({
+			where: eq(evidences.id, evidence.id),
+			columns: { orgId: true, createdBy: true },
+		});
+		expect(original?.orgId).toBe(owner.organizationId);
+		expect(original?.createdBy).toBe(owner.userId);
+
+		const copied = await db.query.evidences.findFirst({
+			where: eq(evidences.id, payload.evidence.id),
+			columns: { orgId: true, createdBy: true, scopeId: true },
+		});
+		expect(copied?.orgId).toBe(targetOrg.id);
+		expect(copied?.createdBy).toBe(copier.userId);
+		expect(copied?.scopeId).toBe(targetOrg.id);
+
+		const copiedArtifacts = await db.query.evidenceArtifacts.findMany({
+			where: eq(evidenceArtifacts.evidenceId, payload.evidence.id),
+			columns: { s3Key: true, uploadStatus: true },
+		});
+		expect(copiedArtifacts).toEqual([
+			{
+				s3Key: `uploads/${owner.organizationId}/${evidence.id}/recording`,
+				uploadStatus: "uploaded",
+			},
+		]);
+
+		const activity = await db.query.organizationActivityLogs.findMany({
+			where: inArray(organizationActivityLogs.organizationId, [
+				owner.organizationId,
+				targetOrg.id,
+			]),
+			columns: { organizationId: true, action: true, entityId: true },
+		});
+		expect(activity).toContainEqual({
+			organizationId: owner.organizationId,
+			action: "evidence.copied.out",
+			entityId: evidence.id,
+		});
+		expect(activity).toContainEqual({
+			organizationId: targetOrg.id,
+			action: "evidence.copied.in",
+			entityId: payload.evidence.id,
 		});
 	});
 

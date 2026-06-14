@@ -12,6 +12,27 @@ import type { BackendDb } from "./user-provisioning";
 export const ABANDONED_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
 export const EVIDENCE_BIN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+const deleteUnreferencedArtifactKeys = async (
+	db: BackendDb,
+	artifactStorage: ArtifactStorage,
+	keys: string[],
+): Promise<void> => {
+	const uniqueKeys = Array.from(new Set(keys));
+	if (uniqueKeys.length === 0) return;
+
+	const referenced = await db.query.evidenceArtifacts.findMany({
+		where: inArray(evidenceArtifacts.s3Key, uniqueKeys),
+		columns: { s3Key: true },
+	});
+	const referencedKeys = new Set(referenced.map((artifact) => artifact.s3Key));
+	const unreferencedKeys = uniqueKeys.filter((key) => !referencedKeys.has(key));
+	if (unreferencedKeys.length === 0) return;
+
+	await Promise.allSettled(
+		unreferencedKeys.map((key) => artifactStorage.deleteObject({ key })),
+	);
+};
+
 /**
  * Removes evidence rows (and their cascaded artifacts / desktop sessions /
  * share links) that were created via an upload start but never had any artifact
@@ -63,11 +84,7 @@ export const cleanupAbandonedEvidenceUploads = async (
 	const orphanedKeys = abandonedEvidenceIds.flatMap(
 		(evidenceId) => keysByEvidence.get(evidenceId) ?? [],
 	);
-	if (orphanedKeys.length > 0) {
-		await Promise.allSettled(
-			orphanedKeys.map((key) => artifactStorage.deleteObject({ key })),
-		);
-	}
+	await deleteUnreferencedArtifactKeys(db, artifactStorage, orphanedKeys);
 
 	return abandonedEvidenceIds.length;
 };
@@ -96,13 +113,11 @@ export const purgeExpiredDeletedEvidences = async (
 
 	await db.delete(evidences).where(inArray(evidences.id, evidenceIds));
 
-	if (artifacts.length > 0) {
-		await Promise.allSettled(
-			artifacts.map((artifact) =>
-				artifactStorage.deleteObject({ key: artifact.s3Key }),
-			),
-		);
-	}
+	await deleteUnreferencedArtifactKeys(
+		db,
+		artifactStorage,
+		artifacts.map((artifact) => artifact.s3Key),
+	);
 
 	return evidenceIds.length;
 };

@@ -2,18 +2,21 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { useAuth } from "../auth";
-import { api, type ArtifactReadUrl, type FetchToken } from "../api";
+import { api, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
+import { Select } from "../components/ui/select";
 import { StatusScreen } from "../components/status-screen";
 import { RequireAuth } from "../components/workspace/require-auth";
 import { EvidenceViewerContent } from "../evidence-viewer-content";
 import {
   useAccountProfile,
+  useCopyEvidence,
   useCreateEvidenceComment,
   useEvidenceComments,
+  useMoveEvidence,
   useRenameEvidence,
   useRemoteEvidence,
   type RemoteEvidenceData
@@ -112,6 +115,7 @@ function RemoteEvidenceLoader(props: {
   const [commentDraft, setCommentDraft] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+  const [workspaceAction, setWorkspaceAction] = useState<"copy" | "transfer" | null>(null);
   const commentsQuery = useEvidenceComments(loaded?.evidenceId ?? null, loaded?.orgId);
   const createComment = useCreateEvidenceComment();
   const renameEvidence = useRenameEvidence();
@@ -177,6 +181,9 @@ function RemoteEvidenceLoader(props: {
           org.id === loaded.evidence.orgId &&
           (org.role === "owner" || org.role === "admin" || org.role === "moderator"),
       ) === true);
+  const canCopyEvidence = !props.shareToken;
+  const canTransferEvidence =
+    !props.shareToken && currentUserId !== null && loaded.evidence.createdBy === currentUserId;
 
   const openRenameDialog = (): void => {
     setRenameValue(loaded.evidence.title || loaded.session.archive.name);
@@ -304,8 +311,18 @@ function RemoteEvidenceLoader(props: {
       onSubmitDiscussion={() => void submitComment()}
       {...(canRenameEvidence ? { onRenameEvidence: openRenameDialog } : {})}
       {...(canRenameEvidence ? { renamingEvidence: renameEvidence.isPending } : {})}
+      {...(canCopyEvidence ? { onCopyEvidence: () => setWorkspaceAction("copy") } : {})}
+      {...(canTransferEvidence ? { onTransferEvidence: () => setWorkspaceAction("transfer") } : {})}
       {...(props.viewerMode ? { viewerMode: props.viewerMode } : {})}
     />
+      {workspaceAction ? (
+        <WorkspaceEvidenceActionDialog
+          evidence={loaded.evidence}
+          action={workspaceAction}
+          organizations={accountQuery.data?.organizations ?? []}
+          onClose={() => setWorkspaceAction(null)}
+        />
+      ) : null}
       <Dialog
         open={renameOpen}
         onClose={() => setRenameOpen(false)}
@@ -353,6 +370,94 @@ function RemoteEvidenceLoader(props: {
         </form>
       </Dialog>
     </>
+  );
+}
+
+function WorkspaceEvidenceActionDialog(props: {
+  evidence: ApiEvidenceSummary;
+  action: "copy" | "transfer";
+  organizations: ApiOrganization[];
+  onClose: () => void;
+}): React.JSX.Element {
+  const toast = useToast();
+  const copyEvidence = useCopyEvidence();
+  const moveEvidence = useMoveEvidence();
+  const targetOrganizations = props.organizations.filter(
+    (org) => org.id !== props.evidence.orgId,
+  );
+  const [targetOrgId, setTargetOrgId] = useState(
+    targetOrganizations[0]?.id ?? "",
+  );
+  const targetOrg = targetOrganizations.find((org) => org.id === targetOrgId);
+  const mutation = props.action === "copy" ? copyEvidence : moveEvidence;
+  const busy = mutation.isPending;
+  const verb = props.action === "copy" ? "Copy" : "Transfer";
+
+  const submit = (): void => {
+    if (!targetOrgId || busy) return;
+    mutation.mutate(
+      { evidenceId: props.evidence.id, targetOrgId },
+      {
+        onSuccess: () => {
+          toast.success(
+            props.action === "copy" ? "Evidence copied" : "Evidence transferred",
+            targetOrg ? `${props.evidence.title} -> ${targetOrg.name}` : undefined,
+          );
+          props.onClose();
+        },
+        onError: (error) =>
+          toast.error(
+            `${verb} failed`,
+            error instanceof Error ? error.message : undefined,
+          ),
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={props.onClose}
+      size="sm"
+      title={`${verb} evidence`}
+      description={
+        props.action === "copy"
+          ? "Create a separate evidence entry in another workspace."
+          : "Move this evidence to another workspace and invalidate existing share links."
+      }
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={props.onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={submit}
+            disabled={busy || targetOrganizations.length === 0 || !targetOrgId}
+          >
+            {busy ? `${verb}ing…` : verb}
+          </Button>
+        </>
+      }
+    >
+      {targetOrganizations.length === 0 ? (
+        <p className="text-base text-muted-foreground">
+          Join or create another workspace before using this action.
+        </p>
+      ) : (
+        <Field label="Destination workspace">
+          <Select
+            ariaLabel="Destination workspace"
+            value={targetOrgId}
+            onValueChange={setTargetOrgId}
+            options={targetOrganizations.map((org) => ({
+              label: org.name,
+              value: org.id,
+            }))}
+          />
+        </Field>
+      )}
+    </Dialog>
   );
 }
 

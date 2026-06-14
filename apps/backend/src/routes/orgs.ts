@@ -24,6 +24,7 @@ import {
 	createOrganization,
 	createOrganizationInvitation,
 	createOrganizationInvitationCode,
+	deleteOrganizationAsLastAdmin,
 	deleteOrganizationInvitationCode,
 	ensureOrganizationManager,
 	ensureOrganizationMember,
@@ -333,6 +334,48 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						}),
 						response: {
 							200: t.Object({ organizationId: t.String(), name: t.String() }),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.delete(
+					"/orgs/:orgId",
+					async ({ authContext, db, params, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const localUserId = requireLocalUser(
+							authContext.localUserId,
+							requestId,
+							set,
+						);
+						if (typeof localUserId !== "string") return localUserId;
+						try {
+							await deleteOrganizationAsLastAdmin(db, {
+								organizationId: params.orgId,
+								localUserId,
+							});
+							return { ok: true };
+						} catch (error) {
+							set.status = 400;
+							return createApiError(
+								requestId,
+								"ORG_DELETE_FAILED",
+								error instanceof Error
+									? error.message
+									: "Unable to delete organization",
+								400,
+							);
+						}
+					},
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						response: {
+							200: t.Object({ ok: t.Boolean() }),
+							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							503: apiErrorSchema,

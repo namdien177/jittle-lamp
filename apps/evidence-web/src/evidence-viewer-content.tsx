@@ -55,6 +55,8 @@ export type EvidenceViewerContentProps = {
   onDiscussionChange?: (value: string) => void;
   onSubmitDiscussion?: () => void;
   onRenameEvidence?: () => void;
+  onCopyEvidence?: () => void;
+  onTransferEvidence?: () => void;
   renamingEvidence?: boolean;
 };
 
@@ -104,6 +106,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     onDiscussionChange,
     onSubmitDiscussion,
     onRenameEvidence,
+    onCopyEvidence,
+    onTransferEvidence,
     renamingEvidence = false
   } = props;
 
@@ -402,6 +406,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       {...(shareLinkUrl ? { onCopyShareLink: () => onCopy(shareLinkUrl, "share link") } : {})}
       {...(onRenameEvidence ? { onRename: onRenameEvidence } : {})}
       {...(onRenameEvidence ? { renaming: renamingEvidence } : {})}
+      {...(onCopyEvidence ? { onCopyEvidence } : {})}
+      {...(onTransferEvidence ? { onTransferEvidence } : {})}
       onDownloadZip={() => void handleDownloadZip()}
       downloadingZip={downloadingZip}
       videoRef={videoRef}

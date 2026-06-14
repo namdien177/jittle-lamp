@@ -1,8 +1,9 @@
 import type * as React from "react";
-import { X } from "lucide-react";
+import { Clipboard, X } from "lucide-react";
 
 import type { TimelineItem } from "@jittle-lamp/shared";
 
+import { buildCurl } from "./curl";
 import { statusTone } from "./format";
 
 type DrawerProps = {
@@ -37,9 +38,19 @@ function NetworkDetailDrawer(props: DrawerProps): React.JSX.Element | null {
     <div className="jl-vm-drawer">
       <div className="jl-vm-drawer-header">
         <span>Network request</span>
-        <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" onClick={props.onClose}>
-          <X aria-hidden size={16} strokeWidth={2} />
-        </button>
+        <div className="jl-vm-drawer-actions">
+          <button
+            type="button"
+            className="jl-vm-btn"
+            onClick={() => props.onCopy(buildCurl(payload), "cURL command")}
+          >
+            <Clipboard aria-hidden size={14} strokeWidth={2} />
+            Copy cURL
+          </button>
+          <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" onClick={props.onClose}>
+            <X aria-hidden size={16} strokeWidth={2} />
+          </button>
+        </div>
       </div>
       <div className="jl-vm-drawer-body">
         <div className="jl-vm-drawer-section">

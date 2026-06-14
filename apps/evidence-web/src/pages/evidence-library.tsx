@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
+  ArrowRightLeft,
   Check,
+  Copy,
   Download,
   LayoutGrid,
   List,
@@ -41,13 +43,15 @@ import {
 import { ConfirmDialog, Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { cn } from "../lib/cn";
-import type { ApiEvidenceSummary, FetchToken } from "../api";
+import type { ApiEvidenceSummary, ApiOrganization, FetchToken } from "../api";
 import { useAuth } from "../auth";
 import {
   useAccountProfile,
   useBulkDeleteEvidences,
+  useCopyEvidence,
   useDeleteEvidence,
   useEvidences,
+  useMoveEvidence,
   useOrganizationMembers,
   useRenameEvidence,
 } from "../queries";
@@ -105,6 +109,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const [renameTarget, setRenameTarget] = useState<ApiEvidenceSummary | null>(
     null,
   );
+  const [workspaceActionTarget, setWorkspaceActionTarget] = useState<{
+    evidence: ApiEvidenceSummary;
+    action: "copy" | "transfer";
+  } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiEvidenceSummary | null>(
     null,
   );
@@ -150,6 +158,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const activeOrgRole = activeOrg?.role;
   const canDelete = (evidence: ApiEvidenceSummary): boolean =>
     evidence.createdBy === currentUserId || canManageOthers(activeOrgRole);
+  const isOwnEvidence = (evidence: ApiEvidenceSummary): boolean =>
+    currentUserId !== null && evidence.createdBy === currentUserId;
   const isDeletingSomeoneElse = (evidence: ApiEvidenceSummary): boolean =>
     Boolean(currentUserId && evidence.createdBy !== currentUserId);
 
@@ -372,6 +382,22 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         <Share2 aria-hidden />
         Share link
       </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => setWorkspaceActionTarget({ evidence, action: "copy" })}
+      >
+        <Copy aria-hidden />
+        Copy to workspace
+      </DropdownMenuItem>
+      {isOwnEvidence(evidence) ? (
+        <DropdownMenuItem
+          onClick={() =>
+            setWorkspaceActionTarget({ evidence, action: "transfer" })
+          }
+        >
+          <ArrowRightLeft aria-hidden />
+          Transfer
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem onClick={() => void handleDownload(evidence)}>
         <Download aria-hidden />
         Download ZIP
@@ -892,6 +918,15 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         />
       ) : null}
 
+      {workspaceActionTarget ? (
+        <WorkspaceEvidenceActionDialog
+          evidence={workspaceActionTarget.evidence}
+          action={workspaceActionTarget.action}
+          organizations={accountQuery.data?.organizations ?? []}
+          onClose={() => setWorkspaceActionTarget(null)}
+        />
+      ) : null}
+
       <ConfirmDialog
         open={pendingDelete !== null}
         title="Delete this evidence?"
@@ -1035,6 +1070,100 @@ function RenameEvidenceDialog(props: {
           />
         </Field>
       </form>
+    </Dialog>
+  );
+}
+
+function WorkspaceEvidenceActionDialog(props: {
+  evidence: ApiEvidenceSummary;
+  action: "copy" | "transfer";
+  organizations: ApiOrganization[];
+  onClose: () => void;
+}): React.JSX.Element {
+  const toast = useToast();
+  const copyEvidence = useCopyEvidence();
+  const moveEvidence = useMoveEvidence();
+  const targetOrganizations = props.organizations.filter(
+    (org) => org.id !== props.evidence.orgId,
+  );
+  const [targetOrgId, setTargetOrgId] = useState(
+    targetOrganizations[0]?.id ?? "",
+  );
+  const targetOrg = targetOrganizations.find((org) => org.id === targetOrgId);
+  const mutation =
+    props.action === "copy" ? copyEvidence : moveEvidence;
+  const busy = mutation.isPending;
+  const verb = props.action === "copy" ? "Copy" : "Transfer";
+
+  const submit = (): void => {
+    if (!targetOrgId || busy) return;
+    mutation.mutate(
+      { evidenceId: props.evidence.id, targetOrgId },
+      {
+        onSuccess: () => {
+          toast.success(
+            props.action === "copy" ? "Evidence copied" : "Evidence transferred",
+            targetOrg ? `${props.evidence.title} -> ${targetOrg.name}` : undefined,
+          );
+          props.onClose();
+        },
+        onError: (error) =>
+          toast.error(
+            `${verb} failed`,
+            error instanceof Error ? error.message : undefined,
+          ),
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={props.onClose}
+      size="sm"
+      title={`${verb} evidence`}
+      description={
+        props.action === "copy"
+          ? "Create a separate evidence entry in another workspace."
+          : "Move this evidence to another workspace and invalidate existing share links."
+      }
+      footer={
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={props.onClose}
+            disabled={busy}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={submit}
+            disabled={busy || targetOrganizations.length === 0 || !targetOrgId}
+          >
+            {busy ? `${verb}ing…` : verb}
+          </Button>
+        </>
+      }
+    >
+      {targetOrganizations.length === 0 ? (
+        <p className="text-base text-muted-foreground">
+          Join or create another workspace before using this action.
+        </p>
+      ) : (
+        <Field label="Destination workspace">
+          <Select
+            ariaLabel="Destination workspace"
+            value={targetOrgId}
+            onValueChange={setTargetOrgId}
+            options={targetOrganizations.map((org) => ({
+              label: org.name,
+              value: org.id,
+            }))}
+          />
+        </Field>
+      )}
     </Dialog>
   );
 }

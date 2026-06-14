@@ -235,6 +235,35 @@ export type ApiEvidenceResponse = {
   evidence: ApiEvidenceSummary;
 };
 
+export type ApiCopyEvidenceResponse = {
+  evidence: {
+    id: string;
+    orgId: string;
+    sourceEvidenceId: string;
+  };
+  copy: {
+    copiedAt: number;
+    copiedBy: string;
+    fromOrgId: string;
+    toOrgId: string;
+    artifactCount: number;
+  };
+};
+
+export type ApiMoveEvidenceResponse = {
+  evidence: {
+    id: string;
+    orgId: string;
+  };
+  move: {
+    movedAt: number;
+    movedBy: string;
+    fromOrgId: string;
+    toOrgId: string;
+    invalidatedShareLinks: number;
+  };
+};
+
 export type ApiEvidenceComment = {
   id: string;
   evidenceId: string;
@@ -355,6 +384,34 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
 
+  copyEvidence: (
+    getToken: FetchToken,
+    evidenceId: string,
+    targetOrgId: string,
+  ) =>
+    authedFetch<ApiCopyEvidenceResponse>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}/copy`,
+      {
+        method: "POST",
+        body: JSON.stringify({ targetOrgId }),
+      },
+    ),
+
+  moveEvidence: (
+    getToken: FetchToken,
+    evidenceId: string,
+    targetOrgId: string,
+  ) =>
+    authedFetch<ApiMoveEvidenceResponse>(
+      getToken,
+      `/evidences/${encodeURIComponent(evidenceId)}/move`,
+      {
+        method: "POST",
+        body: JSON.stringify({ targetOrgId }),
+      },
+    ),
+
   listEvidenceArtifacts: (
     getToken: FetchToken,
     evidenceId: string,
@@ -473,6 +530,15 @@ export const api = {
       `/orgs/${encodeURIComponent(orgId)}/leave`,
       {
         method: "POST",
+      },
+    ),
+
+  deleteOrganization: (getToken: FetchToken, orgId: string) =>
+    authedFetch<{ ok: true }>(
+      getToken,
+      `/orgs/${encodeURIComponent(orgId)}`,
+      {
+        method: "DELETE",
       },
     ),
 

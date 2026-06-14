@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 
 import {
 	desktopRecordingSessions,
+	evidenceArtifacts,
 	evidenceComments,
 	evidences,
 	type OrganizationPermission,
@@ -36,6 +37,10 @@ const moveEvidenceBodySchema = t.Object({
 	targetOrgId: t.String({ minLength: 1 }),
 });
 
+const copyEvidenceBodySchema = t.Object({
+	targetOrgId: t.String({ minLength: 1 }),
+});
+
 const moveEvidenceResponseSchema = t.Object({
 	evidence: t.Object({
 		id: t.String({ minLength: 1 }),
@@ -47,6 +52,21 @@ const moveEvidenceResponseSchema = t.Object({
 		fromOrgId: t.String({ minLength: 1 }),
 		toOrgId: t.String({ minLength: 1 }),
 		invalidatedShareLinks: t.Number({ minimum: 0 }),
+	}),
+});
+
+const copyEvidenceResponseSchema = t.Object({
+	evidence: t.Object({
+		id: t.String({ minLength: 1 }),
+		orgId: t.String({ minLength: 1 }),
+		sourceEvidenceId: t.String({ minLength: 1 }),
+	}),
+	copy: t.Object({
+		copiedAt: t.Number(),
+		copiedBy: t.String({ minLength: 1 }),
+		fromOrgId: t.String({ minLength: 1 }),
+		toOrgId: t.String({ minLength: 1 }),
+		artifactCount: t.Number({ minimum: 0 }),
 	}),
 });
 
@@ -189,6 +209,31 @@ const findAccessibleEvidence = async (
 	return evidence;
 };
 
+const memberHasOrganizationPermission = async (
+	db: BackendDb,
+	input: {
+		orgId: string;
+		userId: string;
+		permission: OrganizationPermission;
+	},
+): Promise<boolean> => {
+	const membership = await db.query.organizationMembers.findFirst({
+		where: and(
+			eq(organizationMembers.organizationId, input.orgId),
+			eq(organizationMembers.userId, input.userId),
+			isNull(organizationMembers.teamId),
+		),
+		columns: { role: true },
+	});
+	if (!membership) return false;
+
+	const permissions = await getOrganizationRolePermissions(db, {
+		organizationId: input.orgId,
+		role: normalizeOrganizationRoleKey(membership.role),
+	});
+	return permissions.has(input.permission);
+};
+
 export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 	new Elysia({ name: "evidence-routes" })
 		.use(auth)
@@ -211,7 +256,6 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								403,
 							);
 						}
-
 						const evidence = await findAccessibleEvidence(db, {
 							evidenceId: params.id,
 							orgId: query.orgId,
@@ -431,7 +475,6 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								403,
 							);
 						}
-
 						const evidence = await db.query.evidences.findFirst({
 							where: and(
 								eq(evidences.id, params.id),
@@ -748,6 +791,246 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 					},
 				)
 				.post(
+					"/evidences/:id/copy",
+					async ({
+						authContext,
+						body,
+						db,
+						params,
+						request,
+						requestId,
+						requestLogger,
+						set,
+					}) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:manage",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
+						}
+
+						if (!authContext.localUserId) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_COPY_FORBIDDEN",
+								"Only workspace members can copy evidence",
+								403,
+							);
+						}
+						const actorUserId = authContext.localUserId;
+
+						const evidence = await db.query.evidences.findFirst({
+							where: and(
+								eq(evidences.id, params.id),
+								isNull(evidences.deletedAt),
+							),
+							columns: {
+								id: true,
+								orgId: true,
+								createdBy: true,
+								title: true,
+								sourceType: true,
+								sourceUri: true,
+								sourceExternalId: true,
+								sourceMetadata: true,
+								thumbnailBase64: true,
+								thumbnailMimeType: true,
+							},
+						});
+						if (!evidence) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+
+						if (evidence.orgId === body.targetOrgId) {
+							set.status = 409;
+							return createApiError(
+								requestId,
+								"EVIDENCE_COPY_SAME_ORG",
+								"Evidence is already in the target organization",
+								409,
+							);
+						}
+
+						const [canViewSource, canCreateTarget] = await Promise.all([
+							memberHasOrganizationPermission(db, {
+								orgId: evidence.orgId,
+								userId: actorUserId,
+								permission: "evidence.view",
+							}),
+							memberHasOrganizationPermission(db, {
+								orgId: body.targetOrgId,
+								userId: actorUserId,
+								permission: "evidence.create",
+							}),
+						]);
+						if (!canViewSource) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+						if (!canCreateTarget) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_COPY_TARGET_FORBIDDEN",
+								"Your role cannot create evidence in the target organization",
+								403,
+							);
+						}
+
+						const artifacts = await db.query.evidenceArtifacts.findMany({
+							where: eq(evidenceArtifacts.evidenceId, evidence.id),
+							columns: {
+								kind: true,
+								s3Key: true,
+								mimeType: true,
+								bytes: true,
+								checksum: true,
+								uploadStatus: true,
+							},
+						});
+
+						const now = Date.now();
+						const copied = await db.transaction(async (tx) => {
+							const [created] = await tx
+								.insert(evidences)
+								.values({
+									orgId: body.targetOrgId,
+									createdBy: actorUserId,
+									title: evidence.title,
+									sourceType: evidence.sourceType,
+									sourceUri: evidence.sourceUri ?? undefined,
+									sourceExternalId: evidence.sourceExternalId ?? undefined,
+									sourceMetadata: evidence.sourceMetadata ?? undefined,
+									thumbnailBase64: evidence.thumbnailBase64 ?? undefined,
+									thumbnailMimeType: evidence.thumbnailMimeType ?? undefined,
+									scopeType: "organization",
+									scopeId: body.targetOrgId,
+									updatedAt: now,
+								})
+								.returning({ id: evidences.id, orgId: evidences.orgId });
+
+							if (!created) {
+								throw new Error("Failed to copy evidence");
+							}
+
+							if (artifacts.length > 0) {
+								await tx.insert(evidenceArtifacts).values(
+									artifacts.map((artifact) => ({
+										evidenceId: created.id,
+										kind: artifact.kind,
+										s3Key: artifact.s3Key,
+										mimeType: artifact.mimeType,
+										bytes: artifact.bytes,
+										checksum: artifact.checksum,
+										uploadStatus: artifact.uploadStatus,
+										updatedAt: now,
+									})),
+								);
+							}
+
+							return created;
+						});
+
+						requestLogger.info(
+							{
+								event: "evidence.copied",
+								sourceEvidenceId: evidence.id,
+								copiedEvidenceId: copied.id,
+								copiedByUserId: actorUserId,
+								fromOrgId: evidence.orgId,
+								toOrgId: copied.orgId,
+								artifactCount: artifacts.length,
+								requestId,
+							},
+							"evidence copy completed",
+						);
+						await Promise.all([
+							recordOrganizationActivity(db, {
+								organizationId: evidence.orgId,
+								actorUserId,
+								action: "evidence.copied.out",
+								entity: evidenceActivityEntity(evidence.id),
+								message: "Copied evidence out of this organization",
+								metadata: {
+									fromOrgId: evidence.orgId,
+									toOrgId: copied.orgId,
+									copiedEvidenceId: copied.id,
+									artifactCount: artifacts.length,
+								},
+								ipAddress: getRequestIpAddress(request),
+							}),
+							recordOrganizationActivity(db, {
+								organizationId: copied.orgId,
+								actorUserId,
+								action: "evidence.copied.in",
+								entity: evidenceActivityEntity(copied.id),
+								message: "Copied evidence into this organization",
+								metadata: {
+									fromOrgId: evidence.orgId,
+									toOrgId: copied.orgId,
+									sourceEvidenceId: evidence.id,
+									artifactCount: artifacts.length,
+								},
+								ipAddress: getRequestIpAddress(request),
+							}),
+						]);
+
+						return {
+							evidence: {
+								id: copied.id,
+								orgId: copied.orgId,
+								sourceEvidenceId: evidence.id,
+							},
+							copy: {
+								copiedAt: now,
+								copiedBy: actorUserId,
+								fromOrgId: evidence.orgId,
+								toOrgId: copied.orgId,
+								artifactCount: artifacts.length,
+							},
+						};
+					},
+					{
+						params: t.Object({
+							id: t.String({ minLength: 1 }),
+						}),
+						body: copyEvidenceBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Copies evidence to another organization",
+						},
+						response: {
+							200: copyEvidenceResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							409: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.post(
 					"/evidences/:id/move",
 					async ({
 						authContext,
@@ -785,7 +1068,10 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						}
 
 						const evidence = await db.query.evidences.findFirst({
-							where: eq(evidences.id, params.id),
+							where: and(
+								eq(evidences.id, params.id),
+								isNull(evidences.deletedAt),
+							),
 							columns: {
 								id: true,
 								orgId: true,
@@ -812,6 +1098,16 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								"EVIDENCE_MOVE_SAME_ORG",
 								"Evidence is already in the target organization",
 								409,
+							);
+						}
+
+						if (evidence.createdBy !== authContext.localUserId) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_MOVE_FORBIDDEN",
+								"Only the recorder can move this evidence",
+								403,
 							);
 						}
 

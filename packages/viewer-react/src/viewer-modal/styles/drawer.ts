@@ -14,6 +14,7 @@ export const drawerStyles = `
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 8px 14px;
   border-bottom: 1px solid var(--border, #30363d);
   font-size: inherit;
@@ -21,6 +22,12 @@ export const drawerStyles = `
   letter-spacing: 0.06em;
   color: var(--text-soft, #c9d1d9);
   font-weight: 600;
+}
+
+.jl-vm-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .jl-vm-drawer-body {

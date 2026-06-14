@@ -58,6 +58,7 @@ import {
   useCreateInvitation,
   useCreateInvitationCode,
   useCreateOrganization,
+  useDeleteOrganization,
   useDeleteInvitationCode,
   useDeleteEvidence,
   useEvidences,
@@ -1915,6 +1916,11 @@ export function OrgOptionsTab(): React.JSX.Element {
   const navigate = useNavigate();
   const toast = useToast();
   const leaveOrganization = useLeaveOrganization();
+  const deleteOrganization = useDeleteOrganization();
+  const canDeleteOrganization =
+    ctx.org?.role === "admin" &&
+    ctx.org.memberCount === 1 &&
+    !ctx.org.isPersonal;
 
   const leave = async (): Promise<void> => {
     if (!ctx.org || !window.confirm(`Leave ${ctx.org.name}?`)) return;
@@ -1929,6 +1935,25 @@ export function OrgOptionsTab(): React.JSX.Element {
     }
   };
 
+  const deleteOrg = async (): Promise<void> => {
+    if (
+      !ctx.org ||
+      !window.confirm(
+        `Delete ${ctx.org.name}? This permanently removes the organisation and its workspace data.`,
+      )
+    )
+      return;
+    try {
+      await deleteOrganization.mutateAsync(ctx.org.id);
+      toast.success("Organisation deleted");
+      navigate("/organisations");
+    } catch (err) {
+      ctx.setError(
+        err instanceof Error ? err.message : "Unable to delete organisation.",
+      );
+    }
+  };
+
   if (!ctx.org) return <Skeleton className="h-24 w-full" />;
 
   return (
@@ -1936,19 +1961,39 @@ export function OrgOptionsTab(): React.JSX.Element {
       <div className="flex items-center justify-between gap-3 p-4">
         <div>
           <h3 className="flex items-center gap-2 text-base font-semibold">
-            <LogOut className="size-4 text-muted-foreground" aria-hidden />
-            Leave organisation
+            {canDeleteOrganization ? (
+              <Trash2 className="size-4 text-muted-foreground" aria-hidden />
+            ) : (
+              <LogOut className="size-4 text-muted-foreground" aria-hidden />
+            )}
+            {canDeleteOrganization
+              ? "Delete organisation"
+              : "Leave organisation"}
           </h3>
           <p className="text-base text-muted-foreground">
-            Remove your membership from this organisation.
+            {canDeleteOrganization
+              ? "You are the last admin and member, so this organisation can be deleted."
+              : "Remove your membership from this organisation."}
           </p>
         </div>
         <Button
           variant="destructive"
-          disabled={leaveOrganization.isPending || ctx.org.isPersonal}
-          onClick={() => void leave()}
+          disabled={
+            canDeleteOrganization
+              ? deleteOrganization.isPending
+              : leaveOrganization.isPending || ctx.org.isPersonal
+          }
+          onClick={() =>
+            canDeleteOrganization ? void deleteOrg() : void leave()
+          }
         >
-          Leave
+          {canDeleteOrganization
+            ? deleteOrganization.isPending
+              ? "Deleting…"
+              : "Delete"
+            : leaveOrganization.isPending
+              ? "Leaving…"
+              : "Leave"}
         </Button>
       </div>
       {ctx.canAdmin ? (

@@ -624,6 +624,75 @@ export const leaveOrganization = async (
 	});
 };
 
+export const deleteOrganizationAsLastAdmin = async (
+	db: BackendDb,
+	args: { organizationId: string; localUserId: string },
+): Promise<void> => {
+	const organization = await db.query.organizations.findFirst({
+		where: eq(organizations.id, args.organizationId),
+		columns: { id: true, isPersonal: true },
+	});
+	if (!organization) throw new Error("Organization not found.");
+	if (organization.isPersonal) {
+		throw new Error("Personal organizations cannot be deleted.");
+	}
+
+	const membership = await db.query.organizationMembers.findFirst({
+		where: and(
+			eq(organizationMembers.organizationId, args.organizationId),
+			eq(organizationMembers.userId, args.localUserId),
+			isNull(organizationMembers.teamId),
+		),
+		columns: { id: true, role: true },
+	});
+	if (!membership) throw new Error("Member not found.");
+	if (normalizeOrganizationRoleKey(membership.role) !== "admin") {
+		throw new Error("Only admins can delete this organization.");
+	}
+
+	const members = await db.query.organizationMembers.findMany({
+		where: and(
+			eq(organizationMembers.organizationId, args.organizationId),
+			isNull(organizationMembers.teamId),
+		),
+		columns: { userId: true },
+	});
+	if (members.length !== 1 || members[0]?.userId !== args.localUserId) {
+		throw new Error(
+			"Only the last remaining admin can delete this organization.",
+		);
+	}
+
+	await db.transaction(async (tx) => {
+		const user = await tx.query.users.findFirst({
+			where: eq(users.id, args.localUserId),
+			columns: { activeOrgId: true },
+		});
+
+		await tx
+			.delete(organizations)
+			.where(eq(organizations.id, args.organizationId));
+
+		if (user?.activeOrgId !== args.organizationId) return;
+
+		const nextMembership = await tx.query.organizationMembers.findFirst({
+			where: and(
+				eq(organizationMembers.userId, args.localUserId),
+				isNull(organizationMembers.teamId),
+			),
+			columns: { organizationId: true },
+			orderBy: desc(organizationMembers.createdAt),
+		});
+		await tx
+			.update(users)
+			.set({
+				activeOrgId: nextMembership?.organizationId ?? null,
+				updatedAt: Date.now(),
+			})
+			.where(eq(users.id, args.localUserId));
+	});
+};
+
 const summarizeInvitation = (row: {
 	id: string;
 	email: string;
