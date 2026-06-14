@@ -62,12 +62,17 @@ export const headerStyles = `
 }
 
 .jl-vm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   appearance: none;
   border: 1px solid var(--border, #30363d);
   background: var(--surface-raised, #161b22);
   color: var(--text, #e6edf3);
   font-size: inherit;
   font-weight: 500;
+  line-height: 1;
   padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
@@ -92,8 +97,5 @@ export const headerStyles = `
   width: 28px;
   height: 28px;
   padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 `;
