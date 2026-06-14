@@ -110,7 +110,7 @@ describe("background recovery", () => {
     expect(activeDraft?.nameEdited).toBeTrue();
   });
 
-  test("starts desktop recording through the picker while keeping active-tab telemetry", async () => {
+  test("starts desktop recording through the offscreen display picker while keeping active-tab telemetry", async () => {
     chromeHarness.setTab({
       id: 7,
       status: "complete",
@@ -127,15 +127,14 @@ describe("background recovery", () => {
     const activeDraft = await backgroundTest.readDraft();
 
     expect(result.responded).toBeTrue();
-    expect(chromeHarness.desktopMediaRequests[0]).toEqual(["screen", "window", "audio"]);
     expect(startMessage).toMatchObject({
       type: "jl/offscreen-start-recording",
       tabId: 7,
-      streamId: "desktop-stream-id",
       captureTarget: "desktop",
-      captureAudio: true,
       playTabAudio: true
     });
+    expect(startMessage).not.toHaveProperty("streamId");
+    expect(startMessage).toHaveProperty("captureAudio", true);
     expect(
       chromeHarness.tabMessages.some((entry) => entry.tabId === 7 && hasMessageType(entry.message, "jl/content-begin-capture"))
     ).toBeTrue();
@@ -971,7 +970,6 @@ function createChromeHarness() {
   const createdAlarms: string[] = [];
   const clearedAlarms: string[] = [];
   const permissionRequests: chrome.permissions.Permissions[] = [];
-  const desktopMediaRequests: string[][] = [];
   const fetchResponses = new Map<string, unknown[]>();
 
   let offscreenPresent = false;
@@ -988,8 +986,6 @@ function createChromeHarness() {
     recordingBytes: 128,
     eventBytes: 64
   };
-  let desktopStreamId = "desktop-stream-id";
-  let desktopCanRequestAudioTrack = true;
 
   const debuggerApi = {
     onEvent: {
@@ -1193,16 +1189,6 @@ function createChromeHarness() {
       ): void {
         callback("stream-id");
       }
-    },
-    desktopCapture: {
-      chooseDesktopMedia(
-        sources: string[],
-        callback: (streamId: string, options: chrome.desktopCapture.StreamOptions) => void
-      ): number {
-        desktopMediaRequests.push([...sources]);
-        callback(desktopStreamId, { canRequestAudioTrack: desktopCanRequestAudioTrack });
-        return desktopMediaRequests.length;
-      }
     }
   };
 
@@ -1232,7 +1218,6 @@ function createChromeHarness() {
     createdAlarms,
     clearedAlarms,
     permissionRequests,
-    desktopMediaRequests,
     setTab(tab: StubTab): void {
       tabsById.set(tab.id, createTab(tab));
     },
@@ -1254,10 +1239,6 @@ function createChromeHarness() {
     },
     setNextPermissionRequestResult(granted: boolean): void {
       nextPermissionRequestResult = granted;
-    },
-    setDesktopCaptureResponse(input: { streamId?: string; canRequestAudioTrack?: boolean }): void {
-      desktopStreamId = input.streamId ?? "";
-      desktopCanRequestAudioTrack = input.canRequestAudioTrack ?? true;
     },
     getSessionValue(key: string): unknown {
       return localStorage.get(key);

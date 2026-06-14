@@ -173,7 +173,7 @@ export const offscreenStartRecordingRequestSchema = z.object({
   type: z.literal("jl/offscreen-start-recording"),
   sessionId: sessionIdSchema,
   tabId: z.number().int().nonnegative(),
-  streamId: z.string().min(1),
+  streamId: z.string().min(1).optional(),
   captureTarget: z.enum(["tab", "desktop"]).default("tab"),
   captureAudio: z.boolean().optional(),
   playTabAudio: z.boolean().optional()

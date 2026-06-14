@@ -292,7 +292,6 @@ describe("extension contracts", () => {
       type: "jl/offscreen-start-recording",
       sessionId: "jl_test1234",
       tabId: 7,
-      streamId: "stream-123",
       captureTarget: "desktop",
       captureAudio: false,
       playTabAudio: true
@@ -307,6 +306,7 @@ describe("extension contracts", () => {
     expect(popupRequest.playTabAudio).toBe(false);
     expect(popupRequest.requestSiteAccess).toBe(true);
     expect(offscreenRequest.captureTarget).toBe("desktop");
+    expect(offscreenRequest.streamId).toBeUndefined();
     expect(offscreenRequest.captureAudio).toBe(false);
     expect(offscreenRequest.playTabAudio).toBe(true);
   });

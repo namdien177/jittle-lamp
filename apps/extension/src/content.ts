@@ -1632,6 +1632,7 @@ function floatingWidgetTemplate(): string {
       .jl-recording-actions {
         display: flex;
         gap: 8px;
+        min-width: 0;
       }
 
       .jl-recording-actions[hidden] {
@@ -1641,19 +1642,31 @@ function floatingWidgetTemplate(): string {
       .jl-record-action {
         display: inline-grid;
         place-items: center;
-        width: 56px;
-        min-width: 56px;
-        max-width: 56px;
+        min-height: 56px;
         padding: 0;
       }
 
       .jl-finish {
+        flex: 1 1 auto;
+        grid-template-columns: 34px minmax(0, 1fr);
+        align-items: center;
+        justify-items: start;
+        gap: 10px;
+        min-width: 0;
+        width: auto;
+        max-width: none;
+        padding: 0 12px;
         background: rgba(34, 197, 94, 0.12);
         color: #efefef;
         border-color: rgba(34, 197, 94, 0.32);
+        text-align: left;
       }
 
       .jl-abort {
+        flex: 0 0 56px;
+        width: 56px;
+        min-width: 56px;
+        max-width: 56px;
         background: rgba(239, 68, 68, 0.14);
         color: #efefef;
         border-color: rgba(239, 68, 68, 0.32);
@@ -1876,6 +1889,7 @@ function floatingWidgetTemplate(): string {
           <div class="jl-recording-actions" data-role="recording-actions" hidden>
             <button class="jl-button jl-record-action jl-finish" data-role="stop" type="button" title="Finish recording" aria-label="Finish recording" hidden>
               <span class="jl-action-icon" data-icon="CircleStop"></span>
+              <span>Finish recording</span>
             </button>
             <button class="jl-button jl-record-action jl-abort" data-role="abort" type="button" title="Abort recording" aria-label="Abort recording" hidden>
               <span class="jl-action-icon" data-icon="X"></span>

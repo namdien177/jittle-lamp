@@ -71,7 +71,7 @@ type RecordingPageOverride = {
 };
 type CaptureTarget = "tab" | "desktop";
 type RecorderStreamSelection = {
-  streamId: string;
+  streamId?: string;
   captureAudio: boolean;
 };
 const stoppingTabIds = new Set<number>();
@@ -501,10 +501,10 @@ async function startRecordingSession(
       type: "jl/offscreen-start-recording",
       sessionId: draft.sessionId,
       tabId: tab.id,
-      streamId: streamSelection.streamId,
       captureTarget,
       captureAudio: streamSelection.captureAudio,
-      playTabAudio: options.playTabAudio ?? false
+      playTabAudio: options.playTabAudio ?? false,
+      ...(streamSelection.streamId ? { streamId: streamSelection.streamId } : {})
     });
 
     if (!offscreenResponse.ok) {
@@ -2778,7 +2778,9 @@ async function getRecorderStreamSelection(
   requestAudio: boolean
 ): Promise<RecorderStreamSelection> {
   if (captureTarget === "desktop") {
-    return getDesktopMediaStreamSelection(requestAudio);
+    return {
+      captureAudio: requestAudio
+    };
   }
 
   return {
@@ -2807,33 +2809,6 @@ async function getTabMediaStreamId(tabId: number): Promise<string> {
         resolve(streamId);
       }
     );
-  });
-}
-
-async function getDesktopMediaStreamSelection(requestAudio: boolean): Promise<RecorderStreamSelection> {
-  if (!chrome.desktopCapture?.chooseDesktopMedia) {
-    throw new Error("Desktop capture is unavailable in this Chromium build.");
-  }
-
-  const sources = requestAudio ? ["screen", "window", "audio"] : ["screen", "window"];
-
-  return new Promise<RecorderStreamSelection>((resolve, reject) => {
-    chrome.desktopCapture.chooseDesktopMedia(sources, (streamId, options) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-
-      if (!streamId) {
-        reject(new Error("Desktop capture picker was canceled."));
-        return;
-      }
-
-      resolve({
-        streamId,
-        captureAudio: requestAudio && options.canRequestAudioTrack
-      });
-    });
   });
 }
 

@@ -136,10 +136,10 @@ async function handleRequest(
     case "jl/offscreen-start-recording":
       await startRecorder({
         sessionId: request.sessionId,
-        streamId: request.streamId,
         captureTarget: request.captureTarget,
         captureAudio: request.captureAudio ?? (request.captureTarget === "tab"),
-        playCapturedAudio: request.playTabAudio ?? false
+        playCapturedAudio: request.playTabAudio ?? false,
+        ...(request.streamId ? { streamId: request.streamId } : {})
       });
       return { ok: true };
 
@@ -654,7 +654,7 @@ async function uploadArtifactToCompanion(
 
 async function startRecorder(input: {
   sessionId: string;
-  streamId: string;
+  streamId?: string;
   captureTarget: CaptureTarget;
   captureAudio: boolean;
   playCapturedAudio: boolean;
@@ -669,11 +669,11 @@ async function startRecorder(input: {
     throw new Error("An offscreen recording is already active.");
   }
 
-  const stream = await navigator.mediaDevices.getUserMedia(buildCaptureConstraints({
+  const stream = await getRecorderMediaStream({
     captureTarget,
-    streamId,
-    captureAudio
-  }));
+    captureAudio,
+    ...(streamId ? { streamId } : {})
+  });
   const audioContext = playCapturedAudio ? keepCapturedAudioAudible(stream) : null;
 
   const mimeType = preferredMimeType();
@@ -749,6 +749,51 @@ function preferredMimeType(): string | undefined {
   ];
 
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+}
+
+async function getRecorderMediaStream(input: {
+  captureTarget: CaptureTarget;
+  streamId?: string;
+  captureAudio: boolean;
+}): Promise<MediaStream> {
+  if (input.captureTarget === "desktop") {
+    try {
+      return await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          frameRate: {
+            max: 30
+          }
+        },
+        audio: input.captureAudio
+      });
+    } catch (error: unknown) {
+      throw new Error(desktopCaptureErrorMessage(error));
+    }
+  }
+
+  if (!input.streamId) {
+    throw new Error("Tab capture stream identifier is required.");
+  }
+
+  return navigator.mediaDevices.getUserMedia(buildCaptureConstraints({
+    captureTarget: input.captureTarget,
+    streamId: input.streamId,
+    captureAudio: input.captureAudio
+  }));
+}
+
+function desktopCaptureErrorMessage(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError") {
+      return "Desktop capture was not allowed. Choose a screen or window in the browser sharing prompt to start recording.";
+    }
+
+    if (error.name === "NotReadableError") {
+      return "Desktop capture could not start. On macOS, remove and re-add this browser in System Settings > Privacy & Security > Screen & System Audio Recording, then restart the browser.";
+    }
+  }
+
+  return errorMessage(error);
 }
 
 function buildCaptureConstraints(input: {
