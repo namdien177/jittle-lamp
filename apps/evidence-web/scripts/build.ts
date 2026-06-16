@@ -119,6 +119,10 @@ await Promise.all([
   Bun.write(
     new URL("logo.jpg", distRoot),
     Bun.file(new URL("../../../assets/jittle-lamp-logo.jpg", import.meta.url))
+  ),
+  Bun.write(
+    new URL("llms.txt", distRoot),
+    Bun.file(new URL("../src/llms.txt", import.meta.url))
   )
 ]);
 

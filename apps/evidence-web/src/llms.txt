@@ -1,0 +1,29 @@
+# Jittle Lamp AI Evidence Debugging
+
+Use this document when a user asks you to inspect, debug, or explain a Jittle Lamp evidence recording.
+
+## Authentication
+
+Ask the user for a Jittle Lamp AI access token. It starts with "jl_ai_". Send it as:
+
+Authorization: Bearer <token>
+
+The token is account-scoped, read-only for AI debugging, and can only access evidence the issuing account can view and download.
+
+## Primary Endpoint
+
+GET /api/ai/evidences/{evidenceId}/debug
+
+Optional query parameters:
+- orgId: require the evidence to belong to this organization.
+- includeReadUrls: set to false when you only need metadata.
+
+The response includes evidence metadata, organization metadata, desktop session metadata, artifact metadata, and short-lived read URLs for uploaded artifacts when object storage is configured.
+
+## Debugging Workflow
+
+1. Call the debug endpoint with the evidence id.
+2. Prefer the artifact whose role is "session_archive"; it is the JSON session archive.
+3. Fetch the session archive readUrl, parse the JSON, and inspect actions, console entries, network entries, errors, and lifecycle events.
+4. Use the recording artifact only when visual playback is needed.
+5. Keep conclusions tied to the returned evidence, session, artifact checksums, timestamps, request/response data, console entries, and errors. Say when a cause is not proven.

@@ -6,6 +6,7 @@ import { buildRuntimeConfig } from "./config/runtime";
 import { createDb } from "./db";
 import { createClerkAuthPlugin } from "./plugins/clerk-auth";
 import { createCorePlugin } from "./plugins/core";
+import { createAiRoutes } from "./routes/ai";
 import { createClerkRoutes } from "./routes/clerk";
 import { createDesktopAuthRoutes } from "./routes/desktop-auth";
 import { createEvidenceUploadRoutes } from "./routes/evidence-uploads";
@@ -51,6 +52,12 @@ export const createApp = (
 								description:
 									"Clerk session token provided by Authorization header or session cookie",
 							},
+							aiAccessToken: {
+								type: "http",
+								scheme: "bearer",
+								description:
+									"Jittle Lamp AI access token issued per account for read-only evidence debugging",
+							},
 						},
 					},
 				},
@@ -60,6 +67,7 @@ export const createApp = (
 
 	app
 		.use(createHealthRoutes(core))
+		.use(createAiRoutes(auth))
 		.use(createClerkRoutes(auth))
 		.use(createDesktopAuthRoutes(auth))
 		.use(createExtensionAuthRoutes(auth))

@@ -113,6 +113,13 @@
       "when": 1781395200000,
       "tag": "0015_share_link_slugs",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781599644000,
+      "tag": "0016_ai_access_tokens",
+      "breakpoints": true
     }
   ]
 }

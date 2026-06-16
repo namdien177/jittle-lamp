@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 
+import { aiAccessTokens } from "./tables/ai-access-tokens";
 import { desktopRecordingSessions } from "./tables/desktop-recording-sessions";
 import { evidenceArtifacts } from "./tables/evidence-artifacts";
 import { evidenceComments } from "./tables/evidence-comments";
@@ -21,6 +22,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 	createdEvidences: many(evidences),
 	evidenceComments: many(evidenceComments),
 	createdShareLinks: many(shareLinks),
+	aiAccessTokens: many(aiAccessTokens),
 	desktopRecordingSessions: many(desktopRecordingSessions),
 	sentInvitations: many(organizationInvitations, {
 		relationName: "invitedByUser",
@@ -220,6 +222,13 @@ export const shareLinksRelations = relations(shareLinks, ({ one }) => ({
 	}),
 	createdByUser: one(users, {
 		fields: [shareLinks.createdBy],
+		references: [users.id],
+	}),
+}));
+
+export const aiAccessTokensRelations = relations(aiAccessTokens, ({ one }) => ({
+	user: one(users, {
+		fields: [aiAccessTokens.userId],
 		references: [users.id],
 	}),
 }));

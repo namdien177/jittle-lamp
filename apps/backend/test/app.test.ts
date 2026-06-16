@@ -8,7 +8,9 @@ import { createApp } from "../src/app";
 import { parseEnv } from "../src/config/env";
 import { createDb } from "../src/db";
 import {
+	aiAccessTokens,
 	desktopAuthFlows,
+	desktopRecordingSessions,
 	deviceSessions,
 	evidenceArtifacts,
 	evidenceComments,
@@ -2233,6 +2235,199 @@ describe("routes", () => {
 			code: "ORG_MEMBERSHIP_REQUIRED",
 			message: "Selected organization must be a member organization",
 			status: 403,
+		});
+	});
+
+	it("issues account AI tokens and uses them to load evidence debug context", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const provisioned = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_ai_debug",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_ai_debug" },
+		});
+		const [evidence] = await db
+			.insert(evidences)
+			.values({
+				orgId: provisioned.organizationId,
+				createdBy: provisioned.userId,
+				title: "Checkout failure evidence",
+				sourceType: "desktop-session",
+				sourceExternalId: "session-ai-debug",
+				sourceMetadata: JSON.stringify({ url: "https://example.test/cart" }),
+				scopeType: "organization",
+				scopeId: provisioned.organizationId,
+			})
+			.returning({ id: evidences.id });
+		if (!evidence) {
+			throw new Error("Expected evidence to be created");
+		}
+
+		await db.insert(desktopRecordingSessions).values({
+			sessionId: "session-ai-debug",
+			evidenceId: evidence.id,
+			orgId: provisioned.organizationId,
+			createdBy: provisioned.userId,
+			sourceMetadata: JSON.stringify({ viewport: "1440x900" }),
+		});
+		await db.insert(evidenceArtifacts).values([
+			{
+				evidenceId: evidence.id,
+				kind: "recording",
+				s3Key: `uploads/${provisioned.organizationId}/${evidence.id}/recording-video`,
+				mimeType: "video/webm",
+				bytes: 42,
+				checksum: `sha256:${await sha256Hex("video")}`,
+				uploadStatus: "uploaded",
+			},
+			{
+				evidenceId: evidence.id,
+				kind: "network-log",
+				s3Key: `uploads/${provisioned.organizationId}/${evidence.id}/archive-json`,
+				mimeType: "application/json",
+				bytes: 21,
+				checksum: `sha256:${await sha256Hex("{}")}`,
+				uploadStatus: "uploaded",
+			},
+		]);
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const clerkToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_ai_debug")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const issueResponse = await app.handle(
+			new Request("http://localhost/ai/access-tokens", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${clerkToken}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					label: "Cursor evidence check",
+					expiresInDays: 7,
+				}),
+			}),
+		);
+		expect(issueResponse.status).toBe(200);
+		const issuePayload = (await issueResponse.json()) as {
+			token: string;
+			accessToken: {
+				id: string;
+				label: string;
+				tokenPrefix: string;
+				scopes: string[];
+				expiresAt: number;
+			};
+		};
+		expect(issuePayload.token).toStartWith("jl_ai_");
+		expect(issuePayload.accessToken).toMatchObject({
+			label: "Cursor evidence check",
+			scopes: ["evidence:debug"],
+		});
+
+		const storedToken = await db.query.aiAccessTokens.findFirst({
+			where: eq(aiAccessTokens.id, issuePayload.accessToken.id),
+			columns: { tokenHash: true, tokenPrefix: true, lastUsedAt: true },
+		});
+		expect(storedToken?.tokenHash).not.toBe(issuePayload.token);
+		expect(storedToken?.tokenPrefix).toBe(issuePayload.accessToken.tokenPrefix);
+		expect(storedToken?.lastUsedAt).toBeNull();
+
+		const debugResponse = await app.handle(
+			new Request(`http://localhost/ai/evidences/${evidence.id}/debug`, {
+				headers: { authorization: `Bearer ${issuePayload.token}` },
+			}),
+		);
+		expect(debugResponse.status).toBe(200);
+		const debugPayload = (await debugResponse.json()) as {
+			access: { tokenId: string; userId: string };
+			organization: { id: string };
+			evidence: { id: string; status: "ready" | "pending" };
+			desktopSession: { sessionId: string } | null;
+			artifacts: Array<{
+				id: string;
+				role: "recording" | "session_archive" | "other";
+				readUrl: null | { url: string };
+				readUrlUnavailableReason: string | null;
+			}>;
+			debug: {
+				llmsUrl: string;
+				recommendedArtifactId: string | null;
+				recommendedArtifactRole: string | null;
+			};
+		};
+		expect(debugPayload.access).toMatchObject({
+			tokenId: issuePayload.accessToken.id,
+			userId: provisioned.userId,
+		});
+		expect(debugPayload.organization.id).toBe(provisioned.organizationId);
+		expect(debugPayload.evidence).toMatchObject({
+			id: evidence.id,
+			status: "ready",
+		});
+		expect(debugPayload.desktopSession?.sessionId).toBe("session-ai-debug");
+		const archiveArtifact = debugPayload.artifacts.find(
+			(artifact) => artifact.role === "session_archive",
+		);
+		if (!archiveArtifact) {
+			throw new Error("Expected session archive artifact");
+		}
+		expect(archiveArtifact.readUrl).toBeNull();
+		expect(archiveArtifact.readUrlUnavailableReason).toBe(
+			"s3_storage_not_configured",
+		);
+		expect(debugPayload.debug.recommendedArtifactId).toBe(archiveArtifact.id);
+		expect(debugPayload.debug.recommendedArtifactRole).toBe("session_archive");
+		expect(debugPayload.debug.llmsUrl).toBe("http://localhost/llms.txt");
+
+		const usedToken = await db.query.aiAccessTokens.findFirst({
+			where: eq(aiAccessTokens.id, issuePayload.accessToken.id),
+			columns: { lastUsedAt: true },
+		});
+		expect(usedToken?.lastUsedAt).toBeNumber();
+
+		const revokeResponse = await app.handle(
+			new Request(
+				`http://localhost/ai/access-tokens/${issuePayload.accessToken.id}`,
+				{
+					method: "DELETE",
+					headers: { authorization: `Bearer ${clerkToken}` },
+				},
+			),
+		);
+		expect(revokeResponse.status).toBe(200);
+
+		const revokedDebugResponse = await app.handle(
+			new Request(`http://localhost/ai/evidences/${evidence.id}/debug`, {
+				headers: { authorization: `Bearer ${issuePayload.token}` },
+			}),
+		);
+		expect(revokedDebugResponse.status).toBe(401);
+		await expectApiError(revokedDebugResponse, {
+			code: "AI_AUTH_INVALID_TOKEN",
+			message: "Invalid or expired AI access token",
+			status: 401,
 		});
 	});
 

@@ -1,5 +1,9 @@
 export * from "./relations";
 export {
+	aiAccessTokens,
+	createAiAccessTokenInputSchema,
+} from "./tables/ai-access-tokens";
+export {
 	createDesktopAuthFlowInputSchema,
 	desktopAuthFlowStatusSchema,
 	desktopAuthFlows,
