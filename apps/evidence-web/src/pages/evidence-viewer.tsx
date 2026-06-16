@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
+import { buildTargetEvidenceLlmPrompt } from "../ai-prompt";
 import { useAuth } from "../auth";
 import { api, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
 import { Button } from "../components/ui/button";
@@ -14,6 +15,7 @@ import { EvidenceViewerContent } from "../evidence-viewer-content";
 import {
   useAccountProfile,
   useCopyEvidence,
+  useCreateAiAccessToken,
   useCreateEvidenceComment,
   useEvidenceComments,
   useMoveEvidence,
@@ -22,6 +24,7 @@ import {
   type RemoteEvidenceData
 } from "../queries";
 import { useToast } from "../toast";
+import { copyToClipboard } from "../utils";
 
 const evidenceTitlePrefix = "Jittle Lamp";
 const evidenceTitleMaxLength = 80;
@@ -117,6 +120,7 @@ function RemoteEvidenceLoader(props: {
   const [renameValue, setRenameValue] = useState("");
   const [workspaceAction, setWorkspaceAction] = useState<"copy" | "transfer" | null>(null);
   const commentsQuery = useEvidenceComments(loaded?.evidenceId ?? null, loaded?.orgId);
+  const createAiToken = useCreateAiAccessToken();
   const createComment = useCreateEvidenceComment();
   const renameEvidence = useRenameEvidence();
 
@@ -182,6 +186,7 @@ function RemoteEvidenceLoader(props: {
           (org.role === "owner" || org.role === "admin" || org.role === "moderator"),
       ) === true);
   const canCopyEvidence = !props.shareToken;
+  const canCopyLlmPrompt = !props.shareToken;
   const canTransferEvidence =
     !props.shareToken && currentUserId !== null && loaded.evidence.createdBy === currentUserId;
 
@@ -264,6 +269,32 @@ function RemoteEvidenceLoader(props: {
     }
   };
 
+  const copyLlmPrompt = async (): Promise<void> => {
+    if (createAiToken.isPending) return;
+    try {
+      const labelBase = loaded.evidence.title || loaded.session.archive.name || "Evidence debugger";
+      const payload = await createAiToken.mutateAsync({
+        label: `AI route: ${labelBase}`.slice(0, 80),
+        expiresInDays: 7
+      });
+      await copyToClipboard(
+        buildTargetEvidenceLlmPrompt({
+          token: payload.token,
+          evidenceId: loaded.evidenceId,
+          evidenceUrl: `${window.location.origin}/evidence/${encodeURIComponent(loaded.evidenceId)}`,
+          title: loaded.evidence.title || loaded.session.archive.name,
+          ...(loaded.orgId ? { orgId: loaded.orgId } : {})
+        })
+      );
+      toast.success("LLM prompt copied", "Paste it into your AI chat to investigate this evidence.");
+    } catch (error) {
+      toast.error(
+        "Unable to copy LLM prompt",
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+  };
+
   const comments = (commentsQuery.data?.comments ?? []).map((comment) => ({
     id: comment.id,
     body: comment.body,
@@ -312,6 +343,8 @@ function RemoteEvidenceLoader(props: {
       {...(canRenameEvidence ? { onRenameEvidence: openRenameDialog } : {})}
       {...(canRenameEvidence ? { renamingEvidence: renameEvidence.isPending } : {})}
       {...(canCopyEvidence ? { onCopyEvidence: () => setWorkspaceAction("copy") } : {})}
+      {...(canCopyLlmPrompt ? { onCopyLlmPrompt: () => void copyLlmPrompt() } : {})}
+      {...(canCopyLlmPrompt ? { copyingLlmPrompt: createAiToken.isPending } : {})}
       {...(canTransferEvidence ? { onTransferEvidence: () => setWorkspaceAction("transfer") } : {})}
       {...(props.viewerMode ? { viewerMode: props.viewerMode } : {})}
     />
