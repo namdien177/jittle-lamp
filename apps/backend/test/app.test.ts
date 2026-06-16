@@ -9,6 +9,7 @@ import { parseEnv } from "../src/config/env";
 import { createDb } from "../src/db";
 import {
 	aiAccessTokens,
+	aiAccessTokenUsageLogs,
 	desktopAuthFlows,
 	desktopRecordingSessions,
 	deviceSessions,
@@ -2325,7 +2326,7 @@ describe("routes", () => {
 				},
 				body: JSON.stringify({
 					label: "Cursor evidence check",
-					expiresInDays: 7,
+					permanent: true,
 				}),
 			}),
 		);
@@ -2337,13 +2338,14 @@ describe("routes", () => {
 				label: string;
 				tokenPrefix: string;
 				scopes: string[];
-				expiresAt: number;
+				expiresAt: number | null;
 			};
 		};
 		expect(issuePayload.token).toStartWith("jl_ai_");
 		expect(issuePayload.accessToken).toMatchObject({
 			label: "Cursor evidence check",
 			scopes: ["evidence:debug"],
+			expiresAt: null,
 		});
 
 		const storedToken = await db.query.aiAccessTokens.findFirst({
@@ -2354,9 +2356,24 @@ describe("routes", () => {
 		expect(storedToken?.tokenPrefix).toBe(issuePayload.accessToken.tokenPrefix);
 		expect(storedToken?.lastUsedAt).toBeNull();
 
+		await db.insert(aiAccessTokenUsageLogs).values({
+			tokenId: issuePayload.accessToken.id,
+			userId: provisioned.userId,
+			evidenceId: evidence.id,
+			method: "GET",
+			path: "/ai/evidences/stale/debug",
+			ipAddress: "198.51.100.20",
+			userAgent: "StaleAgent/1.0",
+			createdAt: Date.now() - 61 * 24 * 60 * 60 * 1000,
+		});
+
 		const debugResponse = await app.handle(
 			new Request(`http://localhost/ai/evidences/${evidence.id}/debug`, {
-				headers: { authorization: `Bearer ${issuePayload.token}` },
+				headers: {
+					authorization: `Bearer ${issuePayload.token}`,
+					"x-forwarded-for": "203.0.113.10, 10.0.0.2",
+					"user-agent": "EvidenceBot/1.0",
+				},
 			}),
 		);
 		expect(debugResponse.status).toBe(200);
@@ -2406,6 +2423,28 @@ describe("routes", () => {
 			columns: { lastUsedAt: true },
 		});
 		expect(usedToken?.lastUsedAt).toBeNumber();
+
+		const usageLogs = await db.query.aiAccessTokenUsageLogs.findMany({
+			where: eq(aiAccessTokenUsageLogs.tokenId, issuePayload.accessToken.id),
+			columns: {
+				userId: true,
+				evidenceId: true,
+				method: true,
+				path: true,
+				ipAddress: true,
+				userAgent: true,
+			},
+		});
+		expect(usageLogs).toEqual([
+			{
+				userId: provisioned.userId,
+				evidenceId: evidence.id,
+				method: "GET",
+				path: `/ai/evidences/${evidence.id}/debug`,
+				ipAddress: "203.0.113.10",
+				userAgent: "EvidenceBot/1.0",
+			},
+		]);
 
 		const revokeResponse = await app.handle(
 			new Request(

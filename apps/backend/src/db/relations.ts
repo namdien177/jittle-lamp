@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 
+import { aiAccessTokenUsageLogs } from "./tables/ai-access-token-usage-logs";
 import { aiAccessTokens } from "./tables/ai-access-tokens";
 import { desktopRecordingSessions } from "./tables/desktop-recording-sessions";
 import { evidenceArtifacts } from "./tables/evidence-artifacts";
@@ -23,6 +24,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 	evidenceComments: many(evidenceComments),
 	createdShareLinks: many(shareLinks),
 	aiAccessTokens: many(aiAccessTokens),
+	aiAccessTokenUsageLogs: many(aiAccessTokenUsageLogs),
 	desktopRecordingSessions: many(desktopRecordingSessions),
 	sentInvitations: many(organizationInvitations, {
 		relationName: "invitedByUser",
@@ -166,6 +168,7 @@ export const evidencesRelations = relations(evidences, ({ many, one }) => ({
 	artifacts: many(evidenceArtifacts),
 	comments: many(evidenceComments),
 	shareLinks: many(shareLinks),
+	aiAccessTokenUsageLogs: many(aiAccessTokenUsageLogs),
 	desktopRecordingSession: many(desktopRecordingSessions),
 }));
 
@@ -226,9 +229,31 @@ export const shareLinksRelations = relations(shareLinks, ({ one }) => ({
 	}),
 }));
 
-export const aiAccessTokensRelations = relations(aiAccessTokens, ({ one }) => ({
-	user: one(users, {
-		fields: [aiAccessTokens.userId],
-		references: [users.id],
+export const aiAccessTokensRelations = relations(
+	aiAccessTokens,
+	({ many, one }) => ({
+		user: one(users, {
+			fields: [aiAccessTokens.userId],
+			references: [users.id],
+		}),
+		usageLogs: many(aiAccessTokenUsageLogs),
 	}),
-}));
+);
+
+export const aiAccessTokenUsageLogsRelations = relations(
+	aiAccessTokenUsageLogs,
+	({ one }) => ({
+		token: one(aiAccessTokens, {
+			fields: [aiAccessTokenUsageLogs.tokenId],
+			references: [aiAccessTokens.id],
+		}),
+		user: one(users, {
+			fields: [aiAccessTokenUsageLogs.userId],
+			references: [users.id],
+		}),
+		evidence: one(evidences, {
+			fields: [aiAccessTokenUsageLogs.evidenceId],
+			references: [evidences.id],
+		}),
+	}),
+);

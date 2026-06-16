@@ -1,10 +1,15 @@
 import { Buffer } from "node:buffer";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 
-import { aiAccessTokens } from "../db/schema";
+import {
+	aiAccessTokens,
+	aiAccessTokenUsageLogs,
+	createAiAccessTokenUsageLogInputSchema,
+} from "../db/schema";
 import type { BackendDb } from "./user-provisioning";
 
 export const AI_ACCESS_TOKEN_SCOPE = "evidence:debug";
+export const AI_ACCESS_TOKEN_USAGE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
 const AI_ACCESS_TOKEN_PREFIX = "jl_ai_";
 
 export type VerifiedAiAccessToken = {
@@ -148,4 +153,46 @@ export const revokeAiAccessToken = async (
 		.returning({ id: aiAccessTokens.id });
 
 	return Boolean(revoked);
+};
+
+export const cleanupExpiredAiAccessTokenUsageLogs = async (
+	db: BackendDb,
+	now = Date.now(),
+	retentionMs = AI_ACCESS_TOKEN_USAGE_RETENTION_MS,
+): Promise<number> => {
+	const cutoff = now - retentionMs;
+	const removed = await db
+		.delete(aiAccessTokenUsageLogs)
+		.where(lt(aiAccessTokenUsageLogs.createdAt, cutoff))
+		.returning({ id: aiAccessTokenUsageLogs.id });
+	return removed.length;
+};
+
+export const recordAiAccessTokenUsage = async (
+	db: BackendDb,
+	input: {
+		tokenId: string;
+		userId: string;
+		evidenceId?: string | null;
+		method: string;
+		path: string;
+		ipAddress?: string | null;
+		userAgent?: string | null;
+		now?: number;
+	},
+): Promise<void> => {
+	const now = input.now ?? Date.now();
+	const parsed = createAiAccessTokenUsageLogInputSchema.parse({
+		tokenId: input.tokenId,
+		userId: input.userId,
+		evidenceId: input.evidenceId ?? null,
+		method: input.method,
+		path: input.path,
+		ipAddress: input.ipAddress ?? null,
+		userAgent: input.userAgent ?? null,
+		createdAt: now,
+	});
+
+	await db.insert(aiAccessTokenUsageLogs).values(parsed);
+	await cleanupExpiredAiAccessTokenUsageLogs(db, now);
 };

@@ -17,16 +17,19 @@ import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import {
 	AI_ACCESS_TOKEN_SCOPE,
 	createAiAccessToken,
+	recordAiAccessTokenUsage,
 	revokeAiAccessToken,
 	verifyAiAccessToken,
 } from "../services/ai-access-tokens";
 import { createEvidencePolicy } from "../services/evidence-policy";
+import { getRequestIpAddress } from "../services/organization-activity";
 
 const DEFAULT_AI_TOKEN_EXPIRES_IN_DAYS = 90;
 const MAX_AI_TOKEN_EXPIRES_IN_DAYS = 365;
 
 const createAiTokenBodySchema = t.Object({
 	label: t.Optional(t.String({ minLength: 1, maxLength: 80 })),
+	permanent: t.Optional(t.Boolean()),
 	expiresInDays: t.Optional(
 		t.Number({ minimum: 1, maximum: MAX_AI_TOKEN_EXPIRES_IN_DAYS }),
 	),
@@ -188,6 +191,11 @@ const resolveExternalOrigin = (request: Request, apiOrigin?: string) => {
 	return `${url.protocol}//${url.host}`;
 };
 
+const resolveRequestPath = (request: Request): string => {
+	const url = new URL(request.url);
+	return `${url.pathname}${url.search}`;
+};
+
 const buildLlmsTxt = (
 	baseOrigin: string,
 ) => `# Jittle Lamp AI Evidence Debugging
@@ -274,7 +282,9 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 						const days = Math.trunc(
 							body.expiresInDays ?? DEFAULT_AI_TOKEN_EXPIRES_IN_DAYS,
 						);
-						const expiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
+						const expiresAt = body.permanent
+							? null
+							: Date.now() + days * 24 * 60 * 60 * 1000;
 						return createAiAccessToken(db, {
 							userId: authContext.localUserId,
 							label,
@@ -433,6 +443,15 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 						401,
 					);
 				}
+				await recordAiAccessTokenUsage(db, {
+					tokenId: aiToken.id,
+					userId: aiToken.userId,
+					evidenceId: params.id,
+					method: request.method,
+					path: resolveRequestPath(request),
+					ipAddress: getRequestIpAddress(request),
+					userAgent: request.headers.get("user-agent"),
+				});
 
 				const evidence = await db.query.evidences.findFirst({
 					where: and(

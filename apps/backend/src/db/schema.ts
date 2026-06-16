@@ -1,5 +1,9 @@
 export * from "./relations";
 export {
+	aiAccessTokenUsageLogs,
+	createAiAccessTokenUsageLogInputSchema,
+} from "./tables/ai-access-token-usage-logs";
+export {
 	aiAccessTokens,
 	createAiAccessTokenInputSchema,
 } from "./tables/ai-access-tokens";
