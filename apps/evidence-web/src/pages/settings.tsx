@@ -15,6 +15,7 @@ import type React from "react";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { buildAiEvidencePrompt } from "../ai-prompt";
 import type { ApiAiAccessToken } from "../api";
 import { useClerk } from "../auth";
 import { PageBody, PageHeader } from "../components/page";
@@ -25,7 +26,6 @@ import { ConfirmDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/misc";
-import { apiOrigin } from "../env";
 import { cn } from "../lib/cn";
 import {
 	useAccountProfile,
@@ -41,18 +41,6 @@ const INSTALL_COMMAND =
 
 const DEFAULT_AI_TOKEN_LABEL = "AI evidence debugger";
 const DEFAULT_AI_TOKEN_EXPIRY_DAYS = "90";
-
-function buildAiEvidencePrompt(token: string): string {
-	return `Use Jittle Lamp's AI evidence debugging instructions from ${apiOrigin}/llms.txt.
-
-AI access token:
-${token}
-
-When I give you an evidence link or evidence id, use that token as:
-Authorization: Bearer ${token}
-
-Fetch the evidence debug information, inspect the session archive, console, network, lifecycle events, and artifacts, then explain what is confirmed by the evidence and what is only a hypothesis.`;
-}
 
 function formatDateTime(value: number | null, fallback = "Never"): string {
 	if (!value) return fallback;

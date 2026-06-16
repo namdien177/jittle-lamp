@@ -56,8 +56,10 @@ export type EvidenceViewerContentProps = {
   onSubmitDiscussion?: () => void;
   onRenameEvidence?: () => void;
   onCopyEvidence?: () => void;
+  onCopyLlmPrompt?: () => void;
   onTransferEvidence?: () => void;
   renamingEvidence?: boolean;
+  copyingLlmPrompt?: boolean;
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -107,8 +109,10 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     onSubmitDiscussion,
     onRenameEvidence,
     onCopyEvidence,
+    onCopyLlmPrompt,
     onTransferEvidence,
-    renamingEvidence = false
+    renamingEvidence = false,
+    copyingLlmPrompt = false
   } = props;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -407,6 +411,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       {...(onRenameEvidence ? { onRename: onRenameEvidence } : {})}
       {...(onRenameEvidence ? { renaming: renamingEvidence } : {})}
       {...(onCopyEvidence ? { onCopyEvidence } : {})}
+      {...(onCopyLlmPrompt ? { onCopyLlmPrompt } : {})}
+      {...(onCopyLlmPrompt ? { copyingLlmPrompt } : {})}
       {...(onTransferEvidence ? { onTransferEvidence } : {})}
       onDownloadZip={() => void handleDownloadZip()}
       downloadingZip={downloadingZip}

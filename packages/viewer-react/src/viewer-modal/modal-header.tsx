@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { ArrowRightLeft, Copy, Pencil, X } from "lucide-react";
+import { ArrowRightLeft, Bot, Copy, Pencil, X } from "lucide-react";
 
 import type { ViewerModalProps } from "./types";
 
@@ -9,6 +9,7 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
     props.isOwner && props.shareLinkUrl === null && props.onCreateShareLink !== undefined;
   const showRename = props.onRename !== undefined;
   const showCopyEvidence = props.onCopyEvidence !== undefined;
+  const showCopyLlmPrompt = props.onCopyLlmPrompt !== undefined;
   const showTransferEvidence = props.onTransferEvidence !== undefined;
   const showDownloadZip = props.onDownloadZip !== undefined;
   const isPage = (props.mode ?? "modal") === "page";
@@ -62,6 +63,17 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
           <button type="button" className="jl-vm-btn" onClick={props.onCopyEvidence}>
             <Copy aria-hidden size={14} strokeWidth={2} />
             Copy
+          </button>
+        ) : null}
+        {showCopyLlmPrompt ? (
+          <button
+            type="button"
+            className="jl-vm-btn jl-vm-btn-primary"
+            disabled={props.copyingLlmPrompt}
+            onClick={props.onCopyLlmPrompt}
+          >
+            <Bot aria-hidden size={14} strokeWidth={2} />
+            {props.copyingLlmPrompt ? "Preparing…" : "Copy to LLM"}
           </button>
         ) : null}
         {showTransferEvidence ? (
