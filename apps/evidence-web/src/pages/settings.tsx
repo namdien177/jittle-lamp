@@ -25,6 +25,7 @@ import { ConfirmDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/misc";
+import { apiOrigin } from "../env";
 import { cn } from "../lib/cn";
 import {
 	useAccountProfile,
@@ -40,6 +41,18 @@ const INSTALL_COMMAND =
 
 const DEFAULT_AI_TOKEN_LABEL = "AI evidence debugger";
 const DEFAULT_AI_TOKEN_EXPIRY_DAYS = "90";
+
+function buildAiEvidencePrompt(token: string): string {
+	return `Use Jittle Lamp's AI evidence debugging instructions from ${apiOrigin}/llms.txt.
+
+AI access token:
+${token}
+
+When I give you an evidence link or evidence id, use that token as:
+Authorization: Bearer ${token}
+
+Fetch the evidence debug information, inspect the session archive, console, network, lifecycle events, and artifacts, then explain what is confirmed by the evidence and what is only a hypothesis.`;
+}
 
 function formatDateTime(value: number | null, fallback = "Never"): string {
 	if (!value) return fallback;
@@ -90,6 +103,7 @@ export function SettingsPage(): React.JSX.Element {
 	const activeOrg = profile?.organizations.find((org) => org.isActive) ?? null;
 	const [copied, setCopied] = useState(false);
 	const [copiedAiToken, setCopiedAiToken] = useState(false);
+	const [copiedAiPrompt, setCopiedAiPrompt] = useState(false);
 	const [aiTokenLabel, setAiTokenLabel] = useState(DEFAULT_AI_TOKEN_LABEL);
 	const [aiTokenExpiryDays, setAiTokenExpiryDays] = useState(
 		DEFAULT_AI_TOKEN_EXPIRY_DAYS,
@@ -131,6 +145,20 @@ export function SettingsPage(): React.JSX.Element {
 			);
 	};
 
+	const onCopyAiPrompt = (): void => {
+		if (!createdAiToken) return;
+		setCopiedAiPrompt(true);
+		window.setTimeout(() => setCopiedAiPrompt(false), 1800);
+		void copyToClipboard(buildAiEvidencePrompt(createdAiToken.token))
+			.then(() => toast.success("AI prompt copied"))
+			.catch((error) =>
+				toast.error(
+					"Unable to copy AI prompt",
+					error instanceof Error ? error.message : undefined,
+				),
+			);
+	};
+
 	const onCreateAiToken = (event: React.FormEvent<HTMLFormElement>): void => {
 		event.preventDefault();
 		const trimmedLabel = aiTokenLabel.trim() || DEFAULT_AI_TOKEN_LABEL;
@@ -155,6 +183,7 @@ export function SettingsPage(): React.JSX.Element {
 						token: payload.token,
 					});
 					setCopiedAiToken(false);
+					setCopiedAiPrompt(false);
 					toast.success("AI token created");
 				},
 				onError: (error) => {
@@ -175,6 +204,7 @@ export function SettingsPage(): React.JSX.Element {
 				if (createdAiToken?.id === tokenToRevoke.id) {
 					setCreatedAiToken(null);
 					setCopiedAiToken(false);
+					setCopiedAiPrompt(false);
 				}
 				setTokenToRevoke(null);
 			},
@@ -318,18 +348,32 @@ export function SettingsPage(): React.JSX.Element {
 									<code className="flex-1 truncate py-2.5 text-muted-foreground">
 										{createdAiToken.token}
 									</code>
-									<button
-										type="button"
-										onClick={onCopyAiToken}
-										className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
-									>
-										{copiedAiToken ? (
-											<Check className="size-3.5 text-primary" aria-hidden />
-										) : (
-											<Copy className="size-3.5" aria-hidden />
-										)}
-										{copiedAiToken ? "Copied" : "Copy"}
-									</button>
+									<div className="my-1 flex shrink-0 items-center gap-1">
+										<button
+											type="button"
+											onClick={onCopyAiPrompt}
+											className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+										>
+											{copiedAiPrompt ? (
+												<Check className="size-3.5" aria-hidden />
+											) : (
+												<Copy className="size-3.5" aria-hidden />
+											)}
+											{copiedAiPrompt ? "Copied prompt" : "Copy prompt"}
+										</button>
+										<button
+											type="button"
+											onClick={onCopyAiToken}
+											className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+										>
+											{copiedAiToken ? (
+												<Check className="size-3.5 text-primary" aria-hidden />
+											) : (
+												<Copy className="size-3.5" aria-hidden />
+											)}
+											{copiedAiToken ? "Copied token" : "Copy token"}
+										</button>
+									</div>
 								</div>
 							</div>
 						) : null}

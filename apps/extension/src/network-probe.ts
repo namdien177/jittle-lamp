@@ -52,7 +52,7 @@ function installFetchProbe(): void {
       return Reflect.apply(originalFetch, this, arguments as unknown as unknown[]) as Promise<Response>;
     }
 
-    const requestBodyPromise = captureRequestBody(request.clone());
+    const requestBodyPromise = captureClonedRequestBody(request);
 
     try {
       const response = (await Reflect.apply(originalFetch, this, arguments as unknown as unknown[])) as Response;
@@ -181,6 +181,28 @@ function postNetworkPayload(payload: NetworkProbePayload): void {
     },
     "*"
   );
+}
+
+function captureClonedRequestBody(request: Request): Promise<NetworkProbeBody | undefined> {
+  if (request.method === "GET" || request.method === "HEAD") {
+    return Promise.resolve(undefined);
+  }
+
+  if (request.bodyUsed) {
+    return Promise.resolve({
+      disposition: "unavailable",
+      reason: "Request body is already used."
+    });
+  }
+
+  try {
+    return captureRequestBody(request.clone());
+  } catch (error: unknown) {
+    return Promise.resolve({
+      disposition: "unavailable",
+      reason: error instanceof Error ? error.message : String(error)
+    });
+  }
 }
 
 async function captureRequestBody(request: Request): Promise<NetworkProbeBody | undefined> {
