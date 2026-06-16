@@ -1,5 +1,37 @@
 import { apiOrigin } from "./env";
 
+const aiAccessTokenSecretStoragePrefix = "jittle-lamp.ai-access-token-secret.";
+
+export function cacheAiAccessTokenSecret(tokenId: string, token: string): void {
+	try {
+		window.localStorage.setItem(
+			`${aiAccessTokenSecretStoragePrefix}${tokenId}`,
+			token,
+		);
+	} catch {
+		// Clipboard prompt copy can still work for the current one-time token.
+	}
+}
+
+export function readCachedAiAccessTokenSecret(tokenId: string): string | null {
+	try {
+		const token = window.localStorage.getItem(
+			`${aiAccessTokenSecretStoragePrefix}${tokenId}`,
+		);
+		return token?.startsWith("jl_ai_") ? token : null;
+	} catch {
+		return null;
+	}
+}
+
+export function clearCachedAiAccessTokenSecret(tokenId: string): void {
+	try {
+		window.localStorage.removeItem(`${aiAccessTokenSecretStoragePrefix}${tokenId}`);
+	} catch {
+		// Nothing to clear when browser storage is unavailable.
+	}
+}
+
 export function buildAiEvidencePrompt(token: string): string {
 	return `Use Jittle Lamp's AI evidence debugging instructions from ${apiOrigin}/llms.txt.
 

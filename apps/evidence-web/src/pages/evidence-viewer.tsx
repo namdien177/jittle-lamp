@@ -1,9 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { buildTargetEvidenceLlmPrompt } from "../ai-prompt";
+import {
+  buildTargetEvidenceLlmPrompt,
+  cacheAiAccessTokenSecret,
+  readCachedAiAccessTokenSecret
+} from "../ai-prompt";
 import { useAuth } from "../auth";
-import { api, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
+import { api, type ApiAiAccessToken, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
@@ -14,6 +18,7 @@ import { RequireAuth } from "../components/workspace/require-auth";
 import { EvidenceViewerContent } from "../evidence-viewer-content";
 import {
   useAccountProfile,
+  useAiAccessTokens,
   useCopyEvidence,
   useCreateAiAccessToken,
   useCreateEvidenceComment,
@@ -28,6 +33,7 @@ import { copyToClipboard } from "../utils";
 
 const evidenceTitlePrefix = "Jittle Lamp";
 const evidenceTitleMaxLength = 80;
+const permanentAiTokenLabel = "AI evidence debugger";
 
 function formatEvidenceDocumentTitle(title: string): string {
   const trimmed = title.trim().replace(/\s+/g, " ");
@@ -37,6 +43,17 @@ function formatEvidenceDocumentTitle(title: string): string {
       ? `${trimmed.slice(0, evidenceTitleMaxLength - 1).trimEnd()}…`
       : trimmed;
   return `${evidenceTitlePrefix} | ${suffix}`;
+}
+
+function latestActivePermanentAiToken(tokens: ApiAiAccessToken[]): ApiAiAccessToken | null {
+  const now = Date.now();
+  return (
+    tokens
+      .filter((token) => token.revokedAt === null)
+      .filter((token) => token.expiresAt === null || token.expiresAt > now)
+      .filter((token) => token.expiresAt === null)
+      .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null
+  );
 }
 
 function RestrictedShareScreen({ orgName }: { orgName: string }): React.JSX.Element {
@@ -111,6 +128,7 @@ function RemoteEvidenceLoader(props: {
     ...(props.remoteEvidenceId !== undefined ? { remoteEvidenceId: props.remoteEvidenceId } : {})
   });
   const accountQuery = useAccountProfile();
+  const aiTokensQuery = useAiAccessTokens();
 
   const stableGetToken: FetchToken = useRef(() => auth.getToken()).current;
   const latestUrlsRef = useRef<{ videoReadUrl: ArtifactReadUrl; archiveReadUrl: ArtifactReadUrl } | null>(null);
@@ -272,14 +290,29 @@ function RemoteEvidenceLoader(props: {
   const copyLlmPrompt = async (): Promise<void> => {
     if (createAiToken.isPending) return;
     try {
-      const labelBase = loaded.evidence.title || loaded.session.archive.name || "Evidence debugger";
-      const payload = await createAiToken.mutateAsync({
-        label: `AI route: ${labelBase}`.slice(0, 80),
-        expiresInDays: 7
-      });
+      const tokenResult = await aiTokensQuery.refetch();
+      const latestPermanent = latestActivePermanentAiToken(tokenResult.data?.accessTokens ?? []);
+      let token = latestPermanent ? readCachedAiAccessTokenSecret(latestPermanent.id) : null;
+
+      if (!token) {
+        const confirmed = window.confirm(
+          latestPermanent
+            ? "A permanent AI token already exists, but its full secret can only be shown once and is not saved in this browser. Create a new permanent AI token for one-click LLM copy?"
+            : "Create a permanent AI token now for one-click LLM copy?",
+        );
+        if (!confirmed) return;
+
+        const payload = await createAiToken.mutateAsync({
+          label: permanentAiTokenLabel,
+          permanent: true
+        });
+        token = payload.token;
+        cacheAiAccessTokenSecret(payload.accessToken.id, payload.token);
+      }
+
       await copyToClipboard(
         buildTargetEvidenceLlmPrompt({
-          token: payload.token,
+          token,
           evidenceId: loaded.evidenceId,
           evidenceUrl: `${window.location.origin}/evidence/${encodeURIComponent(loaded.evidenceId)}`,
           title: loaded.evidence.title || loaded.session.archive.name,
@@ -344,7 +377,9 @@ function RemoteEvidenceLoader(props: {
       {...(canRenameEvidence ? { renamingEvidence: renameEvidence.isPending } : {})}
       {...(canCopyEvidence ? { onCopyEvidence: () => setWorkspaceAction("copy") } : {})}
       {...(canCopyLlmPrompt ? { onCopyLlmPrompt: () => void copyLlmPrompt() } : {})}
-      {...(canCopyLlmPrompt ? { copyingLlmPrompt: createAiToken.isPending } : {})}
+      {...(canCopyLlmPrompt
+        ? { copyingLlmPrompt: createAiToken.isPending || aiTokensQuery.isFetching }
+        : {})}
       {...(canTransferEvidence ? { onTransferEvidence: () => setWorkspaceAction("transfer") } : {})}
       {...(props.viewerMode ? { viewerMode: props.viewerMode } : {})}
     />

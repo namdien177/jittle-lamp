@@ -15,7 +15,11 @@ import type React from "react";
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { buildAiEvidencePrompt } from "../ai-prompt";
+import {
+	buildAiEvidencePrompt,
+	cacheAiAccessTokenSecret,
+	clearCachedAiAccessTokenSecret,
+} from "../ai-prompt";
 import type { ApiAiAccessToken } from "../api";
 import { useClerk } from "../auth";
 import { PageBody, PageHeader } from "../components/page";
@@ -170,6 +174,9 @@ export function SettingsPage(): React.JSX.Element {
 						id: payload.accessToken.id,
 						token: payload.token,
 					});
+					if (payload.accessToken.expiresAt === null) {
+						cacheAiAccessTokenSecret(payload.accessToken.id, payload.token);
+					}
 					setCopiedAiToken(false);
 					setCopiedAiPrompt(false);
 					toast.success("AI token created");
@@ -189,6 +196,7 @@ export function SettingsPage(): React.JSX.Element {
 		revokeAiToken.mutate(tokenToRevoke.id, {
 			onSuccess: () => {
 				toast.success("AI token revoked");
+				clearCachedAiAccessTokenSecret(tokenToRevoke.id);
 				if (createdAiToken?.id === tokenToRevoke.id) {
 					setCreatedAiToken(null);
 					setCopiedAiToken(false);
