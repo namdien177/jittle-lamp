@@ -56,6 +56,153 @@ const DEFAULT_AI_TOKEN_EXPIRY_DAYS = "90";
 const DEFAULT_API_TOKEN_LABEL = "Automation evidence uploader";
 const DEFAULT_API_TOKEN_EXPIRY_DAYS = "365";
 
+const SESSION_ARCHIVE_STANDARD = `type IsoTimestamp = string; // ISO 8601 with timezone
+type CapturePhase = "idle" | "armed" | "recording" | "processing" | "ready" | "failed";
+type NetworkSubtype =
+  | "xhr"
+  | "fetch"
+  | "document"
+  | "stylesheet"
+  | "script"
+  | "image"
+  | "font"
+  | "media"
+  | "websocket"
+  | "other";
+
+export interface SessionArchiveJson {
+  schemaVersion: 3;
+  sessionId: string; // 8-128 chars
+  name: string;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  phase: CapturePhase;
+  page: {
+    url: string;
+    title: string;
+    tabId?: number;
+  };
+  artifacts: SessionArtifact[];
+  sections: {
+    actions: ArchiveAction[];
+    console: ArchiveConsoleEntry[];
+    network: ArchiveNetworkEntry[];
+  };
+  annotations?: ArchiveAnnotation[];
+  notes?: string[];
+}
+
+export interface SessionArtifact {
+  kind: "recording.webm" | "session.archive.json";
+  relativePath: string;
+  mimeType: string;
+  bytes?: number;
+}
+
+export interface ArchiveAction {
+  id: string;
+  seq: number;
+  at: IsoTimestamp;
+  tags?: string[];
+  payload: InteractionEvent | ErrorEvent | LifecycleEvent;
+}
+
+export interface ArchiveConsoleEntry {
+  id: string;
+  seq: number;
+  at: IsoTimestamp;
+  payload: {
+    kind: "console";
+    level: "debug" | "info" | "warn" | "error";
+    message: string;
+    args?: string[];
+  };
+}
+
+export interface ArchiveNetworkEntry {
+  id: string;
+  seq: number;
+  at: IsoTimestamp;
+  subtype: NetworkSubtype;
+  payload: NetworkEvent;
+}
+
+export type InteractionEvent =
+  | { kind: "interaction"; type: "click"; selector?: string; x?: number; y?: number; target?: InteractionTarget }
+  | { kind: "interaction"; type: "input"; selector?: string; value?: string; redacted?: boolean; target?: InteractionTarget }
+  | { kind: "interaction"; type: "submit"; formSelector?: string; method?: string; action?: string }
+  | { kind: "interaction"; type: "navigation"; url: string; title?: string; referrer?: string }
+  | { kind: "interaction"; type: "keyboard"; eventType: "keydown" | "keyup"; key: string; redacted?: boolean }
+  | { kind: "interaction"; type: "selection"; selectedText: string };
+
+export interface InteractionTarget {
+  selector?: string;
+  tagName?: string;
+  dataTestId?: string;
+  id?: string;
+  name?: string;
+  role?: string | null;
+  href?: string;
+  textPreview?: string;
+}
+
+export interface NetworkEvent {
+  kind: "network";
+  method: string;
+  url: string;
+  subtype?: NetworkSubtype;
+  status?: number;
+  statusText?: string;
+  durationMs?: number;
+  requestId?: string;
+  request: {
+    headers?: NetworkHeader[];
+    body?: NetworkBody;
+  };
+  response?: {
+    headers?: NetworkHeader[];
+    body?: NetworkBody;
+  };
+  failureText?: string;
+}
+
+export interface NetworkHeader {
+  name: string;
+  value: string;
+}
+
+export interface NetworkBody {
+  disposition: "captured" | "truncated" | "omitted" | "unavailable";
+  encoding?: "utf8" | "base64";
+  mimeType?: string;
+  value?: string;
+  byteLength?: number;
+  omittedByteLength?: number;
+  reason?: string;
+}
+
+export interface ErrorEvent {
+  kind: "error";
+  message: string;
+  stack?: string;
+  source: "page" | "extension" | "runtime";
+}
+
+export interface LifecycleEvent {
+  kind: "lifecycle";
+  phase: CapturePhase;
+  detail: string;
+}
+
+export interface ArchiveAnnotation {
+  id: string;
+  kind: "merge-group";
+  memberIds: string[];
+  tags?: string[];
+  label: string;
+  createdAt: IsoTimestamp;
+}`;
+
 type TokenBase = {
 	id: string;
 	label: string;
@@ -697,6 +844,7 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 	const [apiTokenPermanent, setApiTokenPermanent] = useState(false);
 	const [copiedApiToken, setCopiedApiToken] = useState(false);
 	const [copiedCurl, setCopiedCurl] = useState(false);
+	const [copiedArchiveStandard, setCopiedArchiveStandard] = useState(false);
 	const [createdApiToken, setCreatedApiToken] = useState<{
 		id: string;
 		token: string;
@@ -736,6 +884,19 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 			.catch((error) =>
 				toast.error(
 					"Unable to copy upload command",
+					error instanceof Error ? error.message : undefined,
+				),
+			);
+	};
+
+	const onCopyArchiveStandard = (): void => {
+		setCopiedArchiveStandard(true);
+		window.setTimeout(() => setCopiedArchiveStandard(false), 1800);
+		void copyToClipboard(SESSION_ARCHIVE_STANDARD)
+			.then(() => toast.success("Archive standard copied"))
+			.catch((error) =>
+				toast.error(
+					"Unable to copy archive standard",
 					error instanceof Error ? error.message : undefined,
 				),
 			);
@@ -916,6 +1077,36 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 							<span>session.archive.json</span>
 							<span>recording.webm</span>
 						</div>
+					</div>
+
+					<div className="overflow-hidden rounded-lg border border-border bg-black/20">
+						<div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2">
+							<div className="min-w-0">
+								<div className="text-base font-semibold">
+									session.archive.json standard
+								</div>
+								<p className="text-base text-muted-foreground">
+									Validated as schemaVersion 3. Include this file with
+									recording.webm in the upload ZIP.
+								</p>
+							</div>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={onCopyArchiveStandard}
+							>
+								{copiedArchiveStandard ? (
+									<Check aria-hidden />
+								) : (
+									<Copy aria-hidden />
+								)}
+								{copiedArchiveStandard ? "Copied" : "Copy interface"}
+							</Button>
+						</div>
+						<pre className="max-h-[32rem] overflow-auto p-3 text-base leading-relaxed text-muted-foreground jl-scroll">
+							<code>{SESSION_ARCHIVE_STANDARD}</code>
+						</pre>
 					</div>
 
 					<div className="overflow-hidden rounded-lg border border-border">
