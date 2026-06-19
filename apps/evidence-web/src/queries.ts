@@ -29,6 +29,10 @@ import {
 	type OrganizationPermission,
 	type OrganizationRoleKey,
 } from "./api";
+import {
+	clearCachedAiAccessTokenSecret,
+	clearCachedInactiveAiAccessTokenSecrets,
+} from "./ai-prompt";
 import { useAuth } from "./auth";
 import { type LoadedSession, loadRemoteSessionArtifacts } from "./loader";
 
@@ -153,7 +157,11 @@ export function useAiAccessTokens() {
 	const getToken = useAuthToken();
 	return useQuery<{ accessTokens: ApiAiAccessToken[] }>({
 		queryKey: queryKeys.aiAccessTokens(),
-		queryFn: () => api.listAiAccessTokens(getToken),
+		queryFn: async () => {
+			const data = await api.listAiAccessTokens(getToken);
+			clearCachedInactiveAiAccessTokenSecrets(data.accessTokens);
+			return data;
+		},
 		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
 	});
 }
@@ -189,6 +197,7 @@ export function useRevokeAiAccessToken() {
 	return useMutation({
 		mutationFn: (tokenId: string) => api.revokeAiAccessToken(getToken, tokenId),
 		onSuccess: (data) => {
+			clearCachedAiAccessTokenSecret(data.accessToken.id);
 			queryClient.setQueryData<{ accessTokens: ApiAiAccessToken[] }>(
 				queryKeys.aiAccessTokens(),
 				(current) => ({

@@ -1,8 +1,24 @@
 import { apiOrigin } from "./env";
 
 const aiAccessTokenSecretStoragePrefix = "jittle-lamp.ai-access-token-secret.";
+const aiAccessTokenSecretMemoryCache = new Map<string, string>();
+
+type AiAccessTokenCacheSummary = {
+	id: string;
+	createdAt: number;
+	expiresAt: number | null;
+	revokedAt: number | null;
+};
+
+function isActiveAiAccessToken(
+	token: AiAccessTokenCacheSummary,
+	now = Date.now(),
+): boolean {
+	return token.revokedAt === null && (token.expiresAt === null || token.expiresAt > now);
+}
 
 export function cacheAiAccessTokenSecret(tokenId: string, token: string): void {
+	aiAccessTokenSecretMemoryCache.set(tokenId, token);
 	try {
 		window.localStorage.setItem(
 			`${aiAccessTokenSecretStoragePrefix}${tokenId}`,
@@ -14,6 +30,8 @@ export function cacheAiAccessTokenSecret(tokenId: string, token: string): void {
 }
 
 export function readCachedAiAccessTokenSecret(tokenId: string): string | null {
+	const memoryToken = aiAccessTokenSecretMemoryCache.get(tokenId);
+	if (memoryToken?.startsWith("jl_ai_")) return memoryToken;
 	try {
 		const token = window.localStorage.getItem(
 			`${aiAccessTokenSecretStoragePrefix}${tokenId}`,
@@ -25,11 +43,39 @@ export function readCachedAiAccessTokenSecret(tokenId: string): string | null {
 }
 
 export function clearCachedAiAccessTokenSecret(tokenId: string): void {
+	aiAccessTokenSecretMemoryCache.delete(tokenId);
 	try {
 		window.localStorage.removeItem(`${aiAccessTokenSecretStoragePrefix}${tokenId}`);
 	} catch {
 		// Nothing to clear when browser storage is unavailable.
 	}
+}
+
+export function clearCachedInactiveAiAccessTokenSecrets(
+	tokens: AiAccessTokenCacheSummary[],
+	now = Date.now(),
+): void {
+	for (const token of tokens) {
+		if (!isActiveAiAccessToken(token, now)) {
+			clearCachedAiAccessTokenSecret(token.id);
+		}
+	}
+}
+
+export function readCachedActivePermanentAiAccessTokenSecret(
+	tokens: AiAccessTokenCacheSummary[],
+	now = Date.now(),
+): string | null {
+	const activePermanentTokens = tokens
+		.filter((token) => token.expiresAt === null && isActiveAiAccessToken(token, now))
+		.sort((left, right) => right.createdAt - left.createdAt);
+
+	for (const token of activePermanentTokens) {
+		const cachedSecret = readCachedAiAccessTokenSecret(token.id);
+		if (cachedSecret) return cachedSecret;
+	}
+
+	return null;
 }
 
 export function buildAiEvidencePrompt(token: string): string {

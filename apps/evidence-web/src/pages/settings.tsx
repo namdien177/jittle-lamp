@@ -213,7 +213,12 @@ export function SettingsPage(): React.JSX.Element {
 		});
 	};
 
-	const aiTokens = aiTokensQuery.data?.accessTokens ?? [];
+	const now = Date.now();
+	const aiTokens = (aiTokensQuery.data?.accessTokens ?? []).filter(
+		(token) =>
+			token.revokedAt === null &&
+			(token.expiresAt === null || token.expiresAt > now),
+	);
 
 	return (
 		<>

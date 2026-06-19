@@ -4,7 +4,8 @@ import { useNavigate, useParams } from "react-router";
 import {
   buildTargetEvidenceLlmPrompt,
   cacheAiAccessTokenSecret,
-  readCachedAiAccessTokenSecret
+  clearCachedInactiveAiAccessTokenSecrets,
+  readCachedActivePermanentAiAccessTokenSecret
 } from "../ai-prompt";
 import { useAuth } from "../auth";
 import { api, type ApiAiAccessToken, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
@@ -291,8 +292,10 @@ function RemoteEvidenceLoader(props: {
     if (createAiToken.isPending) return;
     try {
       const tokenResult = await aiTokensQuery.refetch();
-      const latestPermanent = latestActivePermanentAiToken(tokenResult.data?.accessTokens ?? []);
-      let token = latestPermanent ? readCachedAiAccessTokenSecret(latestPermanent.id) : null;
+      const accessTokens = tokenResult.data?.accessTokens ?? [];
+      clearCachedInactiveAiAccessTokenSecrets(accessTokens);
+      const latestPermanent = latestActivePermanentAiToken(accessTokens);
+      let token = readCachedActivePermanentAiAccessTokenSecret(accessTokens);
 
       if (!token) {
         const confirmed = window.confirm(
