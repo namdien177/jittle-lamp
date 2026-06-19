@@ -24,6 +24,7 @@
         "@clerk/backend": "3.2.13",
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "latest",
+        "@jittle-lamp/shared": "workspace:*",
         "@libsql/client": "0.17.2",
         "drizzle-orm": "0.45.2",
         "elysia": "1.4.28",
