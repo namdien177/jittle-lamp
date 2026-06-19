@@ -151,6 +151,21 @@ export function SettingsPage(): React.JSX.Element {
 			);
 	};
 
+	const onCopyListedAiToken = (token: ApiAiAccessToken): void => {
+		if (!token.token) {
+			toast.error("Token secret is not available", "Create a new token to show it here.");
+			return;
+		}
+		void copyToClipboard(token.token)
+			.then(() => toast.success("AI token copied"))
+			.catch((error) =>
+				toast.error(
+					"Unable to copy AI token",
+					error instanceof Error ? error.message : undefined,
+				),
+			);
+	};
+
 	const onCreateAiToken = (event: React.FormEvent<HTMLFormElement>): void => {
 		event.preventDefault();
 		const trimmedLabel = aiTokenLabel.trim() || DEFAULT_AI_TOKEN_LABEL;
@@ -287,7 +302,7 @@ export function SettingsPage(): React.JSX.Element {
 
 				<SettingCard
 					title="AI access tokens"
-					description="External evidence debugging."
+					description="External evidence debugging. Anyone with a token can fetch allowed evidence sessions, including captured request data."
 				>
 					<div className="flex flex-col gap-5">
 						<form
@@ -345,6 +360,10 @@ export function SettingsPage(): React.JSX.Element {
 									<ShieldCheck className="size-4 text-primary" aria-hidden />
 									Copy this token now
 								</div>
+								<p className="mb-2 text-base text-muted-foreground">
+									Treat this as sensitive. An LLM or user with this token can load the
+									evidence session and inspect captured data.
+								</p>
 								<div className="flex items-center gap-2 overflow-hidden rounded-md border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
 									<code className="flex-1 truncate py-2.5 text-muted-foreground">
 										{createdAiToken.token}
@@ -425,11 +444,19 @@ export function SettingsPage(): React.JSX.Element {
 																		? "Used"
 																		: "New"}
 														</Badge>
+														<Badge variant="outline">
+															{token.tokenVersion}
+														</Badge>
 													</div>
 													<div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-base text-muted-foreground">
-														<span className="inline-flex items-center gap-1.5 font-mono">
+														<span
+															className="inline-flex min-w-0 items-center gap-1.5 font-mono"
+															title={token.token ?? formatTokenPrefix(token.tokenPrefix)}
+														>
 															<KeyRound className="size-3.5" aria-hidden />
-															{formatTokenPrefix(token.tokenPrefix)}
+															<span className="break-all">
+																{token.token ?? formatTokenPrefix(token.tokenPrefix)}
+															</span>
 														</span>
 														<span className="inline-flex items-center gap-1.5">
 															<CalendarClock className="size-3.5" aria-hidden />
@@ -439,8 +466,21 @@ export function SettingsPage(): React.JSX.Element {
 															Last used {formatDateTime(token.lastUsedAt)}
 														</span>
 													</div>
+													<p className="mt-2 text-base text-muted-foreground">
+														Anyone with this token can fetch the evidence session and
+														inspect captured data.
+													</p>
 												</div>
-												<div className="flex items-center justify-end">
+												<div className="flex items-center justify-end gap-2">
+													<Button
+														variant="outline"
+														size="sm"
+														disabled={!token.token}
+														onClick={() => onCopyListedAiToken(token)}
+													>
+														<Copy aria-hidden />
+														Copy
+													</Button>
 													<Button
 														variant="destructive"
 														size="sm"

@@ -193,6 +193,8 @@ export type ApiAccountProfile = {
 export type ApiAiAccessToken = {
 	id: string;
 	label: string;
+	token: string | null;
+	tokenVersion: "v1" | "v2";
 	tokenPrefix: string;
 	scopes: string[];
 	createdAt: number;

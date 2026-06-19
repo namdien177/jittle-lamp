@@ -11,6 +11,8 @@ import type { BackendDb } from "./user-provisioning";
 export const AI_ACCESS_TOKEN_SCOPE = "evidence:debug";
 export const AI_ACCESS_TOKEN_USAGE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
 const AI_ACCESS_TOKEN_PREFIX = "jl_ai_";
+export const AI_ACCESS_TOKEN_VERSION_V1 = "v1";
+export const AI_ACCESS_TOKEN_VERSION_V2 = "v2";
 
 export type VerifiedAiAccessToken = {
 	id: string;
@@ -52,7 +54,6 @@ export const createAiAccessToken = async (
 	},
 ) => {
 	const token = createAiAccessTokenSecret();
-	const tokenHash = await sha256Hex(token);
 	const now = Date.now();
 	const scopes = Array.from(
 		new Set(input.scopes?.length ? input.scopes : [AI_ACCESS_TOKEN_SCOPE]),
@@ -63,7 +64,8 @@ export const createAiAccessToken = async (
 		.values({
 			userId: input.userId,
 			label: input.label,
-			tokenHash,
+			tokenSecret: token,
+			tokenVersion: AI_ACCESS_TOKEN_VERSION_V2,
 			tokenPrefix: token.slice(0, 14),
 			scopes,
 			createdAt: now,
@@ -73,6 +75,8 @@ export const createAiAccessToken = async (
 			id: aiAccessTokens.id,
 			userId: aiAccessTokens.userId,
 			label: aiAccessTokens.label,
+			tokenSecret: aiAccessTokens.tokenSecret,
+			tokenVersion: aiAccessTokens.tokenVersion,
 			tokenPrefix: aiAccessTokens.tokenPrefix,
 			scopes: aiAccessTokens.scopes,
 			createdAt: aiAccessTokens.createdAt,
@@ -88,8 +92,17 @@ export const createAiAccessToken = async (
 	return {
 		token,
 		accessToken: {
-			...created,
+			id: created.id,
+			userId: created.userId,
+			label: created.label,
+			token,
+			tokenVersion: AI_ACCESS_TOKEN_VERSION_V2 as "v2",
+			tokenPrefix: created.tokenPrefix,
 			scopes: parseScopes(created.scopes),
+			createdAt: created.createdAt,
+			expiresAt: created.expiresAt,
+			lastUsedAt: created.lastUsedAt,
+			revokedAt: created.revokedAt,
 		},
 	};
 };
@@ -102,11 +115,11 @@ export const verifyAiAccessToken = async (
 		return null;
 	}
 
-	const tokenHash = await sha256Hex(token);
 	const now = Date.now();
-	const row = await db.query.aiAccessTokens.findFirst({
+	let row = await db.query.aiAccessTokens.findFirst({
 		where: and(
-			eq(aiAccessTokens.tokenHash, tokenHash),
+			eq(aiAccessTokens.tokenSecret, token),
+			eq(aiAccessTokens.tokenVersion, AI_ACCESS_TOKEN_VERSION_V2),
 			isNull(aiAccessTokens.revokedAt),
 			or(isNull(aiAccessTokens.expiresAt), gt(aiAccessTokens.expiresAt, now)),
 		),
@@ -118,6 +131,24 @@ export const verifyAiAccessToken = async (
 			expiresAt: true,
 		},
 	});
+	if (!row) {
+		const tokenHash = await sha256Hex(token);
+		row = await db.query.aiAccessTokens.findFirst({
+			where: and(
+				eq(aiAccessTokens.tokenHash, tokenHash),
+				eq(aiAccessTokens.tokenVersion, AI_ACCESS_TOKEN_VERSION_V1),
+				isNull(aiAccessTokens.revokedAt),
+				or(isNull(aiAccessTokens.expiresAt), gt(aiAccessTokens.expiresAt, now)),
+			),
+			columns: {
+				id: true,
+				userId: true,
+				label: true,
+				scopes: true,
+				expiresAt: true,
+			},
+		});
+	}
 	if (!row) {
 		return null;
 	}

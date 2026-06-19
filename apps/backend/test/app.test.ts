@@ -2336,6 +2336,8 @@ describe("routes", () => {
 			accessToken: {
 				id: string;
 				label: string;
+				token: string;
+				tokenVersion: "v1" | "v2";
 				tokenPrefix: string;
 				scopes: string[];
 				expiresAt: number | null;
@@ -2344,17 +2346,75 @@ describe("routes", () => {
 		expect(issuePayload.token).toStartWith("jl_ai_");
 		expect(issuePayload.accessToken).toMatchObject({
 			label: "Cursor evidence check",
+			token: issuePayload.token,
+			tokenVersion: "v2",
 			scopes: ["evidence:debug"],
 			expiresAt: null,
 		});
 
 		const storedToken = await db.query.aiAccessTokens.findFirst({
 			where: eq(aiAccessTokens.id, issuePayload.accessToken.id),
-			columns: { tokenHash: true, tokenPrefix: true, lastUsedAt: true },
+			columns: {
+				tokenHash: true,
+				tokenSecret: true,
+				tokenVersion: true,
+				tokenPrefix: true,
+				lastUsedAt: true,
+			},
 		});
-		expect(storedToken?.tokenHash).not.toBe(issuePayload.token);
+		expect(storedToken?.tokenHash).toBeNull();
+		expect(storedToken?.tokenSecret).toBe(issuePayload.token);
+		expect(storedToken?.tokenVersion).toBe("v2");
 		expect(storedToken?.tokenPrefix).toBe(issuePayload.accessToken.tokenPrefix);
 		expect(storedToken?.lastUsedAt).toBeNull();
+
+		const listResponse = await app.handle(
+			new Request("http://localhost/ai/access-tokens", {
+				headers: { authorization: `Bearer ${clerkToken}` },
+			}),
+		);
+		expect(listResponse.status).toBe(200);
+		const listPayload = (await listResponse.json()) as {
+			accessTokens: Array<{
+				id: string;
+				token: string | null;
+				tokenVersion: "v1" | "v2";
+			}>;
+		};
+		const listedV2Token = listPayload.accessTokens.find(
+			(token) => token.id === issuePayload.accessToken.id,
+		);
+		expect(listedV2Token?.token).toBe(issuePayload.token);
+		expect(listedV2Token?.tokenVersion).toBe("v2");
+
+		const legacyToken = "jl_ai_legacy_hash_only_token";
+		const [legacyRow] = await db
+			.insert(aiAccessTokens)
+			.values({
+				userId: provisioned.userId,
+				label: "Legacy hash-only token",
+				tokenHash: await sha256Hex(legacyToken),
+				tokenVersion: "v1",
+				tokenPrefix: legacyToken.slice(0, 14),
+				scopes: "evidence:debug",
+				createdAt: Date.now(),
+				expiresAt: null,
+			})
+			.returning({ id: aiAccessTokens.id });
+		if (!legacyRow) {
+			throw new Error("Expected legacy AI token row to be created");
+		}
+
+		const legacyDebugResponse = await app.handle(
+			new Request(`http://localhost/ai/evidences/${evidence.id}/debug`, {
+				headers: { authorization: `Bearer ${legacyToken}` },
+			}),
+		);
+		expect(legacyDebugResponse.status).toBe(200);
+		const legacyDebugPayload = (await legacyDebugResponse.json()) as {
+			access: { tokenId: string };
+		};
+		expect(legacyDebugPayload.access.tokenId).toBe(legacyRow.id);
 
 		await db.insert(aiAccessTokenUsageLogs).values({
 			tokenId: issuePayload.accessToken.id,

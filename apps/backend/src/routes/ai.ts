@@ -51,6 +51,8 @@ const evidenceDebugQuerySchema = t.Object({
 const aiAccessTokenSummarySchema = t.Object({
 	id: t.String({ minLength: 1 }),
 	label: t.String({ minLength: 1 }),
+	token: t.Union([t.String({ minLength: 1 }), t.Null()]),
+	tokenVersion: t.Union([t.Literal("v1"), t.Literal("v2")]),
 	tokenPrefix: t.String({ minLength: 1 }),
 	scopes: t.Array(t.String({ minLength: 1 })),
 	createdAt: t.Number(),
@@ -159,6 +161,9 @@ const parseScopes = (value: string): string[] =>
 		.map((scope) => scope.trim())
 		.filter(Boolean);
 
+const normalizeAiTokenVersion = (value: string): "v1" | "v2" =>
+	value === "v2" ? "v2" : "v1";
+
 const deriveEvidenceStatus = (
 	artifacts: { uploadStatus: string }[],
 ): "ready" | "pending" =>
@@ -232,6 +237,8 @@ The response includes evidence metadata, organization metadata, desktop session 
 const mapTokenSummary = (token: {
 	id: string;
 	label: string;
+	tokenSecret: string | null;
+	tokenVersion: string;
 	tokenPrefix: string;
 	scopes: string;
 	createdAt: number;
@@ -239,8 +246,16 @@ const mapTokenSummary = (token: {
 	lastUsedAt: number | null;
 	revokedAt: number | null;
 }) => ({
-	...token,
+	id: token.id,
+	label: token.label,
+	token: token.tokenSecret,
+	tokenVersion: normalizeAiTokenVersion(token.tokenVersion),
+	tokenPrefix: token.tokenPrefix,
 	scopes: parseScopes(token.scopes),
+	createdAt: token.createdAt,
+	expiresAt: token.expiresAt,
+	lastUsedAt: token.lastUsedAt,
+	revokedAt: token.revokedAt,
 });
 
 export const createAiRoutes = (auth: ClerkAuthPlugin) =>
@@ -328,6 +343,8 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 							columns: {
 								id: true,
 								label: true,
+								tokenSecret: true,
+								tokenVersion: true,
 								tokenPrefix: true,
 								scopes: true,
 								createdAt: true,

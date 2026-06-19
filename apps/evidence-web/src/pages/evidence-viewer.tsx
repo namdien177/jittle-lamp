@@ -57,6 +57,10 @@ function latestActivePermanentAiToken(tokens: ApiAiAccessToken[]): ApiAiAccessTo
   );
 }
 
+function latestVisiblePermanentAiTokenSecret(tokens: ApiAiAccessToken[]): string | null {
+  return latestActivePermanentAiToken(tokens.filter((token) => token.token !== null))?.token ?? null;
+}
+
 function RestrictedShareScreen({ orgName }: { orgName: string }): React.JSX.Element {
   const navigate = useNavigate();
   return (
@@ -294,22 +298,16 @@ function RemoteEvidenceLoader(props: {
       const tokenResult = await aiTokensQuery.refetch();
       const accessTokens = tokenResult.data?.accessTokens ?? [];
       clearCachedInactiveAiAccessTokenSecrets(accessTokens);
-      const latestPermanent = latestActivePermanentAiToken(accessTokens);
-      let token = readCachedActivePermanentAiAccessTokenSecret(accessTokens);
+      let token =
+        latestVisiblePermanentAiTokenSecret(accessTokens) ??
+        readCachedActivePermanentAiAccessTokenSecret(accessTokens);
 
       if (!token) {
-        const confirmed = window.confirm(
-          latestPermanent
-            ? "A permanent AI token already exists, but its full secret can only be shown once and is not saved in this browser. Create a new permanent AI token for one-click LLM copy?"
-            : "Create a permanent AI token now for one-click LLM copy?",
-        );
-        if (!confirmed) return;
-
         const payload = await createAiToken.mutateAsync({
           label: permanentAiTokenLabel,
           permanent: true
         });
-        token = payload.token;
+        token = payload.accessToken.token ?? payload.token;
         cacheAiAccessTokenSecret(payload.accessToken.id, payload.token);
       }
 

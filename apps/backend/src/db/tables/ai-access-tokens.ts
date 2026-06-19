@@ -20,7 +20,9 @@ export const aiAccessTokens = sqliteTable(
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
 		label: text("label").notNull(),
-		tokenHash: text("token_hash").notNull(),
+		tokenHash: text("token_hash"),
+		tokenSecret: text("token_secret"),
+		tokenVersion: text("token_version").notNull().default("v1"),
 		tokenPrefix: text("token_prefix").notNull(),
 		scopes: text("scopes").notNull().default("evidence:debug"),
 		createdAt: integer("created_at")
@@ -43,4 +45,5 @@ export const createAiAccessTokenInputSchema = z.object({
 	label: z.string().trim().min(1).max(80),
 	expiresAt: z.number().int().nullable().optional(),
 	scopes: z.string().trim().min(1).optional(),
+	tokenVersion: z.enum(["v1", "v2"]).optional(),
 });

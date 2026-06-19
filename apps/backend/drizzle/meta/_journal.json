@@ -127,6 +127,13 @@
       "when": 1781601000000,
       "tag": "0017_ai_access_token_usage_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781860800000,
+      "tag": "0018_visible_ai_access_tokens",
+      "breakpoints": true
     }
   ]
 }
