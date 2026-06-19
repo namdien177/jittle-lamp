@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
-import { Link, NavLink } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 
 import {
 	buildAiEvidencePrompt,
@@ -115,6 +115,46 @@ function SettingCard(props: {
 	);
 }
 
+function SettingsSectionNav(): React.JSX.Element {
+	const tabs = [
+		{ to: "/settings", label: "Overview", icon: UserCog },
+		{ to: "/settings/ai-tokens", label: "AI tokens", icon: Bot },
+		{ to: "/settings/api-tokens", label: "API tokens", icon: UploadCloud },
+	];
+
+	return (
+		<nav
+			aria-label="Settings"
+			className="rounded-lg border border-border bg-card p-2"
+		>
+			<div className="mb-2 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+				Settings
+			</div>
+			<div className="grid gap-1">
+				{tabs.map((tab) => {
+					const Icon = tab.icon;
+					return (
+						<NavLink
+							key={tab.to}
+							to={tab.to}
+							end={tab.to === "/settings"}
+							className={({ isActive }) =>
+								cn(
+									"flex items-center gap-2 rounded-md px-3 py-2 text-base font-medium text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground",
+									isActive && "bg-secondary text-foreground",
+								)
+							}
+						>
+							<Icon className="size-4" aria-hidden />
+							<span>{tab.label}</span>
+						</NavLink>
+					);
+				})}
+			</div>
+		</nav>
+	);
+}
+
 function TokenWarning(props: { children: React.ReactNode }): React.JSX.Element {
 	return (
 		<div className="flex gap-3 rounded-lg border border-warning/35 bg-warning/10 p-3 text-base text-muted-foreground">
@@ -198,62 +238,25 @@ function TokenSecret(props: {
 	);
 }
 
-function SettingsTabs(): React.JSX.Element {
-	const tabs = [
-		{
-			to: "/settings",
-			label: "Overview",
-			description: "Account and companion",
-			icon: UserCog,
-		},
-		{
-			to: "/settings/ai-tokens",
-			label: "AI tokens",
-			description: "LLM evidence debug",
-			icon: Bot,
-		},
-		{
-			to: "/settings/api-tokens",
-			label: "API tokens",
-			description: "Automation upload",
-			icon: UploadCloud,
-		},
-	];
+export function SettingsPage(): React.JSX.Element {
 	return (
-		<SettingCard title="Settings pages" description="Choose a page.">
-			<div className="grid gap-2 sm:grid-cols-3">
-				{tabs.map((tab) => {
-					const Icon = tab.icon;
-					return (
-						<NavLink
-							key={tab.to}
-							to={tab.to}
-							className={({ isActive }) =>
-								cn(
-									buttonVariants({
-										variant: isActive ? "secondary" : "ghost",
-										size: "md",
-									}),
-									"h-auto justify-start px-3 py-3 text-left",
-								)
-							}
-						>
-							<Icon aria-hidden />
-							<span className="min-w-0">
-								<span className="block font-semibold">{tab.label}</span>
-								<span className="block text-base font-normal text-muted-foreground">
-									{tab.description}
-								</span>
-							</span>
-						</NavLink>
-					);
-				})}
-			</div>
-		</SettingCard>
+		<>
+			<PageHeader eyebrow="Workspace" title="Settings" />
+			<PageBody className="max-w-5xl">
+				<div className="grid gap-5 lg:grid-cols-[14rem_minmax(0,1fr)]">
+					<aside className="lg:sticky lg:top-6 lg:self-start">
+						<SettingsSectionNav />
+					</aside>
+					<div className="min-w-0">
+						<Outlet />
+					</div>
+				</div>
+			</PageBody>
+		</>
 	);
 }
 
-export function SettingsPage(): React.JSX.Element {
+export function SettingsOverviewPage(): React.JSX.Element {
 	const clerk = useClerk();
 	const profileQuery = useAccountProfile();
 	const profile = profileQuery.data ?? null;
@@ -275,112 +278,104 @@ export function SettingsPage(): React.JSX.Element {
 	};
 
 	return (
-		<>
-			<PageHeader eyebrow="Workspace" title="Settings" />
-			<PageBody className="max-w-3xl">
-				<SettingCard title="Account">
-					{profileQuery.isPending ? (
-						<Skeleton className="h-12 w-full" />
-					) : (
-						<div className="flex items-center gap-3">
-							{profile?.user.imageUrl ? (
-								<img
-									src={profile.user.imageUrl}
-									alt=""
-									className="size-11 rounded-lg border border-border object-cover"
-								/>
-							) : (
-								<span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-base font-semibold">
-									{initials}
-								</span>
-							)}
-							<div className="min-w-0 flex-1">
-								<p className="truncate text-base font-semibold text-foreground">
-									{profile?.user.displayName ?? "Signed in"}
-								</p>
-								<p className="truncate text-base text-muted-foreground">
-									{profile?.user.email ?? "-"}
-								</p>
-							</div>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => clerk.openUserProfile()}
-							>
-								<UserCog aria-hidden />
-								Manage account
-							</Button>
-						</div>
-					)}
-				</SettingCard>
-
-				<SettingCard title="Active workspace" description="Upload target.">
+		<div className="grid gap-4">
+			<SettingCard title="Account">
+				{profileQuery.isPending ? (
+					<Skeleton className="h-12 w-full" />
+				) : (
 					<div className="flex items-center gap-3">
-						<span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-primary">
-							<Building2 className="size-5" aria-hidden />
-						</span>
+						{profile?.user.imageUrl ? (
+							<img
+								src={profile.user.imageUrl}
+								alt=""
+								className="size-11 rounded-lg border border-border object-cover"
+							/>
+						) : (
+							<span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-base font-semibold">
+								{initials}
+							</span>
+						)}
 						<div className="min-w-0 flex-1">
 							<p className="truncate text-base font-semibold text-foreground">
-								{activeOrg?.name ?? "No active workspace"}
+								{profile?.user.displayName ?? "Signed in"}
 							</p>
-							<p className="text-base text-muted-foreground">
-								{profile
-									? `${profile.organizations.length} organisation${profile.organizations.length === 1 ? "" : "s"}`
-									: "-"}
+							<p className="truncate text-base text-muted-foreground">
+								{profile?.user.email ?? "-"}
 							</p>
 						</div>
-						{activeOrg ? <Badge variant="brand">{activeOrg.role}</Badge> : null}
-						<Link
-							to="/organisations"
-							className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => clerk.openUserProfile()}
 						>
-							Switch
-						</Link>
+							<UserCog aria-hidden />
+							Manage account
+						</Button>
 					</div>
-				</SettingCard>
+				)}
+			</SettingCard>
 
-				<SettingsTabs />
-
-				<SettingCard
-					title="Desktop companion"
-					description="Local capture bridge."
-				>
-					<div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
-						<Terminal aria-hidden className="size-4 shrink-0 text-primary" />
-						<code
-							className="flex-1 truncate py-2.5 text-muted-foreground"
-							title={INSTALL_COMMAND}
-						>
-							curl ... | bash
-						</code>
-						<button
-							type="button"
-							onClick={onCopy}
-							className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
-						>
-							{copied ? (
-								<Check className="size-3.5 text-primary" aria-hidden />
-							) : (
-								<Copy className="size-3.5" aria-hidden />
-							)}
-							{copied ? "Copied" : "Copy"}
-						</button>
+			<SettingCard title="Active workspace" description="Upload target.">
+				<div className="flex items-center gap-3">
+					<span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-primary">
+						<Building2 className="size-5" aria-hidden />
+					</span>
+					<div className="min-w-0 flex-1">
+						<p className="truncate text-base font-semibold text-foreground">
+							{activeOrg?.name ?? "No active workspace"}
+						</p>
+						<p className="text-base text-muted-foreground">
+							{profile
+								? `${profile.organizations.length} organisation${profile.organizations.length === 1 ? "" : "s"}`
+								: "-"}
+						</p>
 					</div>
-					<a
-						href="https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh"
-						target="_blank"
-						rel="noreferrer"
-						className={cn(
-							buttonVariants({ variant: "ghost", size: "sm" }),
-							"mt-3",
-						)}
+					{activeOrg ? <Badge variant="brand">{activeOrg.role}</Badge> : null}
+					<Link
+						to="/organisations"
+						className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
 					>
-						Get the browser extension
-						<ExternalLink aria-hidden />
-					</a>
-				</SettingCard>
-			</PageBody>
-		</>
+						Switch
+					</Link>
+				</div>
+			</SettingCard>
+
+			<SettingCard
+				title="Desktop companion"
+				description="Local capture bridge."
+			>
+				<div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
+					<Terminal aria-hidden className="size-4 shrink-0 text-primary" />
+					<code
+						className="flex-1 truncate py-2.5 text-muted-foreground"
+						title={INSTALL_COMMAND}
+					>
+						curl ... | bash
+					</code>
+					<button
+						type="button"
+						onClick={onCopy}
+						className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+					>
+						{copied ? (
+							<Check className="size-3.5 text-primary" aria-hidden />
+						) : (
+							<Copy className="size-3.5" aria-hidden />
+						)}
+						{copied ? "Copied" : "Copy"}
+					</button>
+				</div>
+				<a
+					href="https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh"
+					target="_blank"
+					rel="noreferrer"
+					className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "mt-3")}
+				>
+					Get the browser extension
+					<ExternalLink aria-hidden />
+				</a>
+			</SettingCard>
+		</div>
 	);
 }
 
@@ -516,18 +511,15 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 
 	return (
 		<>
-			<PageHeader eyebrow="Workspace" title="AI tokens" />
-			<PageBody className="max-w-3xl">
-				<SettingsTabs />
-				<SettingCard
-					title="AI access tokens"
-					description="Use with LLM evidence debug tools."
-				>
-					<div className="flex flex-col gap-5">
-						<TokenWarning>
-							An LLM or user with this token can load the evidence session and
-							inspect captured request data.
-						</TokenWarning>
+			<SettingCard
+				title="AI access tokens"
+				description="Use with LLM evidence debug tools."
+			>
+				<div className="flex flex-col gap-5">
+					<TokenWarning>
+						An LLM or user with this token can load the evidence session and
+						inspect captured request data.
+					</TokenWarning>
 
 					<form
 						className="grid gap-3 md:grid-cols-[minmax(0,1fr)_8rem_auto]"
@@ -663,9 +655,8 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 							</div>
 						)}
 					</div>
-					</div>
-				</SettingCard>
-			</PageBody>
+				</div>
+			</SettingCard>
 			<ConfirmDialog
 				open={Boolean(tokenToRevoke)}
 				title="Revoke AI token"
@@ -826,19 +817,16 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 
 	return (
 		<>
-			<PageHeader eyebrow="Workspace" title="API tokens" />
-			<PageBody className="max-w-3xl">
-				<SettingsTabs />
-				<SettingCard
-					title="API tokens"
-					description="Use from CLI or external automation to upload evidence ZIP files."
-				>
-					<div className="flex flex-col gap-5">
-						<TokenWarning>
-							This token can create evidence in the active workspace. Uploaded ZIPs
-							must be 20 MB or less and contain only the standard archive and video
-							files.
-						</TokenWarning>
+			<SettingCard
+				title="API tokens"
+				description="Use from CLI or external automation to upload evidence ZIP files."
+			>
+				<div className="flex flex-col gap-5">
+					<TokenWarning>
+						This token can create evidence in the active workspace. Uploaded ZIPs
+						must be 20 MB or less and contain only the standard archive and video
+						files.
+					</TokenWarning>
 
 					<form
 						className="grid gap-3 md:grid-cols-[minmax(0,1fr)_8rem_auto]"
@@ -991,9 +979,8 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 							</div>
 						)}
 					</div>
-					</div>
-				</SettingCard>
-			</PageBody>
+				</div>
+			</SettingCard>
 			<ConfirmDialog
 				open={Boolean(tokenToRevoke)}
 				title="Revoke API token"
