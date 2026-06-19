@@ -134,6 +134,13 @@
       "when": 1781860800000,
       "tag": "0018_visible_ai_access_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781865000000,
+      "tag": "0019_automation_api_tokens",
+      "breakpoints": true
     }
   ]
 }

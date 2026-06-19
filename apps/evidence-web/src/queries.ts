@@ -8,7 +8,9 @@ import {
 	type ApiAccountProfile,
 	type ApiActivityLog,
 	type ApiAiAccessToken,
+	type ApiAutomationApiToken,
 	type ApiCreateAiAccessTokenResponse,
+	type ApiCreateAutomationApiTokenResponse,
 	type ApiCreatedInvitationCode,
 	type ApiEvidenceComment,
 	type ApiEvidenceListResponse,
@@ -65,6 +67,7 @@ export function createQueryClient(): QueryClient {
 export const queryKeys = {
 	accountProfile: () => ["account-profile"] as const,
 	aiAccessTokens: () => ["ai-access-tokens"] as const,
+	automationApiTokens: () => ["automation-api-tokens"] as const,
 	organizations: () => ["organizations"] as const,
 	organizationMembers: (
 		orgId: string,
@@ -205,6 +208,64 @@ export function useRevokeAiAccessToken() {
 						current?.accessTokens.map((token) =>
 							token.id === data.accessToken.id
 								? { ...token, revokedAt: data.accessToken.revokedAt }
+								: token,
+						) ?? [],
+				}),
+			);
+		},
+	});
+}
+
+export function useAutomationApiTokens() {
+	const auth = useAuth();
+	const getToken = useAuthToken();
+	return useQuery<{ apiTokens: ApiAutomationApiToken[] }>({
+		queryKey: queryKeys.automationApiTokens(),
+		queryFn: () => api.listAutomationApiTokens(getToken),
+		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
+	});
+}
+
+export function useCreateAutomationApiToken() {
+	const getToken = useAuthToken();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: {
+			label?: string;
+			orgId?: string;
+			expiresInDays?: number;
+			permanent?: boolean;
+		}) => api.createAutomationApiToken(getToken, input),
+		onSuccess: (data: ApiCreateAutomationApiTokenResponse) => {
+			queryClient.setQueryData<{ apiTokens: ApiAutomationApiToken[] }>(
+				queryKeys.automationApiTokens(),
+				(current) => ({
+					apiTokens: [
+						data.apiToken,
+						...(current?.apiTokens.filter(
+							(token) => token.id !== data.apiToken.id,
+						) ?? []),
+					],
+				}),
+			);
+		},
+	});
+}
+
+export function useRevokeAutomationApiToken() {
+	const getToken = useAuthToken();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (tokenId: string) =>
+			api.revokeAutomationApiToken(getToken, tokenId),
+		onSuccess: (data) => {
+			queryClient.setQueryData<{ apiTokens: ApiAutomationApiToken[] }>(
+				queryKeys.automationApiTokens(),
+				(current) => ({
+					apiTokens:
+						current?.apiTokens.map((token) =>
+							token.id === data.apiToken.id
+								? { ...token, revokedAt: data.apiToken.revokedAt }
 								: token,
 						) ?? [],
 				}),

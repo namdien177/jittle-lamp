@@ -208,6 +208,24 @@ export type ApiCreateAiAccessTokenResponse = {
 	token: string;
 };
 
+export type ApiAutomationApiToken = {
+	id: string;
+	orgId: string;
+	label: string;
+	token: string | null;
+	tokenPrefix: string;
+	scopes: string[];
+	createdAt: number;
+	expiresAt: number | null;
+	lastUsedAt: number | null;
+	revokedAt: number | null;
+};
+
+export type ApiCreateAutomationApiTokenResponse = {
+	apiToken: ApiAutomationApiToken;
+	token: string;
+};
+
 export type EvidenceArtifact = {
 	id: string;
 	evidenceId: string;
@@ -554,6 +572,37 @@ export const api = {
 		authedFetch<{ accessToken: { id: string; revokedAt: number } }>(
 			getToken,
 			`/ai/access-tokens/${encodeURIComponent(tokenId)}`,
+			{ method: "DELETE" },
+		),
+
+	listAutomationApiTokens: (getToken: FetchToken) =>
+		authedFetch<{ apiTokens: ApiAutomationApiToken[] }>(
+			getToken,
+			"/automation/api-tokens",
+		),
+
+	createAutomationApiToken: (
+		getToken: FetchToken,
+		body: {
+			label?: string;
+			orgId?: string;
+			expiresInDays?: number;
+			permanent?: boolean;
+		},
+	) =>
+		authedFetch<ApiCreateAutomationApiTokenResponse>(
+			getToken,
+			"/automation/api-tokens",
+			{
+				method: "POST",
+				body: JSON.stringify(body),
+			},
+		),
+
+	revokeAutomationApiToken: (getToken: FetchToken, tokenId: string) =>
+		authedFetch<{ apiToken: { id: string; revokedAt: number } }>(
+			getToken,
+			`/automation/api-tokens/${encodeURIComponent(tokenId)}`,
 			{ method: "DELETE" },
 		),
 

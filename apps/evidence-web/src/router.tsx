@@ -33,7 +33,7 @@ import {
 import { PrivacyPage } from "./pages/privacy";
 import { QuickViewPage } from "./pages/quick-view";
 import { RouteError } from "./pages/route-error";
-import { SettingsPage } from "./pages/settings";
+import { SettingsAiTokensPage, SettingsApiTokensPage, SettingsPage } from "./pages/settings";
 
 /** Thin progress bar shown during route transitions. */
 function GlobalPendingBar(): React.JSX.Element | null {
@@ -134,7 +134,9 @@ export const router = createBrowserRouter([
               { path: "options", element: <OrgOptionsTab /> }
             ]
           },
-          { path: "settings", element: <SettingsPage /> }
+          { path: "settings", element: <SettingsPage /> },
+          { path: "settings/ai-tokens", element: <SettingsAiTokensPage /> },
+          { path: "settings/api-tokens", element: <SettingsApiTokensPage /> }
         ]
       },
 

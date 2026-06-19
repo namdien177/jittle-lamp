@@ -8,6 +8,10 @@ export {
 	createAiAccessTokenInputSchema,
 } from "./tables/ai-access-tokens";
 export {
+	automationApiTokens,
+	createAutomationApiTokenInputSchema,
+} from "./tables/automation-api-tokens";
+export {
 	createDesktopAuthFlowInputSchema,
 	desktopAuthFlowStatusSchema,
 	desktopAuthFlows,

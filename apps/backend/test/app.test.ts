@@ -1,7 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { fileURLToPath } from "node:url";
+import {
+	createSessionArchive,
+	createSessionDraft,
+	recordingFileName,
+	sessionArchiveFileName,
+} from "@jittle-lamp/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { migrate } from "drizzle-orm/libsql/migrator";
+import { strToU8, zipSync } from "fflate";
 import { exportSPKI, generateKeyPair, SignJWT } from "jose";
 
 import { createApp } from "../src/app";
@@ -10,6 +17,7 @@ import { createDb } from "../src/db";
 import {
 	aiAccessTokens,
 	aiAccessTokenUsageLogs,
+	automationApiTokens,
 	desktopAuthFlows,
 	desktopRecordingSessions,
 	deviceSessions,
@@ -59,6 +67,42 @@ const sha256Hex = async (value: string): Promise<string> => {
 		.map((part) => part.toString(16).padStart(2, "0"))
 		.join("");
 };
+
+const createAutomationEvidenceZip = (
+	sessionId = "jl_automation_upload_001",
+) => {
+	const now = new Date("2024-06-01T12:00:00.000Z");
+	const draft = createSessionDraft({
+		page: { title: "Automation Upload", url: "https://example.com" },
+		now,
+	});
+	const archive = createSessionArchive({
+		...draft,
+		sessionId,
+		name: "Automation Upload",
+		phase: "ready",
+		createdAt: now.toISOString(),
+		updatedAt: now.toISOString(),
+		events: [
+			{
+				at: now.toISOString(),
+				payload: {
+					kind: "lifecycle",
+					phase: "ready",
+					detail: "Automation test completed.",
+				},
+			},
+		],
+	});
+
+	return zipSync({
+		[sessionArchiveFileName]: strToU8(JSON.stringify(archive)),
+		[recordingFileName]: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+	});
+};
+
+const bytesBody = (bytes: Uint8Array): ArrayBuffer =>
+	Uint8Array.from(bytes).buffer;
 
 type AuthFixture = {
 	privateKey: Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
@@ -936,6 +980,196 @@ describe("routes", () => {
 		expect(activityPayload.logs[0]?.metadata.entityUrl).toBe(
 			`/evidence/${startPayload.evidenceId}`,
 		);
+	});
+
+	it("uploads automation evidence ZIPs with API tokens", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const provisioned = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_automation_upload",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_automation_upload" },
+		});
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const clerkToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_automation_upload")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const tokenResponse = await app.handle(
+			new Request("http://localhost/automation/api-tokens", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${clerkToken}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					label: "CI evidence uploader",
+					permanent: true,
+				}),
+			}),
+		);
+		expect(tokenResponse.status).toBe(200);
+		const tokenPayload = (await tokenResponse.json()) as {
+			token: string;
+			apiToken: { id: string; orgId: string; token: string };
+		};
+		expect(tokenPayload.token).toStartWith("jl_api_");
+		expect(tokenPayload.apiToken).toMatchObject({
+			orgId: provisioned.organizationId,
+			token: tokenPayload.token,
+		});
+
+		const uploadZip = createAutomationEvidenceZip();
+		const uploadResponse = await app.handle(
+			new Request(
+				"http://localhost/automation/evidences/zip?title=CI%20Run%20Evidence",
+				{
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${tokenPayload.token}`,
+						"content-type": "application/zip",
+						"x-forwarded-for": "203.0.113.80",
+					},
+					body: bytesBody(uploadZip),
+				},
+			),
+		);
+		expect(uploadResponse.status).toBe(200);
+		const uploadPayload = (await uploadResponse.json()) as {
+			evidence: { id: string; orgId: string; title: string };
+			artifacts: Array<{ id: string; kind: string; checksum: string }>;
+			limits: { maxZipBytes: number };
+		};
+		expect(uploadPayload.evidence).toMatchObject({
+			orgId: provisioned.organizationId,
+			title: "CI Run Evidence",
+		});
+		expect(
+			uploadPayload.artifacts.map((artifact) => artifact.kind).sort(),
+		).toEqual(["network-log", "recording"]);
+		expect(uploadPayload.limits.maxZipBytes).toBe(20 * 1024 * 1024);
+
+		const createdEvidence = await db.query.evidences.findFirst({
+			where: eq(evidences.id, uploadPayload.evidence.id),
+			columns: {
+				sourceType: true,
+				sourceExternalId: true,
+				createdBy: true,
+				orgId: true,
+			},
+		});
+		expect(createdEvidence).toMatchObject({
+			sourceType: "automation-test",
+			sourceExternalId: "jl_automation_upload_001",
+			createdBy: provisioned.userId,
+			orgId: provisioned.organizationId,
+		});
+
+		const artifacts = await db.query.evidenceArtifacts.findMany({
+			where: eq(evidenceArtifacts.evidenceId, uploadPayload.evidence.id),
+			columns: { kind: true, uploadStatus: true, bytes: true },
+		});
+		expect(artifacts).toHaveLength(2);
+		expect(
+			artifacts.every((artifact) => artifact.uploadStatus === "uploaded"),
+		).toBe(true);
+		expect(artifacts.every((artifact) => artifact.bytes > 0)).toBe(true);
+
+		const storedToken = await db.query.automationApiTokens.findFirst({
+			where: eq(automationApiTokens.id, tokenPayload.apiToken.id),
+			columns: { lastUsedAt: true },
+		});
+		expect(storedToken?.lastUsedAt).toBeNumber();
+
+		const tooLargeResponse = await app.handle(
+			new Request("http://localhost/automation/evidences/zip", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${tokenPayload.token}`,
+					"content-type": "application/zip",
+					"content-length": String(20 * 1024 * 1024 + 1),
+				},
+				body: bytesBody(uploadZip),
+			}),
+		);
+		expect(tooLargeResponse.status).toBe(413);
+		await expectApiError(tooLargeResponse, {
+			code: "AUTOMATION_UPLOAD_TOO_LARGE",
+			message: "Automation evidence ZIP must be 20 MB or smaller",
+			status: 413,
+		});
+
+		const invalidZip = zipSync({
+			[sessionArchiveFileName]: strToU8("{}"),
+			[recordingFileName]: new Uint8Array([0x1a]),
+			"extra.txt": strToU8("not allowed"),
+		});
+		const invalidZipResponse = await app.handle(
+			new Request("http://localhost/automation/evidences/zip", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${tokenPayload.token}`,
+					"content-type": "application/zip",
+				},
+				body: bytesBody(invalidZip),
+			}),
+		);
+		expect(invalidZipResponse.status).toBe(400);
+		await expectApiError(invalidZipResponse, {
+			code: "AUTOMATION_UPLOAD_ZIP_INVALID",
+			message:
+				"ZIP must contain exactly session.archive.json and recording.webm at the root",
+			status: 400,
+		});
+
+		const revokeResponse = await app.handle(
+			new Request(
+				`http://localhost/automation/api-tokens/${tokenPayload.apiToken.id}`,
+				{
+					method: "DELETE",
+					headers: { authorization: `Bearer ${clerkToken}` },
+				},
+			),
+		);
+		expect(revokeResponse.status).toBe(200);
+
+		const revokedUploadResponse = await app.handle(
+			new Request("http://localhost/automation/evidences/zip", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${tokenPayload.token}`,
+					"content-type": "application/zip",
+				},
+				body: bytesBody(uploadZip),
+			}),
+		);
+		expect(revokedUploadResponse.status).toBe(401);
+		await expectApiError(revokedUploadResponse, {
+			code: "AUTOMATION_AUTH_INVALID_TOKEN",
+			message: "Invalid or expired automation API token",
+			status: 401,
+		});
 	});
 
 	it("retains organization activity logs for 60 days", async () => {

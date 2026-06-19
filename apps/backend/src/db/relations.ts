@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 
 import { aiAccessTokenUsageLogs } from "./tables/ai-access-token-usage-logs";
 import { aiAccessTokens } from "./tables/ai-access-tokens";
+import { automationApiTokens } from "./tables/automation-api-tokens";
 import { desktopRecordingSessions } from "./tables/desktop-recording-sessions";
 import { evidenceArtifacts } from "./tables/evidence-artifacts";
 import { evidenceComments } from "./tables/evidence-comments";
@@ -25,6 +26,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 	createdShareLinks: many(shareLinks),
 	aiAccessTokens: many(aiAccessTokens),
 	aiAccessTokenUsageLogs: many(aiAccessTokenUsageLogs),
+	automationApiTokens: many(automationApiTokens),
 	desktopRecordingSessions: many(desktopRecordingSessions),
 	sentInvitations: many(organizationInvitations, {
 		relationName: "invitedByUser",
@@ -50,6 +52,7 @@ export const organizationsRelations = relations(
 		roles: many(organizationRoles),
 		activityLogs: many(organizationActivityLogs),
 		desktopRecordingSessions: many(desktopRecordingSessions),
+		automationApiTokens: many(automationApiTokens),
 	}),
 );
 
@@ -73,6 +76,20 @@ export const organizationActivityLogsRelations = relations(
 		actor: one(users, {
 			fields: [organizationActivityLogs.actorUserId],
 			references: [users.id],
+		}),
+	}),
+);
+
+export const automationApiTokensRelations = relations(
+	automationApiTokens,
+	({ one }) => ({
+		user: one(users, {
+			fields: [automationApiTokens.userId],
+			references: [users.id],
+		}),
+		organization: one(organizations, {
+			fields: [automationApiTokens.orgId],
+			references: [organizations.id],
 		}),
 	}),
 );
