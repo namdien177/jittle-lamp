@@ -202,6 +202,14 @@ async function handleRequest(
       };
     }
 
+    case "jl/offscreen-pause-recording":
+      await pauseRecorder(request.sessionId);
+      return { ok: true };
+
+    case "jl/offscreen-resume-recording":
+      await resumeRecorder(request.sessionId);
+      return { ok: true };
+
     case "jl/offscreen-abort-recording":
       await stopRecorder(request.sessionId).catch(() => undefined);
       pendingCloudRetry = null;
@@ -738,6 +746,34 @@ async function stopRecorder(sessionId: string): Promise<Blob> {
     });
     void recorderState.audioContext?.close().catch(() => undefined);
   }
+}
+
+async function pauseRecorder(sessionId: string): Promise<void> {
+  const recorderState = activeRecorderState;
+
+  if (!recorderState || recorderState.sessionId !== sessionId) {
+    throw new Error("No matching offscreen recording session is active.");
+  }
+
+  if (recorderState.recorder.state === "recording") {
+    recorderState.recorder.pause();
+  }
+
+  await recorderState.audioContext?.suspend().catch(() => undefined);
+}
+
+async function resumeRecorder(sessionId: string): Promise<void> {
+  const recorderState = activeRecorderState;
+
+  if (!recorderState || recorderState.sessionId !== sessionId) {
+    throw new Error("No matching offscreen recording session is active.");
+  }
+
+  if (recorderState.recorder.state === "paused") {
+    recorderState.recorder.resume();
+  }
+
+  await recorderState.audioContext?.resume().catch(() => undefined);
 }
 
 function preferredMimeType(): string | undefined {

@@ -390,6 +390,26 @@ async function handleIncomingMessage(
           }
         });
 
+      case "jl/popup-pause-recording":
+        return queueDraftMutation(async () => {
+          try {
+            await pauseRecordingSession();
+            return buildPopupResponse(true);
+          } catch (error: unknown) {
+            return buildPopupResponse(false, errorMessage(error));
+          }
+        });
+
+      case "jl/popup-resume-recording":
+        return queueDraftMutation(async () => {
+          try {
+            await resumeRecordingSession();
+            return buildPopupResponse(true);
+          } catch (error: unknown) {
+            return buildPopupResponse(false, errorMessage(error));
+          }
+        });
+
       case "jl/popup-abort-recording":
         return queueDraftMutation(async () => {
           try {
@@ -668,7 +688,7 @@ async function stopRecordingSession(detail: string): Promise<void> {
     return;
   }
 
-  if (currentDraft.phase !== "armed" && currentDraft.phase !== "recording") {
+  if (currentDraft.phase !== "armed" && currentDraft.phase !== "recording" && currentDraft.phase !== "paused") {
     return;
   }
 
@@ -742,6 +762,67 @@ async function stopRecordingSession(detail: string): Promise<void> {
   }
 }
 
+async function pauseRecordingSession(): Promise<void> {
+  const currentDraft = await readDraft();
+
+  if (!currentDraft || currentDraft.phase !== "recording") {
+    return;
+  }
+
+  const tabId = currentDraft.page.tabId;
+
+  if (typeof tabId !== "number") {
+    throw new Error("The active session is missing its tab identifier.");
+  }
+
+  const offscreenResponse = await sendOffscreenMessage({
+    type: "jl/offscreen-pause-recording",
+    sessionId: currentDraft.sessionId
+  });
+
+  if (!offscreenResponse.ok) {
+    throw new Error(offscreenResponse.error ?? "Offscreen pause failed.");
+  }
+
+  clearPendingRecovery(tabId);
+  await clearPendingRecoveryAlarm(tabId);
+  await clearMaxRecordingDurationAlarm();
+  networkRequestsByTab.delete(tabId);
+  recentNetworkEventFingerprintsByTab.delete(tabId);
+  await saveDraft(transitionDraftPhase(currentDraft, "paused", "Paused recording from the popup."));
+  await signalContentCaptureEnded(tabId, currentDraft.sessionId);
+  await refreshFloatingWidgetState(tabId).catch(() => undefined);
+}
+
+async function resumeRecordingSession(): Promise<void> {
+  const currentDraft = await readDraft();
+
+  if (!currentDraft || currentDraft.phase !== "paused") {
+    return;
+  }
+
+  const tabId = currentDraft.page.tabId;
+
+  if (typeof tabId !== "number") {
+    throw new Error("The active session is missing its tab identifier.");
+  }
+
+  const offscreenResponse = await sendOffscreenMessage({
+    type: "jl/offscreen-resume-recording",
+    sessionId: currentDraft.sessionId
+  });
+
+  if (!offscreenResponse.ok) {
+    throw new Error(offscreenResponse.error ?? "Offscreen resume failed.");
+  }
+
+  const recordingDraft = transitionDraftPhase(currentDraft, "recording", "Resumed recording from the popup.");
+  await saveDraft(recordingDraft);
+  scheduleMaxRecordingDurationAlarm();
+  await ensureContentBridge(tabId, recordingDraft.sessionId, { injectNetworkProbe: true });
+  await refreshFloatingWidgetState(tabId).catch(() => undefined);
+}
+
 async function abortRecordingSession(): Promise<void> {
   const currentDraft = await readDraft();
 
@@ -749,7 +830,7 @@ async function abortRecordingSession(): Promise<void> {
     return;
   }
 
-  if (currentDraft.phase !== "armed" && currentDraft.phase !== "recording") {
+  if (currentDraft.phase !== "armed" && currentDraft.phase !== "recording" && currentDraft.phase !== "paused") {
     return;
   }
 
@@ -767,7 +848,7 @@ async function abortRecordingSession(): Promise<void> {
     stoppingTabIds.add(tabId);
     await signalContentCaptureEnded(tabId, currentDraft.sessionId);
     await safeDetachDebugger(tabId);
-    if (currentDraft.phase === "recording") {
+    if (currentDraft.phase === "recording" || currentDraft.phase === "paused") {
       await sendOffscreenMessage({
         type: "jl/offscreen-abort-recording",
         sessionId: currentDraft.sessionId
@@ -1002,6 +1083,10 @@ async function handleContentRuntimeMessage(
       type: message.type,
       sessionId: currentDraft.sessionId
     });
+    return;
+  }
+
+  if (currentDraft.phase !== "recording" && message.type !== "jl/content-ready") {
     return;
   }
 
@@ -3026,7 +3111,7 @@ function toPopupState(
     };
   }
 
-  const canStop = activeSession.phase === "armed" || activeSession.phase === "recording";
+  const canStop = activeSession.phase === "armed" || activeSession.phase === "recording" || activeSession.phase === "paused";
   const canStart = !isSessionBusy(activeSession);
 
   return {
@@ -3922,7 +4007,7 @@ async function requestJittleLampCloudAuthTokenInPage(
 }
 
 function isSessionBusy(draft: CaptureSessionDraft): boolean {
-  return draft.phase === "armed" || draft.phase === "recording" || draft.phase === "processing";
+  return draft.phase === "armed" || draft.phase === "recording" || draft.phase === "paused" || draft.phase === "processing";
 }
 
 function isStaleProcessingDraft(draft: CaptureSessionDraft): boolean {

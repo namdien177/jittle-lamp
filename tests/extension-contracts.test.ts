@@ -357,6 +357,28 @@ describe("extension contracts", () => {
     expect(offscreenRequest.type).toBe("jl/offscreen-abort-recording");
   });
 
+  test("parses pause and resume recording requests", () => {
+    const popupPauseRequest = popupRequestSchema.parse({
+      type: "jl/popup-pause-recording"
+    });
+    const popupResumeRequest = popupRequestSchema.parse({
+      type: "jl/popup-resume-recording"
+    });
+    const offscreenPauseRequest = offscreenRequestSchema.parse({
+      type: "jl/offscreen-pause-recording",
+      sessionId: "jl_test1234"
+    });
+    const offscreenResumeRequest = offscreenRequestSchema.parse({
+      type: "jl/offscreen-resume-recording",
+      sessionId: "jl_test1234"
+    });
+
+    expect(popupPauseRequest.type).toBe("jl/popup-pause-recording");
+    expect(popupResumeRequest.type).toBe("jl/popup-resume-recording");
+    expect(offscreenPauseRequest.type).toBe("jl/offscreen-pause-recording");
+    expect(offscreenResumeRequest.type).toBe("jl/offscreen-resume-recording");
+  });
+
   test("parses offscreen export requests with full session archives", () => {
     const draft = transitionDraftPhase(
       createSessionDraft({

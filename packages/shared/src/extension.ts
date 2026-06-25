@@ -28,6 +28,14 @@ export const popupStopRecordingRequestSchema = z.object({
   type: z.literal("jl/popup-stop-recording")
 });
 
+export const popupPauseRecordingRequestSchema = z.object({
+  type: z.literal("jl/popup-pause-recording")
+});
+
+export const popupResumeRecordingRequestSchema = z.object({
+  type: z.literal("jl/popup-resume-recording")
+});
+
 export const popupAbortRecordingRequestSchema = z.object({
   type: z.literal("jl/popup-abort-recording")
 });
@@ -57,6 +65,8 @@ export const popupRequestSchema = z.discriminatedUnion("type", [
   popupGetStateRequestSchema,
   popupStartRecordingRequestSchema,
   popupStopRecordingRequestSchema,
+  popupPauseRecordingRequestSchema,
+  popupResumeRecordingRequestSchema,
   popupAbortRecordingRequestSchema,
   popupRetryUploadRequestSchema,
   popupStartCloudSignInRequestSchema,
@@ -187,6 +197,16 @@ export const offscreenStopAndExportRequestSchema = z.object({
   cloudAuthToken: z.string().min(1).optional()
 });
 
+export const offscreenPauseRecordingRequestSchema = z.object({
+  type: z.literal("jl/offscreen-pause-recording"),
+  sessionId: sessionIdSchema
+});
+
+export const offscreenResumeRecordingRequestSchema = z.object({
+  type: z.literal("jl/offscreen-resume-recording"),
+  sessionId: sessionIdSchema
+});
+
 export const offscreenAbortRecordingRequestSchema = z.object({
   type: z.literal("jl/offscreen-abort-recording"),
   sessionId: sessionIdSchema
@@ -201,6 +221,8 @@ export const offscreenRetryCloudUploadRequestSchema = z.object({
 export const offscreenRequestSchema = z.discriminatedUnion("type", [
   offscreenStartRecordingRequestSchema,
   offscreenStopAndExportRequestSchema,
+  offscreenPauseRecordingRequestSchema,
+  offscreenResumeRecordingRequestSchema,
   offscreenAbortRecordingRequestSchema,
   offscreenRetryCloudUploadRequestSchema
 ]);

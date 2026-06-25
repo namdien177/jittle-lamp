@@ -11,6 +11,7 @@ export const capturePhaseSchema = z.enum([
   "idle",
   "armed",
   "recording",
+  "paused",
   "processing",
   "ready",
   "failed"

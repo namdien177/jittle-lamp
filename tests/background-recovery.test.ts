@@ -161,6 +161,49 @@ describe("background recovery", () => {
     ).toBeFalse();
   });
 
+  test("pauses active recordings without exporting artifacts", async () => {
+    await backgroundTest.saveDraft(createRecordingDraft());
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-pause-recording"
+    });
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(result.responded).toBeTrue();
+    expect(activeDraft?.phase).toBe("paused");
+    expect(lastLifecycleDetail(activeDraft)).toBe("Paused recording from the popup.");
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-pause-recording"))
+    ).toBeTrue();
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-stop-and-export"))
+    ).toBeFalse();
+    expect(
+      chromeHarness.tabMessages.some((entry) => entry.tabId === 7 && hasMessageType(entry.message, "jl/content-end-capture"))
+    ).toBeTrue();
+    expect(chromeHarness.clearedAlarms).toContain(backgroundTest.maxRecordingDurationAlarmName);
+  });
+
+  test("resumes paused recordings without starting a new session", async () => {
+    await backgroundTest.saveDraft(createPausedDraft());
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-resume-recording"
+    });
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(result.responded).toBeTrue();
+    expect(activeDraft?.phase).toBe("recording");
+    expect(lastLifecycleDetail(activeDraft)).toBe("Resumed recording from the popup.");
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-resume-recording"))
+    ).toBeTrue();
+    expect(
+      chromeHarness.tabMessages.some((entry) => entry.tabId === 7 && hasMessageType(entry.message, "jl/content-begin-capture"))
+    ).toBeTrue();
+    expect(chromeHarness.createdAlarms).toContain(backgroundTest.maxRecordingDurationAlarmName);
+  });
+
   test("injects the page network probe when debugger capture starts", async () => {
     chromeHarness.setTab({
       id: 7,
@@ -837,6 +880,15 @@ function createRecordingDraft(): CaptureSessionDraft {
     "recording",
     "Started active-tab recording in the offscreen document.",
     new Date("2026-01-01T00:00:01.000Z")
+  );
+}
+
+function createPausedDraft(): CaptureSessionDraft {
+  return transitionDraftPhase(
+    createRecordingDraft(),
+    "paused",
+    "Paused recording from the popup.",
+    new Date("2026-01-01T00:00:02.000Z")
   );
 }
 

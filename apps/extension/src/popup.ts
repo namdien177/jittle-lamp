@@ -30,6 +30,10 @@ const soundToggle = requireElement<HTMLInputElement>("[data-role='sound-toggle']
 const targetButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-capture-target]"));
 const startButton = requireElement<HTMLButtonElement>("[data-role='start-button']");
 const stopButton = requireElement<HTMLButtonElement>("[data-role='stop-button']");
+const pauseButton = requireElement<HTMLButtonElement>("[data-role='pause-button']");
+const pauseIcon = requireElement<SVGElement>("[data-role='pause-icon']");
+const resumeIcon = requireElement<SVGElement>("[data-role='resume-icon']");
+const pauseLabel = requireElement<HTMLSpanElement>("[data-role='pause-label']");
 const abortButton = requireElement<HTMLButtonElement>("[data-role='abort-button']");
 const draftTitleValue = requireElement<HTMLInputElement>("[data-role='draft-title-value']");
 
@@ -65,6 +69,14 @@ draftTitleValue.addEventListener("input", () => {
 
 stopButton.addEventListener("click", () => {
   void performAction("jl/popup-stop-recording");
+});
+
+pauseButton.addEventListener("click", () => {
+  void performAction(
+    pauseButton.dataset.mode === "resume"
+      ? "jl/popup-resume-recording"
+      : "jl/popup-pause-recording"
+  );
 });
 
 abortButton.addEventListener("click", () => {
@@ -125,6 +137,8 @@ async function performAction(
   type:
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
+    | "jl/popup-pause-recording"
+    | "jl/popup-resume-recording"
     | "jl/popup-abort-recording"
     | "jl/popup-retry-upload"
     | "jl/popup-open-evidence-list"
@@ -187,6 +201,8 @@ async function sendPopupMessage(
     | "jl/popup-get-state"
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
+    | "jl/popup-pause-recording"
+    | "jl/popup-resume-recording"
     | "jl/popup-abort-recording"
     | "jl/popup-retry-upload"
     | "jl/popup-open-evidence-list"
@@ -347,6 +363,9 @@ function renderState(state: PopupState, error?: string): void {
         : "Recording the active tab. Finish to download the session through Chromium."
     );
     messageValue.dataset.tone = "neutral";
+  } else if (activeSession?.phase === "paused") {
+    setStatusMessage("Recording paused. Resume to continue capture, or finish to save the session.");
+    messageValue.dataset.tone = "neutral";
   } else if (state.cloud.status === "signed-in") {
     setStatusMessage("Cloud upload ready. New stopped sessions upload directly from the extension.");
     messageValue.dataset.tone = "neutral";
@@ -367,11 +386,21 @@ function renderState(state: PopupState, error?: string): void {
   }
   syncCaptureTargetButtons();
   const isRecording = activeSession?.phase === "recording";
-  stopButton.disabled = requestInFlight || !isRecording || !state.canStop;
-  abortButton.disabled = requestInFlight || activeSession?.phase !== "recording";
+  const isPaused = activeSession?.phase === "paused";
+  const canControlRecording = isRecording || isPaused;
+  stopButton.disabled = requestInFlight || !canControlRecording || !state.canStop;
+  pauseButton.disabled = requestInFlight || !canControlRecording;
+  abortButton.disabled = requestInFlight || !canControlRecording;
   startButton.hidden = !state.canStart;
-  stopButton.hidden = !isRecording;
-  abortButton.hidden = activeSession?.phase !== "recording";
+  stopButton.hidden = !canControlRecording;
+  pauseButton.hidden = !canControlRecording;
+  abortButton.hidden = !canControlRecording;
+  pauseButton.dataset.mode = isPaused ? "resume" : "pause";
+  pauseButton.title = isPaused ? "Resume recording" : "Pause recording";
+  pauseButton.setAttribute("aria-label", pauseButton.title);
+  pauseLabel.textContent = isPaused ? "Resume recording" : "Pause recording";
+  pauseIcon.toggleAttribute("hidden", isPaused);
+  resumeIcon.toggleAttribute("hidden", !isPaused);
 }
 
 function setCaptureTarget(captureTarget: CaptureTarget): void {
@@ -399,6 +428,7 @@ function setButtonsDisabled(disabled: boolean): void {
     targetButton.disabled = disabled;
   }
   stopButton.disabled = disabled;
+  pauseButton.disabled = disabled;
   abortButton.disabled = disabled;
   cloudMenuButton.disabled = disabled;
 }
