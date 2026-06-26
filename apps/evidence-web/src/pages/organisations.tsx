@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import {
@@ -1255,17 +1255,14 @@ export function OrgRolesTab(): React.JSX.Element {
   const roles = rolesQuery.data?.roles ?? [];
   const permissions = rolesQuery.data?.permissions ?? [];
   const settingsBusy = settingsMutation.isPending;
+  // `selectedRole` already falls back to a valid role when the stored key is
+  // not present, and every consumer reads `selectedRole` (not the raw key), so
+  // no effect is needed to "heal" the key — it is derived during render.
   const selectedRole =
     roles.find((role) => role.key === selectedRoleKey) ??
     roles.find((role) => role.key !== "admin") ??
     roles[0] ??
     null;
-
-  useEffect(() => {
-    if (roles.length === 0) return;
-    if (roles.some((role) => role.key === selectedRoleKey)) return;
-    setSelectedRoleKey(roles.find((role) => role.key !== "admin")?.key ?? roles[0]!.key);
-  }, [roles, selectedRoleKey]);
 
   const togglePermission = async (
     role: OrganizationRoleKey,

@@ -6,7 +6,7 @@ export const notesStyles = `
   gap: 6px;
   padding: 10px 16px 14px;
   min-height: 0;
-  background: #0b0d0e;
+  background: var(--jl-vm-bg, #0b0d0e);
 }
 
 .jl-vm-discussion {
@@ -67,7 +67,7 @@ export const notesStyles = `
 }
 
 .jl-vm-comment-meta span {
-  color: #b6f3cf;
+  color: var(--jl-vm-accent-soft-text, #b6f3cf);
   font-weight: 600;
 }
 

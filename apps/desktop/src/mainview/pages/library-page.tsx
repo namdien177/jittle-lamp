@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Cloud, HardDrive, MoreVertical, Plus, Search, X } from "lucide-react";
 
 import type { SessionRecord } from "../../rpc";
@@ -6,6 +7,7 @@ import { api, webOrigin, type ApiEvidenceSummary } from "../api";
 import { useDesktopAuth } from "../auth-context";
 import { filterSessions, groupSessionsByDate, type DatePreset, type SessionSortKey } from "../catalog-view";
 import type { DesktopController } from "../desktop-controller";
+import { queryKeys, useEvidences } from "../queries";
 import { syncDesktopSessionToServer } from "../session-sync";
 import { ConfirmDialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
@@ -35,23 +37,9 @@ export function LibraryPage(props: { desktop: DesktopController }): React.JSX.El
   const [grouped, setGrouped] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<SessionRecord | null>(null);
   const [busyDelete, setBusyDelete] = useState(false);
-  const [remoteEvidences, setRemoteEvidences] = useState<ApiEvidenceSummary[]>([]);
-
-  useEffect(() => {
-    if (auth.state.status !== "signed-in") return;
-    let cancelled = false;
-    void api.listEvidences(auth.getToken).then(
-      (result) => {
-        if (!cancelled) setRemoteEvidences(result.evidences);
-      },
-      () => {
-        if (!cancelled) setRemoteEvidences([]);
-      }
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [auth.state.status]);
+  const queryClient = useQueryClient();
+  const { data: evidencesData } = useEvidences();
+  const remoteEvidences = useMemo(() => evidencesData?.evidences ?? [], [evidencesData]);
 
   const sessions = useMemo(() => {
     const remoteBySessionId = new Map<string, ApiEvidenceSummary>();
@@ -110,7 +98,16 @@ export function LibraryPage(props: { desktop: DesktopController }): React.JSX.El
   );
 
   const handleRemoteSynced = (evidence: ApiEvidenceSummary): void => {
-    setRemoteEvidences((previous) => [evidence, ...previous.filter((candidate) => candidate.id !== evidence.id)]);
+    queryClient.setQueryData<{ evidences: ApiEvidenceSummary[]; orgId: string }>(
+      queryKeys.evidences(),
+      (previous) => {
+        const previousEvidences = previous?.evidences ?? [];
+        return {
+          orgId: previous?.orgId ?? evidence.orgId,
+          evidences: [evidence, ...previousEvidences.filter((candidate) => candidate.id !== evidence.id)]
+        };
+      }
+    );
   };
 
   const groups = useMemo(() => groupSessionsByDate(filtered), [filtered]);

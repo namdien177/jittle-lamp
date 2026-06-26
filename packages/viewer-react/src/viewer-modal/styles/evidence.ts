@@ -4,7 +4,7 @@ export const evidenceStyles = `
   flex-direction: column;
   min-height: 0;
   flex: 1;
-  background: #0b0d0e;
+  background: var(--jl-vm-bg, #0b0d0e);
 }
 
 .jl-vm-pane-heading {
@@ -34,7 +34,7 @@ export const evidenceStyles = `
   border-radius: 999px;
   border: 1px solid rgba(34, 197, 94, 0.22);
   background: rgba(34, 197, 94, 0.1);
-  color: #b6f3cf;
+  color: var(--jl-vm-accent-soft-text, #b6f3cf);
   padding: 3px 8px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
@@ -74,6 +74,7 @@ export const evidenceStyles = `
   border-radius: 8px;
   cursor: pointer;
   letter-spacing: 0;
+  border: 1px solid transparent;
 }
 
 .jl-vm-tab:hover {
@@ -84,9 +85,7 @@ export const evidenceStyles = `
 .jl-vm-tab[data-active="true"] {
   background: var(--jl-vm-surface-3, #1f2324);
   color: var(--jl-vm-text, #efefef);
-  box-shadow:
-    inset 0 0 0 1px var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16)),
-    inset 3px 0 0 var(--jl-vm-accent, #22c55e);
+  border-color: var(--jl-vm-accent, #22c55e);
 }
 
 .jl-vm-search {
@@ -126,7 +125,7 @@ export const evidenceStyles = `
 
 .jl-vm-chip[data-active="true"] {
   border-color: rgba(34, 197, 94, 0.3);
-  color: #b6f3cf;
+  color: var(--jl-vm-accent-soft-text, #b6f3cf);
   background: rgba(34, 197, 94, 0.1);
 }
 
@@ -156,7 +155,7 @@ export const evidenceStyles = `
   padding: 8px 10px;
   background: transparent;
   border: 1px solid transparent;
-  border-bottom-color: rgba(239, 239, 239, 0.055);
+  border-bottom-color: var(--jl-vm-border, rgba(239, 239, 239, 0.055));
   border-radius: 8px;
   cursor: pointer;
   text-align: left;

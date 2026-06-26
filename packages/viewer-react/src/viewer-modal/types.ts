@@ -47,6 +47,8 @@ export type ViewerModalProps = {
   open: boolean;
   onClose: () => void;
   mode?: "modal" | "page";
+  /** Color theme for the viewer chrome. Defaults to "dark". The video well stays dark in both. */
+  theme?: "light" | "dark";
   closeLabel?: string;
 
   title: string;

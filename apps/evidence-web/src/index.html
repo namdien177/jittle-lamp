@@ -32,24 +32,31 @@
       href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Apply the persisted (or system) theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem("jl-theme");
+          var dark = stored
+            ? stored === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var root = document.documentElement;
+          root.classList.toggle("dark", dark);
+          root.dataset.theme = dark ? "dark" : "light";
+        } catch (e) {}
+      })();
+    </script>
     <link rel="stylesheet" href="/index.css" />
   </head>
   <body>
     <div id="app">
       <main class="jl-status-screen jl-status-screen-loading jl-boot-loader" aria-busy="true" aria-label="Loading Jittle Lamp">
-        <div aria-hidden="true" class="jl-status-mesh"></div>
-        <div aria-hidden="true" class="jl-status-sweep"></div>
-        <section class="jl-status-panel relative w-full max-w-[22rem] animate-rise border border-border-strong px-6 py-7 shadow-pop backdrop-blur">
+        <div class="jl-status-loading">
           <div aria-hidden="true" class="jl-modern-loader">
             <span class="jl-modern-loader-ring"></span>
-            <span class="jl-modern-loader-dot"></span>
           </div>
-          <div class="mt-5 text-center">
-            <h1 class="font-display text-xl font-semibold leading-tight tracking-tight text-foreground">
-              Loading workspace
-            </h1>
-          </div>
-        </section>
+          <h1 class="jl-status-loading-title">Loading workspace</h1>
+        </div>
       </main>
     </div>
     <script type="module" src="/app.js"></script>

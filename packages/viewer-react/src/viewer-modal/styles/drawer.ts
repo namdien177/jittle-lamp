@@ -152,7 +152,7 @@ export const drawerStyles = `
 }
 
 .jl-vm-cookie-main strong {
-  color: #b6f3cf;
+  color: var(--jl-vm-accent-soft-text, #b6f3cf);
 }
 
 .jl-vm-cookie-meta,

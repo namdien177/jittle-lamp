@@ -162,6 +162,11 @@ function initialViewState(): ViewState {
   };
 }
 
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function cloneViewerState(state: ViewerState): ViewerState {
   return {
     ...state,
@@ -185,9 +190,43 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
   const [viewerState, setViewerState] = useState<ViewerState>(() => createViewerState());
   const stateRef = useRef(state);
   const viewerStateRef = useRef(viewerState);
-  const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
   const viewerReactRootRef = useRef<HTMLDivElement | null>(null);
   const viewerVideoStateRef = useRef<ViewerVideoState>(createViewerVideoState());
+
+  // `viewerVideoRef` is a callback-ref-object: it satisfies the
+  // `React.RefObject<HTMLVideoElement | null>` contract that `ViewerModal`
+  // assigns to (it writes `ref.current = el`), but the `current` setter also
+  // attaches/detaches the diagnostic media-event listeners deterministically
+  // when the <video> element (which lives inside ViewerModal) mounts/unmounts.
+  // This replaces the previous effect keyed on `viewerState.open`, which could
+  // run before the element existed (the <video> lives in another component).
+  const viewerVideoRef = useMemo<React.RefObject<HTMLVideoElement | null>>(() => {
+    let element: HTMLVideoElement | null = null;
+    let attachedHandlers: Array<{ eventName: (typeof mediaEventNames)[number]; handler: () => void }> = [];
+    return {
+      get current(): HTMLVideoElement | null {
+        return element;
+      },
+      set current(next: HTMLVideoElement | null) {
+        if (next === element) return;
+        if (element) {
+          for (const { eventName, handler } of attachedHandlers) {
+            element.removeEventListener(eventName, handler);
+          }
+          attachedHandlers = [];
+        }
+        element = next;
+        if (element) {
+          const target = element;
+          attachedHandlers = mediaEventNames.map((eventName) => {
+            const handler = (): void => recordViewerVideoEvent(target, viewerVideoStateRef.current, eventName);
+            target.addEventListener(eventName, handler);
+            return { eventName, handler };
+          });
+        }
+      }
+    };
+  }, []);
   const contextTargetIdRef = useRef<string | null>(null);
   const hasReportedViewerBootRef = useRef(false);
   const isAutoScrollingRef = useRef(false);
@@ -393,13 +432,13 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
             bridge.rpc.request.listSessions(undefined).catch((): SessionRecord[] => stateRef.current.sessions),
             bridge.rpc.request.listAllTags(undefined).catch((): string[] => stateRef.current.allTags)
           ]);
-          patchState((previous) => ({
-            ...previous,
-            runtime,
-            update,
-            sessions,
-            allTags
-          }));
+          const current = stateRef.current;
+          const changed: Partial<ViewState> = {};
+          if (!deepEqual(current.runtime, runtime)) changed.runtime = runtime;
+          if (!deepEqual(current.update, update)) changed.update = update;
+          if (!deepEqual(current.sessions, sessions)) changed.sessions = sessions;
+          if (!deepEqual(current.allTags, allTags)) changed.allTags = allTags;
+          if (Object.keys(changed).length > 0) patchState(changed);
         } catch {
           // ignored — periodic poll
         }
@@ -452,7 +491,7 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
 
   useEffect(() => {
     if (!bridge) return;
-    bridge.onContextMenuClicked(({ action }) => {
+    const unsubscribe = bridge.onContextMenuClicked(({ action }) => {
       if (action === "merge") {
         const selectedActionIds = getSelectedActionEntryIds();
         if (selectedActionIds.length < 2) {
@@ -471,24 +510,12 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
         void persistViewerReviewState("Merge removed.");
       }
     });
+    return () => unsubscribe();
   }, [bridge]);
 
-  useEffect(() => {
-    const video = viewerVideoRef.current;
-    if (!video) return;
-
-    const handlers = mediaEventNames.map((eventName) => {
-      const handler = (): void => recordViewerVideoEvent(video, viewerVideoStateRef.current, eventName);
-      video.addEventListener(eventName, handler);
-      return { eventName, handler };
-    });
-
-    return () => {
-      for (const { eventName, handler } of handlers) {
-        video.removeEventListener(eventName, handler);
-      }
-    };
-  }, [viewerState.open]);
+  // Media-event listeners are attached/detached by the `viewerVideoRef`
+  // callback-ref-object above, deterministically when the <video> element
+  // mounts/unmounts, so no `viewerState.open`-keyed effect is needed here.
 
   useEffect(() => {
     const payload = viewerState.payload;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   ArrowRightLeft,
@@ -190,14 +190,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     return list;
   }, [evidences, memberNameById, search, typeFilter]);
 
-  useEffect(() => {
-    const evidenceIds = new Set(evidences.map((evidence) => evidence.id));
-    setSelectedIds((previous) => {
-      const next = new Set([...previous].filter((id) => evidenceIds.has(id)));
-      return next.size === previous.size ? previous : next;
-    });
-  }, [evidences]);
-
+  // `selectedIds` is the raw user selection; everywhere it is consumed it is
+  // intersected with the current `evidences` (see `selectedEvidences` below and
+  // the bulk handlers), so stale ids are filtered at read time — no syncing
+  // effect needed. Bulk-delete prunes the set on success.
   const selectedEvidences = useMemo(
     () => evidences.filter((evidence) => selectedIds.has(evidence.id)),
     [evidences, selectedIds],
@@ -621,9 +617,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
 
         {loading ? (
           view === "grid" ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} className="h-36 w-full" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                <Skeleton key={i} className="aspect-[4/3] w-full" />
               ))}
             </div>
           ) : (
@@ -659,7 +655,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             }
           />
         ) : view === "grid" ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {filtered.map((evidence) => (
               <Card
                 key={evidence.id}
@@ -671,7 +667,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               >
                 <div className="relative">
                   <label
-                    className="absolute left-2 top-2 z-10 inline-flex shrink-0 items-center rounded-md bg-foreground/55 p-1 text-background opacity-0 transition-opacity group-hover:opacity-100 has-[:checked]:opacity-100"
+                    className="absolute left-1.5 top-1.5 z-10 inline-flex shrink-0 items-center rounded-md bg-foreground/55 p-1 text-background opacity-0 transition-opacity group-hover:opacity-100 has-[:checked]:opacity-100"
                     aria-label={`Select ${evidence.title}`}
                   >
                     <input
@@ -692,58 +688,56 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
                     }
                     className="block w-full"
+                    aria-label={`Review ${evidence.title}`}
                   >
                     <EvidenceThumbnail
                       evidence={evidence}
-                      className="aspect-[16/10] w-full rounded-none border-0"
+                      className="aspect-video w-full rounded-none border-0"
                     />
                   </button>
                   {evidence.status === "pending" ? (
-                    <Badge variant="muted" className="absolute left-2 bottom-2">
+                    <Badge variant="muted" className="absolute bottom-1.5 left-1.5">
                       Pending
                     </Badge>
                   ) : null}
-                  <span className="absolute bottom-2 right-2 rounded-md bg-foreground/70 px-1.5 py-0.5 font-mono text-xs text-background">
+                  <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded bg-foreground/70 px-1.5 py-0.5 font-mono text-[10px] text-background">
                     {formatRelativeTime(evidence.createdAt)}
                   </span>
-                </div>
-                <div className="absolute right-2 top-2">
-                  {actions(
-                    evidence,
-                    downloadingId === evidence.id,
-                    deletingId === evidence.id,
-                  )}
+                  <div className="absolute right-1.5 top-1.5">
+                    {actions(
+                      evidence,
+                      downloadingId === evidence.id,
+                      deletingId === evidence.id,
+                    )}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() =>
                     navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
                   }
-                  className="min-w-0 px-4 pt-3 text-left"
+                  className="min-w-0 px-3 pt-2.5 text-left"
                 >
-                  <span className="block truncate font-display text-base font-bold text-foreground group-hover:text-primary">
+                  <span className="block truncate text-sm font-semibold text-foreground group-hover:text-primary">
                     {evidence.title}
                   </span>
-                  <span className="mt-0.5 block truncate font-mono text-muted-foreground">
-                    {evidence.id.slice(0, 18)}…
-                  </span>
-                  <span className="mt-1 block truncate text-sm text-muted-foreground">
-                    Recorded by{" "}
-                    {memberNameById.get(evidence.createdBy) ??
-                      evidence.createdBy}
-                  </span>
-                </button>
-                <div className="mt-auto flex items-center justify-between gap-2 px-4 pt-2">
-                  <div className="flex min-w-0 flex-wrap gap-1.5">
-                    <Badge variant="muted" className="capitalize">
+                  <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Badge
+                      variant="muted"
+                      className="shrink-0 px-1.5 py-0 text-[10px] capitalize"
+                    >
                       {evidence.sourceType}
                     </Badge>
-                  </div>
-                </div>
-                <div className="flex gap-2 p-4 pt-3">
+                    <span className="truncate">
+                      {memberNameById.get(evidence.createdBy) ??
+                        evidence.createdBy}
+                    </span>
+                  </span>
+                </button>
+                <div className="mt-auto flex items-center gap-2 px-3 pb-3 pt-2.5">
                   <Button
                     size="sm"
-                    className="flex-1"
+                    className="h-8 flex-1"
                     onClick={() =>
                       navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
                     }
@@ -754,10 +748,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   <Button
                     size="sm"
                     variant="outline"
+                    className="h-8 px-2.5"
+                    aria-label={`Share ${evidence.title}`}
                     onClick={() => setShareTarget(evidence)}
                   >
                     <Share2 aria-hidden />
-                    Share
                   </Button>
                 </div>
               </Card>
