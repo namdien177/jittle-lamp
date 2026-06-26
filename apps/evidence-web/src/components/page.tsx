@@ -13,21 +13,21 @@ export function PageHeader(props: {
   return (
     <header
       className={cn(
-        "flex flex-col gap-4 border-b border-border px-5 py-6 sm:flex-row sm:items-start sm:justify-between sm:px-8",
+        "mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
         props.className,
       )}
     >
-      <div className="min-w-0 space-y-1.5">
+      <div className="min-w-0 space-y-2">
         {props.eyebrow ? (
-          <p className="font-mono font-semibold uppercase tracking-[0.12em] text-primary">
+          <p className="jl-eyebrow">
             {props.eyebrow}
           </p>
         ) : null}
-        <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+        <h1>
           {props.title}
         </h1>
         {props.description ? (
-          <p className="max-w-2xl text-base text-muted-foreground">
+          <p className="jl-lead max-w-2xl">
             {props.description}
           </p>
         ) : null}
@@ -48,7 +48,7 @@ export function PageBody(props: {
   return (
     <div
       className={cn(
-        "flex flex-1 flex-col gap-5 px-5 py-6 sm:px-8",
+        "flex w-full flex-1 flex-col gap-5",
         props.className,
       )}
     >
@@ -76,7 +76,7 @@ export function PageTabs(props: {
           end={item.end ?? false}
           className={({ isActive }) =>
             cn(
-              "-mb-px border-b-2 px-3 py-2.5 text-base font-medium transition-colors",
+              "-mb-px border-b-2 px-3 py-2.5 text-base font-semibold transition-colors",
               isActive
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",

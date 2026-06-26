@@ -53,7 +53,7 @@ export function TableRow({
   return (
     <tr
       className={cn(
-        "transition-colors hover:bg-white/[0.025] data-[active=true]:bg-primary/[0.06]",
+        "transition-colors hover:bg-muted data-[active=true]:bg-primary/[0.08]",
         className,
       )}
       {...props}
@@ -68,7 +68,7 @@ export function TableHead({
   return (
     <th
       className={cn(
-        "h-11 px-4 text-left align-middle font-semibold uppercase tracking-[0.06em] text-muted-foreground",
+        "h-11 px-4 text-left align-middle font-mono text-xs font-semibold uppercase text-muted-foreground",
         className,
       )}
       {...props}

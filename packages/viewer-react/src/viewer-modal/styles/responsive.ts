@@ -32,7 +32,20 @@ export const responsiveStyles = `
   }
   .jl-vm-left {
     border-right: 0;
-    border-bottom: 1px solid var(--border, #30363d);
+    border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
+  }
+
+  .jl-vm-tabs-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .jl-vm-row[data-kind="network"] {
+    grid-template-columns: 46px 48px minmax(0, 1fr) 38px;
+  }
+
+  .jl-vm-row[data-kind="network"] .jl-vm-row-duration {
+    display: none;
   }
 
   .jl-vm-video-controls {

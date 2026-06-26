@@ -1,0 +1,163 @@
+/* ============================================================
+ * jittle-lamp web redesign — shared design tokens
+ * Cursor design system (active). Paste verbatim into :root.
+ * Never redefine these values inline.
+ * ============================================================ */
+
+:root {
+  /* ─── Surface (3 levels) ─────────────────────────────────────── */
+  --bg: #f2f1ed;                    /* warm off-white canvas */
+  --surface: #e6e5e0;               /* card / lifted */
+  --surface-warm: #ebeae5;          /* button default */
+  --surface-100: #f7f7f4;           /* lightest tier */
+  --surface-500: #e1e0db;           /* deepest tier */
+
+  /* ─── Foreground ramp (4 levels) ─────────────────────────────── */
+  --fg: #26251e;                    /* warm near-black */
+  --fg-2: rgba(38, 37, 30, 0.9);
+  --muted: rgba(38, 37, 30, 0.55);
+  --meta: rgba(38, 37, 30, 0.4);
+
+  /* ─── Border (2 levels) ──────────────────────────────────────── */
+  --border: rgba(38, 37, 30, 0.1);
+  --border-soft: rgba(38, 37, 30, 0.06);
+  --border-strong: rgba(38, 37, 30, 0.55);
+
+  /* ─── Accent (brand green — restored from original app) ────── */
+  --accent: #22c55e;
+  --accent-strong: #16a34a;
+  --accent-on: #06120a;
+  --accent-hover: color-mix(in oklab, var(--accent), black 8%);
+  --accent-active: color-mix(in oklab, var(--accent), black 14%);
+  --accent-dim: rgba(34, 197, 94, 0.12);
+  --accent-soft: rgba(34, 197, 94, 0.16);
+  --accent-fade: rgba(34, 197, 94, 0.08);
+
+  /* ─── Semantic ───────────────────────────────────────────────── */
+  --success: #1f8a65;
+  --warn: #eab308;
+  --danger: #cf2d56;
+
+  /* ─── Timeline / feature colors ──────────────────────────────── */
+  --c-thinking: #dfa88f;
+  --c-grep: #9fc9a2;
+  --c-read: #9fbbe0;
+  --c-edit: #c0a8dd;
+
+  /* ─── Typography ─────────────────────────────────────────────── */
+  --font-display: "CursorGothic", "CursorGothic Fallback", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body: "jjannon", "Iowan Old Style", "Palatino Linotype", "URW Palladio L", P052, ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono: "berkeleyMono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+  /* Type scale */
+  --text-xs: 11px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 19.2px;
+  --text-xl: 22px;
+  --text-2xl: 26px;
+  --text-3xl: 36px;
+  --text-4xl: 72px;
+
+  /* Leading + tracking */
+  --leading-body: 1.5;
+  --leading-tight: 1.10;
+  --tracking-display: -0.03em;
+
+  /* ─── Spacing ────────────────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Section rhythm */
+  --section-y-desktop: 80px;
+  --section-y-tablet: 48px;
+  --section-y-phone: 32px;
+
+  /* ─── Radius ─────────────────────────────────────────────────── */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  /* ─── Elevation ──────────────────────────────────────────────── */
+  --elev-flat: none;
+  --elev-ring: 0 0 0 1px var(--border);
+  --elev-raised:
+    0 28px 70px rgba(0, 0, 0, 0.14),
+    0 14px 32px rgba(0, 0, 0, 0.1),
+    0 0 0 1px var(--border);
+
+  /* ─── Focus ──────────────────────────────────────────────────── */
+  --focus-ring: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+  /* ─── Motion ─────────────────────────────────────────────────── */
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --ease-standard: ease;
+
+  /* ─── Layout ─────────────────────────────────────────────────── */
+  --container-max: 1200px;
+  --container-gutter-desktop: 24px;
+  --container-gutter-tablet: 16px;
+  --container-gutter-phone: 12px;
+
+  /* ─── App shell ──────────────────────────────────────────────── */
+  --sidebar-w: 248px;
+  --sidebar-w-collapsed: 64px;
+  --topbar-h: 56px;
+}
+
+/* ============================================================
+ * Dark mode — chalkcoal black with green accent
+ * Activated via [data-theme="dark"] on <html>
+ * ============================================================ */
+[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --surface: #131313;
+  --surface-warm: #181818;
+  --surface-100: #0f0f0f;
+  --surface-500: #1f1f1f;
+
+  --fg: #efefef;
+  --fg-2: rgba(239, 239, 239, 0.9);
+  --muted: rgba(239, 239, 239, 0.55);
+  --meta: rgba(239, 239, 239, 0.4);
+
+  --border: rgba(239, 239, 239, 0.1);
+  --border-soft: rgba(239, 239, 239, 0.06);
+  --border-strong: rgba(239, 239, 239, 0.55);
+
+  --accent: #22c55e;
+  --accent-strong: #16a34a;
+  --accent-on: #06120a;
+  --accent-hover: color-mix(in oklab, var(--accent), white 12%);
+  --accent-active: color-mix(in oklab, var(--accent), white 20%);
+  --accent-dim: rgba(34, 197, 94, 0.15);
+  --accent-soft: rgba(34, 197, 94, 0.2);
+  --accent-fade: rgba(34, 197, 94, 0.08);
+
+  --success: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+
+  --c-thinking: #dfa88f;
+  --c-grep: #9fc9a2;
+  --c-read: #9fbbe0;
+  --c-edit: #c0a8dd;
+
+  --elev-flat: none;
+  --elev-ring: 0 0 0 1px var(--border);
+  --elev-raised:
+    0 28px 70px rgba(0, 0, 0, 0.5),
+    0 14px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px var(--border);
+
+  --focus-ring: 0 4px 12px rgba(0, 0, 0, 0.4);
+}

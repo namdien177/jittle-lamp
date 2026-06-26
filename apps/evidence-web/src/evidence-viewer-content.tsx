@@ -378,6 +378,9 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     const isMerged = "mergedRangeText" in item && item.mergedRangeText !== undefined;
     const status = item.payload.kind === "network" ? item.payload.status ?? null : null;
     const subtype = item.kind === "network" ? item.subtype ?? null : null;
+    const method = item.payload.kind === "network" ? item.payload.method : null;
+    const url = item.payload.kind === "network" ? item.payload.url : null;
+    const durationMs = item.payload.kind === "network" ? item.payload.durationMs ?? null : null;
     const base: ViewerModalRow = {
       id: item.id,
       offsetMs: item.offsetMs,
@@ -388,7 +391,10 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       merged: Boolean(isMerged),
       tags: item.tags ?? [],
       statusCode: status,
-      subtype
+      subtype,
+      method,
+      url,
+      durationMs
     };
     return isMerged && item.mergedRangeText !== undefined
       ? { ...base, mergedRange: item.mergedRangeText }

@@ -4,7 +4,10 @@ import {
   ArrowRight,
   Check,
   Copy,
+  Download,
   ExternalLink,
+  FileArchive,
+  MessageSquare,
   Network,
   PlayCircle,
   ShieldCheck,
@@ -30,7 +33,7 @@ function CopyInstall(): React.JSX.Element {
     void copyToClipboard(INSTALL_COMMAND).catch(() => undefined);
   };
   return (
-    <div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border-strong bg-black/40 pl-3 pr-1.5 font-mono text-base">
+    <div className="flex items-center gap-2 overflow-hidden rounded-md border border-border-strong bg-muted pl-3 pr-1.5 font-mono text-base">
       <Terminal aria-hidden className="size-4 shrink-0 text-primary" />
       <code
         className="flex-1 truncate py-2.5 text-muted-foreground"
@@ -41,7 +44,7 @@ function CopyInstall(): React.JSX.Element {
       <button
         type="button"
         onClick={onCopy}
-        className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+        className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-muted"
       >
         {copied ? (
           <Check className="size-3.5 text-primary" aria-hidden />
@@ -80,6 +83,43 @@ const STEPS: Array<{
   },
 ];
 
+const FEATURES: Array<{
+  title: string;
+  body: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    title: "Record",
+    body: "Capture video, clicks, inputs, navigation, console logs, and network requests in one run.",
+    icon: <PlayCircle aria-hidden />,
+  },
+  {
+    title: "Review",
+    body: "Scrub the video with actions, logs, and requests lined up on the same clock.",
+    icon: <Network aria-hidden />,
+  },
+  {
+    title: "Discuss",
+    body: "Keep comments and notes attached to the evidence, not lost in chat history.",
+    icon: <MessageSquare aria-hidden />,
+  },
+  {
+    title: "Export",
+    body: "Download a reviewed ZIP with the same archive, recording, and merge annotations.",
+    icon: <FileArchive aria-hidden />,
+  },
+  {
+    title: "Share",
+    body: "Create scoped share links for the people who need to inspect the proof.",
+    icon: <ShieldCheck aria-hidden />,
+  },
+  {
+    title: "Automate",
+    body: "Upload evidence from CI and test runners through API tokens.",
+    icon: <Download aria-hidden />,
+  },
+];
+
 export function LandingPage(): React.JSX.Element {
   const navigate = useNavigate();
   return (
@@ -88,35 +128,26 @@ export function LandingPage(): React.JSX.Element {
         aria-hidden
         className="pointer-events-none absolute inset-0 grid-backdrop opacity-[0.5]"
       />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-40 left-1/2 h-[70vh] w-[80vw] max-w-5xl -translate-x-1/2 rounded-full bg-primary/10 blur-[140px]"
-      />
       <div className="relative">
         <PublicTopbar />
 
         <main className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          {/* Hero */}
-          <section className="grid items-center gap-12 py-16 sm:py-24 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="animate-rise space-y-7">
-              <Badge variant="brand" className="px-2.5 py-1">
-                <span className="size-1.5 rounded-full bg-primary" /> Evidence
-                when bugs happen
+          <section className="py-16 text-center sm:py-20">
+            <div className="mx-auto max-w-3xl animate-rise space-y-6">
+              <Badge variant="brand" className="mx-auto px-2.5 py-1">
+                <span className="size-1.5 rounded-full bg-primary" />
+                QA evidence tool
               </Badge>
-              <h1 className="font-display text-5xl font-extrabold leading-[0.95] tracking-tight text-foreground sm:text-6xl lg:text-7xl">
-                Capture the bug.
-                <br />
-                <span className="text-primary">Prove the fix.</span>
+              <h1 className="font-display text-5xl font-extrabold leading-none text-foreground sm:text-6xl lg:text-7xl">
+                Capture. Review. Prove.
               </h1>
-              <p className="max-w-xl text-lg leading-relaxed text-muted-foreground">
-                Jittle Lamp turns a flaky browser moment into a shareable trail
-                — screen recording, timeline, console, and network requests
-                bundled into one piece of evidence your whole QA team can
-                review.
+              <p className="mx-auto max-w-xl text-lg leading-relaxed text-muted-foreground">
+                Record a bug or test run with video, actions, network, and logs.
+                Then review, discuss, share, and hand it to AI or automation.
               </p>
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button size="lg" onClick={() => navigate("/quick-view")}>
-                  Open a session
+                  Try quick view
                   <ArrowRight aria-hidden />
                 </Button>
                 <Link
@@ -125,67 +156,62 @@ export function LandingPage(): React.JSX.Element {
                     buttonVariants({ variant: "outline", size: "lg" }),
                   )}
                 >
-                  Go to workspace
+                  Open dashboard
                 </Link>
-              </div>
-              <div className="max-w-2xl space-y-3 pt-2">
-                <p className="font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                  Install Jittle Lamp
-                </p>
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="min-w-0 space-y-1.5">
-                    <p className="text-base font-medium text-foreground">
-                      Desktop companion
-                    </p>
-                    <CopyInstall />
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-base font-medium text-foreground">
-                      Chrome extension
-                    </p>
-                    <a
-                      href={CHROME_EXTENSION_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={cn(
-                        buttonVariants({ variant: "primary", size: "lg" }),
-                        "w-full sm:w-auto",
-                      )}
-                    >
-                      Add to Chrome
-                      <ExternalLink aria-hidden />
-                    </a>
-                  </div>
-                </div>
               </div>
             </div>
 
-            <div className="animate-rise [animation-delay:120ms]">
+            <div className="mx-auto mt-12 max-w-5xl animate-rise [animation-delay:120ms]">
               <MockReviewer />
             </div>
           </section>
 
-          {/* How it works */}
+          <section className="py-14" id="features">
+            <div className="mb-8">
+              <p className="jl-eyebrow">What it does</p>
+              <h2 className="mt-2 font-display text-3xl font-bold">
+                One proof bundle for your whole team
+              </h2>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {FEATURES.map((feature) => (
+                <div key={feature.title} className="jl-proto-card p-6">
+                  <span className="mb-4 flex size-10 items-center justify-center rounded-md bg-secondary text-primary [&_svg]:size-5">
+                    {feature.icon}
+                  </span>
+                  <h3 className="font-display text-lg font-bold">{feature.title}</h3>
+                  <p className="mt-2 text-base leading-relaxed text-muted-foreground">
+                    {feature.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
           <section
-            className="border-t border-border py-16"
+            className="jl-page-band -mx-4 px-4 py-14 sm:-mx-6 sm:px-6"
             aria-label="How Jittle Lamp works"
           >
-            <div className="grid gap-6 md:grid-cols-3">
+            <p className="jl-eyebrow">How it works</p>
+            <h2 className="mt-2 font-display text-3xl font-bold">
+              Record to proof in minutes
+            </h2>
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
               {STEPS.map((step, i) => (
                 <div
                   key={step.n}
-                  className="animate-rise rounded-xl border border-border bg-card p-6"
+                  className="animate-rise rounded-md border border-border bg-background p-6"
                   style={{ animationDelay: `${i * 90}ms` }}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="flex size-10 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary [&_svg]:size-5">
+                    <span className="flex size-10 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary [&_svg]:size-5">
                       {step.icon}
                     </span>
                     <span className="font-mono text-base text-muted-foreground/60">
                       {step.n}
                     </span>
                   </div>
-                  <h3 className="mt-4 font-display text-lg font-semibold tracking-tight">
+                  <h3 className="mt-4 font-display text-lg font-bold">
                     {step.title}
                   </h3>
                   <p className="mt-1.5 text-base leading-relaxed text-muted-foreground">
@@ -193,6 +219,31 @@ export function LandingPage(): React.JSX.Element {
                   </p>
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section className="grid gap-4 py-14 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div>
+              <p className="jl-eyebrow">Install tools</p>
+              <h2 className="mt-2 font-display text-3xl font-bold">
+                Start from desktop or browser
+              </h2>
+              <p className="jl-lead mt-2 max-w-xl">
+                Use the desktop companion for intake and the Chrome extension
+                for capture.
+              </p>
+            </div>
+            <a
+              href={CHROME_EXTENSION_URL}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ variant: "primary", size: "lg" }))}
+            >
+              Add to Chrome
+              <ExternalLink aria-hidden />
+            </a>
+            <div className="lg:col-span-2">
+              <CopyInstall />
             </div>
           </section>
 
@@ -221,7 +272,7 @@ function MockReviewer(): React.JSX.Element {
     { t: "0:09", label: "GET /api/retry", tone: "ok" as const },
   ];
   return (
-    <div className="overflow-hidden rounded-2xl border border-border-strong bg-card shadow-pop">
+    <div className="overflow-hidden rounded-md border border-border-strong bg-card shadow-pop">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <span className="size-2.5 rounded-full bg-destructive/70" />
         <span className="size-2.5 rounded-full bg-warning/70" />
@@ -230,7 +281,7 @@ function MockReviewer(): React.JSX.Element {
           checkout-regression.webm
         </span>
       </div>
-      <div className="grid grid-cols-[1.3fr_1fr]">
+      <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_1fr]">
         <div className="relative aspect-[4/3] border-r border-border bg-[radial-gradient(circle_at_50%_40%,#15201a,#0a0b0c)]">
           <div className="absolute inset-0 grid-backdrop opacity-40" />
           <div className="absolute inset-0 grid place-items-center">

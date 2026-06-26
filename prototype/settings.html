@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings — Jittle Lamp</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+<script src="css/theme.js"></script>
+<style>
+  .settings-tabs { display: flex; gap: var(--space-1); margin-bottom: var(--space-6); border-bottom: 1px solid var(--border); }
+  .settings-tabs .tab { padding: var(--space-3) var(--space-4); font-family: var(--font-display); font-size: var(--text-sm); color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+  .settings-tabs .tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+  .settings-panel { display: none; }
+  .settings-panel.active { display: block; }
+
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+  @media (max-width: 1024px) { .settings-grid { grid-template-columns: 1fr; } }
+
+  .account-row { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-4); }
+  .account-row .acc-avatar { width: 56px; height: 56px; border-radius: var(--radius-pill); background: var(--accent); color: var(--accent-on); display: grid; place-items: center; font-size: var(--text-xl); font-family: var(--font-display); }
+  .account-row .acc-info h3 { font-size: var(--text-base); }
+  .account-row .acc-info .email { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); }
+
+  .install-block { background: var(--surface-500); border-radius: var(--radius-sm); padding: var(--space-4); }
+  .install-block .install-cmd { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg); display: flex; align-items: center; gap: var(--space-3); }
+  .install-block .install-cmd code { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .token-card { padding: var(--space-4); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-3); }
+  .token-card .tok-info { flex: 1; }
+  .token-card .tok-name { font-family: var(--font-display); font-size: var(--text-sm); color: var(--fg); }
+  .token-card .tok-meta { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); }
+  .token-card .tok-preview { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--meta); }
+
+  .warn-box { padding: var(--space-4); background: color-mix(in oklab, var(--danger), transparent 92%); border: 1px solid color-mix(in oklab, var(--danger), transparent 75%); border-radius: var(--radius-sm); margin-bottom: var(--space-4); }
+  .warn-box .warn-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .warn-box .warn-head svg { color: var(--danger); width: 16px; height: 16px; }
+  .warn-box .warn-head strong { font-family: var(--font-display); font-size: var(--text-sm); color: var(--danger); }
+  .warn-box p { font-size: var(--text-xs); color: var(--fg-2); font-family: var(--font-body); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo-mark">JL</div> Jittle Lamp</div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Workspace</div>
+      <a href="dashboard.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Dashboard</a>
+      <a href="evidence-library.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/></svg> Evidence library</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Library</div>
+      <a href="#" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Test cases <span class="pill" style="font-size:10px;padding:1px 6px;">Soon</span></a>
+      <a href="#" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Documents <span class="pill" style="font-size:10px;padding:1px 6px;">Soon</span></a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Tools</div>
+      <a href="quick-view.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Quick view</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Team</div>
+      <a href="organisations.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="8" r="3"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><circle cx="17" cy="8" r="3"/></svg> Organisations</a>
+      <a href="settings.html" class="nav-item active"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.5 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12a7 7 0 00.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.5-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6A7 7 0 0019 12z"/></svg> Settings</a>
+    </div>
+    <div class="sidebar-footer"><div class="workspace-switcher"><div class="ws-avatar">A</div><div class="ws-name">Acme QA</div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" style="color:var(--meta)"><polyline points="6 9 12 15 18 9"/></svg></div></div>
+  </aside>
+
+  <header class="topbar">
+    <div class="breadcrumb"><span>Team</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg><span class="crumb-current">Settings</span></div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-actions">
+      <button class="theme-toggle" onclick="toggleTheme()" data-tooltip="Toggle theme">
+        <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+      <a href="landing.html" class="btn btn-ghost btn-sm">Sign out</a>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="main-narrow">
+      <div style="margin-bottom:var(--space-6);"><h1>Settings</h1><p class="lead">Account, workspace, install, and tokens.</p></div>
+
+      <div class="settings-tabs">
+        <div class="tab active" onclick="settingsTab(this,'overview')">Overview</div>
+        <div class="tab" onclick="settingsTab(this,'appearance')">Appearance</div>
+        <div class="tab" onclick="settingsTab(this,'ai')">AI tokens</div>
+        <div class="tab" onclick="settingsTab(this,'api')">API tokens</div>
+      </div>
+
+      <div class="settings-panel active" id="panel-overview">
+        <div class="settings-grid">
+          <div class="card" style="padding:var(--space-6);">
+            <div class="eyebrow" style="margin-bottom:var(--space-4);">Account</div>
+            <div class="account-row">
+              <div class="acc-avatar">N</div>
+              <div class="acc-info"><h3>Nam Do</h3><div class="email">dev+clerk_test@jittlelamp.local</div></div>
+            </div>
+            <div class="field" style="margin-bottom:var(--space-4);"><label>Display name</label><input type="text" value="Nam Do"></div>
+            <div class="field"><label>Email</label><input type="email" value="dev+clerk_test@jittlelamp.local" disabled><span class="field-help">Managed by Clerk.</span></div>
+            <button class="btn btn-primary btn-sm" style="margin-top:var(--space-4);">Save changes</button>
+          </div>
+
+          <div class="card" style="padding:var(--space-6);">
+            <div class="eyebrow" style="margin-bottom:var(--space-4);">Active workspace</div>
+            <div class="account-row">
+              <div class="acc-avatar" style="background:var(--accent)">A</div>
+              <div class="acc-info"><h3>Acme QA</h3><div class="email">Admin · 5 members · 147 evidence</div></div>
+            </div>
+            <a href="organisations.html" class="btn btn-outline btn-sm" style="margin-top:var(--space-2);">Switch organisation</a>
+            <div style="margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border);">
+              <div class="eyebrow" style="margin-bottom:var(--space-2);">Extension connection</div>
+              <div style="display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-sm);"><span class="badge-dot" style="background:var(--success)"></span> Connected</div>
+              <div class="mono text-xs text-muted" style="margin-top:var(--space-1);">Companion: localhost:48115</div>
+            </div>
+          </div>
+
+          <div class="card" style="padding:var(--space-6);grid-column:1/-1;">
+            <div class="eyebrow" style="margin-bottom:var(--space-4);">Install tools</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6);">
+              <div>
+                <h3 style="margin-bottom:var(--space-2);">Desktop companion</h3>
+                <p class="body-muted text-sm" style="margin-bottom:var(--space-3);">macOS arm64 installer for capture intake and review.</p>
+                <div class="install-block"><div class="install-cmd"><code>curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash</code><button class="btn btn-ghost btn-sm" onclick="copyText(this)">Copy</button></div></div>
+              </div>
+              <div>
+                <h3 style="margin-bottom:var(--space-2);">Browser extension</h3>
+                <p class="body-muted text-sm" style="margin-bottom:var(--space-3);">Load unpacked in Chromium Developer mode.</p>
+                <a href="#" class="btn btn-outline">Download extension ZIP</a>
+                <div class="mono text-xs text-muted" style="margin-top:var(--space-3);">Requires desktop companion running on localhost:48115</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-panel" id="panel-appearance">
+        <div class="card" style="padding:var(--space-6);margin-bottom:var(--space-4);">
+          <div class="eyebrow" style="margin-bottom:var(--space-2);">Theme</div>
+          <h2 style="margin-bottom:var(--space-1);">Appearance</h2>
+          <p class="body-muted text-sm" style="margin-bottom:var(--space-5);">Choose how Jittle Lamp looks. System follows your OS preference.</p>
+          <div class="appearance-grid">
+            <div class="theme-option" data-theme="light" onclick="setTheme('light')">
+              <div class="theme-preview light"></div>
+              <div class="theme-label">Light</div>
+              <div class="theme-desc">Warm cream canvas</div>
+            </div>
+            <div class="theme-option" data-theme="dark" onclick="setTheme('dark')">
+              <div class="theme-preview dark"></div>
+              <div class="theme-label">Dark</div>
+              <div class="theme-desc">Chalkcoal black</div>
+            </div>
+            <div class="theme-option" data-theme="system" onclick="setTheme('system')">
+              <div class="theme-preview system"></div>
+              <div class="theme-label">System</div>
+              <div class="theme-desc">Follow OS</div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:var(--space-6);">
+          <div class="eyebrow" style="margin-bottom:var(--space-3);">Accent color</div>
+          <div style="display:flex;align-items:center;gap:var(--space-3);">
+            <div style="width:40px;height:40px;border-radius:var(--radius-sm);background:var(--accent);border:2px solid var(--border);"></div>
+            <div>
+              <div style="font-family:var(--font-display);font-size:var(--text-sm);color:var(--fg);">Brand green</div>
+              <div class="mono text-xs text-muted">#22c55e</div>
+            </div>
+          </div>
+          <p class="body-muted text-xs" style="margin-top:var(--space-3);">Accent color follows the Jittle Lamp extension brand. Used for primary actions, active states, and highlights.</p>
+        </div>
+      </div>
+
+      <div class="settings-panel" id="panel-ai">
+        <div class="warn-box">
+          <div class="warn-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><strong>AI tokens are powerful and risky</strong></div>
+          <p>An AI token lets an LLM fetch the full session archive — including network request bodies, headers, and cookies. Treat it like a password. Revoke immediately if leaked.</p>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4);">
+          <div><h2>AI tokens</h2><p class="body-muted text-sm">Let an LLM inspect evidence sessions for debugging.</p></div>
+          <button class="btn btn-primary btn-sm" onclick="openTokenModal('ai')">Create token</button>
+        </div>
+        <div class="card token-card">
+          <div class="tok-info"><div class="tok-name">Debug assistant</div><div class="tok-meta">Created 3d ago · last used 2h ago</div></div>
+          <span class="tok-preview">jl_ai_••••••••2f4a</span>
+          <button class="btn btn-ghost btn-sm">Copy prompt</button>
+          <button class="btn btn-danger btn-sm">Revoke</button>
+        </div>
+        <div class="card token-card">
+          <div class="tok-info"><div class="tok-name">Claude debug</div><div class="tok-meta">Created 1w ago · last used 5d ago</div></div>
+          <span class="tok-preview">jl_ai_••••••••8b1c</span>
+          <button class="btn btn-ghost btn-sm">Copy prompt</button>
+          <button class="btn btn-danger btn-sm">Revoke</button>
+        </div>
+        <div style="margin-top:var(--space-6);padding:var(--space-4);background:var(--surface-100);border-radius:var(--radius-sm);">
+          <h3 style="margin-bottom:var(--space-2);">How it works</h3>
+          <ol style="font-size:var(--text-sm);color:var(--muted);font-family:var(--font-body);padding-left:var(--space-5);line-height:1.8;">
+            <li>Create a token — shown once.</li>
+            <li>Copy the token or the full AI prompt.</li>
+            <li>The LLM can fetch evidence session data.</li>
+            <li>Use case: "Debug this evidence."</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="settings-panel" id="panel-api">
+        <div class="warn-box">
+          <div class="warn-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><strong>API tokens can upload evidence</strong></div>
+          <p>Anyone with this token can POST ZIP archives to <code class="mono">/automation/evidences/zip</code>. Max 20 MB. Required: <code class="mono">session.archive.json</code> + <code class="mono">recording.webm</code>. Source type: <code class="mono">automation-test</code>.</p>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4);">
+          <div><h2>API tokens</h2><p class="body-muted text-sm">Automate evidence upload from CI/test runners.</p></div>
+          <button class="btn btn-primary btn-sm" onclick="openTokenModal('api')">Create token</button>
+        </div>
+        <div class="card token-card">
+          <div class="tok-info"><div class="tok-name">CI runner</div><div class="tok-meta">Created 1w ago · 12 uploads</div></div>
+          <span class="tok-preview">jl_api_••••••••a3e9</span>
+          <button class="btn btn-ghost btn-sm" onclick="copyText(this)">Copy</button>
+          <button class="btn btn-danger btn-sm">Revoke</button>
+        </div>
+        <div class="card token-card">
+          <div class="tok-info"><div class="tok-name">Nightly suite</div><div class="tok-meta">Created 2w ago · 48 uploads</div></div>
+          <span class="tok-preview">jl_api_••••••••f7c2</span>
+          <button class="btn btn-ghost btn-sm" onclick="copyText(this)">Copy</button>
+          <button class="btn btn-danger btn-sm">Revoke</button>
+        </div>
+        <div style="margin-top:var(--space-6);padding:var(--space-4);background:var(--surface-100);border-radius:var(--radius-sm);">
+          <h3 style="margin-bottom:var(--space-2);">Upload flow</h3>
+          <div class="code-block" style="background:var(--surface-500);border-radius:var(--radius-sm);padding:var(--space-3);font-family:var(--font-mono);font-size:var(--text-xs);color:var(--fg-2);overflow-x:auto;">curl -X POST \
+  https://api.jittlelamp.local/automation/evidences/zip \
+  -H "Authorization: Bearer jl_api_••••" \
+  -F "file=@session.zip"</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="token-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="token-modal-title">Create AI token</h3><button class="modal-close" onclick="closeTokenModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div style="display:flex;flex-direction:column;gap:var(--space-4);">
+      <div class="field"><label>Token name</label><input type="text" placeholder="e.g. Debug assistant" id="token-name-input"></div>
+      <div class="warn-box" style="margin:0;">
+        <div class="warn-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><strong>Token shown once</strong></div>
+        <p>Copy it now. You will not see it again.</p>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeTokenModal()">Cancel</button><button class="btn btn-primary" onclick="closeTokenModal()">Create token</button></div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.theme-option').forEach(function(el) {
+    el.classList.toggle('selected', el.dataset.theme === (getStoredTheme()));
+  });
+  function settingsTab(el, name) {
+    document.querySelectorAll('.settings-tabs .tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+  function openTokenModal(type) { document.getElementById('token-modal-title').textContent = type === 'ai' ? 'Create AI token' : 'Create API token'; document.getElementById('token-modal').classList.add('open'); }
+  function closeTokenModal() { document.getElementById('token-modal').classList.remove('open'); }
+  function copyText(btn) { navigator.clipboard?.writeText(btn.parentElement.querySelector('code')?.textContent || 'copied'); btn.textContent = '✓'; setTimeout(() => btn.textContent = 'Copy', 1500); }
+</script>
+</body>
+</html>

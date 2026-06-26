@@ -34,15 +34,26 @@ export function EvidenceSearch(): React.JSX.Element {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Search evidence"
-        className="inline-flex h-10 items-center gap-2 rounded-md border border-border-strong bg-secondary px-3 text-base text-muted-foreground outline-none transition-colors hover:border-white/20 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 sm:w-64 sm:justify-between"
+        className="relative hidden h-9 w-[280px] items-center gap-2 rounded-md border border-transparent bg-secondary pl-8 pr-3 text-sm text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-popover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 sm:inline-flex"
       >
-        <span className="inline-flex items-center gap-2">
-          <Search aria-hidden className="size-4" />
-          <span className="hidden sm:inline">Search evidence…</span>
+        <Search
+          aria-hidden
+          className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <span className="inline-flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate">Search evidence…</span>
         </span>
-        <kbd className="hidden items-center gap-0.5 rounded border border-border-strong bg-background px-1.5 py-0.5 font-mono text-muted-foreground sm:inline-flex">
+        <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
           {isMac ? "⌘" : "Ctrl"}K
         </kbd>
+      </button>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Search evidence"
+        className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:hidden"
+      >
+        <Search aria-hidden className="size-4" />
       </button>
       {open ? <SearchPalette onClose={() => setOpen(false)} /> : null}
     </>
@@ -132,9 +143,9 @@ function SearchPalette({
       onOpenChange={(next) => (!next ? onClose() : undefined)}
     >
       <BaseDialog.Portal>
-        <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-black/65 backdrop-blur-sm transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+        <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-foreground/55 backdrop-blur-sm transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <BaseDialog.Viewport className="fixed inset-0 z-[901] flex items-start justify-center overflow-y-auto p-4 pt-[12vh] [pointer-events:none]">
-          <BaseDialog.Popup className="pointer-events-auto flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border-strong bg-popover text-popover-foreground shadow-pop transition-[opacity,transform] duration-150 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0">
+          <BaseDialog.Popup className="pointer-events-auto flex w-full max-w-xl flex-col overflow-hidden rounded-md border border-border-strong bg-popover text-popover-foreground shadow-pop transition-[opacity,transform] duration-150 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0">
             <BaseDialog.Title className="sr-only">
               Search evidence
             </BaseDialog.Title>
@@ -157,7 +168,7 @@ function SearchPalette({
                 type="button"
                 onClick={onClose}
                 aria-label="Close search"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X className="size-4" aria-hidden />
               </button>
@@ -209,7 +220,7 @@ function SearchPalette({
                             }
                           }}
                           onBlur={() => commitRename(evidence)}
-                          className="h-7 flex-1 rounded border border-ring/70 bg-black/30 px-2 text-base text-foreground outline-none ring-2 ring-ring/30"
+                          className="h-7 flex-1 rounded border border-ring/70 bg-background px-2 text-base text-foreground outline-none ring-2 ring-ring/30"
                           aria-label="Rename evidence"
                         />
                       ) : (
@@ -243,7 +254,7 @@ function SearchPalette({
                             e.stopPropagation();
                             startRename(evidence);
                           }}
-                          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-white/[0.08] hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
                         >
                           <Pencil className="size-3.5" aria-hidden />
                         </button>

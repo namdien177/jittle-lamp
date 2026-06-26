@@ -4,18 +4,18 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/cn";
 
 export const buttonVariants = cva(
-  "inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md text-base font-medium transition-[background,border,color,box-shadow,transform] outline-none focus-visible:ring-2 focus-visible:ring-ring/55 disabled:pointer-events-none disabled:opacity-50 active:translate-y-px [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 select-none",
+  "inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md text-base font-semibold transition-[background,border,color,box-shadow,transform] outline-none focus-visible:ring-2 focus-visible:ring-ring/55 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 select-none",
   {
     variants: {
       variant: {
         primary:
-          "bg-primary text-primary-foreground font-semibold shadow-soft hover:bg-brand-400 hover:shadow-[0_4px_18px_-6px_var(--brand-500)]",
+          "bg-primary text-primary-foreground shadow-soft hover:bg-brand-400 hover:shadow-[0_4px_18px_-6px_var(--brand-500)]",
         secondary:
-          "border border-border-strong bg-secondary text-secondary-foreground hover:bg-white/[0.06] hover:border-white/20",
+          "border border-border bg-secondary text-secondary-foreground hover:bg-muted hover:border-border-strong",
         outline:
-          "border border-border-strong bg-transparent text-foreground hover:bg-white/[0.04] hover:border-white/20",
+          "border border-border-strong bg-transparent text-foreground hover:bg-muted hover:border-foreground/40",
         ghost:
-          "bg-transparent text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+          "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
         destructive:
           "border border-destructive/45 bg-transparent text-destructive hover:bg-destructive/12",
         link: "text-primary underline-offset-4 hover:underline px-0",

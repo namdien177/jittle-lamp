@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jittle Lamp — Web Redesign</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+<script src="css/theme.js"></script>
+<style>
+  body { padding: var(--space-12) var(--space-6); }
+  .launcher { max-width: 920px; margin: 0 auto; }
+  .launcher-header { text-align: center; margin-bottom: var(--space-12); }
+  .launcher-header .logo-mark { width: 48px; height: 48px; margin: 0 auto var(--space-5); }
+  .launcher-header h1 { font-size: var(--text-4xl); letter-spacing: var(--tracking-display); margin-bottom: var(--space-4); }
+  .launcher-header p { font-family: var(--font-body); font-size: var(--text-lg); color: var(--muted); max-width: 560px; margin: 0 auto; }
+  .screen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-4); }
+  .screen-card {
+    display: flex; flex-direction: column;
+    padding: var(--space-6);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    text-decoration: none;
+    color: inherit;
+    transition: box-shadow var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard);
+  }
+  .screen-card:hover { box-shadow: var(--elev-raised); transform: translateY(-2px); }
+  .screen-card .card-icon {
+    width: 40px; height: 40px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-warm);
+    display: grid; place-items: center;
+    color: var(--accent);
+    margin-bottom: var(--space-4);
+  }
+  .screen-card h3 { margin-bottom: var(--space-2); }
+  .screen-card p { font-family: var(--font-body); font-size: var(--text-sm); color: var(--muted); flex: 1; }
+  .screen-card .card-meta { display: flex; gap: var(--space-2); margin-top: var(--space-4); flex-wrap: wrap; }
+  .launcher-footer { text-align: center; margin-top: var(--space-12); color: var(--meta); font-size: var(--text-xs); }
+</style>
+</head>
+<body>
+<div class="launcher">
+  <div class="launcher-header">
+    <div class="logo-mark" style="background:var(--accent);border-radius:var(--radius-md);display:grid;place-items:center;color:var(--accent-on);font-family:var(--font-display);font-size:24px;">JL</div>
+    <h1>Jittle Lamp — Web Redesign</h1>
+    <p>QA evidence tool redesigned with the Cursor design system. Seven screens, full fidelity, real interactions. Pick a screen to explore.</p>
+  </div>
+
+  <div class="screen-grid">
+    <a class="screen-card" href="landing.html">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg></div>
+      <h3>Landing</h3>
+      <p>Marketing page introducing the product, capture flow, and proof bundle.</p>
+      <div class="card-meta"><span class="pill">Marketing</span></div>
+    </a>
+
+    <a class="screen-card" href="dashboard.html">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+      <h3>Dashboard</h3>
+      <p>Workspace overview with stats, recent evidence, quick actions, and active context.</p>
+      <div class="card-meta"><span class="pill">App</span><span class="pill">Overview</span></div>
+    </a>
+
+    <a class="screen-card" href="evidence-library.html">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/></svg></div>
+      <h3>Evidence Library</h3>
+      <p>Grid and table views, filters by type and people, bulk select, download, delete, share.</p>
+      <div class="card-meta"><span class="pill">App</span><span class="pill">Core</span></div>
+    </a>
+
+    <a class="screen-card" href="evidence-viewer.html">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+      <h3>Evidence Viewer</h3>
+      <p>Video player, timeline seek, actions/logs/network tabs, detail drawer, discussion. Merged share viewer.</p>
+      <div class="card-meta"><span class="pill">App</span><span class="pill">Core</span></div>
+    </a>
+
+    <a class="screen-card" href="organisations.html">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="8" r="3"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><circle cx="17" cy="8" r="3"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg></div>
+      <h3>Organisations</h3>
+      <p>Team list, members, roles and permissions, invitations, join requests, activity log.</p>
+      <div class="card-meta"><span class="pill">App</span><span class="pill">Team</span></div>
+    </a>
+
+    <a class="screen-card" href="settings.html">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.5 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12a7 7 0 00.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.5-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6A7 7 0 0019 12z"/></svg></div>
+      <h3>Settings</h3>
+      <p>Account, active workspace, install commands, AI tokens, API tokens for automation.</p>
+      <div class="card-meta"><span class="pill">App</span><span class="pill">Config</span></div>
+    </a>
+
+    <a class="screen-card" href="quick-view.html">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+      <h3>Quick View</h3>
+      <p>Drop a local ZIP to review evidence in-browser. No upload, fully local, same viewer.</p>
+      <div class="card-meta"><span class="pill">Tool</span><span class="pill">Local</span></div>
+    </a>
+  </div>
+
+  <div class="launcher-footer">
+    Cursor design system · CursorGothic / jjannon / berkeleyMono · warm cream canvas · single orange accent
+  </div>
+</div>
+</body>
+</html>

@@ -25,10 +25,23 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   const localRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = props.timelineRef ?? localRef;
   const filteredRows = applyClientSearch(props.rows, props.searchQuery, props.activeSection);
+  const sectionLabels = {
+    actions: "Actions",
+    console: "Logs",
+    network: "Network"
+  } as const;
+  const activeCountLabel = `${filteredRows.length} ${filteredRows.length === 1 ? "entry" : "entries"}`;
 
   return (
     <div className="jl-vm-right">
       <div className="jl-vm-evidence">
+        <div className="jl-vm-pane-heading">
+          <div>
+            <span className="jl-vm-eyebrow">Evidence stream</span>
+            <strong>{sectionLabels[props.activeSection]}</strong>
+          </div>
+          <span>{activeCountLabel}</span>
+        </div>
         <div className="jl-vm-tabs-row">
           <div className="jl-vm-tabs">
             {(["actions", "console", "network"] as const).map((section) => (
@@ -39,7 +52,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
                 data-active={section === props.activeSection ? "true" : "false"}
                 onClick={() => props.onSectionChange(section)}
               >
-                {section === "console" ? "Logs" : section[0]!.toUpperCase() + section.slice(1)}
+                {sectionLabels[section]}
               </button>
             ))}
           </div>
@@ -72,33 +85,13 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
               <div className="jl-vm-empty">No entries match.</div>
             ) : (
               filteredRows.map((row) => (
-                <button
+                <EvidenceRow
                   key={row.id}
-                  type="button"
-                  className="jl-vm-row"
-                  data-item-id={row.id}
-                  data-active={row.id === props.activeItemId ? "true" : "false"}
-                  data-selected={row.selected ? "true" : "false"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onItemClick(row, event);
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    props.onItemContextMenu(row, event);
-                  }}
-                >
-                  <span className="jl-vm-row-offset">
-                    {row.mergedRange ?? formatOffset(row.offsetMs)}
-                  </span>
-                  <span className="jl-vm-row-label">{row.label}</span>
-                  <span
-                    className="jl-vm-row-status"
-                    data-tone={statusTone(row.statusCode ?? null)}
-                  >
-                    {row.statusCode ?? ""}
-                  </span>
-                </button>
+                  row={row}
+                  active={row.id === props.activeItemId}
+                  onItemClick={props.onItemClick}
+                  onItemContextMenu={props.onItemContextMenu}
+                />
               ))
             )}
           </div>
@@ -113,6 +106,66 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
         </div>
       </div>
     </div>
+  );
+}
+
+function EvidenceRow(props: {
+  row: ViewerModalRow;
+  active: boolean;
+  onItemClick: ViewerModalProps["onItemClick"];
+  onItemContextMenu: ViewerModalProps["onItemContextMenu"];
+}): React.JSX.Element {
+  const row = props.row;
+  const offset = row.mergedRange ?? formatOffset(row.offsetMs);
+  const duration =
+    row.durationMs !== null && row.durationMs !== undefined
+      ? `${Math.round(row.durationMs)}ms`
+      : "";
+  const url = row.url ?? row.label;
+
+  return (
+    <button
+      type="button"
+      className="jl-vm-row"
+      data-kind={row.section}
+      data-item-id={row.id}
+      data-active={props.active ? "true" : "false"}
+      data-selected={row.selected ? "true" : "false"}
+      onClick={(event) => {
+        event.stopPropagation();
+        props.onItemClick(row, event);
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        props.onItemContextMenu(row, event);
+      }}
+    >
+      {row.section === "network" ? (
+        <>
+          <span className="jl-vm-row-offset">{offset}</span>
+          <span className="jl-vm-row-method" data-method={row.method ?? undefined}>
+            {row.method ?? "REQ"}
+          </span>
+          <span className="jl-vm-row-main">
+            <span className="jl-vm-row-label">{url}</span>
+            <span className="jl-vm-row-sub">{row.subtype ?? "other"}</span>
+          </span>
+          <span className="jl-vm-row-status" data-tone={statusTone(row.statusCode ?? null)}>
+            {row.statusCode ?? ""}
+          </span>
+          <span className="jl-vm-row-duration">{duration}</span>
+        </>
+      ) : (
+        <>
+          <span className="jl-vm-row-offset">{offset}</span>
+          <span className="jl-vm-row-dot" data-kind={row.kind} />
+          <span className="jl-vm-row-label">{row.label}</span>
+          <span className="jl-vm-row-status" data-tone={statusTone(row.statusCode ?? null)}>
+            {row.statusCode ?? ""}
+          </span>
+        </>
+      )}
+    </button>
   );
 }
 

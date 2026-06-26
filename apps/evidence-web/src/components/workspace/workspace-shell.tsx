@@ -2,14 +2,20 @@ import React, { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router";
 import {
   Archive,
+  Bell,
   Building2,
+  ChevronRight,
   ExternalLink,
   FileText,
   FlaskConical,
   LayoutDashboard,
-  PanelLeft,
+  Menu,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Puzzle,
   Settings,
+  Sun,
   Video,
   X,
 } from "lucide-react";
@@ -19,7 +25,6 @@ import { UserButton } from "../../auth";
 import { useEvidences } from "../../queries";
 import { Badge } from "../ui/badge";
 import { buttonVariants } from "../ui/button";
-import { Wordmark } from "../brand";
 import { EvidenceSearch } from "./evidence-search";
 import { OrgSwitcher } from "./org-switcher";
 
@@ -83,9 +88,11 @@ function useNavGroups(): NavGroup[] {
 function SidebarLink({
   item,
   onNavigate,
+  collapsed = false,
 }: {
   item: NavItem;
   onNavigate?: () => void;
+  collapsed?: boolean;
 }): React.JSX.Element {
   const Icon = item.icon;
   return (
@@ -93,33 +100,38 @@ function SidebarLink({
       to={item.to}
       end={item.end ?? false}
       onClick={onNavigate}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      data-tooltip={collapsed ? item.label : undefined}
       className={({ isActive }) =>
         cn(
-          "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-base font-medium transition-colors",
-          isActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/80 hover:bg-white/[0.04] hover:text-foreground",
+          "jl-nav-item",
+          isActive && "is-active font-medium",
         )
       }
     >
-      {({ isActive }) => (
+      {() => (
         <>
-          <Icon
-            aria-hidden
-            className={cn(
-              "size-[1.05rem] shrink-0 transition-colors",
-              isActive
-                ? "text-primary"
-                : "text-muted-foreground group-hover:text-foreground",
-            )}
-          />
-          <span className="min-w-0 flex-1 truncate">{item.label}</span>
+          <span className="jl-nav-icon-wrap">
+            <Icon
+              aria-hidden
+              className={cn(
+                "jl-nav-icon",
+              )}
+            />
+            {item.soon ? (
+              <span className="jl-nav-soon-dot" aria-hidden />
+            ) : null}
+          </span>
+          <span className="jl-nav-label min-w-0 flex-1 truncate">
+            {item.label}
+          </span>
           {item.soon ? (
-            <Badge variant="muted" className="px-1.5 py-0 uppercase">
+            <Badge variant="muted" className="jl-nav-extra px-1.5 py-0 text-[10px] uppercase">
               Soon
             </Badge>
           ) : item.count !== undefined ? (
-            <span className="font-mono tabular-nums text-muted-foreground">
+            <span className="jl-nav-count jl-nav-extra tabular-nums">
               {item.count}
             </span>
           ) : null}
@@ -131,33 +143,96 @@ function SidebarLink({
 
 function SidebarContent({
   onNavigate,
+  collapsed,
+  onToggleCollapsed,
 }: {
   onNavigate?: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }): React.JSX.Element {
   const groups = useNavGroups();
+  const mainGroups = groups.filter((group) => group.heading !== "Tools");
+  const toolsGroup = groups.find((group) => group.heading === "Tools");
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto px-3 py-5 jl-scroll">
-      <Link to="/" onClick={onNavigate} className="px-1.5">
-        <Wordmark />
-      </Link>
-      <nav className="flex flex-1 flex-col gap-5" aria-label="Workspace">
-        {groups.map((group) => (
-          <div key={group.heading} className="flex flex-col gap-1">
-            <p className="px-2.5 pb-1 font-semibold uppercase tracking-[0.09em] text-muted-foreground/70">
+    <>
+      <div className="jl-sidebar-brand-row">
+        <Link
+          to="/"
+          onClick={onNavigate}
+          className="jl-sidebar-brand"
+          title={collapsed ? "Jittle Lamp" : undefined}
+          aria-label={collapsed ? "Jittle Lamp" : undefined}
+        >
+          <img
+            src="/logo.jpg"
+            alt=""
+            className="size-7 shrink-0 rounded-md border border-border object-cover"
+          />
+          <span className="jl-sidebar-brand-text">Jittle Lamp</span>
+        </Link>
+        <button
+          type="button"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          data-tooltip={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="jl-sidebar-collapse-btn"
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? (
+            <PanelLeftOpen aria-hidden />
+          ) : (
+            <PanelLeftClose aria-hidden />
+          )}
+        </button>
+      </div>
+      <nav className="flex flex-1 flex-col" aria-label="Workspace">
+        {mainGroups.map((group) => (
+          <div key={group.heading} className="jl-sidebar-section flex flex-col gap-1">
+            <p className="jl-sidebar-section-label">
               {group.heading}
             </p>
             {group.items.map((item) => (
               <SidebarLink
                 key={item.to}
                 item={item}
+                collapsed={collapsed}
                 {...(onNavigate ? { onNavigate } : {})}
               />
             ))}
           </div>
         ))}
       </nav>
-    </div>
+      <div className="jl-sidebar-footer">
+        {toolsGroup ? (
+          <div className="flex flex-col gap-1">
+            <p className="jl-sidebar-section-label">
+              {toolsGroup.heading}
+            </p>
+            {toolsGroup.items.map((item) => (
+              <SidebarLink
+                key={item.to}
+                item={item}
+                collapsed={collapsed}
+                {...(onNavigate ? { onNavigate } : {})}
+              />
+            ))}
+          </div>
+        ) : null}
+        <OrgSwitcher collapsed={collapsed} />
+      </div>
+    </>
   );
+}
+
+function breadcrumbFor(pathname: string): string {
+  if (pathname === "/") return "Dashboard";
+  if (pathname.startsWith("/evidence")) return "Evidence library";
+  if (pathname.startsWith("/quick-view")) return "Quick view";
+  if (pathname.startsWith("/organisations")) return "Organisations";
+  if (pathname.startsWith("/settings")) return "Settings";
+  if (pathname.startsWith("/test-cases")) return "Test cases";
+  if (pathname.startsWith("/documents")) return "Documents";
+  return "Workspace";
 }
 
 export function WorkspaceShell({
@@ -167,56 +242,97 @@ export function WorkspaceShell({
 }): React.JSX.Element {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const [dark, setDark] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("jl-sidebar-collapsed") === "true";
+  });
 
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  return (
-    <div className="flex min-h-screen bg-background">
-      {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar md:block">
-        <SidebarContent />
-      </aside>
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  }, [dark]);
 
-      {/* Mobile drawer */}
+  const crumb = breadcrumbFor(location.pathname);
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((value) => {
+      const next = !value;
+      window.localStorage.setItem("jl-sidebar-collapsed", String(next));
+      return next;
+    });
+  };
+
+  return (
+    <div
+      className="jl-app"
+      data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
+    >
+      <aside
+        className="jl-sidebar jl-scroll"
+        data-open={mobileOpen}
+        data-collapsed={sidebarCollapsed ? "true" : "false"}
+      >
+        <SidebarContent
+          collapsed={sidebarCollapsed}
+          onNavigate={() => setMobileOpen(false)}
+          onToggleCollapsed={toggleSidebarCollapsed}
+        />
+        <button
+          type="button"
+          aria-label="Close navigation"
+          className="jl-sidebar-close absolute right-3 top-4"
+          onClick={() => setMobileOpen(false)}
+        >
+          <X className="size-4" aria-hidden />
+        </button>
+      </aside>
       {mobileOpen ? (
-        <div className="fixed inset-0 z-[200] md:hidden">
-          <button
-            type="button"
-            aria-label="Close navigation"
-            className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-            onClick={() => setMobileOpen(false)}
-          />
-          <aside className="absolute left-0 top-0 h-full w-72 animate-rise border-r border-sidebar-border bg-sidebar">
-            <button
-              type="button"
-              aria-label="Close navigation"
-              className="absolute right-3 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
-              onClick={() => setMobileOpen(false)}
-            >
-              <X className="size-4" aria-hidden />
-            </button>
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
+        <button
+          type="button"
+          aria-label="Close navigation"
+          className="jl-sidebar-backdrop"
+          onClick={() => setMobileOpen(false)}
+        />
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-6">
+        <header className="jl-topbar">
           <button
             type="button"
             aria-label="Open navigation"
-            className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground md:hidden"
+            className="jl-mobile-menu-btn"
             onClick={() => setMobileOpen(true)}
           >
-            <PanelLeft className="size-5" aria-hidden />
+            <Menu aria-hidden />
           </button>
-          <div className="md:hidden">
-            <Wordmark showMark />
+          <div className="jl-breadcrumb">
+            <span>Workspace</span>
+            <ChevronRight className="size-3.5" aria-hidden />
+            <span className="jl-breadcrumb-current">{crumb}</span>
           </div>
-          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <div className="jl-topbar-spacer" />
+          <div className="jl-topbar-actions">
             <EvidenceSearch />
+            <button
+              type="button"
+              aria-label="Toggle theme"
+              title="Toggle theme"
+              className="jl-theme-toggle hidden sm:grid"
+              onClick={() => setDark((value) => !value)}
+            >
+              {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
+            </button>
+            <button
+              type="button"
+              aria-label="Notifications"
+              title="Notifications"
+              className="jl-theme-toggle hidden sm:grid"
+            >
+              <Bell aria-hidden />
+            </button>
             <a
               href={CHROME_EXTENSION_URL}
               target="_blank"
@@ -243,13 +359,10 @@ export function WorkspaceShell({
               Install Chrome Extension
               <ExternalLink aria-hidden className="size-3.5" />
             </a>
-            <OrgSwitcher />
-            <div className="h-6 w-px bg-border" aria-hidden />
             <UserButton />
           </div>
         </header>
-        <main className="flex flex-1 flex-col">{children}</main>
-      </div>
+        <main className="jl-main jl-scroll">{children}</main>
     </div>
   );
 }

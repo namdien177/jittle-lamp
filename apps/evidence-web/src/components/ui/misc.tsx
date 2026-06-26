@@ -55,12 +55,12 @@ export function EmptyState(props: {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border-strong bg-card/40 px-6 py-14 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border-strong bg-card/70 px-6 py-14 text-center",
         props.className
       )}
     >
       {props.icon ? (
-        <div className="flex size-12 items-center justify-center rounded-xl border border-border bg-secondary text-muted-foreground [&_svg]:size-5">
+        <div className="flex size-12 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground [&_svg]:size-5">
           {props.icon}
         </div>
       ) : null}

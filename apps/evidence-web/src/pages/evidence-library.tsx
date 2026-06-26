@@ -358,7 +358,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           type="button"
           aria-label="More actions"
           disabled={downloading || deleting}
-          className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-50"
+          className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
           {downloading || deleting ? (
             <Spinner />
@@ -418,8 +418,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     <>
       <PageHeader
         eyebrow="Workspace"
-        title="Evidence"
-        description="Search, review, share."
+        title="Evidence library"
+        description={`${total} records in this workspace.`}
         actions={
           <Button
             variant="outline"
@@ -511,7 +511,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 })
               )}
             </DropdownMenu>
-            <div className="flex items-center rounded-md border border-border-strong bg-secondary p-0.5">
+            <div className="flex items-center rounded-md bg-secondary p-0.5">
               <button
                 type="button"
                 aria-label="Grid view"
@@ -520,7 +520,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
                   view === "grid"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-background text-foreground shadow-soft"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -534,7 +534,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
                   view === "table"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-background text-foreground shadow-soft"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -575,7 +575,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         </div>
 
         {hasSelection ? (
-          <div className="flex flex-col gap-3 rounded-md border border-border-strong bg-secondary px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/[0.08] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-base font-medium text-foreground">
               {selectedEvidences.length} selected
               {selectedUndeletableCount > 0 ? (
@@ -659,15 +659,19 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             }
           />
         ) : view === "grid" ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((evidence) => (
               <Card
                 key={evidence.id}
-                className="group flex flex-col gap-3 p-4 transition-colors hover:border-border-strong"
+                className={cn(
+                  "group relative flex flex-col overflow-hidden p-0 transition-[border-color,box-shadow]",
+                  selectedIds.has(evidence.id) &&
+                    "border-primary ring-2 ring-primary/30",
+                )}
               >
-                <div className="flex items-start gap-2">
+                <div className="relative">
                   <label
-                    className="mt-1 inline-flex shrink-0 items-center"
+                    className="absolute left-2 top-2 z-10 inline-flex shrink-0 items-center rounded-md bg-foreground/55 p-1 text-background opacity-0 transition-opacity group-hover:opacity-100 has-[:checked]:opacity-100"
                     aria-label={`Select ${evidence.title}`}
                   >
                     <input
@@ -687,13 +691,23 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                     onClick={() =>
                       navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
                     }
-                    className="min-w-0 flex-1"
+                    className="block w-full"
                   >
                     <EvidenceThumbnail
                       evidence={evidence}
-                      className="aspect-video w-full"
+                      className="aspect-[16/10] w-full rounded-none border-0"
                     />
                   </button>
+                  {evidence.status === "pending" ? (
+                    <Badge variant="muted" className="absolute left-2 bottom-2">
+                      Pending
+                    </Badge>
+                  ) : null}
+                  <span className="absolute bottom-2 right-2 rounded-md bg-foreground/70 px-1.5 py-0.5 font-mono text-xs text-background">
+                    {formatRelativeTime(evidence.createdAt)}
+                  </span>
+                </div>
+                <div className="absolute right-2 top-2">
                   {actions(
                     evidence,
                     downloadingId === evidence.id,
@@ -705,37 +719,28 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   onClick={() =>
                     navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
                   }
-                  className="min-w-0 text-left"
+                  className="min-w-0 px-4 pt-3 text-left"
                 >
-                  <span className="block truncate text-base font-semibold text-foreground group-hover:text-primary">
+                  <span className="block truncate font-display text-base font-bold text-foreground group-hover:text-primary">
                     {evidence.title}
                   </span>
                   <span className="mt-0.5 block truncate font-mono text-muted-foreground">
                     {evidence.id.slice(0, 18)}…
                   </span>
-                  <span className="mt-1 block truncate text-muted-foreground">
+                  <span className="mt-1 block truncate text-sm text-muted-foreground">
                     Recorded by{" "}
                     {memberNameById.get(evidence.createdBy) ??
                       evidence.createdBy}
                   </span>
                 </button>
-                <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+                <div className="mt-auto flex items-center justify-between gap-2 px-4 pt-2">
                   <div className="flex min-w-0 flex-wrap gap-1.5">
                     <Badge variant="muted" className="capitalize">
                       {evidence.sourceType}
                     </Badge>
-                    {evidence.status === "pending" ? (
-                      <Badge variant="muted">Pending</Badge>
-                    ) : null}
                   </div>
-                  <span
-                    className=" text-muted-foreground"
-                    title={new Date(evidence.createdAt).toISOString()}
-                  >
-                    {formatRelativeTime(evidence.createdAt)}
-                  </span>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 p-4 pt-3">
                   <Button
                     size="sm"
                     className="flex-1"
