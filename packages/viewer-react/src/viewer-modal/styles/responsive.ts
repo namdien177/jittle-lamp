@@ -10,7 +10,7 @@ export const responsiveStyles = `
     border-radius: 0;
   }
 
-  .jl-vm-page .jl-vm-modal {
+  .jl-vm-root {
     height: auto;
     min-height: calc(100vh - 56px);
   }

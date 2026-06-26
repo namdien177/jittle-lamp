@@ -2877,6 +2877,20 @@ describe("routes", () => {
 		expect(payload.evidences[0]?.id).toBe(
 			inserted.find((row) => row.createdBy === recorderA.userId)?.id,
 		);
+
+		const searched = await app.handle(
+			new Request("http://localhost/evidences?search=Middle%20B&limit=24", {
+				headers: { authorization: `Bearer ${ownerToken}` },
+			}),
+		);
+		expect(searched.status).toBe(200);
+		const searchedPayload = (await searched.json()) as {
+			evidences: Array<{ id: string; title: string }>;
+			total: number;
+		};
+		expect(searchedPayload.total).toBe(1);
+		expect(searchedPayload.evidences).toHaveLength(1);
+		expect(searchedPayload.evidences[0]?.title).toBe("Middle B evidence");
 	});
 
 	it("allows evidence members to add and list discussion comments", async () => {

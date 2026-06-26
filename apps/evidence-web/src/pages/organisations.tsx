@@ -7,6 +7,7 @@ import {
   useNavigate,
   useOutletContext,
   useParams,
+  useSearchParams,
 } from "react-router";
 import { z } from "zod/v4";
 import {
@@ -1725,15 +1726,33 @@ function JoinRequestsPanel(props: {
 
 /* ── Library tab ────────────────────────────────────────────────────────────── */
 
+const ORG_LIBRARY_PAGE_SIZE = 24;
+
 export function OrgLibraryTab(): React.JSX.Element {
   const ctx = useOrgContext();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
   const toast = useToast();
   const accountQuery = useAccountProfile();
+  const search = params.get("q") ?? "";
+  const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
+  const setParam = (key: string, value: string, fallback: string): void => {
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (value === fallback) next.delete(key);
+        else next.set(key, value);
+        if (key !== "page") next.delete("page");
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const evidencesQuery = useEvidences({
     orgId: ctx.orgId,
-    page: 1,
-    limit: 100,
+    page,
+    limit: ORG_LIBRARY_PAGE_SIZE,
+    ...(search.trim() ? { search: search.trim() } : {}),
   });
   const membersQuery = useOrganizationMembers(ctx.orgId, { limit: 100 });
   const deleteEvidence = useDeleteEvidence();
@@ -1741,6 +1760,8 @@ export function OrgLibraryTab(): React.JSX.Element {
     null,
   );
   const evidences = evidencesQuery.data?.evidences ?? [];
+  const total = evidencesQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / ORG_LIBRARY_PAGE_SIZE));
   const currentUserId =
     accountQuery.data?.localUserId ?? accountQuery.data?.userId ?? null;
   const creators = useMemo(
@@ -1786,6 +1807,24 @@ export function OrgLibraryTab(): React.JSX.Element {
   return (
     <>
       <Card className="overflow-hidden p-0">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-sm">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              aria-label="Search organisation evidence"
+              placeholder="Search evidence"
+              value={search}
+              onChange={(event) => setParam("q", event.currentTarget.value, "")}
+              className="pl-9"
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {total} record{total === 1 ? "" : "s"}
+          </p>
+        </div>
         {libraryError ? (
           <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-base text-destructive">
             {libraryError}
@@ -1800,7 +1839,7 @@ export function OrgLibraryTab(): React.JSX.Element {
         ) : evidences.length === 0 ? (
           <EmptyState
             className="m-2 border-0"
-            title="No organisation evidence yet"
+            title={search.trim() ? "No matches" : "No organisation evidence yet"}
           />
         ) : (
           <Table>
@@ -1845,7 +1884,9 @@ export function OrgLibraryTab(): React.JSX.Element {
                           size="sm"
                           onClick={() =>
                             navigate(
-                              `/evidence/${encodeURIComponent(evidence.id)}`,
+                              `/evidence/${encodeURIComponent(evidence.id)}?${new URLSearchParams({
+                                orgId: ctx.orgId,
+                              }).toString()}`,
                             )
                           }
                         >
@@ -1873,6 +1914,31 @@ export function OrgLibraryTab(): React.JSX.Element {
             </TableBody>
           </Table>
         )}
+        {!loading && totalPages > 1 ? (
+          <div className="flex flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Page {Math.min(page, totalPages)} of {totalPages}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page <= 1}
+                onClick={() => setParam("page", String(page - 1), "1")}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page >= totalPages}
+                onClick={() => setParam("page", String(page + 1), "1")}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Card>
       <ConfirmDialog
         open={pendingDelete !== null}

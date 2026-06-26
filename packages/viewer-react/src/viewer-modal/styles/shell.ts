@@ -13,7 +13,8 @@ export const shellStyles = `
   padding: 5vh 5vw;
 }
 
-.jl-vm-modal {
+.jl-vm-modal,
+.jl-vm-root {
   position: relative;
   display: grid;
   grid-template-rows: auto 1fr;
@@ -43,15 +44,9 @@ export const shellStyles = `
   --jl-vm-danger: #ef4444;
 }
 
-.jl-vm-page {
-  min-height: calc(100vh - 56px);
-  background: #08090a;
-  color: var(--jl-vm-text, #efefef);
-}
-
-.jl-vm-page .jl-vm-modal {
+.jl-vm-root {
   width: 100%;
-  height: calc(100vh - 56px);
+  height: 100%;
   min-height: 720px;
   border: 0;
   border-radius: 0;
@@ -59,20 +54,20 @@ export const shellStyles = `
   box-shadow: none;
 }
 
-.jl-vm-page .jl-vm-header {
+.jl-vm-root .jl-vm-header {
   padding: 14px 24px;
   background: color-mix(in srgb, var(--jl-vm-bg, #0b0d0e) 86%, transparent);
 }
 
-.jl-vm-page .jl-vm-title {
+.jl-vm-root .jl-vm-title {
   font-size: 16px;
 }
 
-.jl-vm-page .jl-vm-body {
+.jl-vm-root .jl-vm-body {
   grid-template-columns: minmax(420px, 1.35fr) minmax(360px, 600px);
 }
 
-.jl-vm-page .jl-vm-video-wrap {
+.jl-vm-root .jl-vm-video-wrap {
   background: #020304;
 }
 

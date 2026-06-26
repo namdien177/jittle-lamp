@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   buildTargetEvidenceLlmPrompt,
@@ -27,6 +27,7 @@ import {
   useMoveEvidence,
   useRenameEvidence,
   useRemoteEvidence,
+  useShareLinkResolution,
   type RemoteEvidenceData
 } from "../queries";
 import { useToast } from "../toast";
@@ -123,6 +124,7 @@ function useRenewArtifactUrls(input: {
 function RemoteEvidenceLoader(props: {
   shareToken?: string;
   remoteEvidenceId?: string;
+  remoteOrgId?: string | undefined;
   viewerMode?: "modal" | "page";
 }): React.JSX.Element {
   const navigate = useNavigate();
@@ -130,7 +132,8 @@ function RemoteEvidenceLoader(props: {
   const toast = useToast();
   const query = useRemoteEvidence({
     ...(props.shareToken !== undefined ? { shareToken: props.shareToken } : {}),
-    ...(props.remoteEvidenceId !== undefined ? { remoteEvidenceId: props.remoteEvidenceId } : {})
+    ...(props.remoteEvidenceId !== undefined ? { remoteEvidenceId: props.remoteEvidenceId } : {}),
+    ...(props.remoteOrgId !== undefined ? { orgId: props.remoteOrgId } : {})
   });
   const accountQuery = useAccountProfile();
   const aiTokensQuery = useAiAccessTokens();
@@ -535,13 +538,50 @@ export function SharedEvidencePage(): React.JSX.Element {
   if (!shareToken) return <StatusScreen tone="error" title="Missing share token" />;
   return (
     <RequireAuth>
-      <RemoteEvidenceLoader shareToken={shareToken} />
+      <SharedEvidenceRedirect shareToken={shareToken} />
     </RequireAuth>
   );
 }
 
+function SharedEvidenceRedirect({ shareToken }: { shareToken: string }): React.JSX.Element {
+  const navigate = useNavigate();
+  const query = useShareLinkResolution(shareToken);
+
+  useEffect(() => {
+    if (query.data?.shareLink.access !== "granted") return;
+    const evidencePath = `/evidence/${encodeURIComponent(query.data.shareLink.evidenceId)}`;
+    const search = new URLSearchParams({ orgId: query.data.shareLink.orgId });
+    navigate(`${evidencePath}?${search.toString()}`, { replace: true });
+  }, [navigate, query.data]);
+
+  if (query.isPending) {
+    return <StatusScreen loading title="Opening evidence" detail="Checking share access..." />;
+  }
+  if (query.isError) {
+    return (
+      <StatusScreen
+        tone="error"
+        title="Unable to open share link"
+        detail={query.error instanceof Error ? query.error.message : "Unknown error"}
+      />
+    );
+  }
+  if (query.data?.shareLink.access === "denied") {
+    return <RestrictedShareScreen orgName={query.data.organization.name} />;
+  }
+
+  return <StatusScreen loading title="Opening evidence" />;
+}
+
 export function CloudEvidencePage(): React.JSX.Element {
   const { evidenceId } = useParams();
+  const [searchParams] = useSearchParams();
   if (!evidenceId) return <StatusScreen tone="error" title="Missing evidence id" />;
-  return <RemoteEvidenceLoader remoteEvidenceId={evidenceId} viewerMode="page" />;
+  return (
+    <RemoteEvidenceLoader
+      remoteEvidenceId={evidenceId}
+      remoteOrgId={searchParams.get("orgId") ?? undefined}
+      viewerMode="page"
+    />
+  );
 }

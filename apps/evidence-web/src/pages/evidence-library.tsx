@@ -984,17 +984,26 @@ function EvidenceThumbnail(props: {
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-secondary text-primary",
+        "relative isolate flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-secondary text-primary",
         className,
       )}
     >
       {thumbnailSrc ? (
-        <img
-          src={thumbnailSrc}
-          alt=""
-          loading="lazy"
-          className="size-full object-cover"
-        />
+        <>
+          <img
+            src={thumbnailSrc}
+            alt=""
+            loading="lazy"
+            aria-hidden
+            className="absolute inset-0 size-full scale-110 object-cover opacity-70 blur-lg"
+          />
+          <img
+            src={thumbnailSrc}
+            alt=""
+            loading="lazy"
+            className="relative z-10 size-full object-cover"
+          />
+        </>
       ) : (
         <Video className="size-4" aria-hidden />
       )}

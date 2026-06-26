@@ -116,6 +116,7 @@ export const queryKeys = {
 		options: {
 			orgId?: string;
 			createdBy?: string[];
+			search?: string;
 			page?: number;
 			limit?: number;
 		} = {},
@@ -124,6 +125,7 @@ export const queryKeys = {
 			"evidences",
 			options.orgId ?? "active",
 			options.createdBy?.join(",") ?? "",
+			options.search?.trim() ?? "",
 			options.page ?? 1,
 			options.limit ?? 24,
 		] as const,
@@ -132,13 +134,28 @@ export const queryKeys = {
 	evidenceComments: (evidenceId: string, orgId: string | undefined) =>
 		["evidence-comments", evidenceId, orgId ?? null] as const,
 	shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
-	remoteEvidence: (key: { shareToken?: string; remoteEvidenceId?: string }) =>
+	shareLinkResolution: (shareToken: string) =>
+		["share-link-resolution", shareToken] as const,
+	remoteEvidence: (key: {
+		shareToken?: string;
+		remoteEvidenceId?: string;
+		orgId?: string | undefined;
+	}) =>
 		[
 			"remote-evidence",
 			key.shareToken ?? null,
 			key.remoteEvidenceId ?? null,
+			key.orgId ?? null,
 		] as const,
 };
+
+function remoteEvidenceMatchesId(evidenceId: string) {
+	return {
+		predicate: (query: { queryKey: readonly unknown[] }) =>
+			query.queryKey[0] === "remote-evidence" &&
+			query.queryKey[2] === evidenceId,
+	};
+}
 
 function useAuthToken(): FetchToken {
 	const auth = useAuth();
@@ -278,6 +295,7 @@ export function useEvidences(
 	options: {
 		orgId?: string;
 		createdBy?: string[];
+		search?: string;
 		page?: number;
 		limit?: number;
 	} = {},
@@ -299,9 +317,7 @@ export function useDeleteEvidence() {
 			api.deleteEvidence(getToken, evidenceId),
 		onSuccess: (_data, evidenceId) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
-			queryClient.removeQueries({
-				queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }),
-			});
+			queryClient.removeQueries(remoteEvidenceMatchesId(evidenceId));
 		},
 	});
 }
@@ -315,9 +331,7 @@ export function useBulkDeleteEvidences() {
 		onSuccess: (_data, evidenceIds) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
 			for (const evidenceId of evidenceIds) {
-				queryClient.removeQueries({
-					queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }),
-				});
+				queryClient.removeQueries(remoteEvidenceMatchesId(evidenceId));
 			}
 		},
 	});
@@ -329,14 +343,9 @@ export function useRenameEvidence() {
 	return useMutation({
 		mutationFn: (input: { evidenceId: string; title: string }) =>
 			api.renameEvidence(getToken, input.evidenceId, input.title),
-		onSuccess: (data, input) => {
-			const updatedAt = data.evidence.updatedAt;
+		onSuccess: (_data, input) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
-			queryClient.invalidateQueries({
-				queryKey: queryKeys.remoteEvidence({
-					remoteEvidenceId: input.evidenceId,
-				}),
-			});
+			queryClient.invalidateQueries(remoteEvidenceMatchesId(input.evidenceId));
 		},
 	});
 }
@@ -367,11 +376,7 @@ export function useMoveEvidence() {
 			api.moveEvidence(getToken, input.evidenceId, input.targetOrgId),
 		onSuccess: (data, input) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
-			queryClient.removeQueries({
-				queryKey: queryKeys.remoteEvidence({
-					remoteEvidenceId: input.evidenceId,
-				}),
-			});
+			queryClient.removeQueries(remoteEvidenceMatchesId(input.evidenceId));
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.organizationActivity(data.move.fromOrgId),
 			});
@@ -922,12 +927,16 @@ function selectEvidenceVideoArtifact(artifacts: EvidenceArtifact[]): {
 
 async function fetchRemoteEvidence(
 	getToken: FetchToken,
-	locator: { shareToken?: string; remoteEvidenceId?: string },
+	locator: {
+		shareToken?: string;
+		remoteEvidenceId?: string;
+		orgId?: string | undefined;
+	},
 	signal?: AbortSignal,
 ): Promise<RemoteEvidenceResult> {
 	let evidenceId: string;
 	let shareSlug: string | null = null;
-	let orgId: string | undefined;
+	let orgId: string | undefined = locator.orgId;
 	if (locator.shareToken) {
 		const resolved = await api.resolveShareLink(getToken, locator.shareToken);
 		if (resolved.shareLink.access === "denied") {
@@ -993,6 +1002,7 @@ async function fetchRemoteEvidence(
 export function useRemoteEvidence(locator: {
 	shareToken?: string;
 	remoteEvidenceId?: string;
+	orgId?: string | undefined;
 }) {
 	const auth = useAuth();
 	const getToken = useAuthToken();
@@ -1004,6 +1014,19 @@ export function useRemoteEvidence(locator: {
 		queryKey: queryKeys.remoteEvidence(locator),
 		queryFn: ({ signal }) => fetchRemoteEvidence(getToken, locator, signal),
 		enabled,
+		staleTime: Infinity,
+		gcTime: 5 * 60_000,
+		retry: 0,
+	});
+}
+
+export function useShareLinkResolution(shareToken: string | null) {
+	const auth = useAuth();
+	const getToken = useAuthToken();
+	return useQuery({
+		queryKey: queryKeys.shareLinkResolution(shareToken ?? ""),
+		queryFn: () => api.resolveShareLink(getToken, shareToken ?? ""),
+		enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(shareToken),
 		staleTime: Infinity,
 		gcTime: 5 * 60_000,
 		retry: 0,

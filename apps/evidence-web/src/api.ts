@@ -363,6 +363,7 @@ export const api = {
 		options: {
 			orgId?: string;
 			createdBy?: string[];
+			search?: string;
 			page?: number;
 			limit?: number;
 		} = {},
@@ -371,6 +372,7 @@ export const api = {
 		if (options.orgId) query.set("orgId", options.orgId);
 		if (options.createdBy && options.createdBy.length > 0)
 			query.set("createdBy", options.createdBy.join(","));
+		if (options.search?.trim()) query.set("search", options.search.trim());
 		if (options.page) query.set("page", String(options.page));
 		if (options.limit) query.set("limit", String(options.limit));
 		const suffix = query.toString() ? `?${query.toString()}` : "";

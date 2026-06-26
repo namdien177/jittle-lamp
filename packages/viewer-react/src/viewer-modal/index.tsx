@@ -48,7 +48,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
 
   const viewer = (
     <div
-      className="jl-vm-modal"
+      className={mode === "page" ? "jl-vm-root" : "jl-vm-modal"}
       role={mode === "modal" ? "dialog" : undefined}
       aria-modal={mode === "modal" ? "true" : undefined}
       aria-label={props.title}
@@ -78,7 +78,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
 
   if (mode === "page") {
     return (
-      <div className="jl-vm-page">
+      <>
         {viewer}
         <ContextMenuPortal {...props} />
         <MergeDialog
@@ -90,7 +90,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
           onConfirm={props.onMergeConfirm}
           onCancel={props.onMergeCancel}
         />
-      </div>
+      </>
     );
   }
 
