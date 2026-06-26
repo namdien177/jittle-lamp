@@ -56,7 +56,7 @@ export const headerStyles = `
   padding: 3px 8px;
   border-radius: 999px;
   background: rgba(34, 197, 94, 0.12);
-  color: #b6f3cf;
+  color: var(--jl-vm-accent-soft-text, #b6f3cf);
   border: 1px solid rgba(34, 197, 94, 0.22);
 }
 
@@ -88,7 +88,7 @@ export const headerStyles = `
 
 .jl-vm-btn:hover {
   background: var(--jl-vm-surface-3, #1f2324);
-  border-color: rgba(239, 239, 239, 0.24);
+  border-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.24));
 }
 
 .jl-vm-btn:active {

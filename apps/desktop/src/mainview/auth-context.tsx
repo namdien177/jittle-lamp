@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ClerkProvider, useAuth, useClerk, useSignIn, useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router";
 
@@ -150,23 +150,31 @@ export function DesktopAuthProvider(props: { children: React.ReactNode }): React
   const [state, setState] = useState<DesktopAuthState>({ status: "loading" });
   const [browserFlow, setBrowserFlow] = useState<BrowserAuthFlowState>({ status: "idle" });
 
-  const stopPolling = (): void => {
+  // Mutable mirror of `state` so the exposed callbacks can stay referentially
+  // stable (empty/minimal dep arrays) while still reading the latest state.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const stopPolling = useCallback((): void => {
     if (pollTimerRef.current !== null) {
       window.clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
-  };
+  }, []);
 
-  const getToken: FetchToken = async () => {
-    if (state.status !== "signed-in") return null;
-    if (state.source === "desktop") {
-      return state.accessToken ?? readStored()?.accessToken ?? null;
+  const getToken = useCallback<FetchToken>(async () => {
+    const current = stateRef.current;
+    if (current.status !== "signed-in") return null;
+    if (current.source === "desktop") {
+      return current.accessToken ?? readStored()?.accessToken ?? null;
     }
     return await clerkAuth.getToken({ skipCache: true });
-  };
+  }, [clerkAuth]);
 
-  const refreshProfile = async (): Promise<void> => {
-    if (state.status !== "signed-in") return;
+  const refreshProfile = useCallback(async (): Promise<void> => {
+    if (stateRef.current.status !== "signed-in") return;
     try {
       const profile = await api.fetchAccountProfile(getToken);
       setState((prev) =>
@@ -177,7 +185,7 @@ export function DesktopAuthProvider(props: { children: React.ReactNode }): React
     } catch {
       // ignored
     }
-  };
+  }, [getToken]);
 
   const loadStored = async (): Promise<void> => {
     const stored = readStored();
@@ -237,11 +245,19 @@ export function DesktopAuthProvider(props: { children: React.ReactNode }): React
     if (state.status !== "signed-in") return;
     if (state.profile) return;
     void refreshProfile();
-  }, [state.status, state.status === "signed-in" ? state.userId : null]);
+    // `useAccountProfile()` (queries.ts) fetches the same data, but it consumes
+    // this provider via `useDesktopAuth()`, so sourcing the profile from it here
+    // would be circular. We keep this effect and fix its dependencies instead.
+  }, [
+    state.status,
+    state.status === "signed-in" ? state.userId : null,
+    state.status === "signed-in" ? Boolean(state.profile) : false,
+    refreshProfile
+  ]);
 
   useEffect(() => () => stopPolling(), []);
 
-  const completeBrowserPoll = (input: { deviceCode: string; intervalSeconds: number }): void => {
+  const completeBrowserPoll = useCallback((input: { deviceCode: string; intervalSeconds: number }): void => {
     stopPolling();
     pollTimerRef.current = window.setTimeout(async () => {
       try {
@@ -303,9 +319,9 @@ export function DesktopAuthProvider(props: { children: React.ReactNode }): React
         });
       }
     }, Math.max(input.intervalSeconds, 1) * 1000);
-  };
+  }, [stopPolling]);
 
-  const startBrowserSignIn = async (): Promise<void> => {
+  const startBrowserSignIn = useCallback(async (): Promise<void> => {
     stopPolling();
     setBrowserFlow({ status: "starting" });
 
@@ -346,9 +362,9 @@ export function DesktopAuthProvider(props: { children: React.ReactNode }): React
         message: error instanceof Error ? error.message : "Unable to start browser sign-in."
       });
     }
-  };
+  }, [bridge, completeBrowserPoll, stopPolling]);
 
-  const signInWithPassword = async (input: {
+  const signInWithPassword = useCallback(async (input: {
     identifier: string;
     password: string;
   }): Promise<PasswordSignInResult> => {
@@ -375,22 +391,23 @@ export function DesktopAuthProvider(props: { children: React.ReactNode }): React
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : "Unable to sign in with that password." };
     }
-  };
+  }, [signIn]);
 
-  const signOut = async (): Promise<void> => {
+  const signOut = useCallback(async (): Promise<void> => {
     stopPolling();
     clearStored();
     setBrowserFlow({ status: "idle" });
-    if (state.status === "signed-in" && state.source === "clerk") {
+    const current = stateRef.current;
+    if (current.status === "signed-in" && current.source === "clerk") {
       await clerk.signOut();
     }
     setState({ status: "signed-out" });
-  };
+  }, [clerk, stopPolling]);
 
-  const clearBrowserFlow = (): void => {
+  const clearBrowserFlow = useCallback((): void => {
     stopPolling();
     setBrowserFlow({ status: "idle" });
-  };
+  }, [stopPolling]);
 
   const value = useMemo<DesktopAuthController>(
     () => ({
@@ -403,7 +420,7 @@ export function DesktopAuthProvider(props: { children: React.ReactNode }): React
       refreshProfile,
       getToken
     }),
-    [state, browserFlow, signIn.isLoaded]
+    [state, browserFlow, signInWithPassword, startBrowserSignIn, clearBrowserFlow, signOut, refreshProfile, getToken]
   );
 
   return <DesktopAuthContext.Provider value={value}>{props.children}</DesktopAuthContext.Provider>;

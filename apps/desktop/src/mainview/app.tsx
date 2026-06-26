@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Analytics } from "@vercel/analytics/react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -375,17 +375,60 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
   const [feedback, setFeedback] = useState<ViewerModalFeedback | null>(null);
   const [downloadingZip, setDownloadingZip] = useState(false);
 
+  const viewerState = desktop.viewerState;
+  const { activeSection, mergeGroups, selectedActionIds, networkSubtypeFilter, networkSearchQuery } = viewerState;
+
+  // `sectionItems` and `rows` are rebuilt only when the viewer-state slices that
+  // actually feed them change, instead of on every render of this overlay.
+  const sectionItems = useMemo(
+    () =>
+      payload
+        ? deriveSectionTimeline(payload.archive, activeSection, networkSubtypeFilter, networkSearchQuery)
+        : [],
+    [payload, activeSection, networkSubtypeFilter, networkSearchQuery]
+  );
+
+  const rows = useMemo(
+    () => buildTimelineRows(desktop).map((row) => mapToModalRow(row, sectionItems)),
+    // `buildTimelineRows` reads exactly these viewer-state slices off `desktop`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [payload, activeSection, mergeGroups, selectedActionIds, networkSubtypeFilter, networkSearchQuery, sectionItems]
+  );
+
+  const onContextMenuClose = useCallback(() => {
+    setContextMenu((prev) => ({ ...prev, open: false }));
+  }, []);
+
+  const downloadZip = useCallback(async (): Promise<void> => {
+    if (!payload) return;
+    if (downloadingZip) return;
+    setDownloadingZip(true);
+    try {
+      const result = await desktop.exportSessionZip(payload.archive.sessionId);
+      toast.success(`ZIP saved to ${result.savedPath}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to export ZIP.");
+    } finally {
+      setDownloadingZip(false);
+    }
+  }, [payload, downloadingZip, desktop, toast]);
+
+  const onDownloadZip = useCallback(() => void downloadZip(), [downloadZip]);
+
+  const mergeDialog = useMemo(
+    () => ({
+      open: viewerState.mergeDialogOpen,
+      value: viewerState.mergeDialogValue,
+      error: viewerState.mergeDialogError
+    }),
+    [viewerState.mergeDialogOpen, viewerState.mergeDialogValue, viewerState.mergeDialogError]
+  );
+
   if (!desktop.viewerState.open || !payload) return null;
 
   const readOnlyNotice = notesAdapter.getReadOnlyNotice(payload.source);
   const isReadOnly = !notesAdapter.canEdit(payload.source);
 
-  const sectionItems = deriveSectionTimeline(
-    payload.archive,
-    desktop.viewerState.activeSection,
-    desktop.viewerState.networkSubtypeFilter,
-    desktop.viewerState.networkSearchQuery
-  );
   const drawerItem: TimelineItem | null =
     desktop.viewerState.networkDetailIndex === null
       ? null
@@ -404,8 +447,6 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
   const tags = session?.tags ?? [];
   const isOwner = payload.source === "library";
 
-  const rows = buildTimelineRows(desktop).map((row) => mapToModalRow(row, sectionItems));
-
   const onCopy = (value: string, label: string): void => {
     void desktop.copyViewerValue(value, label);
     setFeedback({ tone: "success", text: `Copied ${label}.` });
@@ -414,19 +455,6 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
   const findNetworkPayload = (rowId: string): TimelineItem | null => {
     const item = desktop.viewerState.timeline.find((candidate) => candidate.id === rowId);
     return item ?? null;
-  };
-
-  const downloadZip = async (): Promise<void> => {
-    if (downloadingZip) return;
-    setDownloadingZip(true);
-    try {
-      const result = await desktop.exportSessionZip(payload.archive.sessionId);
-      toast.success(`ZIP saved to ${result.savedPath}.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to export ZIP.");
-    } finally {
-      setDownloadingZip(false);
-    }
   };
 
   return (
@@ -438,7 +466,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
       source={mapDesktopSource(payload.source)}
       isOwner={isOwner}
       shareLinkUrl={null}
-      onDownloadZip={() => void downloadZip()}
+      onDownloadZip={onDownloadZip}
       downloadingZip={downloadingZip}
       videoRef={desktop.viewerVideoRef}
       notesValue={desktop.viewerState.notesValue}
@@ -485,7 +513,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
       onDrawerClose={desktop.closeNetworkDetail}
       onCopy={onCopy}
       contextMenu={contextMenu}
-      onContextMenuClose={() => setContextMenu((prev) => ({ ...prev, open: false }))}
+      onContextMenuClose={onContextMenuClose}
       onCopyCurl={(rowId) => {
         const item = findNetworkPayload(rowId);
         if (item && item.payload.kind === "network") {
@@ -498,11 +526,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
           onCopy(getResponseBodyString(item.payload), "response body");
         }
       }}
-      mergeDialog={{
-        open: desktop.viewerState.mergeDialogOpen,
-        value: desktop.viewerState.mergeDialogValue,
-        error: desktop.viewerState.mergeDialogError
-      }}
+      mergeDialog={mergeDialog}
       onMergeValueChange={desktop.setMergeValue}
       onMergeConfirm={desktop.submitMergeDialog}
       onMergeCancel={desktop.closeMergeDialog}

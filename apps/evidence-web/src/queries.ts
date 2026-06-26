@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import {
 	QueryClient,
 	useMutation,
@@ -159,7 +160,11 @@ function remoteEvidenceMatchesId(evidenceId: string) {
 
 function useAuthToken(): FetchToken {
 	const auth = useAuth();
-	return () => auth.getToken();
+	// Keep a referentially-stable token getter that always reads the latest auth,
+	// so it is safe to use in query/effect dependency arrays without churn.
+	const authRef = useRef(auth);
+	authRef.current = auth;
+	return useRef<FetchToken>(() => authRef.current.getToken()).current;
 }
 
 export function useAccountProfile() {

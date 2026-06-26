@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildVisibleActionRows,
   buildSectionTimeline,
@@ -87,6 +87,24 @@ const initialMergeDialog: MergeDialogState = {
   pendingMergeActionIds: []
 };
 
+/** Tracks the active app theme by observing the `dark` class on <html>. */
+function useAppTheme(): "light" | "dark" {
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    typeof document !== "undefined" && document.documentElement.classList.contains("dark")
+      ? "dark"
+      : "light"
+  );
+  useEffect(() => {
+    const root = document.documentElement;
+    const update = (): void => setTheme(root.classList.contains("dark") ? "dark" : "light");
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
+}
+
 export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.JSX.Element {
   const {
     loadedArchive,
@@ -115,6 +133,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     copyingLlmPrompt = false
   } = props;
 
+  const appTheme = useAppTheme();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const autoScrollingRef = useRef(false);
@@ -305,11 +324,9 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     const videoEl = videoRef.current;
     if (!videoEl) return;
     const currentMs = videoEl.currentTime * 1000;
-    const items =
-      activeSection === "actions"
-        ? sectionItems
-        : buildSectionTimeline(archive, activeSection, networkSubtypeFilter, networkSearchQuery);
-    setActiveIndex(findActiveIndex(items, currentMs));
+    // `sectionItems` already equals the section timeline for the active section
+    // (memoized), so reuse it instead of rebuilding on every video time update.
+    setActiveIndex(findActiveIndex(sectionItems, currentMs));
 
     if (autoFollow) {
       const tl = timelineRef.current;
@@ -406,6 +423,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       open
       onClose={closeViewer}
       mode={viewerMode}
+      theme={appTheme}
       {...(viewerMode === "page" ? { closeLabel: "Back to evidence" } : {})}
       title={archive.name}
       titleMeta={recordingMeta}

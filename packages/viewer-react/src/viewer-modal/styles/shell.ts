@@ -20,16 +20,19 @@ export const shellStyles = `
   grid-template-rows: auto 1fr;
   width: min(90vw, 1600px);
   height: 90vh;
-  background: #0b0d0e;
-  color: #efefef;
+  background: var(--jl-vm-bg);
+  color: var(--jl-vm-text);
   font-size: 16px;
-  border: 1px solid rgba(239, 239, 239, 0.12);
+  border: 1px solid var(--jl-vm-border-strong);
   border-radius: 8px;
   overflow: hidden;
   box-shadow:
     0 30px 90px rgba(0, 0, 0, 0.56),
     0 0 0 1px rgba(34, 197, 94, 0.08) inset;
+
+  /* Dark theme (default) */
   --jl-vm-bg: #0b0d0e;
+  --jl-vm-bg-deep: #08090a;
   --jl-vm-surface: #111314;
   --jl-vm-surface-2: #171a1b;
   --jl-vm-surface-3: #1f2324;
@@ -40,8 +43,31 @@ export const shellStyles = `
   --jl-vm-border-strong: rgba(239, 239, 239, 0.16);
   --jl-vm-accent: #22c55e;
   --jl-vm-accent-on: #06120a;
+  --jl-vm-accent-soft-text: #b6f3cf;
   --jl-vm-warn: #f59e0b;
   --jl-vm-danger: #ef4444;
+}
+
+.jl-vm-modal[data-jl-theme="light"],
+.jl-vm-root[data-jl-theme="light"] {
+  --jl-vm-bg: #ffffff;
+  --jl-vm-bg-deep: #f4f4f2;
+  --jl-vm-surface: #f7f7f5;
+  --jl-vm-surface-2: #efefec;
+  --jl-vm-surface-3: #e6e6e1;
+  --jl-vm-text: #1b1a16;
+  --jl-vm-soft: rgba(27, 26, 22, 0.7);
+  --jl-vm-muted: rgba(27, 26, 22, 0.52);
+  --jl-vm-border: rgba(20, 20, 20, 0.1);
+  --jl-vm-border-strong: rgba(20, 20, 20, 0.16);
+  --jl-vm-accent: #16a34a;
+  --jl-vm-accent-on: #ffffff;
+  --jl-vm-accent-soft-text: #15803d;
+  --jl-vm-warn: #b45309;
+  --jl-vm-danger: #dc2626;
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.04) inset;
 }
 
 .jl-vm-root {
@@ -50,7 +76,7 @@ export const shellStyles = `
   min-height: 720px;
   border: 0;
   border-radius: 0;
-  background: #08090a;
+  background: var(--jl-vm-bg-deep);
   box-shadow: none;
 }
 
@@ -84,7 +110,7 @@ export const shellStyles = `
   border-right: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
   min-width: 0;
   min-height: 0;
-  background: #090a0a;
+  background: var(--jl-vm-bg-deep);
 }
 
 .jl-vm-right {

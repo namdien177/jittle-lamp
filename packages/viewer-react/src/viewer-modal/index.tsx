@@ -13,6 +13,7 @@ import type { ViewerModalProps } from "./types";
 export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
   injectStyles();
   const mode = props.mode ?? "modal";
+  const theme = props.theme ?? "dark";
 
   useEffect(() => {
     if (!props.open) return;
@@ -49,6 +50,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
   const viewer = (
     <div
       className={mode === "page" ? "jl-vm-root" : "jl-vm-modal"}
+      data-jl-theme={theme}
       role={mode === "modal" ? "dialog" : undefined}
       aria-modal={mode === "modal" ? "true" : undefined}
       aria-label={props.title}

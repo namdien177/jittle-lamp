@@ -6,7 +6,6 @@ function ModernLoader(): React.JSX.Element {
   return (
     <div aria-hidden className="jl-modern-loader">
       <span className="jl-modern-loader-ring" />
-      <span className="jl-modern-loader-dot" />
     </div>
   );
 }
@@ -21,34 +20,38 @@ export function StatusScreen(props: {
 }): React.JSX.Element {
   const isLoading = Boolean(props.loading);
 
+  if (isLoading) {
+    return (
+      <main className="jl-status-screen jl-status-screen-loading">
+        <div className="jl-status-loading" aria-live="polite">
+          <ModernLoader />
+          <h1 className="jl-status-loading-title">{props.title}</h1>
+          {props.detail ? (
+            <p className="jl-status-loading-detail">{props.detail}</p>
+          ) : null}
+          {props.children ? <div className="mt-5">{props.children}</div> : null}
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className={cn("jl-status-screen", isLoading ? "jl-status-screen-loading" : null)}>
-      <div aria-hidden className="jl-status-mesh" />
-      <div aria-hidden className="jl-status-sweep" />
+    <main className="jl-status-screen">
       <section
         aria-live="polite"
-        className={cn(
-          "relative w-full animate-rise border border-border-strong shadow-pop backdrop-blur",
-          isLoading
-            ? "jl-status-panel max-w-[22rem] px-6 py-7"
-            : "max-w-md rounded-lg bg-card/80 p-7"
-        )}
+        className="relative w-full max-w-md animate-rise rounded-lg border border-border bg-card p-7 shadow-soft"
       >
-        {isLoading ? <ModernLoader /> : null}
-        <div className={cn(isLoading ? "mt-5 text-center" : "flex items-center gap-2")}>
+        <div className="flex items-center gap-2">
           <h1
             className={cn(
-              "font-display font-semibold tracking-tight",
-              isLoading ? "text-xl leading-tight" : "text-lg",
+              "font-display text-lg font-semibold tracking-tight",
               props.tone === "error" ? "text-destructive" : "text-foreground"
             )}
           >
             {props.title}
           </h1>
           {props.detail ? (
-            <p className={cn("mt-2 text-base text-muted-foreground", isLoading ? "mx-auto max-w-sm" : null)}>
-              {props.detail}
-            </p>
+            <p className="mt-2 text-base text-muted-foreground">{props.detail}</p>
           ) : null}
         </div>
         {props.children ? <div className="mt-5">{props.children}</div> : null}

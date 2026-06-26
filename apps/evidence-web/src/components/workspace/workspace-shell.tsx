@@ -243,7 +243,13 @@ export function WorkspaceShell({
 }): React.JSX.Element {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const stored = window.localStorage.getItem("jl-theme");
+    if (stored === "dark") return true;
+    if (stored === "light") return false;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("jl-sidebar-collapsed") === "true";
@@ -256,6 +262,7 @@ export function WorkspaceShell({
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
+    window.localStorage.setItem("jl-theme", dark ? "dark" : "light");
   }, [dark]);
 
   const crumb = breadcrumbFor(location.pathname);

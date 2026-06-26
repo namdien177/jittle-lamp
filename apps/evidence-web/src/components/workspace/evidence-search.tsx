@@ -89,9 +89,14 @@ function SearchPalette({
     return [...list].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 50);
   }, [all, query]);
 
-  useEffect(() => {
+  // Reset the highlighted row when the query changes — done during render
+  // (React's "adjust state on prop change" pattern) instead of via an effect,
+  // so there is no extra render pass after each keystroke.
+  const [prevQuery, setPrevQuery] = useState(query);
+  if (query !== prevQuery) {
+    setPrevQuery(query);
     setSelected(0);
-  }, [query]);
+  }
 
   const openEvidence = (evidence: ApiEvidenceSummary): void => {
     navigate(`/evidence/${encodeURIComponent(evidence.id)}`);
