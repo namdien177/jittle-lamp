@@ -149,6 +149,14 @@ export const queryKeys = {
 		] as const,
 };
 
+function remoteEvidenceMatchesId(evidenceId: string) {
+	return {
+		predicate: (query: { queryKey: readonly unknown[] }) =>
+			query.queryKey[0] === "remote-evidence" &&
+			query.queryKey[2] === evidenceId,
+	};
+}
+
 function useAuthToken(): FetchToken {
 	const auth = useAuth();
 	return () => auth.getToken();
@@ -309,9 +317,7 @@ export function useDeleteEvidence() {
 			api.deleteEvidence(getToken, evidenceId),
 		onSuccess: (_data, evidenceId) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
-			queryClient.removeQueries({
-				queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }),
-			});
+			queryClient.removeQueries(remoteEvidenceMatchesId(evidenceId));
 		},
 	});
 }
@@ -325,9 +331,7 @@ export function useBulkDeleteEvidences() {
 		onSuccess: (_data, evidenceIds) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
 			for (const evidenceId of evidenceIds) {
-				queryClient.removeQueries({
-					queryKey: queryKeys.remoteEvidence({ remoteEvidenceId: evidenceId }),
-				});
+				queryClient.removeQueries(remoteEvidenceMatchesId(evidenceId));
 			}
 		},
 	});
@@ -339,14 +343,9 @@ export function useRenameEvidence() {
 	return useMutation({
 		mutationFn: (input: { evidenceId: string; title: string }) =>
 			api.renameEvidence(getToken, input.evidenceId, input.title),
-		onSuccess: (data, input) => {
-			const updatedAt = data.evidence.updatedAt;
+		onSuccess: (_data, input) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
-			queryClient.invalidateQueries({
-				queryKey: queryKeys.remoteEvidence({
-					remoteEvidenceId: input.evidenceId,
-				}),
-			});
+			queryClient.invalidateQueries(remoteEvidenceMatchesId(input.evidenceId));
 		},
 	});
 }
@@ -377,11 +376,7 @@ export function useMoveEvidence() {
 			api.moveEvidence(getToken, input.evidenceId, input.targetOrgId),
 		onSuccess: (data, input) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
-			queryClient.removeQueries({
-				queryKey: queryKeys.remoteEvidence({
-					remoteEvidenceId: input.evidenceId,
-				}),
-			});
+			queryClient.removeQueries(remoteEvidenceMatchesId(input.evidenceId));
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.organizationActivity(data.move.fromOrgId),
 			});

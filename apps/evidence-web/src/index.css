@@ -660,7 +660,8 @@
   }
 
   .jl-main[data-flush="true"] {
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     padding: 0;
     background: #08090a;
   }
