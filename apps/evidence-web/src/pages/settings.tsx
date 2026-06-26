@@ -250,11 +250,11 @@ function SettingCard(props: {
 	children: React.ReactNode;
 }): React.JSX.Element {
 	return (
-		<Card className="p-0">
+		<Card className="jl-proto-card p-0">
 			<div className="border-b border-border px-5 py-4">
-				<h2 className="text-base font-semibold">{props.title}</h2>
+				<h2 className="font-display text-base font-bold">{props.title}</h2>
 				{props.description ? (
-					<p className="text-base text-muted-foreground">{props.description}</p>
+					<p className="text-sm text-muted-foreground">{props.description}</p>
 				) : null}
 			</div>
 			<CardContent className="p-5 pt-5">{props.children}</CardContent>
@@ -272,9 +272,9 @@ function SettingsSectionNav(): React.JSX.Element {
 	return (
 		<nav
 			aria-label="Settings"
-			className="rounded-lg border border-border bg-card p-2"
+			className="rounded-md border border-border bg-card p-2 shadow-soft"
 		>
-			<div className="mb-2 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+			<div className="mb-2 px-2 py-1 font-mono text-xs font-semibold uppercase text-muted-foreground">
 				Settings
 			</div>
 			<div className="grid gap-1">
@@ -287,8 +287,8 @@ function SettingsSectionNav(): React.JSX.Element {
 							end={tab.to === "/settings"}
 							className={({ isActive }) =>
 								cn(
-									"flex items-center gap-2 rounded-md px-3 py-2 text-base font-medium text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground",
-									isActive && "bg-secondary text-foreground",
+									"flex items-center gap-2 rounded-md px-3 py-2 text-base font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+									isActive && "bg-secondary text-foreground shadow-soft",
 								)
 							}
 						>
@@ -304,7 +304,7 @@ function SettingsSectionNav(): React.JSX.Element {
 
 function TokenWarning(props: { children: React.ReactNode }): React.JSX.Element {
 	return (
-		<div className="flex gap-3 rounded-lg border border-warning/35 bg-warning/10 p-3 text-base text-muted-foreground">
+		<div className="flex gap-3 rounded-md border border-warning/35 bg-warning/10 p-3 text-base text-muted-foreground">
 			<AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
 			<p>{props.children}</p>
 		</div>
@@ -329,13 +329,13 @@ function CreatedTokenPanel(props: {
 	children: React.ReactNode;
 }): React.JSX.Element {
 	return (
-		<div className="rounded-lg border border-primary/30 bg-primary/10 p-3">
+		<div className="rounded-md border border-primary/30 bg-primary/10 p-3">
 			<div className="mb-2 flex items-center gap-2 text-base font-semibold text-foreground">
 				<ShieldCheck className="size-4 text-primary" aria-hidden />
 				New token is ready
 			</div>
 			<p className="mb-2 text-base text-muted-foreground">{props.children}</p>
-			<div className="flex items-center gap-2 overflow-hidden rounded-md border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
+			<div className="flex items-center gap-2 overflow-hidden rounded-md border border-border bg-muted pl-3 pr-1.5 font-mono text-base">
 				<code className="flex-1 truncate py-2.5 text-muted-foreground">
 					{props.token}
 				</code>
@@ -344,7 +344,7 @@ function CreatedTokenPanel(props: {
 					<button
 						type="button"
 						onClick={props.onCopy}
-						className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+						className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-muted"
 					>
 						{props.copied ? (
 							<Check className="size-3.5 text-primary" aria-hidden />
@@ -435,10 +435,10 @@ export function SettingsOverviewPage(): React.JSX.Element {
 							<img
 								src={profile.user.imageUrl}
 								alt=""
-								className="size-11 rounded-lg border border-border object-cover"
+								className="size-11 rounded-md border border-border object-cover"
 							/>
 						) : (
-							<span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-base font-semibold">
+							<span className="grid size-11 place-items-center rounded-md border border-border bg-secondary text-base font-semibold">
 								{initials}
 							</span>
 						)}
@@ -464,7 +464,7 @@ export function SettingsOverviewPage(): React.JSX.Element {
 
 			<SettingCard title="Active workspace" description="Upload target.">
 				<div className="flex items-center gap-3">
-					<span className="grid size-11 place-items-center rounded-lg border border-border bg-secondary text-primary">
+					<span className="grid size-11 place-items-center rounded-md border border-border bg-secondary text-primary">
 						<Building2 className="size-5" aria-hidden />
 					</span>
 					<div className="min-w-0 flex-1">
@@ -491,7 +491,7 @@ export function SettingsOverviewPage(): React.JSX.Element {
 				title="Desktop companion"
 				description="Local capture bridge."
 			>
-				<div className="flex items-center gap-2 overflow-hidden rounded-lg border border-border bg-black/30 pl-3 pr-1.5 font-mono text-base">
+				<div className="flex items-center gap-2 overflow-hidden rounded-md border border-border bg-muted pl-3 pr-1.5 font-mono text-base">
 					<Terminal aria-hidden className="size-4 shrink-0 text-primary" />
 					<code
 						className="flex-1 truncate py-2.5 text-muted-foreground"
@@ -502,7 +502,7 @@ export function SettingsOverviewPage(): React.JSX.Element {
 					<button
 						type="button"
 						onClick={onCopy}
-						className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-white/[0.08]"
+						className="my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-medium text-foreground transition-colors hover:bg-muted"
 					>
 						{copied ? (
 							<Check className="size-3.5 text-primary" aria-hidden />
@@ -1067,7 +1067,7 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 						</CreatedTokenPanel>
 					) : null}
 
-					<div className="rounded-lg border border-border bg-black/20 p-3">
+					<div className="rounded-md border border-border bg-muted p-3">
 						<div className="mb-2 flex items-center gap-2 text-base font-semibold">
 							<FileArchive className="size-4 text-primary" aria-hidden />
 							ZIP format
@@ -1079,7 +1079,7 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 						</div>
 					</div>
 
-					<div className="overflow-hidden rounded-lg border border-border bg-black/20">
+					<div className="overflow-hidden rounded-md border border-border bg-muted">
 						<div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2">
 							<div className="min-w-0">
 								<div className="text-base font-semibold">

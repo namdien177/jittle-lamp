@@ -9,10 +9,6 @@ export function SignInScreen(): React.JSX.Element {
   return (
     <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background p-6">
       <div aria-hidden className="pointer-events-none absolute inset-0 grid-backdrop opacity-40" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-1/3 left-1/2 h-[60vh] w-[60vh] -translate-x-1/2 rounded-full bg-primary/10 blur-[120px]"
-      />
       <div className="relative animate-rise">
         <SignIn
           routing="hash"

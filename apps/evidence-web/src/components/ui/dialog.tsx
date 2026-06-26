@@ -46,11 +46,11 @@ export function Dialog(props: DialogProps): React.JSX.Element | null {
       disablePointerDismissal={!closeOnOverlay}
     >
       <BaseDialog.Portal>
-        <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-black/65 backdrop-blur-sm transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+        <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-foreground/55 backdrop-blur-sm transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <BaseDialog.Viewport className="fixed inset-0 z-[901] grid place-items-center overflow-y-auto p-4 sm:p-6 [pointer-events:none]">
           <BaseDialog.Popup
             className={cn(
-              "pointer-events-auto flex w-full flex-col overflow-hidden rounded-xl border border-border-strong bg-card text-card-foreground shadow-pop",
+              "pointer-events-auto flex w-full flex-col overflow-hidden rounded-md border border-border-strong bg-card text-card-foreground shadow-pop",
               "max-h-[calc(100vh-3rem)] transition-[opacity,transform] duration-150",
               "data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0",
               "data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0",
@@ -59,7 +59,7 @@ export function Dialog(props: DialogProps): React.JSX.Element | null {
           >
             <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
               <div className="space-y-1">
-                <BaseDialog.Title className="font-display text-base font-semibold tracking-tight">
+                <BaseDialog.Title className="font-display text-base font-bold">
                   {title}
                 </BaseDialog.Title>
                 {description ? (
@@ -69,7 +69,7 @@ export function Dialog(props: DialogProps): React.JSX.Element | null {
                 ) : null}
               </div>
               <BaseDialog.Close
-                className="-mr-1.5 -mt-1 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="-mr-1.5 -mt-1 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 aria-label="Close"
               >
                 <X aria-hidden className="size-4" strokeWidth={2} />
@@ -77,7 +77,7 @@ export function Dialog(props: DialogProps): React.JSX.Element | null {
             </div>
             <div className="jl-scroll flex flex-col gap-4 overflow-y-auto px-5 py-5">{children}</div>
             {footer ? (
-              <div className="flex justify-end gap-2 border-t border-border bg-black/20 px-5 py-3.5">
+              <div className="flex justify-end gap-2 border-t border-border bg-muted px-5 py-3.5">
                 {footer}
               </div>
             ) : null}

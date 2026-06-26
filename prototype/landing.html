@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jittle Lamp — Capture. Review. Prove.</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+<script src="css/theme.js"></script>
+<style>
+  body { padding: 0; }
+  .nav-bar {
+    display: flex; align-items: center; gap: var(--space-6);
+    padding: var(--space-4) var(--space-6);
+    background: color-mix(in oklab, var(--bg), transparent 20%);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .nav-bar .brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-display); font-size: var(--text-xl); letter-spacing: -0.11px; }
+  .nav-bar .brand .logo-mark { width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-on); display: grid; place-items: center; font-size: 14px; }
+  .nav-bar .nav-links { display: flex; gap: var(--space-5); margin-left: auto; }
+  .nav-bar .nav-links a { font-family: var(--font-display); font-size: var(--text-sm); color: var(--muted); }
+  .nav-bar .nav-links a:hover { color: var(--fg); }
+  .nav-bar .nav-cta { margin-left: var(--space-4); }
+
+  .hero {
+    padding: var(--section-y-desktop) var(--space-6) var(--section-y-tablet);
+    max-width: var(--container-max);
+    margin: 0 auto;
+    text-align: center;
+  }
+  .hero .eyebrow { margin-bottom: var(--space-5); }
+  .hero h1 {
+    font-size: var(--text-4xl);
+    letter-spacing: var(--tracking-display);
+    line-height: var(--leading-tight);
+    margin-bottom: var(--space-5);
+    max-width: 800px; margin-left: auto; margin-right: auto;
+  }
+  .hero .lead { max-width: 560px; margin: 0 auto var(--space-8); }
+  .hero-actions { display: flex; gap: var(--space-3); justify-content: center; }
+  .hero-preview {
+    margin-top: var(--section-y-tablet);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    box-shadow: var(--elev-raised);
+    background: var(--surface);
+    aspect-ratio: 16 / 9;
+    display: grid; place-items: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .hero-preview .preview-mock {
+    display: grid;
+    grid-template-columns: 200px 1fr 280px;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    width: 100%; height: 100%;
+  }
+  .hero-preview .mock-sidebar { background: var(--surface-100); border-radius: var(--radius-sm); padding: var(--space-2); display: flex; flex-direction: column; gap: var(--space-1); }
+  .hero-preview .mock-bar { height: 12px; border-radius: var(--radius-pill); background: var(--border-soft); }
+  .hero-preview .mock-bar.w-60 { width: 60%; }
+  .hero-preview .mock-bar.w-80 { width: 80%; }
+  .hero-preview .mock-bar.w-40 { width: 40%; }
+  .hero-preview .mock-bar.accent { background: color-mix(in oklab, var(--accent), transparent 70%); }
+  .hero-preview .mock-video { background: var(--surface-500); border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--meta); font-family: var(--font-mono); font-size: var(--text-xs); }
+  .hero-preview .mock-timeline { background: var(--surface-100); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2); }
+  .hero-preview .mock-row { height: 8px; border-radius: var(--radius-pill); }
+
+  .features {
+    padding: var(--section-y-tablet) var(--space-6);
+    max-width: var(--container-max);
+    margin: 0 auto;
+  }
+  .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); margin-top: var(--space-8); }
+  .feature-card { padding: var(--space-6); }
+  .feature-card .card-icon {
+    width: 40px; height: 40px; border-radius: var(--radius-sm);
+    background: var(--surface-warm); display: grid; place-items: center;
+    color: var(--accent); margin-bottom: var(--space-4);
+  }
+  .feature-card h3 { margin-bottom: var(--space-2); }
+  .feature-card p { font-family: var(--font-body); font-size: var(--text-sm); color: var(--muted); }
+
+  .flow-section {
+    padding: var(--section-y-tablet) var(--space-6);
+    background: var(--surface-100);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .flow-section .container { max-width: var(--container-max); margin: 0 auto; }
+  .flow-steps { display: flex; gap: var(--space-3); margin-top: var(--space-8); overflow-x: auto; padding-bottom: var(--space-2); }
+  .flow-step {
+    flex: 1; min-width: 180px;
+    padding: var(--space-5);
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    position: relative;
+  }
+  .flow-step .step-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent); margin-bottom: var(--space-2); }
+  .flow-step h3 { font-size: var(--text-base); margin-bottom: var(--space-1); }
+  .flow-step p { font-size: var(--text-xs); color: var(--muted); font-family: var(--font-body); }
+
+  .bundle-section { padding: var(--section-y-desktop) var(--space-6); max-width: var(--container-max); margin: 0 auto; }
+  .bundle-table { margin-top: var(--space-6); }
+
+  .cta-section {
+    padding: var(--section-y-desktop) var(--space-6);
+    text-align: center;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+  .cta-section h2 { margin-bottom: var(--space-4); }
+  .cta-section p { max-width: 480px; margin: 0 auto var(--space-6); }
+  .cta-actions { display: flex; gap: var(--space-3); justify-content: center; }
+
+  .site-footer {
+    padding: var(--space-6);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: var(--space-3);
+  }
+  .site-footer .footer-links { display: flex; gap: var(--space-4); }
+  .site-footer .footer-links a { font-size: var(--text-sm); color: var(--muted); }
+
+  @media (max-width: 768px) {
+    .hero h1 { font-size: var(--text-3xl); }
+    .hero-preview .preview-mock { grid-template-columns: 1fr; }
+    .hero-preview .mock-sidebar, .hero-preview .mock-timeline { display: none; }
+    .nav-bar .nav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+<nav class="nav-bar">
+  <div class="brand">
+    <div class="logo-mark">JL</div>
+    Jittle Lamp
+  </div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#flow">How it works</a>
+    <a href="#bundle">Proof bundle</a>
+    <a href="dashboard.html">Dashboard</a>
+  </div>
+  <a href="dashboard.html" class="btn btn-primary btn-sm nav-cta">Open app</a>
+</nav>
+
+<section class="hero" id="top">
+  <div class="eyebrow">QA evidence tool</div>
+  <h1>Capture. Review. Prove.</h1>
+  <p class="lead">Record a bug or test run with full technical trace — video, actions, network, logs. Then review, discuss, share, and hand it to AI or automation.</p>
+  <div class="hero-actions">
+    <a href="dashboard.html" class="btn btn-primary">Open dashboard</a>
+    <a href="quick-view.html" class="btn btn-outline">Try quick view</a>
+  </div>
+  <div class="hero-preview">
+    <div class="preview-mock">
+      <div class="mock-sidebar">
+        <div class="mock-bar accent w-60"></div>
+        <div class="mock-bar w-80"></div>
+        <div class="mock-bar w-40"></div>
+        <div class="mock-bar w-60"></div>
+        <div class="mock-bar w-80"></div>
+      </div>
+      <div class="mock-video">recording.webm</div>
+      <div class="mock-timeline">
+        <div class="mock-row" style="background:var(--c-thinking)"></div>
+        <div class="mock-row" style="background:var(--c-grep)"></div>
+        <div class="mock-row" style="background:var(--c-read)"></div>
+        <div class="mock-row" style="background:var(--c-edit)"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="eyebrow">What it does</div>
+  <h2>One proof bundle for your whole team</h2>
+  <div class="features-grid">
+    <div class="card feature-card">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><circle cx="12" cy="12" r="4"/><path d="M23 19V8a2 2 0 00-2-2h-3l-2-2H8L6 6H3a2 2 0 00-2 2v11a2 2 0 002 2h18a2 2 0 002-2z"/></svg></div>
+      <h3>Record</h3>
+      <p>Browser extension captures tab or desktop with clicks, inputs, navigation, console logs, and network requests — headers, cookies, bodies.</p>
+    </div>
+    <div class="card feature-card">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+      <h3>Review</h3>
+      <p>Video player with timeline seek. Actions, logs, and network tabs. Detail drawer with raw data, copy cURL, copy response, merge actions.</p>
+    </div>
+    <div class="card feature-card">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></div>
+      <h3>Share</h3>
+      <p>Org-scoped share links with expiry. Internal-only by default. Revoke anytime. Restricted screen prompts join org for external viewers.</p>
+    </div>
+    <div class="card feature-card">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg></div>
+      <h3>Discuss</h3>
+      <p>Cloud and share viewer comments. Session notes for local/ZIP viewers. Team discussion attached to each evidence record.</p>
+    </div>
+    <div class="card feature-card">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
+      <h3>Debug</h3>
+      <p>Network detail drawer with status, method, headers, body. Copy cURL for any request. AI token lets an LLM inspect the full session.</p>
+    </div>
+    <div class="card feature-card">
+      <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+      <h3>Prove</h3>
+      <p>Export reviewed ZIP with merge annotations. Automation upload via API token. Source type <span class="mono">automation-test</span> for CI runs.</p>
+    </div>
+  </div>
+</section>
+
+<section class="flow-section" id="flow">
+  <div class="container">
+    <div class="eyebrow">How it works</div>
+    <h2>Record to proof in seven steps</h2>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <h3>Record</h3>
+        <p>Extension captures tab or desktop with full trace.</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <h3>Save</h3>
+        <p>Cloud upload, local companion, or browser download.</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <h3>Review</h3>
+        <p>Video + timeline + actions/logs/network tabs.</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <h3>Discuss</h3>
+        <p>Comments and notes on each evidence record.</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <h3>Share</h3>
+        <p>Org-scoped links with expiry and revocation.</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">06</div>
+        <h3>Debug</h3>
+        <p>Network detail, cURL copy, AI prompt generation.</p>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">07</div>
+        <h3>Prove</h3>
+        <p>Export reviewed ZIP or automate via API token.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="bundle-section" id="bundle">
+  <div class="eyebrow">Proof bundle</div>
+  <h2>What's inside every evidence record</h2>
+  <table class="table bundle-table">
+    <thead>
+      <tr><th>Bundle item</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="mono">recording.webm</td><td>Screen video capture</td></tr>
+      <tr><td class="mono">session.archive.json</td><td>Actions, logs, network, metadata</td></tr>
+      <tr><td>Thumbnail</td><td>Preview image in library</td></tr>
+      <tr><td>Comments</td><td>Team discussion thread</td></tr>
+      <tr><td>Share links</td><td>Org-scoped review links</td></tr>
+      <tr><td>AI prompt</td><td>Opens evidence to an LLM</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="cta-section">
+  <h2>Start capturing evidence</h2>
+  <p class="lead">Open the dashboard, browse evidence, or drop a local ZIP — no upload required.</p>
+  <div class="cta-actions">
+    <a href="dashboard.html" class="btn btn-primary">Open dashboard</a>
+    <a href="evidence-library.html" class="btn btn-outline">Browse evidence</a>
+    <a href="quick-view.html" class="btn btn-ghost">Quick view</a>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="brand" style="display:flex;align-items:center;gap:var(--space-2);font-family:var(--font-display);font-size:var(--text-sm);">
+    <div class="logo-mark" style="width:24px;height:24px;border-radius:var(--radius-sm);background:var(--accent);color:var(--accent-on);display:grid;place-items:center;font-size:12px;">JL</div>
+    Jittle Lamp
+  </div>
+  <div class="footer-links">
+    <a href="dashboard.html">Dashboard</a>
+    <a href="evidence-library.html">Evidence</a>
+    <a href="organisations.html">Organisations</a>
+    <a href="settings.html">Settings</a>
+    <a href="quick-view.html">Quick view</a>
+  </div>
+</footer>
+</body>
+</html>

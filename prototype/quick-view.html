@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick View — Jittle Lamp</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+<script src="css/theme.js"></script>
+<style>
+  .qv-main { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - var(--topbar-h) - var(--space-12)); }
+
+  .drop-zone {
+    width: 100%; max-width: 560px;
+    min-height: 320px;
+    border: 2px dashed var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: var(--space-12) var(--space-6);
+    text-align: center;
+    transition: border-color var(--motion-base) var(--ease-standard), background var(--motion-base) var(--ease-standard);
+    cursor: pointer;
+  }
+  .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 94%); }
+  .drop-zone .dz-icon { width: 64px; height: 64px; border-radius: var(--radius-md); background: var(--surface-warm); display: grid; place-items: center; color: var(--accent); margin-bottom: var(--space-5); }
+  .drop-zone .dz-icon svg { width: 28px; height: 28px; }
+  .drop-zone h2 { margin-bottom: var(--space-3); }
+  .drop-zone p { font-family: var(--font-body); font-size: var(--text-sm); color: var(--muted); max-width: 320px; margin-bottom: var(--space-6); }
+  .drop-zone .dz-formats { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
+  .drop-zone .dz-formats .pill { font-family: var(--font-mono); }
+
+  .qv-info { margin-top: var(--space-6); max-width: 560px; width: 100%; }
+  .qv-info .info-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border-radius: var(--radius-sm); background: var(--surface-100); border: 1px solid var(--border); margin-bottom: var(--space-2); }
+  .qv-info .info-row .info-icon { width: 20px; height: 20px; color: var(--muted); flex-shrink: 0; }
+  .qv-info .info-row .info-text { font-size: var(--text-sm); color: var(--fg-2); }
+  .qv-info .info-row .info-text strong { font-family: var(--font-display); }
+
+  .qv-loaded { display: none; width: 100%; }
+  .qv-loaded.visible { display: block; }
+  .qv-loaded .loaded-header { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-6); }
+  .qv-loaded .loaded-header h1 { font-size: var(--text-xl); }
+  .qv-loaded .loaded-header .meta { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); }
+
+  .validate-status { padding: var(--space-4) var(--space-5); background: color-mix(in oklab, var(--success), transparent 92%); border: 1px solid color-mix(in oklab, var(--success), transparent 75%); border-radius: var(--radius-sm); margin-bottom: var(--space-6); display: flex; align-items: center; gap: var(--space-3); }
+  .validate-status .vs-icon { width: 20px; height: 20px; color: var(--success); }
+  .validate-status .vs-text { font-size: var(--text-sm); color: var(--fg); }
+  .validate-status .vs-text strong { font-family: var(--font-display); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo-mark">JL</div> Jittle Lamp</div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Workspace</div>
+      <a href="dashboard.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Dashboard</a>
+      <a href="evidence-library.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/></svg> Evidence library</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Library</div>
+      <a href="#" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Test cases <span class="pill" style="font-size:10px;padding:1px 6px;">Soon</span></a>
+      <a href="#" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Documents <span class="pill" style="font-size:10px;padding:1px 6px;">Soon</span></a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Tools</div>
+      <a href="quick-view.html" class="nav-item active"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Quick view</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Team</div>
+      <a href="organisations.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="8" r="3"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><circle cx="17" cy="8" r="3"/></svg> Organisations</a>
+      <a href="settings.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.5 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12a7 7 0 00.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.5-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6A7 7 0 0019 12z"/></svg> Settings</a>
+    </div>
+    <div class="sidebar-footer"><div class="workspace-switcher"><div class="ws-avatar">A</div><div class="ws-name">Acme QA</div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" style="color:var(--meta)"><polyline points="6 9 12 15 18 9"/></svg></div></div>
+  </aside>
+
+  <header class="topbar">
+    <div class="breadcrumb"><span>Tools</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg><span class="crumb-current">Quick view</span></div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-actions"><button class="theme-toggle" onclick="toggleTheme()" data-tooltip="Toggle theme"><svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg><svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button><a href="evidence-library.html" class="btn btn-ghost btn-sm">Browse cloud evidence</a></div>
+  </header>
+
+  <main class="main">
+    <div class="main-narrow">
+      <div id="qv-drop-view" class="qv-main">
+        <div style="text-align:center;margin-bottom:var(--space-6);">
+          <h1>Quick view</h1>
+          <p class="lead">Drop a local evidence ZIP to review in-browser. No upload, fully local.</p>
+        </div>
+
+        <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <div class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+          <h2>Drop ZIP here</h2>
+          <p>Drag and drop a session archive, or click to browse. Everything stays in your browser — nothing is uploaded.</p>
+          <button class="btn btn-primary">Choose file</button>
+          <input type="file" id="file-input" accept=".zip" style="display:none;" onchange="handleFile(this.files[0])">
+          <div class="dz-formats">
+            <span class="pill">.zip</span>
+            <span class="pill mono">session.archive.json</span>
+            <span class="pill mono">recording.webm</span>
+          </div>
+        </div>
+
+        <div class="qv-info">
+          <div class="info-row">
+            <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span class="info-text"><strong>Validates</strong> the archive must contain <code class="mono">session.archive.json</code> and <code class="mono">recording.webm</code>.</span>
+          </div>
+          <div class="info-row">
+            <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span class="info-text"><strong>Local only</strong> — no upload, no cloud, no trace. Uses the same viewer as cloud evidence.</span>
+          </div>
+          <div class="info-row">
+            <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span class="info-text"><strong>Export</strong> — can export a reviewed ZIP with merge annotations after review.</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="qv-loaded-view" class="qv-loaded">
+        <div class="loaded-header">
+          <div class="btn-icon" onclick="resetView()" data-tooltip="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+          <div><h1>session-2024-06-26.zip</h1><div class="meta">local · 4.2 MB · loaded just now</div></div>
+          <div style="margin-left:auto;display:flex;gap:var(--space-2);">
+            <button class="btn btn-outline btn-sm">Export reviewed ZIP</button>
+            <a href="evidence-viewer.html" class="btn btn-primary btn-sm">Open in viewer</a>
+          </div>
+        </div>
+
+        <div class="validate-status">
+          <svg class="vs-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          <div class="vs-text"><strong>Valid archive.</strong> Found <code class="mono">session.archive.json</code> (248 events) and <code class="mono">recording.webm</code> (3:42).</div>
+        </div>
+
+        <div class="card" style="padding:var(--space-6);margin-bottom:var(--space-4);">
+          <div class="eyebrow" style="margin-bottom:var(--space-3);">Session summary</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--space-4);">
+            <div><div class="mono text-xs text-muted">Duration</div><div style="font-family:var(--font-display);font-size:var(--text-xl);">3:42</div></div>
+            <div><div class="mono text-xs text-muted">Events</div><div style="font-family:var(--font-display);font-size:var(--text-xl);">248</div></div>
+            <div><div class="mono text-xs text-muted">Network</div><div style="font-family:var(--font-display);font-size:var(--text-xl);">88</div></div>
+            <div><div class="mono text-xs text-muted">Console</div><div style="font-family:var(--font-display);font-size:var(--text-xl);">18</div></div>
+            <div><div class="mono text-xs text-muted">Actions</div><div style="font-family:var(--font-display);font-size:var(--text-xl);">142</div></div>
+            <div><div class="mono text-xs text-muted">Source</div><div style="font-family:var(--font-display);font-size:var(--text-xl);">manual</div></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:var(--space-6);">
+          <div class="eyebrow" style="margin-bottom:var(--space-3);">Session notes</div>
+          <textarea placeholder="Add notes for this local session (saved locally)…" style="width:100%;min-height:120px;resize:vertical;font-family:var(--font-body);font-size:var(--text-sm);">Safari cookie SameSite issue. Same root cause as last week's redirect bug. Fix in PR #412.</textarea>
+          <div style="margin-top:var(--space-3);"><button class="btn btn-primary btn-sm">Save note</button></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const dropZone = document.getElementById('drop-zone');
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+  function handleFile(file) {
+    if (!file) return;
+    if (!file.name.endsWith('.zip')) { alert('Please drop a .zip file.'); return; }
+    document.getElementById('qv-drop-view').style.display = 'none';
+    document.getElementById('qv-loaded-view').classList.add('visible');
+  }
+  function resetView() {
+    document.getElementById('qv-drop-view').style.display = 'flex';
+    document.getElementById('qv-loaded-view').classList.remove('visible');
+    document.getElementById('file-input').value = '';
+  }
+</script>
+</body>
+</html>

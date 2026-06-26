@@ -523,6 +523,9 @@ function mapToModalRow(row: TimelineRow, items: ReadonlyArray<TimelineItem>): Vi
   const status =
     item && item.payload.kind === "network" ? item.payload.status ?? null : null;
   const subtype = item?.kind === "network" ? item.subtype ?? null : null;
+  const method = item?.payload.kind === "network" ? item.payload.method : null;
+  const url = item?.payload.kind === "network" ? item.payload.url : null;
+  const durationMs = item?.payload.kind === "network" ? item.payload.durationMs ?? null : null;
   const base: ViewerModalRow = {
     id: row.id,
     offsetMs: row.offsetMs,
@@ -533,7 +536,10 @@ function mapToModalRow(row: TimelineRow, items: ReadonlyArray<TimelineItem>): Vi
     merged: row.merged,
     tags: row.tags,
     statusCode: status,
-    subtype
+    subtype,
+    method,
+    url,
+    durationMs
   };
   return row.mergedRange !== undefined ? { ...base, mergedRange: row.mergedRange } : base;
 }

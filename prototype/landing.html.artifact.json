@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "landing.html",
+  "entry": "landing.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-26T13:44:29.491Z",
+  "updatedAt": "2026-06-26T13:44:29.491Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

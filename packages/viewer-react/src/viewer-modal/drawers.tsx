@@ -64,8 +64,14 @@ function NetworkDetailDrawer(props: DrawerProps): React.JSX.Element | null {
           ) : null}
         </div>
         <HeadersSection title="Request headers" headers={payload.request.headers} onCopy={props.onCopy} />
+        <RequestCookiesSection cookies={payload.request.cookies} onCopy={props.onCopy} />
         <BodySection title="Request body" body={payload.request.body} onCopy={props.onCopy} />
         <HeadersSection title="Response headers" headers={payload.response?.headers ?? []} onCopy={props.onCopy} />
+        <ResponseCookiesSection
+          setCookieHeaders={payload.response?.setCookieHeaders ?? []}
+          setCookies={payload.response?.setCookies ?? []}
+          onCopy={props.onCopy}
+        />
         <BodySection title="Response body" body={payload.response?.body} onCopy={props.onCopy} />
       </div>
     </div>
@@ -162,6 +168,136 @@ function HeadersSection(props: {
       )}
     </div>
   );
+}
+
+function RequestCookiesSection(props: {
+  cookies: ReadonlyArray<{
+    cookie: {
+      name: string;
+      value: string;
+      domain?: string | undefined;
+      path?: string | undefined;
+      secure?: boolean | undefined;
+      httpOnly?: boolean | undefined;
+      sameSite?: string | undefined;
+    };
+    blockedReasons: ReadonlyArray<string>;
+  }>;
+  onCopy: (value: string, label: string) => void;
+}): React.JSX.Element {
+  return (
+    <div className="jl-vm-drawer-section">
+      <span className="jl-vm-drawer-label">Request cookies</span>
+      {props.cookies.length === 0 ? (
+        <span className="jl-vm-empty-line">No cookies</span>
+      ) : (
+        props.cookies.map((entry, index) => (
+          <CookieCard
+            key={`${entry.cookie.name}-${index}`}
+            name={entry.cookie.name}
+            value={entry.cookie.value}
+            meta={cookieMeta(entry.cookie)}
+            raw={`${entry.cookie.name}=${entry.cookie.value}`}
+            blockedReasons={entry.blockedReasons}
+            onCopy={props.onCopy}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function ResponseCookiesSection(props: {
+  setCookieHeaders: ReadonlyArray<string>;
+  setCookies: ReadonlyArray<{
+    name: string;
+    value: string;
+    domain?: string | undefined;
+    path?: string | undefined;
+    secure?: boolean | undefined;
+    httpOnly?: boolean | undefined;
+    sameSite?: string | undefined;
+    raw: string;
+  }>;
+  onCopy: (value: string, label: string) => void;
+}): React.JSX.Element {
+  return (
+    <div className="jl-vm-drawer-section">
+      <span className="jl-vm-drawer-label">Set-Cookie</span>
+      {props.setCookieHeaders.length === 0 && props.setCookies.length === 0 ? (
+        <span className="jl-vm-empty-line">No Set-Cookie headers</span>
+      ) : (
+        <>
+          {props.setCookies.map((cookie, index) => (
+            <CookieCard
+              key={`${cookie.name}-${index}`}
+              name={cookie.name}
+              value={cookie.value}
+              meta={cookieMeta(cookie)}
+              raw={cookie.raw}
+              blockedReasons={[]}
+              onCopy={props.onCopy}
+            />
+          ))}
+          {props.setCookieHeaders.map((header, index) => (
+            <pre
+              key={`${header}-${index}`}
+              className="jl-vm-pre jl-vm-pre-compact"
+              onClick={() => props.onCopy(header, "Set-Cookie header")}
+            >
+              {header}
+            </pre>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CookieCard(props: {
+  name: string;
+  value: string;
+  meta: string;
+  raw: string;
+  blockedReasons: ReadonlyArray<string>;
+  onCopy: (value: string, label: string) => void;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className="jl-vm-cookie"
+      onClick={() => props.onCopy(props.raw, "cookie")}
+    >
+      <span className="jl-vm-cookie-main">
+        <strong>{props.name}</strong>
+        <span>{props.value}</span>
+      </span>
+      {props.meta ? <span className="jl-vm-cookie-meta">{props.meta}</span> : null}
+      {props.blockedReasons.length > 0 ? (
+        <span className="jl-vm-cookie-blocked">
+          Blocked: {props.blockedReasons.join(", ")}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function cookieMeta(cookie: {
+  domain?: string | undefined;
+  path?: string | undefined;
+  secure?: boolean | undefined;
+  httpOnly?: boolean | undefined;
+  sameSite?: string | undefined;
+}): string {
+  return [
+    cookie.domain,
+    cookie.path ? `path ${cookie.path}` : null,
+    cookie.sameSite ? `SameSite ${cookie.sameSite}` : null,
+    cookie.secure ? "Secure" : null,
+    cookie.httpOnly ? "HttpOnly" : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 type NetworkBody = NonNullable<

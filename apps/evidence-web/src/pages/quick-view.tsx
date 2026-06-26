@@ -108,15 +108,15 @@ export function QuickViewPage(): React.JSX.Element {
       <PublicTopbar />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6">
         <div className="mb-8 text-center">
-          <span className="font-mono font-semibold uppercase tracking-[0.12em] text-primary">
+          <span className="jl-eyebrow text-primary">
             Quick view
           </span>
-          <h1 className="mt-2 font-display text-3xl font-bold tracking-tight">
-            Review a session locally
+          <h1 className="mt-2 font-display text-4xl font-bold">
+            Drop ZIP here
           </h1>
-          <p className="mx-auto mt-2 max-w-md text-base text-muted-foreground">
-            Drop a session ZIP to replay it instantly. Nothing is uploaded — the
-            archive is read entirely in your browser.
+          <p className="jl-lead mx-auto mt-2 max-w-md">
+            Review a local evidence ZIP in-browser.
+            No upload, fully local.
           </p>
         </div>
 
@@ -132,12 +132,12 @@ export function QuickViewPage(): React.JSX.Element {
             if (e.key === "Enter" || e.key === " ") fileAdapter.openDialog();
           }}
           className={cn(
-            "group relative flex w-full cursor-pointer flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-border-strong bg-card/40 px-6 py-16 text-center transition-colors outline-none",
-            "hover:border-primary/60 hover:bg-primary/[0.04] focus-visible:border-primary/60",
+            "group relative flex min-h-80 w-full cursor-pointer flex-col items-center justify-center gap-5 rounded-md border-2 border-dashed border-border-strong bg-card px-6 py-16 text-center transition-colors outline-none",
+            "hover:border-primary hover:bg-primary/[0.05] focus-visible:border-primary",
             "data-[dragover=true]:border-primary data-[dragover=true]:bg-primary/[0.08]",
           )}
         >
-          <span className="flex size-16 items-center justify-center rounded-2xl border border-border bg-secondary text-muted-foreground transition-colors group-hover:text-primary group-data-[dragover=true]:text-primary [&_svg]:size-7">
+          <span className="flex size-16 items-center justify-center rounded-md bg-secondary text-primary transition-colors group-data-[dragover=true]:text-primary [&_svg]:size-7">
             {isLoading ? (
               <FileArchive aria-hidden className="animate-pulse" />
             ) : (
@@ -145,7 +145,7 @@ export function QuickViewPage(): React.JSX.Element {
             )}
           </span>
           <div className="space-y-1">
-            <p className="text-base font-semibold text-foreground">
+            <p className="font-display text-2xl font-bold text-foreground">
               {isLoading
                 ? "Extracting and validating…"
                 : "Drop a session ZIP here"}
@@ -164,7 +164,7 @@ export function QuickViewPage(): React.JSX.Element {
           {!isLoading ? (
             <span
               className={cn(
-                buttonVariants({ variant: "secondary", size: "sm" }),
+                buttonVariants({ variant: "primary", size: "sm" }),
                 "pointer-events-none",
               )}
             >
@@ -180,10 +180,26 @@ export function QuickViewPage(): React.JSX.Element {
           />
         </div>
 
-        <p className="mt-5 inline-flex items-center gap-1.5 text-muted-foreground">
-          <ShieldCheck className="size-3.5 text-primary" aria-hidden />
-          Processed locally in your browser — never uploaded.
-        </p>
+        <div className="mt-6 grid w-full gap-2">
+          <div className="jl-row-card">
+            <ShieldCheck className="size-5 shrink-0 text-primary" aria-hidden />
+            <p className="text-base text-foreground">
+              <strong>Local only.</strong>{" "}
+              <span className="text-muted-foreground">
+                Processed in your browser, never uploaded.
+              </span>
+            </p>
+          </div>
+          <div className="jl-row-card">
+            <FileArchive className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+            <p className="text-base text-foreground">
+              <strong>Validates ZIP.</strong>{" "}
+              <span className="text-muted-foreground">
+                Needs session archive and recording files.
+              </span>
+            </p>
+          </div>
+        </div>
       </main>
     </div>
   );

@@ -46,10 +46,9 @@ export function ComingSoonPage({ variant }: { variant: Variant }): React.JSX.Ele
     <>
       <PageHeader eyebrow={copy.eyebrow} title={copy.title} description={copy.description} />
       <PageBody>
-        <Card className="overflow-hidden">
+        <Card className="jl-page-band overflow-hidden">
           <div className="relative grid gap-8 p-8 md:grid-cols-[auto_1fr] md:items-center">
-            <div aria-hidden className="pointer-events-none absolute inset-0 grid-backdrop opacity-30" />
-            <div className="relative flex size-20 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10 text-primary [&_svg]:size-9">
+            <div className="relative flex size-20 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary [&_svg]:size-9">
               {copy.icon}
             </div>
             <div className="relative space-y-3">
@@ -63,7 +62,7 @@ export function ComingSoonPage({ variant }: { variant: Variant }): React.JSX.Ele
         </Card>
         <div className="grid gap-4 sm:grid-cols-3">
           {copy.bullets.map((bullet) => (
-            <Card key={bullet.title}>
+            <Card key={bullet.title} className="jl-proto-card">
               <CardContent className="space-y-1.5 p-5">
                 <p className="text-base font-semibold text-foreground">{bullet.title}</p>
                 <p className="text-base text-muted-foreground">{bullet.body}</p>

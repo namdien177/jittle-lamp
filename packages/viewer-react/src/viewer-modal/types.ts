@@ -14,6 +14,9 @@ export type ViewerModalRow = {
   tags: string[];
   statusCode?: number | null;
   subtype?: NetworkSubtype | null;
+  method?: string | null;
+  url?: string | null;
+  durationMs?: number | null;
 };
 
 export type ViewerSource = "local" | "zip" | "cloud" | "share";

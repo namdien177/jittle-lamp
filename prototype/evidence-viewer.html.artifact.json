@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "evidence-viewer.html",
+  "entry": "evidence-viewer.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-26T14:09:13.367Z",
+  "updatedAt": "2026-06-26T14:09:13.367Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organisations — Jittle Lamp</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+<script src="css/theme.js"></script>
+<style>
+  .org-tabs { display: flex; gap: var(--space-1); margin-bottom: var(--space-6); border-bottom: 1px solid var(--border); }
+  .org-tabs .tab { padding: var(--space-3) var(--space-4); font-family: var(--font-display); font-size: var(--text-sm); color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+  .org-tabs .tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+  .org-tab-panel { display: none; }
+  .org-tab-panel.active { display: block; }
+
+  .org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-4); }
+  .org-card { padding: var(--space-5); cursor: pointer; transition: box-shadow var(--motion-base) var(--ease-standard); }
+  .org-card:hover { box-shadow: var(--elev-raised); }
+  .org-card.active { border-color: var(--accent); }
+  .org-card .org-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+  .org-card .org-avatar { width: 40px; height: 40px; border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-on); display: grid; place-items: center; font-family: var(--font-display); font-size: var(--text-base); }
+  .org-card .org-name { font-family: var(--font-display); font-size: var(--text-base); color: var(--fg); }
+  .org-card .org-role { font-size: var(--text-xs); color: var(--muted); }
+  .org-card .org-stats { display: flex; gap: var(--space-4); }
+  .org-card .org-stat .val { font-family: var(--font-display); font-size: var(--text-xl); color: var(--fg); }
+  .org-card .org-stat .lbl { font-size: var(--text-xs); color: var(--muted); }
+
+  .member-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+  .member-row:last-child { border-bottom: none; }
+  .member-row .m-avatar { width: 32px; height: 32px; border-radius: var(--radius-pill); background: var(--surface-warm); color: var(--fg); display: grid; place-items: center; font-size: var(--text-sm); font-weight: 500; flex-shrink: 0; }
+  .member-row .m-info { flex: 1; }
+  .member-row .m-name { font-family: var(--font-display); font-size: var(--text-sm); color: var(--fg); }
+  .member-row .m-email { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); }
+  .member-row .m-role { display: flex; gap: var(--space-2); align-items: center; }
+
+  .role-card { padding: var(--space-5); }
+  .role-card .role-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4); }
+  .role-card .role-name { font-family: var(--font-display); font-size: var(--text-base); color: var(--fg); }
+  .role-card .role-desc { font-size: var(--text-xs); color: var(--muted); font-family: var(--font-body); }
+  .perm-group { margin-bottom: var(--space-4); }
+  .perm-group .pg-label { font-family: var(--font-display); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.048px; color: var(--meta); margin-bottom: var(--space-2); }
+  .perm-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) 0; }
+  .perm-row .perm-name { font-size: var(--text-sm); color: var(--fg-2); }
+  .toggle { position: relative; width: 36px; height: 20px; background: var(--border); border-radius: var(--radius-pill); cursor: pointer; transition: background var(--motion-fast) var(--ease-standard); }
+  .toggle.on { background: var(--accent); }
+  .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: var(--radius-pill); background: var(--bg); transition: transform var(--motion-fast) var(--ease-standard); }
+  .toggle.on::after { transform: translateX(16px); }
+
+  .invite-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+  .invite-row .inv-code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 90%); padding: 2px 8px; border-radius: var(--radius-sm); }
+
+  .activity-row { display: flex; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-soft); }
+  .activity-row .a-dot { width: 8px; height: 8px; border-radius: var(--radius-pill); margin-top: 6px; flex-shrink: 0; }
+  .activity-row .a-text { font-size: var(--text-sm); color: var(--fg-2); }
+  .activity-row .a-text strong { font-family: var(--font-display); }
+  .activity-row .a-time { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); margin-top: 2px; }
+
+  .org-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+  @media (max-width: 1024px) { .org-detail-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo-mark">JL</div> Jittle Lamp</div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Workspace</div>
+      <a href="dashboard.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Dashboard</a>
+      <a href="evidence-library.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/></svg> Evidence library</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Library</div>
+      <a href="#" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Test cases <span class="pill" style="font-size:10px;padding:1px 6px;">Soon</span></a>
+      <a href="#" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Documents <span class="pill" style="font-size:10px;padding:1px 6px;">Soon</span></a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Tools</div>
+      <a href="quick-view.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Quick view</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Team</div>
+      <a href="organisations.html" class="nav-item active"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="8" r="3"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><circle cx="17" cy="8" r="3"/></svg> Organisations</a>
+      <a href="settings.html" class="nav-item"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.5 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12a7 7 0 00.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.5-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6A7 7 0 0019 12z"/></svg> Settings</a>
+    </div>
+    <div class="sidebar-footer"><div class="workspace-switcher"><div class="ws-avatar">A</div><div class="ws-name">Acme QA</div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" style="color:var(--meta)"><polyline points="6 9 12 15 18 9"/></svg></div></div>
+  </aside>
+
+  <header class="topbar">
+    <div class="breadcrumb"><span>Team</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg><span class="crumb-current">Organisations</span></div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-search"><svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="search" placeholder="Search members…"></div>
+    <div class="topbar-actions"><button class="theme-toggle" onclick="toggleTheme()" data-tooltip="Toggle theme"><svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg><svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button><button class="btn btn-primary btn-sm" onclick="openCreateOrgModal()">Create org</button></div>
+  </header>
+
+  <main class="main">
+    <div class="main-narrow">
+      <div style="margin-bottom:var(--space-6);"><h1>Organisations</h1><p class="lead">Manage teams, roles, invitations, and audit activity.</p></div>
+
+      <div class="org-tabs">
+        <div class="tab active" onclick="orgTab(this,'list')">Organisations</div>
+        <div class="tab" onclick="orgTab(this,'members')">Members</div>
+        <div class="tab" onclick="orgTab(this,'roles')">Roles & Permissions</div>
+        <div class="tab" onclick="orgTab(this,'invites')">Invitations</div>
+        <div class="tab" onclick="orgTab(this,'activity')">Activity</div>
+        <div class="tab" onclick="orgTab(this,'options')">Options</div>
+      </div>
+
+      <div class="org-tab-panel active" id="panel-list">
+        <div class="org-grid">
+          <div class="card org-card active">
+            <div class="org-head"><div class="org-avatar">A</div><div><div class="org-name">Acme QA</div><div class="org-role">Admin · Active</div></div></div>
+            <div class="org-stats"><div class="org-stat"><div class="val">147</div><div class="lbl">Evidence</div></div><div class="org-stat"><div class="val">5</div><div class="lbl">Members</div></div><div class="org-stat"><div class="val">3</div><div class="lbl">Invites</div></div></div>
+          </div>
+          <div class="card org-card">
+            <div class="org-head"><div class="org-avatar" style="background:var(--success)">B</div><div><div class="org-name">Beta Team</div><div class="org-role">Moderator</div></div></div>
+            <div class="org-stats"><div class="org-stat"><div class="val">32</div><div class="lbl">Evidence</div></div><div class="org-stat"><div class="val">8</div><div class="lbl">Members</div></div><div class="org-stat"><div class="val">1</div><div class="lbl">Invite</div></div></div>
+          </div>
+          <div class="card org-card">
+            <div class="org-head"><div class="org-avatar" style="background:var(--c-read)">S</div><div><div class="org-name">Staging Squad</div><div class="org-role">Developer</div></div></div>
+            <div class="org-stats"><div class="org-stat"><div class="val">12</div><div class="lbl">Evidence</div></div><div class="org-stat"><div class="val">3</div><div class="lbl">Members</div></div><div class="org-stat"><div class="val">0</div><div class="lbl">Invites</div></div></div>
+          </div>
+        </div>
+        <div style="margin-top:var(--space-6);padding:var(--space-5);background:var(--surface-100);border-radius:var(--radius-sm);border:1px solid var(--border);">
+          <h3 style="margin-bottom:var(--space-2);">Join with invite code</h3>
+          <p class="body-muted text-sm" style="margin-bottom:var(--space-3);">Have a code? Enter it to join an organisation.</p>
+          <div style="display:flex;gap:var(--space-2);max-width:400px;"><input type="text" placeholder="e.g. AB3X-K9M2"><button class="btn btn-primary btn-sm">Join</button></div>
+        </div>
+      </div>
+
+      <div class="org-tab-panel" id="panel-members">
+        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap;align-items:center;">
+          <div class="filter-group"><span class="filter-chip active" style="padding:4px 10px;border-radius:var(--radius-pill);background:var(--surface-500);font-family:var(--font-display);font-size:var(--text-xs);">All roles</span><span class="filter-chip" style="padding:4px 10px;border-radius:var(--radius-pill);background:var(--surface);font-family:var(--font-display);font-size:var(--text-xs);color:var(--muted);">Admin</span><span class="filter-chip" style="padding:4px 10px;border-radius:var(--radius-pill);background:var(--surface);font-family:var(--font-display);font-size:var(--text-xs);color:var(--muted);">Moderator</span><span class="filter-chip" style="padding:4px 10px;border-radius:var(--radius-pill);background:var(--surface);font-family:var(--font-display);font-size:var(--text-xs);color:var(--muted);">Developer</span><span class="filter-chip" style="padding:4px 10px;border-radius:var(--radius-pill);background:var(--surface);font-family:var(--font-display);font-size:var(--text-xs);color:var(--muted);">QA engineer</span></div>
+          <div style="margin-left:auto;display:flex;gap:var(--space-2);"><button class="btn btn-outline btn-sm">Direct invite</button><button class="btn btn-primary btn-sm">Create invite code</button></div>
+        </div>
+        <div class="card" style="padding:0;">
+          <div class="member-row"><div class="m-avatar" style="background:var(--accent);color:var(--accent-on)">N</div><div class="m-info"><div class="m-name">Nam Do</div><div class="m-email">nam.do@littlelives.com</div></div><div class="m-role"><span class="pill pill-accent">Admin</span><button class="btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div></div>
+          <div class="member-row"><div class="m-avatar">Q</div><div class="m-info"><div class="m-name">QA Tester</div><div class="m-email">qa@acme.com</div></div><div class="m-role"><span class="pill">QA engineer</span><button class="btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div></div>
+          <div class="member-row"><div class="m-avatar">D</div><div class="m-info"><div class="m-name">Dev Engineer</div><div class="m-email">dev@acme.com</div></div><div class="m-role"><span class="pill">Developer</span><button class="btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div></div>
+          <div class="member-row"><div class="m-avatar">C</div><div class="m-info"><div class="m-name">CI Bot</div><div class="m-email">ci@acme.com</div></div><div class="m-role"><span class="pill">Developer</span><span class="pill pill-success">API token</span><button class="btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div></div>
+          <div class="member-row"><div class="m-avatar">M</div><div class="m-info"><div class="m-name">Mod Lead</div><div class="m-email">mod@acme.com</div></div><div class="m-role"><span class="pill">Moderator</span><button class="btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div></div>
+        </div>
+      </div>
+
+      <div class="org-tab-panel" id="panel-roles">
+        <div class="org-detail-grid">
+          <div class="card role-card">
+            <div class="role-head"><div><div class="role-name">Admin</div><div class="role-desc">Fixed highest access</div></div><span class="pill pill-accent">Fixed</span></div>
+            <div class="perm-group"><div class="pg-label">Evidence</div><div class="perm-row"><span class="perm-name">View, download, comment, create, edit, delete, move</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+            <div class="perm-group"><div class="pg-label">Invitations</div><div class="perm-row"><span class="perm-name">Create, disable</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+            <div class="perm-group"><div class="pg-label">Members</div><div class="perm-row"><span class="perm-name">Assign role, kick</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+          </div>
+          <div class="card role-card">
+            <div class="role-head"><div><div class="role-name">Moderator</div><div class="role-desc">Manage review flows</div></div><span class="pill">Editable</span></div>
+            <div class="perm-group"><div class="pg-label">Evidence</div><div class="perm-row"><span class="perm-name">View, download, comment, edit</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+            <div class="perm-group"><div class="pg-label">Invitations</div><div class="perm-row"><span class="perm-name">Create</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+            <div class="perm-group"><div class="pg-label">Roles</div><div class="perm-row"><span class="perm-name">Manage</span><div class="toggle" onclick="this.classList.toggle('on')"></div></div></div>
+          </div>
+          <div class="card role-card">
+            <div class="role-head"><div><div class="role-name">Developer</div><div class="role-desc">Product/debug user</div></div><span class="pill">Editable</span></div>
+            <div class="perm-group"><div class="pg-label">Evidence</div><div class="perm-row"><span class="perm-name">View, download, comment</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+            <div class="perm-group"><div class="pg-label">Activity</div><div class="perm-row"><span class="perm-name">View audit log</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+          </div>
+          <div class="card role-card">
+            <div class="role-head"><div><div class="role-name">QA engineer</div><div class="role-desc">Capture/review user</div></div><span class="pill">Editable</span></div>
+            <div class="perm-group"><div class="pg-label">Evidence</div><div class="perm-row"><span class="perm-name">View, comment, create</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+            <div class="perm-group"><div class="pg-label">Invitations</div><div class="perm-row"><span class="perm-name">Create</span><div class="toggle" onclick="this.classList.toggle('on')"></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="org-tab-panel" id="panel-invites">
+        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-4);">
+          <div style="flex:1;max-width:400px;display:flex;gap:var(--space-2);"><input type="email" placeholder="Email for direct invite"><button class="btn btn-primary btn-sm">Send invite</button></div>
+          <button class="btn btn-outline btn-sm">Create reusable code</button>
+        </div>
+        <div style="margin-bottom:var(--space-4);display:flex;align-items:center;gap:var(--space-3);"><span class="text-sm text-muted">Join approval:</span><div class="toggle on" onclick="this.classList.toggle('on')"></div><span class="text-sm text-muted">Require approval for invite links</span></div>
+        <div class="card" style="padding:0;">
+          <div class="invite-row"><div class="inv-code">AB3X-K9M2</div><span class="text-sm text-muted">Reusable · created 5d ago</span><span class="pill pill-success">Active</span><div style="margin-left:auto;display:flex;gap:var(--space-2);"><button class="btn btn-ghost btn-sm">Copy</button><button class="btn btn-ghost btn-sm">Lock</button><button class="btn btn-danger btn-sm">Delete</button></div></div>
+          <div class="invite-row"><div class="inv-code">XY7N-L1P4</div><span class="text-sm text-muted">Reusable · created 12d ago</span><span class="pill">Locked</span><div style="margin-left:auto;display:flex;gap:var(--space-2);"><button class="btn btn-ghost btn-sm">Unlock</button><button class="btn btn-danger btn-sm">Delete</button></div></div>
+          <div class="invite-row"><div class="inv-code">direct → qa2@acme.com</div><span class="text-sm text-muted">Direct invite · 2h ago</span><span class="pill pill-warn">Pending</span><div style="margin-left:auto;display:flex;gap:var(--space-2);"><button class="btn btn-ghost btn-sm">Resend</button><button class="btn btn-danger btn-sm">Cancel</button></div></div>
+        </div>
+        <div style="margin-top:var(--space-6);">
+          <h3 style="margin-bottom:var(--space-3);">Join requests</h3>
+          <div class="card" style="padding:0;">
+            <div class="invite-row"><div class="m-avatar" style="width:32px;height:32px;border-radius:var(--radius-pill);background:var(--surface-warm);display:grid;place-items:center;font-size:var(--text-sm);">J</div><div><div style="font-family:var(--font-display);font-size:var(--text-sm);">Jane Smith</div><div class="mono text-xs text-muted">jane@external.com</div></div><span class="text-sm text-muted">Requested 3h ago</span><div style="margin-left:auto;display:flex;gap:var(--space-2);"><button class="btn btn-primary btn-sm">Accept</button><button class="btn btn-danger btn-sm">Reject</button></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="org-tab-panel" id="panel-activity">
+        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap;">
+          <select><option>All actions</option><option>Create</option><option>Delete</option><option>Update</option><option>Share</option></select>
+          <select><option>All users</option><option>nam.do@littlelives.com</option><option>qa@acme.com</option></select>
+          <select><option>Any time</option><option>Today</option><option>This week</option></select>
+        </div>
+        <div class="card" style="padding:var(--space-4) var(--space-5);">
+          <div class="activity-row"><div class="a-dot" style="background:var(--success)"></div><div><div class="a-text"><strong>Nam Do</strong> created evidence "Login redirect on Safari"</div><div class="a-time">2h ago</div></div></div>
+          <div class="activity-row"><div class="a-dot" style="background:var(--accent)"></div><div><div class="a-text"><strong>Nam Do</strong> created share link /share/aB3xK9mQ2</div><div class="a-time">2h ago</div></div></div>
+          <div class="activity-row"><div class="a-dot" style="background:var(--c-read)"></div><div><div class="a-text"><strong>QA Tester</strong> commented on "Checkout 500 error"</div><div class="a-time">5h ago</div></div></div>
+          <div class="activity-row"><div class="a-dot" style="background:var(--c-edit)"></div><div><div class="a-text"><strong>Dev Engineer</strong> renamed evidence "Sidebar bug" → "Sidebar collapse state"</div><div class="a-time">1d ago</div></div></div>
+          <div class="activity-row"><div class="a-dot" style="background:var(--danger)"></div><div><div class="a-text"><strong>Nam Do</strong> deleted evidence "Old test run"</div><div class="a-time">1d ago · soft delete, purges in 30 days</div></div></div>
+          <div class="activity-row"><div class="a-dot" style="background:var(--success)"></div><div><div class="a-text"><strong>CI Bot</strong> uploaded evidence via API token</div><div class="a-time">1d ago · automation-test</div></div></div>
+          <div class="activity-row"><div class="a-dot" style="background:var(--accent)"></div><div><div class="a-text"><strong>Nam Do</strong> created invite code AB3X-K9M2</div><div class="a-time">5d ago</div></div></div>
+        </div>
+      </div>
+
+      <div class="org-tab-panel" id="panel-options">
+        <div class="org-detail-grid">
+          <div class="card" style="padding:var(--space-6);">
+            <h3 style="margin-bottom:var(--space-2);">Leave organisation</h3>
+            <p class="body-muted text-sm" style="margin-bottom:var(--space-4);">You will lose access to all evidence and members in Acme QA. This action cannot be undone.</p>
+            <button class="btn btn-danger">Leave Acme QA</button>
+          </div>
+          <div class="card" style="padding:var(--space-6);">
+            <h3 style="margin-bottom:var(--space-2);">Delete organisation</h3>
+            <p class="body-muted text-sm" style="margin-bottom:var(--space-4);">Permanently delete Acme QA and all its evidence. Only available if you are the last admin/member.</p>
+            <button class="btn btn-danger">Delete organisation</button>
+          </div>
+        </div>
+        <div class="card" style="padding:var(--space-6);margin-top:var(--space-6);">
+          <h3 style="margin-bottom:var(--space-2);">Organisation library</h3>
+          <p class="body-muted text-sm" style="margin-bottom:var(--space-4);">View and manage all evidence owned by Acme QA.</p>
+          <a href="evidence-library.html" class="btn btn-outline btn-sm">Browse org evidence →</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="create-org-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Create organisation</h3><button class="modal-close" onclick="closeCreateOrgModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div style="display:flex;flex-direction:column;gap:var(--space-4);">
+      <div class="field"><label>Organisation name</label><input type="text" placeholder="e.g. Acme QA Team"></div>
+      <div class="field"><label>Your role</label><select><option>Admin (fixed)</option></select><span class="field-help">You will be the admin of this organisation.</span></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeCreateOrgModal()">Cancel</button><button class="btn btn-primary" onclick="closeCreateOrgModal()">Create</button></div>
+  </div>
+</div>
+
+<script>
+  function orgTab(el, name) {
+    document.querySelectorAll('.org-tabs .tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.org-tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+  function openCreateOrgModal() { document.getElementById('create-org-modal').classList.add('open'); }
+  function closeCreateOrgModal() { document.getElementById('create-org-modal').classList.remove('open'); }
+</script>
+</body>
+</html>

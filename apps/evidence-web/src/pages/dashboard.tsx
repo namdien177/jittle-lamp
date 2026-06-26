@@ -5,7 +5,9 @@ import {
   ArrowRight,
   Building2,
   Clock,
+  ExternalLink,
   Plus,
+  Settings,
   Video,
 } from "lucide-react";
 
@@ -25,20 +27,20 @@ function StatCard(props: {
   hint?: string;
 }): React.JSX.Element {
   return (
-    <Card>
+    <Card className="p-0">
       <CardContent className="flex items-start justify-between gap-3 p-5">
-        <div className="space-y-1">
-          <p className=" font-medium uppercase tracking-[0.06em] text-muted-foreground">
+        <div className="min-w-0 space-y-1">
+          <p className="jl-stat-label">
             {props.label}
           </p>
-          <div className="font-display text-3xl font-bold tracking-tight tabular-nums">
+          <div className="jl-stat-value truncate tabular-nums">
             {props.value}
           </div>
           {props.hint ? (
-            <p className=" text-muted-foreground">{props.hint}</p>
+            <p className="truncate font-mono text-xs text-muted-foreground">{props.hint}</p>
           ) : null}
         </div>
-        <span className="flex size-10 items-center justify-center rounded-lg border border-border bg-secondary text-primary [&_svg]:size-5">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-secondary text-primary [&_svg]:size-5">
           {props.icon}
         </span>
       </CardContent>
@@ -68,8 +70,8 @@ export function DashboardPage(): React.JSX.Element {
     <>
       <PageHeader
         eyebrow={activeOrg ? activeOrg.name : "Workspace"}
-        title={`Welcome back, ${firstName}`}
-        description="Capture. Review. Share."
+        title="Dashboard"
+        description={`Workspace overview for ${firstName}.`}
         actions={
           <>
             <Link
@@ -87,7 +89,7 @@ export function DashboardPage(): React.JSX.Element {
         }
       />
       <PageBody>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="jl-stat-grid">
           <StatCard
             icon={<Video aria-hidden />}
             label="Evidence captured"
@@ -124,43 +126,39 @@ export function DashboardPage(): React.JSX.Element {
           />
         </div>
 
-        <Card>
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <div>
-              <h2 className="font-display text-base font-semibold tracking-tight">
-                Recent evidence
-              </h2>
+        <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+          <section>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-display text-xl font-bold">Recent evidence</h2>
+              <Link
+                to="/evidence"
+                className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+              >
+                View all
+                <ArrowRight aria-hidden />
+              </Link>
             </div>
-            <Link
-              to="/evidence"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-            >
-              View all
-              <ArrowRight aria-hidden />
-            </Link>
-          </div>
-          <CardContent className="p-2">
             {loading ? (
-              <div className="space-y-2 p-3">
+              <div className="space-y-2">
                 {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-12 w-full" />
+                  <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
             ) : recent.length === 0 ? (
               <EmptyState
-                className="m-2 border-0 bg-transparent py-10"
+                className="border-0 bg-transparent py-10"
                 icon={<Video aria-hidden />}
                 title="No evidence yet"
                 description="Install the extension or open a ZIP."
                 action={
                   <Button size="sm" onClick={() => navigate("/quick-view")}>
                     <Plus aria-hidden />
-                    Open a local archive
+                    Open local archive
                   </Button>
                 }
               />
             ) : (
-              <ul>
+              <ul className="flex flex-col gap-2">
                 {recent.map((evidence) => (
                   <li key={evidence.id}>
                     <button
@@ -168,36 +166,77 @@ export function DashboardPage(): React.JSX.Element {
                       onClick={() =>
                         navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
                       }
-                      className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition-colors hover:bg-white/[0.03]"
+                      className="jl-row-card w-full text-left"
                     >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+                      <span className="jl-thumb h-10 w-16 shrink-0">
                         <Video aria-hidden className="size-4" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-base font-medium text-foreground">
+                        <span className="block truncate font-display text-base font-bold text-foreground">
                           {evidence.title}
                         </span>
-                        <span className="block truncate font-mono text-muted-foreground">
-                          {evidence.id.slice(0, 16)}…
+                        <span className="block truncate font-mono text-xs text-muted-foreground">
+                          {evidence.sourceType} · {evidence.id.slice(0, 16)}…
                         </span>
                       </span>
-                      <Badge variant="muted" className="capitalize">
-                        {evidence.sourceType}
-                      </Badge>
-                      <span className="hidden shrink-0 text-muted-foreground sm:block">
+                      <span className="hidden shrink-0 font-mono text-xs text-muted-foreground sm:block">
                         {formatRelativeTime(evidence.updatedAt)}
                       </span>
-                      <ArrowRight
-                        aria-hidden
-                        className="size-4 shrink-0 text-muted-foreground"
-                      />
                     </button>
                   </li>
                 ))}
               </ul>
             )}
-          </CardContent>
-        </Card>
+          </section>
+
+          <aside>
+            <div className="mb-4">
+              <h2 className="font-display text-xl font-bold">Quick actions</h2>
+            </div>
+            <div className="flex flex-col gap-3">
+              <Link to="/quick-view" className="jl-row-card">
+                <Archive className="size-5 shrink-0 text-primary" aria-hidden />
+                <span>
+                  <strong className="block">Open local ZIP</strong>
+                  <span className="text-sm text-muted-foreground">Review without upload</span>
+                </span>
+              </Link>
+              <Link to="/evidence" className="jl-row-card">
+                <Video className="size-5 shrink-0 text-primary" aria-hidden />
+                <span>
+                  <strong className="block">Browse evidence</strong>
+                  <span className="text-sm text-muted-foreground">Search cloud records</span>
+                </span>
+              </Link>
+              <Link to="/organisations" className="jl-row-card">
+                <Building2 className="size-5 shrink-0 text-primary" aria-hidden />
+                <span>
+                  <strong className="block">Manage team</strong>
+                  <span className="text-sm text-muted-foreground">People and roles</span>
+                </span>
+              </Link>
+              <Link to="/settings" className="jl-row-card">
+                <Settings className="size-5 shrink-0 text-primary" aria-hidden />
+                <span>
+                  <strong className="block">Tokens</strong>
+                  <span className="text-sm text-muted-foreground">AI and API access</span>
+                </span>
+              </Link>
+              <a
+                href="https://chromewebstore.google.com/detail/ddllejobfkkbmijlflllnnfihfbmhmfh"
+                target="_blank"
+                rel="noreferrer"
+                className="jl-row-card"
+              >
+                <ExternalLink className="size-5 shrink-0 text-primary" aria-hidden />
+                <span>
+                  <strong className="block">Install extension</strong>
+                  <span className="text-sm text-muted-foreground">Capture from Chromium</span>
+                </span>
+              </a>
+            </div>
+          </aside>
+        </div>
       </PageBody>
     </>
   );

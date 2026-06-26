@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "quick-view.html",
+  "entry": "quick-view.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-26T14:08:03.283Z",
+  "updatedAt": "2026-06-26T14:08:03.283Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

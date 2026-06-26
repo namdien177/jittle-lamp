@@ -32,8 +32,8 @@ export function Select<TValue extends string>(props: {
       <BaseSelect.Trigger
         aria-label={ariaLabel}
         className={cn(
-          "inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-black/20 px-3 text-base text-foreground shadow-soft outline-none transition-colors",
-          "hover:border-white/20 focus-visible:border-ring/70 focus-visible:ring-2 focus-visible:ring-ring/30",
+          "inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-base text-foreground shadow-soft outline-none transition-colors",
+          "hover:border-border-strong focus-visible:border-ring/70 focus-visible:bg-card focus-visible:ring-2 focus-visible:ring-ring/30",
           "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
           size === "sm" ? "h-9" : "h-10",
           className
@@ -48,7 +48,7 @@ export function Select<TValue extends string>(props: {
         <BaseSelect.Positioner className="z-[950]" alignItemWithTrigger={false} sideOffset={6}>
           <BaseSelect.Popup
             className={cn(
-              "jl-scroll max-h-[min(var(--available-height,18rem),18rem)] min-w-[var(--anchor-width)] overflow-auto rounded-lg border border-border-strong bg-popover p-1 text-popover-foreground shadow-pop",
+              "jl-scroll max-h-[min(var(--available-height,18rem),18rem)] min-w-[var(--anchor-width)] overflow-auto rounded-md border border-border-strong bg-popover p-1 text-popover-foreground shadow-pop",
               "transition-[opacity,transform] data-[starting-style]:opacity-0 data-[ending-style]:opacity-0"
             )}
           >
@@ -59,7 +59,7 @@ export function Select<TValue extends string>(props: {
                   value={option.value}
                   className={cn(
                     "flex min-h-9 cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 text-base text-muted-foreground outline-none",
-                    "data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-foreground",
+                    "data-[highlighted]:bg-muted data-[highlighted]:text-foreground",
                     "data-[selected]:bg-primary/12 data-[selected]:text-foreground"
                   )}
                 >

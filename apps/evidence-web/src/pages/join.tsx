@@ -70,15 +70,11 @@ function JoinForm(): React.JSX.Element {
   return (
     <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background p-6">
       <div aria-hidden className="pointer-events-none absolute inset-0 grid-backdrop opacity-40" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-1/3 left-1/2 h-[60vh] w-[60vh] -translate-x-1/2 rounded-full bg-primary/10 blur-[120px]"
-      />
-      <section className="relative w-full max-w-md animate-rise rounded-xl border border-border-strong bg-card/80 p-7 shadow-pop backdrop-blur">
+      <section className="relative w-full max-w-md animate-rise rounded-md border border-border-strong bg-card/90 p-7 shadow-pop backdrop-blur">
         <Wordmark className="mb-6" />
         <div className="mb-1 flex items-center gap-2">
           <KeyRound className="size-5 text-primary" aria-hidden />
-          <h1 className="font-display text-xl font-semibold tracking-tight">Join an organisation</h1>
+          <h1 className="font-display text-xl font-bold">Join an organisation</h1>
         </div>
         <p className="mb-6 text-base text-muted-foreground">
           Paste the invitation code an organisation owner shared with you.

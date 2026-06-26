@@ -44,6 +44,7 @@ import { Field } from "../components/ui/field";
 import { Select } from "../components/ui/select";
 import { ConfirmDialog, Dialog } from "../components/ui/dialog";
 import { EmptyState, Skeleton } from "../components/ui/misc";
+import { cn } from "../lib/cn";
 import {
   Table,
   TableBody,
@@ -273,9 +274,9 @@ export function OrganisationsListPage(): React.JSX.Element {
           </div>
         </div>
 
-        <Card className="overflow-hidden p-0">
+        <div className="grid gap-3">
           {loading ? (
-            <div className="space-y-2 p-4">
+            <div className="space-y-2">
               {[0, 1, 2].map((i) => (
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
@@ -288,79 +289,63 @@ export function OrganisationsListPage(): React.JSX.Element {
               description="Create a workspace or accept an invitation to collaborate on evidence."
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Organisation</TableHead>
-                  <TableHead className="hidden sm:table-cell">Role</TableHead>
-                  <TableHead className="hidden md:table-cell">Joined</TableHead>
-                  <TableHead className="hidden md:table-cell">
-                    Members
-                  </TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ordered.map((org) => (
-                  <TableRow key={org.id} data-active={org.id === activeOrgId}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground">
-                          {org.name}
-                        </span>
-                        {org.id === activeOrgId ? (
-                          <Badge variant="brand">Active</Badge>
-                        ) : null}
-                      </div>
-                      <span className=" text-muted-foreground">
-                        {org.isPersonal
-                          ? "Personal workspace"
-                          : "Organisation workspace"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
+            ordered.map((org) => (
+              <article
+                key={org.id}
+                className={cn(
+                  "jl-row-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between",
+                  org.id === activeOrgId && "border-primary ring-2 ring-primary/30",
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-md bg-secondary text-primary">
+                    <Building2 className="size-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate font-display text-base font-bold text-foreground">
+                        {org.name}
+                      </h2>
+                      {org.id === activeOrgId ? (
+                        <Badge variant="brand">Active</Badge>
+                      ) : null}
                       {roleBadge(org.role)}
-                    </TableCell>
-                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {org.isPersonal ? "Personal workspace" : "Organisation workspace"} ·{" "}
+                      {org.memberCount} member{org.memberCount === 1 ? "" : "s"} · joined{" "}
                       {relTime(org.joinedAt)}
-                    </TableCell>
-                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">
-                      {org.memberCount}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button
-                          variant={
-                            org.id === activeOrgId ? "ghost" : "secondary"
-                          }
-                          size="sm"
-                          disabled={busy || org.id === activeOrgId}
-                          onClick={() =>
-                            void activate(org.id).catch((err) =>
-                              toast.error(
-                                "Unable to change active organisation",
-                                err instanceof Error ? err.message : undefined,
-                              ),
-                            )
-                          }
-                        >
-                          {org.id === activeOrgId ? "Active" : "Set active"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => navigate(`/organisations/${org.id}`)}
-                        >
-                          Manage
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant={org.id === activeOrgId ? "ghost" : "secondary"}
+                    size="sm"
+                    disabled={busy || org.id === activeOrgId}
+                    onClick={() =>
+                      void activate(org.id).catch((err) =>
+                        toast.error(
+                          "Unable to change active organisation",
+                          err instanceof Error ? err.message : undefined,
+                        ),
+                      )
+                    }
+                  >
+                    {org.id === activeOrgId ? "Active" : "Set active"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigate(`/organisations/${org.id}`)}
+                  >
+                    Manage
+                  </Button>
+                </div>
+              </article>
+            ))
           )}
-        </Card>
+        </div>
       </PageBody>
 
       {showCreate ? (
@@ -904,12 +889,12 @@ export function OrgInvitationsTab(): React.JSX.Element {
           </div>
         ) : null}
         {createdCode ? (
-          <div className="m-4 space-y-2 rounded-lg border border-primary/30 bg-primary/[0.07] p-3">
-            <p className=" font-semibold uppercase tracking-[0.06em] text-brand-300">
+          <div className="m-4 space-y-2 rounded-md border border-primary/30 bg-primary/10 p-3">
+            <p className="font-mono text-xs font-semibold uppercase text-primary">
               New static joining code
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-base">
+              <code className="flex-1 truncate rounded-md bg-muted px-2.5 py-2 font-mono text-base">
                 {createdCode}
               </code>
               <Button
@@ -923,12 +908,12 @@ export function OrgInvitationsTab(): React.JSX.Element {
           </div>
         ) : null}
         {createdDirectToken ? (
-          <div className="m-4 space-y-2 rounded-lg border border-primary/30 bg-primary/[0.07] p-3">
-            <p className="font-semibold uppercase tracking-[0.06em] text-brand-300">
+          <div className="m-4 space-y-2 rounded-md border border-primary/30 bg-primary/10 p-3">
+            <p className="font-mono text-xs font-semibold uppercase text-primary">
               New direct invitation token
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-base">
+              <code className="flex-1 truncate rounded-md bg-muted px-2.5 py-2 font-mono text-base">
                 {createdDirectToken}
               </code>
               <Button
@@ -1372,7 +1357,7 @@ export function OrgRolesTab(): React.JSX.Element {
                       "rounded-md border px-3 py-3 text-left transition-colors",
                       selected
                         ? "border-primary/60 bg-primary/10 text-foreground"
-                        : "border-border bg-black/10 text-muted-foreground hover:border-border-strong hover:bg-white/[0.04] hover:text-foreground",
+                        : "border-border bg-card text-muted-foreground hover:border-border-strong hover:bg-muted hover:text-foreground",
                     ].join(" ")}
                     aria-pressed={selected}
                     onClick={() => setSelectedRoleKey(role.key)}
@@ -1433,7 +1418,7 @@ export function OrgRolesTab(): React.JSX.Element {
                           "flex min-h-12 items-center gap-3 rounded-md border px-3 py-2 text-base transition-colors",
                           checked
                             ? "border-primary/40 bg-primary/10"
-                            : "border-border bg-black/15",
+                            : "border-border bg-card",
                           disabled ? "text-muted-foreground" : "cursor-pointer hover:border-border-strong",
                           pending ? "animate-pulse" : "",
                         ].join(" ")}

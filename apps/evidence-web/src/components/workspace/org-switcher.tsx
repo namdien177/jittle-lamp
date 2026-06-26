@@ -17,7 +17,11 @@ import {
   DropdownMenuSeparator,
 } from "../ui/dropdown-menu";
 
-export function OrgSwitcher(): React.JSX.Element {
+export function OrgSwitcher({
+  collapsed = false,
+}: {
+  collapsed?: boolean;
+}): React.JSX.Element {
   const navigate = useNavigate();
   const profileQuery = useAccountProfile();
   const selectOrg = useSelectActiveOrganization();
@@ -35,16 +39,21 @@ export function OrgSwitcher(): React.JSX.Element {
       trigger={
         <button
           type="button"
-          className="inline-flex h-10 max-w-[15rem] items-center gap-2 rounded-md border border-border-strong bg-secondary px-3 text-base font-medium text-foreground outline-none transition-colors hover:border-white/20 focus-visible:ring-2 focus-visible:ring-ring/40"
+          aria-label={collapsed ? label : undefined}
+          title={collapsed ? label : undefined}
+          data-collapsed={collapsed ? "true" : "false"}
+          className="jl-org-switcher-trigger inline-flex h-10 w-full min-w-0 items-center justify-start gap-2 rounded-md border border-border-strong bg-secondary px-3 text-base font-medium text-foreground outline-none transition-colors hover:border-border-strong hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <Building2
             aria-hidden
             className="size-4 shrink-0 text-muted-foreground"
           />
-          <span className="min-w-0 truncate">{label}</span>
+          <span className="jl-org-label min-w-0 flex-1 truncate text-left">
+            {label}
+          </span>
           <ChevronsUpDown
             aria-hidden
-            className="size-3.5 shrink-0 text-muted-foreground"
+            className="jl-org-chevron size-3.5 shrink-0 text-muted-foreground"
           />
         </button>
       }
