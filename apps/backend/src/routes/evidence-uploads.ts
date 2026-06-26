@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import type { RuntimeConfig } from "../config/runtime";
 import {
@@ -131,6 +131,7 @@ const evidenceQuerySchema = t.Object({
 const listEvidenceQuerySchema = t.Object({
 	orgId: t.Optional(t.String({ minLength: 1 })),
 	createdBy: t.Optional(t.String()),
+	search: t.Optional(t.String()),
 	page: t.Optional(t.Number({ minimum: 1 })),
 	limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
 });
@@ -927,11 +928,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							),
 						);
 						const creatorIds = parseCreatorFilter(query.createdBy);
+						const search = query.search?.trim();
+						const searchPattern = search ? `%${search}%` : undefined;
 						const where = and(
 							eq(evidences.orgId, resolvedOrg.orgId),
 							isNull(evidences.deletedAt),
 							creatorIds.length > 0
 								? inArray(evidences.createdBy, creatorIds)
+								: undefined,
+							searchPattern
+								? or(
+										like(evidences.title, searchPattern),
+										like(evidences.id, searchPattern),
+										like(evidences.sourceType, searchPattern),
+										like(evidences.createdBy, searchPattern),
+									)
 								: undefined,
 						);
 

@@ -659,6 +659,12 @@
     padding: var(--space-8) var(--space-6);
   }
 
+  .jl-main[data-flush="true"] {
+    overflow: hidden;
+    padding: 0;
+    background: #08090a;
+  }
+
   .jl-mobile-menu-btn,
   .jl-sidebar-close,
   .jl-theme-toggle {
@@ -773,6 +779,10 @@
 
     .jl-main {
       padding: var(--space-4);
+    }
+
+    .jl-main[data-flush="true"] {
+      padding: 0;
     }
   }
 

@@ -5,8 +5,13 @@ import { viewerModalStyles as css } from "../packages/viewer-react/src/viewer-mo
 describe("viewer modal layout CSS", () => {
 
   test("modal occupies ~90% of the viewport on each axis", () => {
-    expect(css).toMatch(/\.jl-vm-modal\s*\{[\s\S]*?width:\s*min\(90vw,[^)]+\);/);
-    expect(css).toMatch(/\.jl-vm-modal\s*\{[\s\S]*?height:\s*90vh;/);
+    expect(css).toMatch(/\.jl-vm-modal,\s*\.jl-vm-root\s*\{[\s\S]*?width:\s*min\(90vw,[^)]+\);/);
+    expect(css).toMatch(/\.jl-vm-modal,\s*\.jl-vm-root\s*\{[\s\S]*?height:\s*90vh;/);
+  });
+
+  test("page mode uses a single root layer", () => {
+    expect(css).not.toContain(".jl-vm-page");
+    expect(css).toMatch(/\.jl-vm-root\s*\{[\s\S]*?height:\s*100%;/);
   });
 
   test("two-column body keeps left flexible and caps right pane at 600px", () => {

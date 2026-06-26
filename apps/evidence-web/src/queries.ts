@@ -116,6 +116,7 @@ export const queryKeys = {
 		options: {
 			orgId?: string;
 			createdBy?: string[];
+			search?: string;
 			page?: number;
 			limit?: number;
 		} = {},
@@ -124,6 +125,7 @@ export const queryKeys = {
 			"evidences",
 			options.orgId ?? "active",
 			options.createdBy?.join(",") ?? "",
+			options.search?.trim() ?? "",
 			options.page ?? 1,
 			options.limit ?? 24,
 		] as const,
@@ -132,11 +134,18 @@ export const queryKeys = {
 	evidenceComments: (evidenceId: string, orgId: string | undefined) =>
 		["evidence-comments", evidenceId, orgId ?? null] as const,
 	shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
-	remoteEvidence: (key: { shareToken?: string; remoteEvidenceId?: string }) =>
+	shareLinkResolution: (shareToken: string) =>
+		["share-link-resolution", shareToken] as const,
+	remoteEvidence: (key: {
+		shareToken?: string;
+		remoteEvidenceId?: string;
+		orgId?: string | undefined;
+	}) =>
 		[
 			"remote-evidence",
 			key.shareToken ?? null,
 			key.remoteEvidenceId ?? null,
+			key.orgId ?? null,
 		] as const,
 };
 
@@ -278,6 +287,7 @@ export function useEvidences(
 	options: {
 		orgId?: string;
 		createdBy?: string[];
+		search?: string;
 		page?: number;
 		limit?: number;
 	} = {},
@@ -922,12 +932,16 @@ function selectEvidenceVideoArtifact(artifacts: EvidenceArtifact[]): {
 
 async function fetchRemoteEvidence(
 	getToken: FetchToken,
-	locator: { shareToken?: string; remoteEvidenceId?: string },
+	locator: {
+		shareToken?: string;
+		remoteEvidenceId?: string;
+		orgId?: string | undefined;
+	},
 	signal?: AbortSignal,
 ): Promise<RemoteEvidenceResult> {
 	let evidenceId: string;
 	let shareSlug: string | null = null;
-	let orgId: string | undefined;
+	let orgId: string | undefined = locator.orgId;
 	if (locator.shareToken) {
 		const resolved = await api.resolveShareLink(getToken, locator.shareToken);
 		if (resolved.shareLink.access === "denied") {
@@ -993,6 +1007,7 @@ async function fetchRemoteEvidence(
 export function useRemoteEvidence(locator: {
 	shareToken?: string;
 	remoteEvidenceId?: string;
+	orgId?: string | undefined;
 }) {
 	const auth = useAuth();
 	const getToken = useAuthToken();
@@ -1004,6 +1019,19 @@ export function useRemoteEvidence(locator: {
 		queryKey: queryKeys.remoteEvidence(locator),
 		queryFn: ({ signal }) => fetchRemoteEvidence(getToken, locator, signal),
 		enabled,
+		staleTime: Infinity,
+		gcTime: 5 * 60_000,
+		retry: 0,
+	});
+}
+
+export function useShareLinkResolution(shareToken: string | null) {
+	const auth = useAuth();
+	const getToken = useAuthToken();
+	return useQuery({
+		queryKey: queryKeys.shareLinkResolution(shareToken ?? ""),
+		queryFn: () => api.resolveShareLink(getToken, shareToken ?? ""),
+		enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(shareToken),
 		staleTime: Infinity,
 		gcTime: 5 * 60_000,
 		retry: 0,

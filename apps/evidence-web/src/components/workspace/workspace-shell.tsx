@@ -226,6 +226,7 @@ function SidebarContent({
 
 function breadcrumbFor(pathname: string): string {
   if (pathname === "/") return "Dashboard";
+  if (/^\/evidence\/[^/]+/.test(pathname)) return "Evidence";
   if (pathname.startsWith("/evidence")) return "Evidence library";
   if (pathname.startsWith("/quick-view")) return "Quick view";
   if (pathname.startsWith("/organisations")) return "Organisations";
@@ -258,6 +259,7 @@ export function WorkspaceShell({
   }, [dark]);
 
   const crumb = breadcrumbFor(location.pathname);
+  const isEvidenceDetail = /^\/evidence\/[^/]+/.test(location.pathname);
   const toggleSidebarCollapsed = () => {
     setSidebarCollapsed((value) => {
       const next = !value;
@@ -362,7 +364,9 @@ export function WorkspaceShell({
             <UserButton />
           </div>
         </header>
-        <main className="jl-main jl-scroll">{children}</main>
+        <main className="jl-main jl-scroll" data-flush={isEvidenceDetail ? "true" : "false"}>
+          {children}
+        </main>
     </div>
   );
 }
