@@ -637,6 +637,15 @@
     font-size: var(--text-sm);
   }
 
+  .jl-breadcrumb-link {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .jl-breadcrumb-link:hover {
+    color: var(--fg);
+  }
+
   .jl-breadcrumb-current {
     color: var(--fg);
     font-weight: 500;

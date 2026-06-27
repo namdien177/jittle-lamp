@@ -22,6 +22,7 @@ import {
   buildCurl,
   getResponseBodyString,
   type ViewerContextMenuState,
+  type ViewerEvidenceTag,
   type ViewerDiscussionComment,
   type ViewerModalRow,
   type ViewerSource
@@ -54,6 +55,11 @@ export type EvidenceViewerContentProps = {
   discussionNotice?: string | null;
   onDiscussionChange?: (value: string) => void;
   onSubmitDiscussion?: () => void;
+  evidenceTags?: ViewerEvidenceTag[];
+  availableEvidenceTags?: ViewerEvidenceTag[];
+  canUpdateEvidenceTags?: boolean;
+  evidenceTagsSaving?: boolean;
+  onEvidenceTagsChange?: (tagIds: string[]) => void;
   onRenameEvidence?: () => void;
   onCopyEvidence?: () => void;
   onCopyLlmPrompt?: () => void;
@@ -125,6 +131,11 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     discussionNotice,
     onDiscussionChange,
     onSubmitDiscussion,
+    evidenceTags,
+    availableEvidenceTags,
+    canUpdateEvidenceTags = false,
+    evidenceTagsSaving = false,
+    onEvidenceTagsChange,
     onRenameEvidence,
     onCopyEvidence,
     onCopyLlmPrompt,
@@ -457,6 +468,11 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       discussionNotice={discussionNotice ?? null}
       onDiscussionChange={onDiscussionChange ?? (() => undefined)}
       onSubmitDiscussion={onSubmitDiscussion ?? (() => undefined)}
+      evidenceTags={evidenceTags ?? []}
+      availableEvidenceTags={availableEvidenceTags ?? []}
+      canUpdateEvidenceTags={canUpdateEvidenceTags}
+      evidenceTagsSaving={evidenceTagsSaving}
+      onEvidenceTagsChange={onEvidenceTagsChange ?? (() => undefined)}
       onVideoTimeUpdate={updateHighlight}
       onVideoError={() => {
         if (videoRef.current) onVideoError(videoRef.current);

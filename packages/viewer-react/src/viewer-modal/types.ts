@@ -33,6 +33,12 @@ export type ViewerDiscussionComment = {
   createdAt: number;
 };
 
+export type ViewerEvidenceTag = {
+  id: string;
+  name: string;
+  color: string;
+};
+
 export type ViewerContextMenuState = {
   open: boolean;
   x: number;
@@ -86,6 +92,11 @@ export type ViewerModalProps = {
   discussionNotice?: string | null;
   onDiscussionChange?: (v: string) => void;
   onSubmitDiscussion?: () => void;
+  evidenceTags?: ViewerEvidenceTag[];
+  availableEvidenceTags?: ViewerEvidenceTag[];
+  canUpdateEvidenceTags?: boolean;
+  evidenceTagsSaving?: boolean;
+  onEvidenceTagsChange?: (tagIds: string[]) => void;
   onVideoTimeUpdate: () => void;
   onVideoError?: () => void;
 

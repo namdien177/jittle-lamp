@@ -24,10 +24,12 @@ import {
   useCreateAiAccessToken,
   useCreateEvidenceComment,
   useEvidenceComments,
+  useEvidenceTags,
   useMoveEvidence,
   useRenameEvidence,
   useRemoteEvidence,
   useShareLinkResolution,
+  useUpdateEvidenceTags,
   type RemoteEvidenceData
 } from "../queries";
 import { useToast } from "../toast";
@@ -146,8 +148,10 @@ function RemoteEvidenceLoader(props: {
   const [renameValue, setRenameValue] = useState("");
   const [workspaceAction, setWorkspaceAction] = useState<"copy" | "transfer" | null>(null);
   const commentsQuery = useEvidenceComments(loaded?.evidenceId ?? null, loaded?.orgId);
+  const tagsQuery = useEvidenceTags(loaded?.orgId);
   const createAiToken = useCreateAiAccessToken();
   const createComment = useCreateEvidenceComment();
+  const updateTags = useUpdateEvidenceTags();
   const renameEvidence = useRenameEvidence();
 
   if (loaded) {
@@ -215,6 +219,13 @@ function RemoteEvidenceLoader(props: {
   const canCopyLlmPrompt = !props.shareToken;
   const canTransferEvidence =
     !props.shareToken && currentUserId !== null && loaded.evidence.createdBy === currentUserId;
+  const canUpdateEvidenceTags =
+    !props.shareToken &&
+    accountQuery.data?.organizations.some(
+      (org) =>
+        org.id === loaded.evidence.orgId &&
+        (org.role === "owner" || org.role === "admin" || org.role === "moderator"),
+    ) === true;
 
   const openRenameDialog = (): void => {
     setRenameValue(loaded.evidence.title || loaded.session.archive.name);
@@ -293,6 +304,20 @@ function RemoteEvidenceLoader(props: {
     } catch {
       // The mutation state drives the inline discussion notice.
     }
+  };
+
+  const updateEvidenceTags = (tagIds: string[]): void => {
+    updateTags.mutate(
+      { evidenceId: loaded.evidenceId, tagIds },
+      {
+        onSuccess: () => toast.success("Tags updated", loaded.evidence.title),
+        onError: (error) =>
+          toast.error(
+            "Unable to update tags",
+            error instanceof Error ? error.message : undefined,
+          ),
+      },
+    );
   };
 
   const copyLlmPrompt = async (): Promise<void> => {
@@ -377,6 +402,11 @@ function RemoteEvidenceLoader(props: {
       discussionNotice={discussionNotice}
       onDiscussionChange={setCommentDraft}
       onSubmitDiscussion={() => void submitComment()}
+      evidenceTags={loaded.evidence.tags}
+      availableEvidenceTags={tagsQuery.data?.tags ?? []}
+      canUpdateEvidenceTags={canUpdateEvidenceTags}
+      evidenceTagsSaving={updateTags.isPending || tagsQuery.isPending}
+      onEvidenceTagsChange={updateEvidenceTags}
       {...(canRenameEvidence ? { onRenameEvidence: openRenameDialog } : {})}
       {...(canRenameEvidence ? { renamingEvidence: renameEvidence.isPending } : {})}
       {...(canCopyEvidence ? { onCopyEvidence: () => setWorkspaceAction("copy") } : {})}

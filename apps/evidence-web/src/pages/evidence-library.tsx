@@ -883,11 +883,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           </Card>
         )}
         {!loading && totalPages > 1 ? (
-          <div className="sticky bottom-8 z-20 flex justify-center pb-8">
-            <div className="flex items-center gap-4 rounded-full border border-border-strong bg-popover/95 px-3 py-2 shadow-pop backdrop-blur">
+          <div className="sticky bottom-0 z-20 flex justify-center">
+            <div className="flex items-center gap-4 rounded-md border border-border-strong bg-popover/95 px-3 py-2 shadow-pop backdrop-blur">
               <Button
                 size="sm"
-                variant="outline"
+                variant="ghost"
+                className="w-[98px]"
                 disabled={page <= 1}
                 onClick={() => setParam("page", String(page - 1), "1")}
               >
@@ -898,7 +899,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               </span>
               <Button
                 size="sm"
-                variant="outline"
+                variant="ghost"
+                className="w-[98px]"
                 disabled={page >= totalPages}
                 onClick={() => setParam("page", String(page + 1), "1")}
               >

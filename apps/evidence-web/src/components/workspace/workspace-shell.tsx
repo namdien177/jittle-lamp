@@ -318,7 +318,13 @@ export function WorkspaceShell({
             <Menu aria-hidden />
           </button>
           <div className="jl-breadcrumb">
-            <span>Workspace</span>
+            {isEvidenceDetail ? (
+              <Link to="/evidence" className="jl-breadcrumb-link">
+                Workspace
+              </Link>
+            ) : (
+              <span>Workspace</span>
+            )}
             <ChevronRight className="size-3.5" aria-hidden />
             <span className="jl-breadcrumb-current">{crumb}</span>
           </div>

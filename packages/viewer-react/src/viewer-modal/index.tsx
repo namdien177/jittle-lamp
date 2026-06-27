@@ -123,6 +123,7 @@ export type {
   ViewerModalProps,
   ViewerModalRow,
   ViewerSource,
+  ViewerEvidenceTag,
   ViewerDiscussionComment,
   ViewerModalFeedback,
   ViewerContextMenuState
