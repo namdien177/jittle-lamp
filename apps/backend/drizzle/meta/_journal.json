@@ -141,6 +141,13 @@
       "when": 1781865000000,
       "tag": "0019_automation_api_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782547200000,
+      "tag": "0020_evidence_tags",
+      "breakpoints": true
     }
   ]
 }

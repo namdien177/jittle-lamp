@@ -7,6 +7,8 @@ import {
 	evidenceArtifactKindSchema,
 	evidenceArtifacts,
 	evidences,
+	evidenceTagAssignments,
+	organizationEvidenceTags,
 	organizationMembers,
 } from "../db/schema";
 import {
@@ -149,6 +151,37 @@ const evidenceSummarySchema = t.Object({
 	createdAt: t.Number(),
 	updatedAt: t.Number(),
 	status: t.Union([t.Literal("ready"), t.Literal("pending")]),
+	durationMs: t.Union([t.Number(), t.Null()]),
+	actionCount: t.Union([t.Number(), t.Null()]),
+	tags: t.Array(
+		t.Object({
+			id: t.String({ minLength: 1 }),
+			name: t.String({ minLength: 1 }),
+			color: t.String({ minLength: 1 }),
+		}),
+	),
+});
+
+const evidenceTagSchema = t.Object({
+	id: t.String({ minLength: 1 }),
+	name: t.String({ minLength: 1 }),
+	color: t.String({ minLength: 1 }),
+});
+
+const listEvidenceTagsResponseSchema = t.Object({
+	tags: t.Array(evidenceTagSchema),
+});
+
+const updateEvidenceTagsBodySchema = t.Object({
+	tagIds: t.Array(t.String({ minLength: 1 }), { maxItems: 20 }),
+});
+
+const updateEvidenceTagsResponseSchema = t.Object({
+	evidence: t.Object({
+		id: t.String({ minLength: 1 }),
+		orgId: t.String({ minLength: 1 }),
+		tags: t.Array(evidenceTagSchema),
+	}),
 });
 
 /**
@@ -208,6 +241,65 @@ const UPLOAD_SESSION_TTL_MS = 5 * 60 * 1000;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
 const DEFAULT_EVIDENCE_PAGE_SIZE = 24;
 const MAX_EVIDENCE_PAGE_SIZE = 100;
+const defaultEvidenceTags = [
+	{ name: "Bug", color: "#ef4444" },
+	{ name: "Smoke Test", color: "#f59e0b" },
+	{ name: "Evidence", color: "#22c55e" },
+] as const;
+
+const parseEvidenceStats = (
+	sourceMetadata: string | null,
+): { durationMs: number | null; actionCount: number | null } => {
+	if (!sourceMetadata) return { durationMs: null, actionCount: null };
+	try {
+		const metadata = JSON.parse(sourceMetadata) as {
+			durationMs?: unknown;
+			actionCount?: unknown;
+		};
+		return {
+			durationMs:
+				typeof metadata.durationMs === "number" &&
+				Number.isFinite(metadata.durationMs)
+					? metadata.durationMs
+					: null,
+			actionCount:
+				typeof metadata.actionCount === "number" &&
+				Number.isFinite(metadata.actionCount)
+					? metadata.actionCount
+					: null,
+		};
+	} catch {
+		return { durationMs: null, actionCount: null };
+	}
+};
+
+const ensureDefaultEvidenceTags = async (
+	db: BackendDb,
+	orgId: string,
+): Promise<void> => {
+	const now = Date.now();
+	for (const tag of defaultEvidenceTags) {
+		await db
+			.insert(organizationEvidenceTags)
+			.values({
+				orgId,
+				name: tag.name,
+				color: tag.color,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoNothing();
+	}
+};
+
+const listEvidenceTags = async (db: BackendDb, orgId: string) => {
+	await ensureDefaultEvidenceTags(db, orgId);
+	return await db.query.organizationEvidenceTags.findMany({
+		where: eq(organizationEvidenceTags.orgId, orgId),
+		columns: { id: true, name: true, color: true },
+		orderBy: organizationEvidenceTags.name,
+	});
+};
 
 const firstHeaderValue = (value: string | null): string | undefined =>
 	value?.split(",")[0]?.trim().replace(/^"|"$/g, "") || undefined;
@@ -963,6 +1055,11 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							with: {
 								artifacts: { columns: { uploadStatus: true } },
+								tags: {
+									with: {
+										tag: { columns: { id: true, name: true, color: true } },
+									},
+								},
 							},
 							orderBy: desc(evidences.createdAt),
 							limit,
@@ -974,9 +1071,11 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							.where(where);
 
 						return {
-							evidences: rows.map(({ artifacts, ...evidence }) => ({
+							evidences: rows.map(({ artifacts, tags, ...evidence }) => ({
 								...evidence,
+								...parseEvidenceStats(evidence.sourceMetadata),
 								status: deriveEvidenceStatus(artifacts),
+								tags: tags.map((assignment) => assignment.tag),
 							})),
 							orgId: resolvedOrg.orgId,
 							total: totalRows[0]?.value ?? 0,
@@ -993,6 +1092,55 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 						response: {
 							200: listEvidencesResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.get(
+					"/evidences/tags",
+					async ({ authContext, db, query, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const resolvedOrg = await resolveRequestedOrgId({
+							authContext,
+							db,
+							requestedOrgId: query.orgId,
+							requestId,
+							set,
+						});
+						if (!resolvedOrg.ok) return resolvedOrg.error;
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.view",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAGS_FORBIDDEN",
+								"Your role cannot view evidence tags in this organization",
+								403,
+							);
+						}
+
+						return { tags: await listEvidenceTags(db, resolvedOrg.orgId) };
+					},
+					{
+						query: evidenceQuerySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Lists organization-level evidence tags",
+						},
+						response: {
+							200: listEvidenceTagsResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							500: apiErrorSchema,
@@ -1055,6 +1203,11 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							with: {
 								artifacts: { columns: { uploadStatus: true } },
+								tags: {
+									with: {
+										tag: { columns: { id: true, name: true, color: true } },
+									},
+								},
 							},
 						});
 						if (!evidence) {
@@ -1067,11 +1220,13 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
-						const { artifacts, ...evidenceSummary } = evidence;
+						const { artifacts, tags, ...evidenceSummary } = evidence;
 						return {
 							evidence: {
 								...evidenceSummary,
+								...parseEvidenceStats(evidenceSummary.sourceMetadata),
 								status: deriveEvidenceStatus(artifacts),
+								tags: tags.map((assignment) => assignment.tag),
 							},
 						};
 					},
@@ -1087,6 +1242,120 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 						response: {
 							200: loadEvidenceResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.patch(
+					"/evidences/:id/tags",
+					async ({ authContext, body, db, params, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const evidence = await db.query.evidences.findFirst({
+							where: and(
+								eq(evidences.id, params.id),
+								isNull(evidences.deletedAt),
+							),
+							columns: { id: true, orgId: true },
+						});
+						if (!evidence) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+
+						if (!authContext.localUserId) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAGS_FORBIDDEN",
+								"Only workspace members can update evidence tags",
+								403,
+							);
+						}
+
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: evidence.orgId,
+								localUserId: authContext.localUserId,
+								permission: "evidence.tags.manage",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAGS_FORBIDDEN",
+								"Your role cannot update evidence tags",
+								403,
+							);
+						}
+
+						await ensureDefaultEvidenceTags(db, evidence.orgId);
+						const tagIds = Array.from(new Set(body.tagIds));
+						const tags =
+							tagIds.length > 0
+								? await db.query.organizationEvidenceTags.findMany({
+										where: and(
+											eq(organizationEvidenceTags.orgId, evidence.orgId),
+											inArray(organizationEvidenceTags.id, tagIds),
+										),
+										columns: { id: true, name: true, color: true },
+									})
+								: [];
+
+						if (tags.length !== tagIds.length) {
+							set.status = 400;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAGS_INVALID",
+								"One or more tags are not available in this organization",
+								400,
+							);
+						}
+
+						await db.transaction(async (tx) => {
+							await tx
+								.delete(evidenceTagAssignments)
+								.where(eq(evidenceTagAssignments.evidenceId, evidence.id));
+							if (tagIds.length > 0) {
+								await tx.insert(evidenceTagAssignments).values(
+									tagIds.map((tagId) => ({
+										evidenceId: evidence.id,
+										tagId,
+										assignedBy: authContext.localUserId,
+										createdAt: Date.now(),
+									})),
+								);
+							}
+							await tx
+								.update(evidences)
+								.set({ updatedAt: Date.now() })
+								.where(eq(evidences.id, evidence.id));
+						});
+
+						return { evidence: { ...evidence, tags } };
+					},
+					{
+						params: t.Object({ id: t.String({ minLength: 1 }) }),
+						body: updateEvidenceTagsBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Updates evidence tag assignments",
+						},
+						response: {
+							200: updateEvidenceTagsResponseSchema,
+							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,

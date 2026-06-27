@@ -36,6 +36,17 @@ const DEFAULT_AUTOMATION_TOKEN_EXPIRES_IN_DAYS = 365;
 const MAX_AUTOMATION_TOKEN_EXPIRES_IN_DAYS = 3650;
 const MAX_AUTOMATION_ZIP_BYTES = 20 * 1024 * 1024;
 
+const deriveArchiveDurationMs = (archive: {
+	createdAt: string;
+	updatedAt: string;
+}): number | null => {
+	const start = Date.parse(archive.createdAt);
+	const end = Date.parse(archive.updatedAt);
+	return Number.isFinite(start) && Number.isFinite(end)
+		? Math.max(0, end - start)
+		: null;
+};
+
 const createAutomationTokenBodySchema = t.Object({
 	label: t.Optional(t.String({ minLength: 1, maxLength: 80 })),
 	orgId: t.Optional(t.String({ minLength: 1 })),
@@ -507,6 +518,8 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 							sourceMetadata: JSON.stringify({
 								automationTokenId: apiToken.id,
 								sessionId: validated.archive.sessionId,
+								durationMs: deriveArchiveDurationMs(validated.archive),
+								actionCount: validated.archive.sections.actions.length,
 							}),
 							scopeType: "organization",
 							scopeId: apiToken.orgId,

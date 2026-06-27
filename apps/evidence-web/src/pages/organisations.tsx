@@ -1226,6 +1226,7 @@ const permissionLabels: Record<OrganizationPermission, string> = {
   "evidence.update.any": "Edit all evidence",
   "evidence.delete.any": "Delete all evidence",
   "evidence.move.any": "Move all evidence",
+  "evidence.tags.manage": "Manage evidence tags",
   "invitations.create": "Create invitation links",
   "invitations.disable": "Disable invitation links",
   "join_requests.manage": "Review join requests",

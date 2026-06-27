@@ -23,12 +23,16 @@ export async function syncDesktopSessionToServer(input: {
 }): Promise<ApiEvidenceSummary> {
   const upload = await input.prepareSessionUpload(input.sessionId);
   const recordingArtifact = upload.artifacts.find((artifact) => artifact.key === "recording");
+  const archiveArtifact = upload.artifacts.find((artifact) => artifact.key === "archive");
+  const archiveStats = readArchiveStats(archiveArtifact?.payload);
   const thumbnail = recordingArtifact
     ? await createVideoThumbnail(new Blob([recordingArtifact.payload.slice().buffer as ArrayBuffer], { type: recordingArtifact.mimeType }))
     : null;
   const sourceMetadata = JSON.stringify({
     localSessionId: upload.sessionId,
     artifactFormat: "split",
+    durationMs: archiveStats.durationMs,
+    actionCount: archiveStats.actionCount,
     artifacts: upload.artifacts.map((artifact) => ({
       key: artifact.key,
       kind: artifact.kind,
@@ -87,4 +91,26 @@ export async function syncDesktopSessionToServer(input: {
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
+}
+
+function readArchiveStats(payload: Uint8Array | undefined): {
+  durationMs: number | null;
+  actionCount: number | null;
+} {
+  if (!payload) return { durationMs: null, actionCount: null };
+  try {
+    const archive = JSON.parse(new TextDecoder().decode(payload)) as {
+      createdAt?: string;
+      updatedAt?: string;
+      sections?: { actions?: unknown[] };
+    };
+    const start = Date.parse(archive.createdAt ?? "");
+    const end = Date.parse(archive.updatedAt ?? "");
+    return {
+      durationMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null,
+      actionCount: Array.isArray(archive.sections?.actions) ? archive.sections.actions.length : null
+    };
+  } catch {
+    return { durationMs: null, actionCount: null };
+  }
 }

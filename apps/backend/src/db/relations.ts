@@ -6,6 +6,10 @@ import { automationApiTokens } from "./tables/automation-api-tokens";
 import { desktopRecordingSessions } from "./tables/desktop-recording-sessions";
 import { evidenceArtifacts } from "./tables/evidence-artifacts";
 import { evidenceComments } from "./tables/evidence-comments";
+import {
+	evidenceTagAssignments,
+	organizationEvidenceTags,
+} from "./tables/evidence-tags";
 import { evidences } from "./tables/evidences";
 import { organizationActivityLogs } from "./tables/organization-activity-logs";
 import { organizationInvitationCodes } from "./tables/organization-invitation-codes";
@@ -53,6 +57,7 @@ export const organizationsRelations = relations(
 		activityLogs: many(organizationActivityLogs),
 		desktopRecordingSessions: many(desktopRecordingSessions),
 		automationApiTokens: many(automationApiTokens),
+		evidenceTags: many(organizationEvidenceTags),
 	}),
 );
 
@@ -187,7 +192,37 @@ export const evidencesRelations = relations(evidences, ({ many, one }) => ({
 	shareLinks: many(shareLinks),
 	aiAccessTokenUsageLogs: many(aiAccessTokenUsageLogs),
 	desktopRecordingSession: many(desktopRecordingSessions),
+	tags: many(evidenceTagAssignments),
 }));
+
+export const organizationEvidenceTagsRelations = relations(
+	organizationEvidenceTags,
+	({ many, one }) => ({
+		organization: one(organizations, {
+			fields: [organizationEvidenceTags.orgId],
+			references: [organizations.id],
+		}),
+		assignments: many(evidenceTagAssignments),
+	}),
+);
+
+export const evidenceTagAssignmentsRelations = relations(
+	evidenceTagAssignments,
+	({ one }) => ({
+		evidence: one(evidences, {
+			fields: [evidenceTagAssignments.evidenceId],
+			references: [evidences.id],
+		}),
+		tag: one(organizationEvidenceTags, {
+			fields: [evidenceTagAssignments.tagId],
+			references: [organizationEvidenceTags.id],
+		}),
+		assignedByUser: one(users, {
+			fields: [evidenceTagAssignments.assignedBy],
+			references: [users.id],
+		}),
+	}),
+);
 
 export const evidenceCommentsRelations = relations(
 	evidenceComments,

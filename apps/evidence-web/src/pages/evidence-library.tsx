@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Share2,
+  Tag,
   Trash2,
   Users,
   Video,
@@ -43,24 +44,27 @@ import {
 import { ConfirmDialog, Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { cn } from "../lib/cn";
-import type { ApiEvidenceSummary, ApiOrganization, FetchToken } from "../api";
+import type { ApiEvidenceSummary, ApiEvidenceTag, ApiOrganization, FetchToken } from "../api";
+import { api } from "../api";
 import { useAuth } from "../auth";
 import {
   useAccountProfile,
   useBulkDeleteEvidences,
   useCopyEvidence,
   useDeleteEvidence,
+  useEvidenceTags,
   useEvidences,
   useMoveEvidence,
   useOrganizationMembers,
   useRenameEvidence,
+  useUpdateEvidenceTags,
 } from "../queries";
 import { downloadEvidenceAsZip } from "../download-evidence";
 import { ShareDialog } from "../share-dialog";
 import { useToast } from "../toast";
-import { formatRelativeTime } from "../utils";
+import { copyToClipboard, formatRelativeTime } from "../utils";
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 50;
 
 const personName = (person: {
   displayName?: string | null;
@@ -94,12 +98,14 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
   const evidencesQuery = useEvidences({
     createdBy: selectedCreatorIds,
+    search: params.get("q") ?? "",
     page,
     limit: PAGE_SIZE,
   });
   const membersQuery = useOrganizationMembers(activeOrg?.id ?? null, {
     limit: 100,
   });
+  const tagsQuery = useEvidenceTags(activeOrg?.id);
   const deleteEvidence = useDeleteEvidence();
   const bulkDeleteEvidences = useBulkDeleteEvidences();
 
@@ -109,6 +115,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const [renameTarget, setRenameTarget] = useState<ApiEvidenceSummary | null>(
     null,
   );
+  const [tagTarget, setTagTarget] = useState<ApiEvidenceSummary | null>(null);
   const [workspaceActionTarget, setWorkspaceActionTarget] = useState<{
     evidence: ApiEvidenceSummary;
     action: "copy" | "transfer";
@@ -125,8 +132,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const getToken: FetchToken = () => auth.getToken();
 
   const search = params.get("q") ?? "";
-  const typeFilter = params.get("type") ?? "all";
-  const view = params.get("view") === "table" ? "table" : "grid";
+  const view = params.get("view") === "grid" ? "grid" : "table";
 
   const setParam = (key: string, value: string, fallback: string): void => {
     setParams(
@@ -145,6 +151,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const total = evidencesQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const members = membersQuery.data?.members ?? [];
+  const tags = tagsQuery.data?.tags ?? [];
   const memberNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const member of members) {
@@ -155,6 +162,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     }
     return map;
   }, [currentUserId, members]);
+  const memberById = useMemo(() => {
+    const map = new Map<string, (typeof members)[number]>();
+    for (const member of members) map.set(member.userId, member);
+    return map;
+  }, [members]);
   const activeOrgRole = activeOrg?.role;
   const canDelete = (evidence: ApiEvidenceSummary): boolean =>
     evidence.createdBy === currentUserId || canManageOthers(activeOrgRole);
@@ -163,32 +175,20 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   const isDeletingSomeoneElse = (evidence: ApiEvidenceSummary): boolean =>
     Boolean(currentUserId && evidence.createdBy !== currentUserId);
 
-  const typeOptions = useMemo(() => {
-    const types = Array.from(
-      new Set(evidences.map((e) => e.sourceType)),
-    ).sort();
-    return [
-      { label: "All types", value: "all" },
-      ...types.map((t) => ({ label: t, value: t })),
-    ];
-  }, [evidences]);
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = evidences.filter((e) => {
-      const matchesType = typeFilter === "all" || e.sourceType === typeFilter;
       const matchesQuery =
         !q ||
         [
           e.title,
-          e.sourceType,
           e.id,
           memberNameById.get(e.createdBy) ?? e.createdBy,
         ].some((f) => f.toLowerCase().includes(q));
-      return matchesType && matchesQuery;
+      return matchesQuery;
     });
     return list;
-  }, [evidences, memberNameById, search, typeFilter]);
+  }, [evidences, memberNameById, search]);
 
   // `selectedIds` is the raw user selection; everywhere it is consumed it is
   // intersected with the current `evidences` (see `selectedEvidences` below and
@@ -343,6 +343,24 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     setParam("people", Array.from(next).join(","), "");
   };
 
+  const navigateToEvidence = (evidence: ApiEvidenceSummary): void => {
+    navigate(`/evidence/${encodeURIComponent(evidence.id)}`);
+  };
+
+  const handleShareCopy = async (evidence: ApiEvidenceSummary): Promise<void> => {
+    try {
+      const result = await api.createShareLink(getToken, evidence.id);
+      const url = `${window.location.origin}/share/${encodeURIComponent(result.shareLink.slug)}`;
+      await copyToClipboard(url);
+      toast.success("Share URL copied", evidence.title);
+    } catch (error) {
+      toast.error(
+        "Unable to copy share URL",
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+  };
+
   const actions = (
     evidence: ApiEvidenceSummary,
     downloading: boolean,
@@ -365,10 +383,14 @@ export function EvidenceLibraryPage(): React.JSX.Element {
       }
     >
       <DropdownMenuItem
-        onClick={() => navigate(`/evidence/${encodeURIComponent(evidence.id)}`)}
+        onClick={() => navigateToEvidence(evidence)}
       >
         <Play aria-hidden />
         Review
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => setTagTarget(evidence)}>
+        <Tag aria-hidden />
+        Tags
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => setRenameTarget(evidence)}>
         <Pencil aria-hidden />
@@ -438,21 +460,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             <Input
               value={search}
               onChange={(e) => setParam("q", e.currentTarget.value, "")}
-              placeholder="Search by title, type, or id"
+              placeholder="Search by title, user, or id"
               className="pl-9"
               aria-label="Search evidence"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="w-40">
-              <Select
-                ariaLabel="Filter by type"
-                size="sm"
-                options={typeOptions}
-                value={typeFilter}
-                onValueChange={(v) => setParam("type", v, "all")}
-              />
-            </div>
             <DropdownMenu
               align="end"
               className="w-64"
@@ -512,7 +525,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 type="button"
                 aria-label="Grid view"
                 aria-pressed={view === "grid"}
-                onClick={() => setParam("view", "grid", "grid")}
+                onClick={() => setParam("view", "grid", "table")}
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
                   view === "grid"
@@ -526,7 +539,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 type="button"
                 aria-label="Table view"
                 aria-pressed={view === "table"}
-                onClick={() => setParam("view", "table", "grid")}
+                onClick={() => setParam("view", "table", "table")}
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
                   view === "table"
@@ -781,7 +794,6 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   <TableHead className="hidden sm:table-cell">
                     Recorded by
                   </TableHead>
-                  <TableHead className="hidden md:table-cell">Type</TableHead>
                   <TableHead className="hidden lg:table-cell">
                     Recorded
                   </TableHead>
@@ -793,8 +805,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   <TableRow
                     key={evidence.id}
                     data-active={selectedIds.has(evidence.id)}
+                    onClick={() => navigateToEvidence(evidence)}
+                    className="cursor-pointer"
                   >
-                    <TableCell className="w-10 pr-0">
+                    <TableCell className="w-10 pr-0" onClick={(event) => event.stopPropagation()}>
                       <input
                         type="checkbox"
                         aria-label={`Select ${evidence.title}`}
@@ -809,60 +823,51 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       />
                     </TableCell>
                     <TableCell>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            `/evidence/${encodeURIComponent(evidence.id)}`,
-                          )
-                        }
-                        className="flex min-w-0 items-center gap-3 text-left"
-                      >
+                      <div className="flex min-w-0 items-center gap-3 text-left">
                         <EvidenceThumbnail
                           evidence={evidence}
                           className="h-10 w-16"
                         />
                         <span className="min-w-0">
-                          <span className="block truncate text-base font-medium text-foreground hover:text-primary">
+                          <span className="block truncate text-base font-semibold text-foreground group-hover:text-primary">
                             {evidence.title}
                           </span>
-                          <span className="block truncate font-mono text-muted-foreground">
-                            {evidence.id.slice(0, 16)}…
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                            <span>{formatDuration(evidence.durationMs)}</span>
+                            <span aria-hidden>·</span>
+                            <span>{formatActionCount(evidence.actionCount)}</span>
+                            {evidence.tags.map((tag) => (
+                              <EvidenceTagBadge key={tag.id} tag={tag} />
+                            ))}
                           </span>
                         </span>
-                      </button>
-                    </TableCell>
-                    <TableCell className="hidden max-w-[12rem] truncate text-base text-muted-foreground sm:table-cell">
-                      {memberNameById.get(evidence.createdBy) ??
-                        evidence.createdBy}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <div className="flex flex-wrap gap-1.5">
-                        <Badge variant="muted" className="capitalize">
-                          {evidence.sourceType}
-                        </Badge>
-                        {evidence.status === "pending" ? (
-                          <Badge variant="muted">Pending</Badge>
-                        ) : null}
                       </div>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <RecordedByCell
+                        member={memberById.get(evidence.createdBy)}
+                        fallbackName={memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
+                        onClick={() => setCreatorFilter(evidence.createdBy, true)}
+                      />
                     </TableCell>
                     <TableCell className="hidden whitespace-nowrap text-base text-muted-foreground lg:table-cell">
                       {formatRelativeTime(evidence.createdAt)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          onClick={() =>
-                            navigate(
-                              `/evidence/${encodeURIComponent(evidence.id)}`,
-                            )
-                          }
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void handleShareCopy(evidence);
+                          }}
                           className={cn(
                             buttonVariants({ variant: "ghost", size: "sm" }),
                           )}
                         >
-                          Review
+                          <Share2 aria-hidden />
+                          Share
                         </button>
                         {actions(
                           evidence,
@@ -878,11 +883,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           </Card>
         )}
         {!loading && totalPages > 1 ? (
-          <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className=" text-muted-foreground">
-              Page {Math.min(page, totalPages)} of {totalPages}
-            </p>
-            <div className="flex items-center gap-2">
+          <div className="sticky bottom-8 z-20 flex justify-center pb-8">
+            <div className="flex items-center gap-4 rounded-full border border-border-strong bg-popover/95 px-3 py-2 shadow-pop backdrop-blur">
               <Button
                 size="sm"
                 variant="outline"
@@ -891,6 +893,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               >
                 Previous
               </Button>
+              <span className="min-w-16 text-center font-mono text-sm text-muted-foreground">
+                {Math.min(page, totalPages)} / {totalPages}
+              </span>
               <Button
                 size="sm"
                 variant="outline"
@@ -924,6 +929,15 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           action={workspaceActionTarget.action}
           organizations={accountQuery.data?.organizations ?? []}
           onClose={() => setWorkspaceActionTarget(null)}
+        />
+      ) : null}
+
+      {tagTarget ? (
+        <EvidenceTagsDialog
+          evidence={tagTarget}
+          tags={tags}
+          loading={tagsQuery.isPending}
+          onClose={() => setTagTarget(null)}
         />
       ) : null}
 
@@ -963,6 +977,172 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         onCancel={() => (bulkDeleting ? null : setPendingBulkDelete(false))}
       />
     </>
+  );
+}
+
+function formatDuration(value: number | null): string {
+  if (value === null) return "No duration";
+  const totalSeconds = Math.round(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatActionCount(value: number | null): string {
+  if (value === null) return "No actions";
+  return `${value} action${value === 1 ? "" : "s"}`;
+}
+
+function getInitials(value: string): string {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+  return initials || "?";
+}
+
+function EvidenceTagBadge({ tag }: { tag: ApiEvidenceTag }): React.JSX.Element {
+  return (
+    <span
+      className="inline-flex max-w-24 items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+      style={{
+        borderColor: `${tag.color}55`,
+        backgroundColor: `${tag.color}18`,
+        color: tag.color,
+      }}
+    >
+      <span className="truncate">{tag.name}</span>
+    </span>
+  );
+}
+
+function RecordedByCell(props: {
+  member: { displayName: string; email: string | null } | undefined;
+  fallbackName: string;
+  onClick: () => void;
+}): React.JSX.Element {
+  const name = props.member?.displayName ?? props.fallbackName;
+  const email = props.member?.email ?? "No email";
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        props.onClick();
+      }}
+      className="group/author relative flex w-[200px] items-center gap-2 text-left"
+      title={name}
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 font-mono text-xs font-semibold text-primary">
+        {getInitials(name)}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-base font-medium text-foreground">
+          {name}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {email}
+        </span>
+      </span>
+      <span className="pointer-events-none absolute left-10 top-9 z-30 hidden w-56 rounded-md border border-border bg-popover px-3 py-2 text-left shadow-pop group-hover/author:block">
+        <span className="block truncate text-sm font-semibold text-foreground">
+          {name}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {email}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function EvidenceTagsDialog(props: {
+  evidence: ApiEvidenceSummary;
+  tags: ApiEvidenceTag[];
+  loading: boolean;
+  onClose: () => void;
+}): React.JSX.Element {
+  const toast = useToast();
+  const updateTags = useUpdateEvidenceTags();
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(props.evidence.tags.map((tag) => tag.id)),
+  );
+
+  const toggle = (tagId: string): void => {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(tagId)) next.delete(tagId);
+      else next.add(tagId);
+      return next;
+    });
+  };
+
+  const submit = (): void => {
+    updateTags.mutate(
+      { evidenceId: props.evidence.id, tagIds: Array.from(selected) },
+      {
+        onSuccess: () => {
+          toast.success("Tags updated", props.evidence.title);
+          props.onClose();
+        },
+        onError: (error) =>
+          toast.error(
+            "Unable to update tags",
+            error instanceof Error ? error.message : undefined,
+          ),
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={props.onClose}
+      size="sm"
+      title="Evidence tags"
+      description={props.evidence.title}
+      footer={
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={props.onClose}
+            disabled={updateTags.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={submit}
+            disabled={props.loading || updateTags.isPending}
+          >
+            {updateTags.isPending ? "Saving…" : "Save"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-2">
+        {props.loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : props.tags.length === 0 ? (
+          <p className="text-base text-muted-foreground">No tags available.</p>
+        ) : (
+          props.tags.map((tag) => (
+            <label
+              key={tag.id}
+              className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-secondary px-3 py-2"
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(tag.id)}
+                onChange={() => toggle(tag.id)}
+                className="size-4 accent-[var(--brand-500)]"
+              />
+              <EvidenceTagBadge tag={tag} />
+            </label>
+          ))
+        )}
+      </div>
+    </Dialog>
   );
 }
 

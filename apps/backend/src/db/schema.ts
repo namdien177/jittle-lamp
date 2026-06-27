@@ -33,6 +33,11 @@ export {
 	evidenceComments,
 } from "./tables/evidence-comments";
 export {
+	createOrganizationEvidenceTagInputSchema,
+	evidenceTagAssignments,
+	organizationEvidenceTags,
+} from "./tables/evidence-tags";
+export {
 	createEvidenceInputSchema,
 	evidenceScopeTypeSchema,
 	evidences,

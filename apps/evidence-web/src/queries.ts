@@ -14,6 +14,7 @@ import {
 	type ApiCreateAutomationApiTokenResponse,
 	type ApiCreatedInvitationCode,
 	type ApiEvidenceComment,
+	type ApiEvidenceTag,
 	type ApiEvidenceListResponse,
 	type ApiEvidenceSummary,
 	type ApiInvitation,
@@ -134,6 +135,8 @@ export const queryKeys = {
 		["evidence-artifacts", evidenceId, orgId ?? null] as const,
 	evidenceComments: (evidenceId: string, orgId: string | undefined) =>
 		["evidence-comments", evidenceId, orgId ?? null] as const,
+	evidenceTags: (orgId: string | undefined) =>
+		["evidence-tags", orgId ?? "active"] as const,
 	shareLinks: (evidenceId: string) => ["share-links", evidenceId] as const,
 	shareLinkResolution: (shareToken: string) =>
 		["share-link-resolution", shareToken] as const,
@@ -311,6 +314,29 @@ export function useEvidences(
 		queryKey: queryKeys.evidences(options),
 		queryFn: () => api.listEvidences(getToken, options),
 		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
+	});
+}
+
+export function useEvidenceTags(orgId?: string) {
+	const auth = useAuth();
+	const getToken = useAuthToken();
+	return useQuery<{ tags: ApiEvidenceTag[] }>({
+		queryKey: queryKeys.evidenceTags(orgId),
+		queryFn: () => api.listEvidenceTags(getToken, orgId),
+		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
+	});
+}
+
+export function useUpdateEvidenceTags() {
+	const getToken = useAuthToken();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: { evidenceId: string; tagIds: string[] }) =>
+			api.updateEvidenceTags(getToken, input.evidenceId, input.tagIds),
+		onSuccess: (_data, input) => {
+			queryClient.invalidateQueries({ queryKey: ["evidences"] });
+			queryClient.invalidateQueries(remoteEvidenceMatchesId(input.evidenceId));
+		},
 	});
 }
 

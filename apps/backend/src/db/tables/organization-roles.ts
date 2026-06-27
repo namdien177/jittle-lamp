@@ -31,6 +31,7 @@ export const organizationPermissionValueSchema = z.enum([
 	"evidence.update.any",
 	"evidence.delete.any",
 	"evidence.move.any",
+	"evidence.tags.manage",
 	"invitations.create",
 	"invitations.disable",
 	"join_requests.manage",

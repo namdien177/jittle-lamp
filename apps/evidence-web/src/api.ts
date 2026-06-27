@@ -58,6 +58,7 @@ export type OrganizationPermission =
 	| "evidence.update.any"
 	| "evidence.delete.any"
 	| "evidence.move.any"
+	| "evidence.tags.manage"
 	| "invitations.create"
 	| "invitations.disable"
 	| "join_requests.manage"
@@ -257,6 +258,15 @@ export type ApiEvidenceSummary = {
 	createdAt: number;
 	updatedAt: number;
 	status?: "ready" | "pending";
+	durationMs: number | null;
+	actionCount: number | null;
+	tags: ApiEvidenceTag[];
+};
+
+export type ApiEvidenceTag = {
+	id: string;
+	name: string;
+	color: string;
 };
 
 export type ApiEvidenceListResponse = {
@@ -381,6 +391,30 @@ export const api = {
 			`/evidences${suffix}`,
 		);
 	},
+
+	listEvidenceTags: (getToken: FetchToken, orgId?: string) => {
+		const query = new URLSearchParams();
+		if (orgId) query.set("orgId", orgId);
+		const suffix = query.toString() ? `?${query.toString()}` : "";
+		return authedFetch<{ tags: ApiEvidenceTag[] }>(
+			getToken,
+			`/evidences/tags${suffix}`,
+		);
+	},
+
+	updateEvidenceTags: (
+		getToken: FetchToken,
+		evidenceId: string,
+		tagIds: string[],
+	) =>
+		authedFetch<{ evidence: { id: string; orgId: string; tags: ApiEvidenceTag[] } }>(
+			getToken,
+			`/evidences/${encodeURIComponent(evidenceId)}/tags`,
+			{
+				method: "PATCH",
+				body: JSON.stringify({ tagIds }),
+			},
+		),
 
 	loadEvidence: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
 		authedFetch<ApiEvidenceResponse>(
