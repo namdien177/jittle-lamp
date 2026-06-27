@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router";
 import {
   ArrowRightLeft,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Download,
   LayoutGrid,
@@ -883,31 +885,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           </Card>
         )}
         {!loading && totalPages > 1 ? (
-          <div className="sticky bottom-0 z-20 flex justify-center">
-            <div className="flex items-center gap-4 rounded-md border border-border-strong bg-popover/95 px-3 py-2 shadow-pop backdrop-blur">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="w-[98px]"
-                disabled={page <= 1}
-                onClick={() => setParam("page", String(page - 1), "1")}
-              >
-                Previous
-              </Button>
-              <span className="min-w-16 text-center font-mono text-sm text-muted-foreground">
-                {Math.min(page, totalPages)} / {totalPages}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="w-[98px]"
-                disabled={page >= totalPages}
-                onClick={() => setParam("page", String(page + 1), "1")}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          <FloatingEvidencePager
+            page={page}
+            totalPages={totalPages}
+            onPrevious={() => setParam("page", String(page - 1), "1")}
+            onNext={() => setParam("page", String(page + 1), "1")}
+          />
         ) : null}
       </PageBody>
 
@@ -995,6 +978,48 @@ function formatActionCount(value: number | null): string {
   return `${value} action${value === 1 ? "" : "s"}`;
 }
 
+function FloatingEvidencePager(props: {
+  page: number;
+  totalPages: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}): React.JSX.Element {
+  const currentPage = Math.min(props.page, props.totalPages);
+
+  return (
+    <>
+      <div className="h-20 shrink-0" aria-hidden />
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-border-strong/80 bg-popover/90 p-1.5 text-sm shadow-[0_18px_60px_-24px_rgba(0,0,0,0.85)] backdrop-blur-xl">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-[98px] gap-1.5 rounded-[6px] px-2 text-muted-foreground hover:text-foreground"
+            disabled={props.page <= 1}
+            onClick={props.onPrevious}
+          >
+            <ChevronLeft aria-hidden className="size-4" />
+            Previous
+          </Button>
+          <span className="flex min-w-[88px] items-center justify-center rounded-[6px] border border-border bg-secondary/70 px-3 py-2 font-mono text-xs font-semibold tabular-nums text-foreground">
+            {currentPage} / {props.totalPages}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-[98px] gap-1.5 rounded-[6px] px-2 text-muted-foreground hover:text-foreground"
+            disabled={props.page >= props.totalPages}
+            onClick={props.onNext}
+          >
+            Next
+            <ChevronRight aria-hidden className="size-4" />
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function getInitials(value: string): string {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
@@ -1045,8 +1070,8 @@ function RecordedByCell(props: {
           {email}
         </span>
       </span>
-      <span className="pointer-events-none absolute left-10 top-9 z-30 hidden w-56 rounded-md border border-border bg-popover px-3 py-2 text-left shadow-pop group-hover/author:block">
-        <span className="block truncate text-sm font-semibold text-foreground">
+      <span className="pointer-events-none absolute left-10 top-9 z-30 hidden w-64 rounded-md border border-border bg-popover px-3 py-2 text-left shadow-pop group-hover/author:block">
+        <span className="block whitespace-normal break-words text-sm font-semibold text-foreground">
           {name}
         </span>
         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
