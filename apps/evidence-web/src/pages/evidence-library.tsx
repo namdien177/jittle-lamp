@@ -97,9 +97,18 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         .filter(Boolean),
     [params],
   );
+  const selectedTagIds = useMemo(
+    () =>
+      (params.get("tags") ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    [params],
+  );
   const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
   const evidencesQuery = useEvidences({
     createdBy: selectedCreatorIds,
+    tagIds: selectedTagIds,
     search: params.get("q") ?? "",
     page,
     limit: PAGE_SIZE,
@@ -345,6 +354,13 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     setParam("people", Array.from(next).join(","), "");
   };
 
+  const setTagFilter = (tagId: string, selected: boolean): void => {
+    const next = new Set(selectedTagIds);
+    if (selected) next.add(tagId);
+    else next.delete(tagId);
+    setParam("tags", Array.from(next).join(","), "");
+  };
+
   const navigateToEvidence = (evidence: ApiEvidenceSummary): void => {
     navigate(`/evidence/${encodeURIComponent(evidence.id)}`);
   };
@@ -517,6 +533,53 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                         {memberNameById.get(member.userId) ??
                           personName(member)}
                       </span>
+                    </DropdownMenuItem>
+                  );
+                })
+              )}
+            </DropdownMenu>
+            <DropdownMenu
+              align="end"
+              className="w-64"
+              trigger={
+                <button
+                  type="button"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" }),
+                    "justify-start",
+                  )}
+                >
+                  <Tag aria-hidden />
+                  {selectedTagIds.length === 0
+                    ? "All tags"
+                    : `${selectedTagIds.length} selected`}
+                </button>
+              }
+            >
+              <DropdownMenuLabel>Tags</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => setParam("tags", "", "")}>
+                <span className="inline-flex size-4 items-center justify-center">
+                  {selectedTagIds.length === 0 ? <Check aria-hidden /> : null}
+                </span>
+                All tags
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {tags.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  {tagsQuery.isPending ? "Loading tags…" : "No tags found"}
+                </DropdownMenuItem>
+              ) : (
+                tags.map((tag) => {
+                  const selected = selectedTagIds.includes(tag.id);
+                  return (
+                    <DropdownMenuItem
+                      key={tag.id}
+                      onClick={() => setTagFilter(tag.id, !selected)}
+                    >
+                      <span className="inline-flex size-4 items-center justify-center">
+                        {selected ? <Check aria-hidden /> : null}
+                      </span>
+                      <EvidenceTagBadge tag={tag} />
                     </DropdownMenuItem>
                   );
                 })
@@ -796,6 +859,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   <TableHead className="hidden sm:table-cell">
                     Recorded by
                   </TableHead>
+                  <TableHead className="hidden md:table-cell">
+                    Tags
+                  </TableHead>
                   <TableHead className="hidden lg:table-cell">
                     Recorded
                   </TableHead>
@@ -838,9 +904,6 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                             <span>{formatDuration(evidence.durationMs)}</span>
                             <span aria-hidden>·</span>
                             <span>{formatActionCount(evidence.actionCount)}</span>
-                            {evidence.tags.map((tag) => (
-                              <EvidenceTagBadge key={tag.id} tag={tag} />
-                            ))}
                           </span>
                         </span>
                       </div>
@@ -851,6 +914,9 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                         fallbackName={memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
                         onClick={() => setCreatorFilter(evidence.createdBy, true)}
                       />
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <EvidenceTagStack tags={evidence.tags} />
                     </TableCell>
                     <TableCell className="hidden whitespace-nowrap text-base text-muted-foreground lg:table-cell">
                       {formatRelativeTime(evidence.createdAt)}
@@ -1024,6 +1090,28 @@ function getInitials(value: string): string {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
   return initials || "?";
+}
+
+function EvidenceTagStack({ tags }: { tags: ApiEvidenceTag[] }): React.JSX.Element {
+  if (tags.length === 0) {
+    return <span className="text-sm text-muted-foreground">No tags</span>;
+  }
+
+  const visibleTags = tags.slice(0, 2);
+  const hiddenCount = tags.length - visibleTags.length;
+
+  return (
+    <div className="flex max-w-[220px] flex-wrap items-center gap-1.5">
+      {visibleTags.map((tag) => (
+        <EvidenceTagBadge key={tag.id} tag={tag} />
+      ))}
+      {hiddenCount > 0 ? (
+        <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          + {hiddenCount}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function EvidenceTagBadge({ tag }: { tag: ApiEvidenceTag }): React.JSX.Element {

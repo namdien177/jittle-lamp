@@ -24,6 +24,7 @@ import {
   OrganisationDetailLayout,
   OrganisationsListPage,
   OrgActivityTab,
+  OrgEvidencesTab,
   OrgInvitationsTab,
   OrgLibraryTab,
   OrgMembersTab,
@@ -130,6 +131,7 @@ export const router = createBrowserRouter([
               { path: "roles", element: <OrgRolesTab /> },
               { path: "invitations", element: <OrgInvitationsTab /> },
               { path: "activity", element: <OrgActivityTab /> },
+              { path: "evidences", element: <OrgEvidencesTab /> },
               { path: "library", element: <OrgLibraryTab /> },
               { path: "options", element: <OrgOptionsTab /> }
             ]

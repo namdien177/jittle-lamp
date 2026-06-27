@@ -133,6 +133,7 @@ const evidenceQuerySchema = t.Object({
 const listEvidenceQuerySchema = t.Object({
 	orgId: t.Optional(t.String({ minLength: 1 })),
 	createdBy: t.Optional(t.String()),
+	tagIds: t.Optional(t.String()),
 	search: t.Optional(t.String()),
 	page: t.Optional(t.Number({ minimum: 1 })),
 	limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
@@ -170,6 +171,16 @@ const evidenceTagSchema = t.Object({
 
 const listEvidenceTagsResponseSchema = t.Object({
 	tags: t.Array(evidenceTagSchema),
+});
+
+const evidenceTagBodySchema = t.Object({
+	orgId: t.Optional(t.String({ minLength: 1 })),
+	name: t.String({ minLength: 1, maxLength: 40 }),
+	color: t.String({ minLength: 1, maxLength: 40 }),
+});
+
+const evidenceTagResponseSchema = t.Object({
+	tag: evidenceTagSchema,
 });
 
 const updateEvidenceTagsBodySchema = t.Object({
@@ -1020,6 +1031,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							),
 						);
 						const creatorIds = parseCreatorFilter(query.createdBy);
+						const tagIds = parseCreatorFilter(query.tagIds);
 						const search = query.search?.trim();
 						const searchPattern = search ? `%${search}%` : undefined;
 						const where = and(
@@ -1027,6 +1039,15 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							isNull(evidences.deletedAt),
 							creatorIds.length > 0
 								? inArray(evidences.createdBy, creatorIds)
+								: undefined,
+							tagIds.length > 0
+								? inArray(
+										evidences.id,
+										db
+											.select({ evidenceId: evidenceTagAssignments.evidenceId })
+											.from(evidenceTagAssignments)
+											.where(inArray(evidenceTagAssignments.tagId, tagIds)),
+									)
 								: undefined,
 							searchPattern
 								? or(
@@ -1143,6 +1164,240 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							200: listEvidenceTagsResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.post(
+					"/evidences/tags",
+					async ({ authContext, body, db, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const resolvedOrg = await resolveRequestedOrgId({
+							authContext,
+							db,
+							requestedOrgId: body.orgId,
+							requestId,
+							set,
+						});
+						if (!resolvedOrg.ok) return resolvedOrg.error;
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.tags.manage",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAGS_MANAGE_FORBIDDEN",
+								"Your role cannot manage evidence tags",
+								403,
+							);
+						}
+
+						const name = body.name.trim();
+						const color = body.color.trim();
+						try {
+							const [tag] = await db
+								.insert(organizationEvidenceTags)
+								.values({
+									orgId: resolvedOrg.orgId,
+									name,
+									color,
+									createdAt: Date.now(),
+									updatedAt: Date.now(),
+								})
+								.returning({
+									id: organizationEvidenceTags.id,
+									name: organizationEvidenceTags.name,
+									color: organizationEvidenceTags.color,
+								});
+							if (!tag) throw new Error("Tag was not created.");
+							return { tag };
+						} catch {
+							set.status = 409;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAG_EXISTS",
+								"An evidence tag with this name already exists",
+								409,
+							);
+						}
+					},
+					{
+						body: evidenceTagBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Creates an organization-level evidence tag",
+						},
+						response: {
+							200: evidenceTagResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							409: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.patch(
+					"/evidences/tags/:tagId",
+					async ({ authContext, body, db, params, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const resolvedOrg = await resolveRequestedOrgId({
+							authContext,
+							db,
+							requestedOrgId: body.orgId,
+							requestId,
+							set,
+						});
+						if (!resolvedOrg.ok) return resolvedOrg.error;
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.tags.manage",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAGS_MANAGE_FORBIDDEN",
+								"Your role cannot manage evidence tags",
+								403,
+							);
+						}
+
+						const name = body.name.trim();
+						const color = body.color.trim();
+						try {
+							const [tag] = await db
+								.update(organizationEvidenceTags)
+								.set({ name, color, updatedAt: Date.now() })
+								.where(
+									and(
+										eq(organizationEvidenceTags.id, params.tagId),
+										eq(organizationEvidenceTags.orgId, resolvedOrg.orgId),
+									),
+								)
+								.returning({
+									id: organizationEvidenceTags.id,
+									name: organizationEvidenceTags.name,
+									color: organizationEvidenceTags.color,
+								});
+							if (!tag) {
+								set.status = 404;
+								return createApiError(
+									requestId,
+									"EVIDENCE_TAG_NOT_FOUND",
+									"Evidence tag was not found",
+									404,
+								);
+							}
+							return { tag };
+						} catch {
+							set.status = 409;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAG_EXISTS",
+								"An evidence tag with this name already exists",
+								409,
+							);
+						}
+					},
+					{
+						body: evidenceTagBodySchema,
+						params: t.Object({ tagId: t.String({ minLength: 1 }) }),
+						detail: {
+							tags: ["evidences"],
+							summary: "Updates an organization-level evidence tag",
+						},
+						response: {
+							200: evidenceTagResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							409: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.delete(
+					"/evidences/tags/:tagId",
+					async ({ authContext, db, params, query, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const resolvedOrg = await resolveRequestedOrgId({
+							authContext,
+							db,
+							requestedOrgId: query.orgId,
+							requestId,
+							set,
+						});
+						if (!resolvedOrg.ok) return resolvedOrg.error;
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: resolvedOrg.orgId,
+								localUserId: resolvedOrg.localUserId,
+								permission: "evidence.tags.manage",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAGS_MANAGE_FORBIDDEN",
+								"Your role cannot manage evidence tags",
+								403,
+							);
+						}
+
+						const [deleted] = await db
+							.delete(organizationEvidenceTags)
+							.where(
+								and(
+									eq(organizationEvidenceTags.id, params.tagId),
+									eq(organizationEvidenceTags.orgId, resolvedOrg.orgId),
+								),
+							)
+							.returning({ id: organizationEvidenceTags.id });
+						if (!deleted) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_TAG_NOT_FOUND",
+								"Evidence tag was not found",
+								404,
+							);
+						}
+
+						return { tagId: deleted.id };
+					},
+					{
+						query: evidenceQuerySchema,
+						params: t.Object({ tagId: t.String({ minLength: 1 }) }),
+						detail: {
+							tags: ["evidences"],
+							summary: "Deletes an organization-level evidence tag",
+						},
+						response: {
+							200: t.Object({ tagId: t.String({ minLength: 1 }) }),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},

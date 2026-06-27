@@ -118,6 +118,7 @@ export const queryKeys = {
 		options: {
 			orgId?: string;
 			createdBy?: string[];
+			tagIds?: string[];
 			search?: string;
 			page?: number;
 			limit?: number;
@@ -127,6 +128,7 @@ export const queryKeys = {
 			"evidences",
 			options.orgId ?? "active",
 			options.createdBy?.join(",") ?? "",
+			options.tagIds?.join(",") ?? "",
 			options.search?.trim() ?? "",
 			options.page ?? 1,
 			options.limit ?? 24,
@@ -303,6 +305,7 @@ export function useEvidences(
 	options: {
 		orgId?: string;
 		createdBy?: string[];
+		tagIds?: string[];
 		search?: string;
 		page?: number;
 		limit?: number;
@@ -336,6 +339,55 @@ export function useUpdateEvidenceTags() {
 		onSuccess: (_data, input) => {
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
 			queryClient.invalidateQueries(remoteEvidenceMatchesId(input.evidenceId));
+		},
+	});
+}
+
+export function useCreateEvidenceTag() {
+	const getToken = useAuthToken();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: { orgId: string; name: string; color: string }) =>
+			api.createEvidenceTag(getToken, input),
+		onSuccess: (_data, input) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.evidenceTags(input.orgId),
+			});
+			queryClient.invalidateQueries({ queryKey: ["evidences"] });
+		},
+	});
+}
+
+export function useUpdateEvidenceTag() {
+	const getToken = useAuthToken();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: {
+			orgId: string;
+			tagId: string;
+			name: string;
+			color: string;
+		}) => api.updateEvidenceTag(getToken, input),
+		onSuccess: (_data, input) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.evidenceTags(input.orgId),
+			});
+			queryClient.invalidateQueries({ queryKey: ["evidences"] });
+		},
+	});
+}
+
+export function useDeleteEvidenceTag() {
+	const getToken = useAuthToken();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: { orgId: string; tagId: string }) =>
+			api.deleteEvidenceTag(getToken, input),
+		onSuccess: (_data, input) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.evidenceTags(input.orgId),
+			});
+			queryClient.invalidateQueries({ queryKey: ["evidences"] });
 		},
 	});
 }

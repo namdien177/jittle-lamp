@@ -17,8 +17,10 @@ import {
   ChevronRight,
   KeyRound,
   LogOut,
+  Pencil,
   Plus,
   Search,
+  Tag,
   Trash2,
   Users,
 } from "lucide-react";
@@ -28,6 +30,7 @@ import {
   api,
   type ApiActivityLog,
   type ApiEvidenceSummary,
+  type ApiEvidenceTag,
   type ApiInvitationCode,
   type ApiJoinRequest,
   type ApiMember,
@@ -57,12 +60,15 @@ import {
 import {
   useAcceptInvitation,
   useAccountProfile,
+  useCreateEvidenceTag,
   useCreateInvitation,
   useCreateInvitationCode,
   useCreateOrganization,
   useDeleteOrganization,
+  useDeleteEvidenceTag,
   useDeleteInvitationCode,
   useDeleteEvidence,
+  useEvidenceTags,
   useEvidences,
   useLeaveOrganization,
   useOrganizationActivity,
@@ -77,6 +83,7 @@ import {
   useSetInvitationCodeLocked,
   useUpdateOrganizationRole,
   useUpdateOrganizationSettings,
+  useUpdateEvidenceTag,
   useUpdateMemberRole,
 } from "../queries";
 import { useToast } from "../toast";
@@ -113,11 +120,16 @@ const directInvitationSchema = z.object({
   role: z.enum(["admin", "moderator", "developer", "qa_engineer"]),
   expiresDays: z.string().regex(/^\d+$/, "Use whole days only."),
 });
+const evidenceTagFormSchema = z.object({
+  name: z.string().trim().min(1, "Tag name is required.").max(40),
+  color: z.string().trim().min(1, "Color is required."),
+});
 
 type CreateOrgValues = z.infer<typeof createOrgSchema>;
 type AcceptInvitationValues = z.infer<typeof acceptInvitationSchema>;
 type CodeValues = z.infer<typeof codeSchema>;
 type DirectInvitationValues = z.infer<typeof directInvitationSchema>;
+type EvidenceTagFormValues = z.infer<typeof evidenceTagFormSchema>;
 
 const sortOptions: Array<{ label: string; value: SortKey }> = [
   { label: "Name", value: "name" },
@@ -450,6 +462,7 @@ export function OrganisationDetailLayout(): React.JSX.Element {
             { to: `${base}/roles`, label: "Roles" },
             { to: `${base}/invitations`, label: "Invitations" },
             { to: `${base}/activity`, label: "Activity" },
+            { to: `${base}/evidences`, label: "Evidences" },
             { to: `${base}/library`, label: "Library" },
             { to: `${base}/options`, label: "Options" },
           ]}
@@ -1719,6 +1732,299 @@ function JoinRequestsPanel(props: {
         </TableBody>
       </Table>
     </Card>
+  );
+}
+
+/* ── Evidences tab ──────────────────────────────────────────────────────────── */
+
+const defaultTagColor = "#22c55e";
+
+export function OrgEvidencesTab(): React.JSX.Element {
+  const ctx = useOrgContext();
+  const toast = useToast();
+  const tagsQuery = useEvidenceTags(ctx.orgId);
+  const createTag = useCreateEvidenceTag();
+  const updateTag = useUpdateEvidenceTag();
+  const deleteTag = useDeleteEvidenceTag();
+  const [editingTag, setEditingTag] = useState<ApiEvidenceTag | null>(null);
+  const [deletingTag, setDeletingTag] = useState<ApiEvidenceTag | null>(null);
+  const tags = tagsQuery.data?.tags ?? [];
+  const canManageTags = canManageOthersEvidence(ctx.org?.role);
+  const busy = createTag.isPending || updateTag.isPending || deleteTag.isPending;
+  const error =
+    tagsQuery.error instanceof Error
+      ? tagsQuery.error.message
+      : createTag.error instanceof Error
+        ? createTag.error.message
+        : updateTag.error instanceof Error
+          ? updateTag.error.message
+          : deleteTag.error instanceof Error
+            ? deleteTag.error.message
+            : null;
+
+  const saveTag = async (values: EvidenceTagFormValues): Promise<void> => {
+    if (!canManageTags) return;
+    if (editingTag?.id) {
+      await updateTag.mutateAsync({
+        orgId: ctx.orgId,
+        tagId: editingTag.id,
+        name: values.name,
+        color: values.color,
+      });
+      toast.success("Tag updated", values.name);
+    } else {
+      await createTag.mutateAsync({
+        orgId: ctx.orgId,
+        name: values.name,
+        color: values.color,
+      });
+      toast.success("Tag created", values.name);
+    }
+    setEditingTag(null);
+  };
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!deletingTag) return;
+    await deleteTag.mutateAsync({ orgId: ctx.orgId, tagId: deletingTag.id });
+    toast.success("Tag deleted", deletingTag.name);
+    setDeletingTag(null);
+  };
+
+  return (
+    <>
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <Card className="overflow-hidden p-0">
+          <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                Evidence tags
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {tags.length} tag{tags.length === 1 ? "" : "s"}
+              </p>
+            </div>
+            {canManageTags ? (
+              <Button
+                size="sm"
+                onClick={() =>
+                  setEditingTag({ id: "", name: "", color: defaultTagColor })
+                }
+              >
+                <Plus aria-hidden />
+                New tag
+              </Button>
+            ) : null}
+          </div>
+          {error ? (
+            <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-base text-destructive">
+              {error}
+            </div>
+          ) : null}
+          {tagsQuery.isPending ? (
+            <div className="space-y-2 p-4">
+              {[0, 1, 2].map((index) => (
+                <Skeleton key={index} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : tags.length === 0 ? (
+            <EmptyState
+              className="m-2 border-0"
+              icon={<Tag aria-hidden />}
+              title="No evidence tags"
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tag</TableHead>
+                  <TableHead className="hidden sm:table-cell">Color</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tags.map((tag) => (
+                  <TableRow key={tag.id}>
+                    <TableCell>
+                      <OrgEvidenceTagPill tag={tag} />
+                    </TableCell>
+                    <TableCell className="hidden font-mono text-sm text-muted-foreground sm:table-cell">
+                      {tag.color}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canManageTags || busy}
+                          onClick={() => setEditingTag(tag)}
+                        >
+                          <Pencil aria-hidden />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canManageTags || busy}
+                          onClick={() => setDeletingTag(tag)}
+                        >
+                          <Trash2 aria-hidden />
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                Evidence settings
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Workspace defaults
+              </p>
+            </div>
+            <Badge variant="muted">Soon</Badge>
+          </div>
+          <div className="mt-4 rounded-md border border-border bg-secondary/40 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-foreground">
+                Allow discussion
+              </span>
+              <input type="checkbox" checked readOnly disabled className="size-4" />
+            </div>
+          </div>
+        </Card>
+      </div>
+      {editingTag ? (
+        <EvidenceTagDialog
+          tag={editingTag.id ? editingTag : null}
+          busy={busy}
+          onClose={() => (busy ? null : setEditingTag(null))}
+          onSave={saveTag}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={deletingTag !== null}
+        title="Delete this tag?"
+        description={
+          deletingTag
+            ? `${deletingTag.name} will be removed from every evidence that uses it.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={deleteTag.isPending}
+        onConfirm={() =>
+          void confirmDelete().catch((err) =>
+            toast.error(
+              "Delete failed",
+              err instanceof Error ? err.message : undefined,
+            ),
+          )
+        }
+        onCancel={() => (deleteTag.isPending ? null : setDeletingTag(null))}
+      />
+    </>
+  );
+}
+
+function OrgEvidenceTagPill({ tag }: { tag: ApiEvidenceTag }): React.JSX.Element {
+  return (
+    <span
+      className="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-xs font-semibold"
+      style={{
+        borderColor: `${tag.color}55`,
+        backgroundColor: `${tag.color}18`,
+        color: tag.color,
+      }}
+    >
+      <span className="truncate">{tag.name}</span>
+    </span>
+  );
+}
+
+function EvidenceTagDialog(props: {
+  tag: ApiEvidenceTag | null;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (values: EvidenceTagFormValues) => Promise<void>;
+}): React.JSX.Element {
+  const toast = useToast();
+  const form = useForm<EvidenceTagFormValues>({
+    resolver: zodResolver(evidenceTagFormSchema),
+    defaultValues: {
+      name: props.tag?.name ?? "",
+      color: props.tag?.color ?? defaultTagColor,
+    },
+  });
+  const color = form.watch("color");
+
+  const submit = async (values: EvidenceTagFormValues): Promise<void> => {
+    try {
+      await props.onSave(values);
+    } catch (error) {
+      toast.error(
+        props.tag ? "Update failed" : "Create failed",
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={props.onClose}
+      size="sm"
+      title={props.tag ? "Edit evidence tag" : "New evidence tag"}
+      footer={
+        <>
+          <Button variant="ghost" size="sm" disabled={props.busy} onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={props.busy}
+            onClick={() => void form.handleSubmit(submit)()}
+          >
+            {props.busy ? "Saving…" : "Save"}
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="grid gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void form.handleSubmit(submit)(event);
+        }}
+      >
+        <Field label="Name" error={form.formState.errors.name?.message}>
+          <Input autoFocus {...form.register("name")} />
+        </Field>
+        <Field label="Color" error={form.formState.errors.color?.message}>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={color}
+              className="size-10 rounded-md border border-border bg-transparent p-1"
+              onChange={(event) =>
+                form.setValue("color", event.currentTarget.value, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              }
+            />
+            <Input {...form.register("color")} />
+          </div>
+        </Field>
+      </form>
+    </Dialog>
   );
 }
 

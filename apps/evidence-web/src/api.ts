@@ -373,6 +373,7 @@ export const api = {
 		options: {
 			orgId?: string;
 			createdBy?: string[];
+			tagIds?: string[];
 			search?: string;
 			page?: number;
 			limit?: number;
@@ -382,6 +383,8 @@ export const api = {
 		if (options.orgId) query.set("orgId", options.orgId);
 		if (options.createdBy && options.createdBy.length > 0)
 			query.set("createdBy", options.createdBy.join(","));
+		if (options.tagIds && options.tagIds.length > 0)
+			query.set("tagIds", options.tagIds.join(","));
 		if (options.search?.trim()) query.set("search", options.search.trim());
 		if (options.page) query.set("page", String(options.page));
 		if (options.limit) query.set("limit", String(options.limit));
@@ -415,6 +418,44 @@ export const api = {
 				body: JSON.stringify({ tagIds }),
 			},
 		),
+
+	createEvidenceTag: (
+		getToken: FetchToken,
+		input: { orgId: string; name: string; color: string },
+	) =>
+		authedFetch<{ tag: ApiEvidenceTag }>(getToken, "/evidences/tags", {
+			method: "POST",
+			body: JSON.stringify(input),
+		}),
+
+	updateEvidenceTag: (
+		getToken: FetchToken,
+		input: { orgId: string; tagId: string; name: string; color: string },
+	) =>
+		authedFetch<{ tag: ApiEvidenceTag }>(
+			getToken,
+			`/evidences/tags/${encodeURIComponent(input.tagId)}`,
+			{
+				method: "PATCH",
+				body: JSON.stringify({
+					orgId: input.orgId,
+					name: input.name,
+					color: input.color,
+				}),
+			},
+		),
+
+	deleteEvidenceTag: (
+		getToken: FetchToken,
+		input: { orgId: string; tagId: string },
+	) => {
+		const query = new URLSearchParams({ orgId: input.orgId });
+		return authedFetch<{ tagId: string }>(
+			getToken,
+			`/evidences/tags/${encodeURIComponent(input.tagId)}?${query.toString()}`,
+			{ method: "DELETE" },
+		);
+	},
 
 	loadEvidence: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
 		authedFetch<ApiEvidenceResponse>(
