@@ -153,6 +153,41 @@ describe("session contracts", () => {
     expect(networkEvent.response?.body?.disposition).toBe("truncated");
   });
 
+  test("preserves tab context in exported rows", () => {
+    const draft = appendDraftEvent(
+      createSessionDraft({
+        page: {
+          tabId: 7,
+          title: "Checkout",
+          url: "https://example.com/checkout"
+        },
+        now: new Date("2026-01-01T00:00:00.000Z")
+      }),
+      {
+        kind: "interaction",
+        type: "click",
+        selector: "#submit"
+      },
+      new Date("2026-01-01T00:00:01.000Z"),
+      {
+        tab: {
+          id: 7,
+          title: "Checkout",
+          url: "https://example.com/checkout"
+        }
+      }
+    );
+
+    const archive = sessionArchiveSchema.parse(createSessionArchive(draft));
+    const action = archive.sections.actions.find((entry) => entry.payload.kind === "interaction");
+
+    expect(action?.tab).toEqual({
+      id: 7,
+      title: "Checkout",
+      url: "https://example.com/checkout"
+    });
+  });
+
   test("preserves replay-capable interaction metadata in exported actions", () => {
     const draft = appendDraftEvent(
       createSessionDraft({

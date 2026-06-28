@@ -20,7 +20,8 @@ import {
   type PopupResponse,
   type PopupSessionSummary,
   type PopupState,
-  type SessionEvent
+  type SessionEvent,
+  type TabContext
 } from "@jittle-lamp/shared";
 
 import { createDraftStorageCheckpoint } from "./draft-storage";
@@ -88,6 +89,7 @@ let companionStateCache: CompanionState | null = null;
 let companionStateCacheExpiresAt = 0;
 let companionStateProbePromise: Promise<CompanionState> | null = null;
 let webRequestFallbackListenersRegistered = false;
+let activeCaptureTarget: CaptureTarget = "tab";
 
 function authDebugLog(event: string, details: Record<string, unknown> = {}): void {
   console.debug("[jittle-lamp/auth]", event, details);
@@ -110,6 +112,7 @@ type PendingCloudAuthFlow = {
 type SessionStorageMeta = {
   eventCount?: number;
   recovery?: PendingRecoveryState;
+  captureTarget?: CaptureTarget;
 };
 
 type NetworkRequestState = {
@@ -332,11 +335,18 @@ if (debuggerApi) {
 registerWebRequestFallbackListeners();
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status !== "complete") {
+  if (changeInfo.status === "loading") {
+    void queueDraftMutation(() => handleLoadingTabUpdate(tabId));
     return;
   }
 
-  void queueDraftMutation(() => handleCompletedTabUpdate(tabId));
+  if (changeInfo.status === "complete") {
+    void queueDraftMutation(() => handleCompletedTabUpdate(tabId));
+  }
+});
+
+chrome.tabs.onActivated?.addListener((activeInfo) => {
+  void queueDraftMutation(() => handleActivatedTabUpdate(activeInfo.tabId));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -487,6 +497,7 @@ async function startRecordingSession(
   }
 
   const captureTarget = options.captureTarget ?? "tab";
+  activeCaptureTarget = captureTarget;
   const tab = await resolveRecordingTab(targetTabId, targetPage);
   const baseDraft = createSessionDraft({
     page: {
@@ -694,22 +705,22 @@ async function stopRecordingSession(detail: string): Promise<void> {
 
   const tabId = currentDraft.page.tabId;
 
-  if (typeof tabId !== "number") {
-    throw new Error("The active session is missing its tab identifier.");
-  }
-
   const processingDraft = transitionDraftPhase(currentDraft, "processing", detail);
-  clearPendingRecovery(tabId);
-  await clearPendingRecoveryAlarm(tabId);
+  if (typeof tabId === "number") {
+    clearPendingRecovery(tabId);
+    await clearPendingRecoveryAlarm(tabId);
+  }
   await clearMaxRecordingDurationAlarm();
   await saveDraft(processingDraft);
 
   let keepOffscreenForRetry = false;
 
   try {
-    stoppingTabIds.add(tabId);
-    await signalContentCaptureEnded(tabId, processingDraft.sessionId);
-    await safeDetachDebugger(tabId);
+    if (typeof tabId === "number") {
+      stoppingTabIds.add(tabId);
+      await signalContentCaptureEnded(tabId, processingDraft.sessionId);
+      await safeDetachDebugger(tabId);
+    }
 
     const cloudAuthSession = await resolveCloudUploadSession();
     authDebugLog("stop-cloud-auth", {
@@ -752,10 +763,12 @@ async function stopRecordingSession(detail: string): Promise<void> {
 
     throw error;
   } finally {
-    stoppingTabIds.delete(tabId);
-    webRequestFallbackTabIds.delete(tabId);
-    networkRequestsByTab.delete(tabId);
-    recentNetworkEventFingerprintsByTab.delete(tabId);
+    if (typeof tabId === "number") {
+      stoppingTabIds.delete(tabId);
+      webRequestFallbackTabIds.delete(tabId);
+      networkRequestsByTab.delete(tabId);
+      recentNetworkEventFingerprintsByTab.delete(tabId);
+    }
     if (!keepOffscreenForRetry) {
       await closeOffscreenDocumentIfPresent();
     }
@@ -771,10 +784,6 @@ async function pauseRecordingSession(): Promise<void> {
 
   const tabId = currentDraft.page.tabId;
 
-  if (typeof tabId !== "number") {
-    throw new Error("The active session is missing its tab identifier.");
-  }
-
   const offscreenResponse = await sendOffscreenMessage({
     type: "jl/offscreen-pause-recording",
     sessionId: currentDraft.sessionId
@@ -784,14 +793,18 @@ async function pauseRecordingSession(): Promise<void> {
     throw new Error(offscreenResponse.error ?? "Offscreen pause failed.");
   }
 
-  clearPendingRecovery(tabId);
-  await clearPendingRecoveryAlarm(tabId);
+  if (typeof tabId === "number") {
+    clearPendingRecovery(tabId);
+    await clearPendingRecoveryAlarm(tabId);
+    networkRequestsByTab.delete(tabId);
+    recentNetworkEventFingerprintsByTab.delete(tabId);
+  }
   await clearMaxRecordingDurationAlarm();
-  networkRequestsByTab.delete(tabId);
-  recentNetworkEventFingerprintsByTab.delete(tabId);
   await saveDraft(transitionDraftPhase(currentDraft, "paused", "Paused recording from the popup."));
-  await signalContentCaptureEnded(tabId, currentDraft.sessionId);
-  await refreshFloatingWidgetState(tabId).catch(() => undefined);
+  if (typeof tabId === "number") {
+    await signalContentCaptureEnded(tabId, currentDraft.sessionId);
+    await refreshFloatingWidgetState(tabId).catch(() => undefined);
+  }
 }
 
 async function resumeRecordingSession(): Promise<void> {
@@ -801,10 +814,17 @@ async function resumeRecordingSession(): Promise<void> {
     return;
   }
 
-  const tabId = currentDraft.page.tabId;
+  let tabId = currentDraft.page.tabId;
+  let draftToResume = currentDraft;
 
   if (typeof tabId !== "number") {
-    throw new Error("The active session is missing its tab identifier.");
+    const tab = await resolveRecordingTab();
+    tabId = tab.id;
+    draftToResume = updateDraftPage(currentDraft, {
+      tabId,
+      title: tab.title ?? tab.url,
+      url: tab.url
+    });
   }
 
   const offscreenResponse = await sendOffscreenMessage({
@@ -816,10 +836,17 @@ async function resumeRecordingSession(): Promise<void> {
     throw new Error(offscreenResponse.error ?? "Offscreen resume failed.");
   }
 
-  const recordingDraft = transitionDraftPhase(currentDraft, "recording", "Resumed recording from the popup.");
+  const recordingDraft = transitionDraftPhase(draftToResume, "recording", "Resumed recording from the popup.");
   await saveDraft(recordingDraft);
   scheduleMaxRecordingDurationAlarm();
   await ensureContentBridge(tabId, recordingDraft.sessionId, { injectNetworkProbe: true });
+  if (currentDraft.page.tabId !== tabId) {
+    const canUseWebRequestFallback = await hasNetworkCapturePermission();
+    if (canUseWebRequestFallback) {
+      registerWebRequestFallbackListeners();
+    }
+    await attachDebugger(tabId, { canUseWebRequestFallback });
+  }
   await refreshFloatingWidgetState(tabId).catch(() => undefined);
 }
 
@@ -931,6 +958,141 @@ async function autoStopIfCapturedTabCloses(tabId: number): Promise<void> {
   await stopRecordingSession("Captured tab closed; exported the partial session.");
 }
 
+async function handleLoadingTabUpdate(tabId: number): Promise<void> {
+  const draft = await readDraft();
+
+  if (!draft || draft.page.tabId !== tabId || draft.phase !== "recording") {
+    return;
+  }
+
+  const tab = await getTabIfPresent(tabId);
+  const tabUrl = getRecordableTabUrl(tab);
+
+  if (!tab || !tabUrl) {
+    return;
+  }
+
+  const pendingRecovery = getPendingRecovery(tabId);
+
+  if (pendingRecovery && isPendingRecoveryExpired(pendingRecovery)) {
+    await stopRecordingSession(recoveryTimeoutDetail());
+    return;
+  }
+
+  if (pendingRecovery) {
+    try {
+      const canUseWebRequestFallback = await hasNetworkCapturePermission();
+      if (canUseWebRequestFallback) {
+        registerWebRequestFallbackListeners();
+      }
+      await ensureContentBridge(tabId, draft.sessionId, { injectNetworkProbe: true });
+      const debuggerAttached = await attachDebugger(tabId, { canUseWebRequestFallback });
+      clearPendingRecovery(tabId);
+      await clearPendingRecoveryAlarm(tabId);
+      await saveDraft(
+        appendDraftEvent(updateDraftPage(draft, {
+          tabId,
+          title: tab.title ?? sanitizeCapturedUrl(tabUrl),
+          url: tabUrl
+        }), {
+          kind: "lifecycle",
+          phase: "recording",
+          detail: debuggerAttached
+            ? "Resumed capture while the refreshed page was still loading."
+            : debuggerUnavailableDetail(canUseWebRequestFallback)
+        })
+      );
+    } catch (error: unknown) {
+      console.debug("[jittle-lamp] Waiting for completed navigation before reconnecting capture.", {
+        tabId,
+        reason: rawErrorMessage(error)
+      });
+    }
+    return;
+  }
+
+  await reconnectContentBridgeForRecording(tabId, draft, { quietFailure: true });
+}
+
+async function handleActivatedTabUpdate(tabId: number): Promise<void> {
+  const draft = await readDraft();
+
+  if (!draft || draft.phase !== "recording" || activeCaptureTarget !== "desktop") {
+    return;
+  }
+
+  const previousTabId = draft.page.tabId;
+  const tab = await getTabIfPresent(tabId);
+  const tabUrl = getRecordableTabUrl(tab);
+
+  if (typeof previousTabId === "number" && previousTabId !== tabId) {
+    await stopTelemetryForTab(previousTabId, draft.sessionId);
+  }
+
+  if (!tab || !tabUrl) {
+    if (typeof previousTabId === "number") {
+      await saveDraft(
+        appendDraftEvent(updateDraftPage(draft, {
+          title: draft.page.title,
+          url: draft.page.url
+        }), {
+          kind: "lifecycle",
+          phase: "recording",
+          detail: "Desktop telemetry paused because the active tab is not an http(s) page."
+        })
+      );
+    }
+    return;
+  }
+
+  if (previousTabId === tabId) {
+    await reconnectContentBridgeForRecording(tabId, draft, { quietFailure: true });
+    return;
+  }
+
+  const canUseWebRequestFallback = await hasNetworkCapturePermission();
+  if (canUseWebRequestFallback) {
+    registerWebRequestFallbackListeners();
+  }
+
+  const updatedDraft = appendDraftEvent(updateDraftPage(draft, {
+    tabId,
+    title: tab.title ?? sanitizeCapturedUrl(tabUrl),
+    url: tabUrl
+  }), {
+    kind: "interaction",
+    type: "navigation",
+    selector: sanitizeCapturedUrl(tabUrl),
+    url: sanitizeCapturedUrl(tabUrl),
+    title: tab.title ?? sanitizeCapturedUrl(tabUrl),
+    navigationType: "location"
+  }, new Date(), {
+    tab: tabContextFromTab(tab, { tabId, title: tab.title ?? sanitizeCapturedUrl(tabUrl), url: tabUrl })
+  });
+
+  try {
+    await ensureContentBridge(tabId, updatedDraft.sessionId, { injectNetworkProbe: true });
+    const debuggerAttached = await attachDebugger(tabId, { canUseWebRequestFallback });
+    await saveDraft(
+      appendDraftEvent(updatedDraft, {
+        kind: "lifecycle",
+        phase: "recording",
+        detail: debuggerAttached
+          ? "Desktop telemetry moved to the active tab."
+          : debuggerUnavailableDetail(canUseWebRequestFallback)
+      })
+    );
+  } catch (error: unknown) {
+    await saveDraft(
+      appendDraftEvent(updatedDraft, {
+        kind: "lifecycle",
+        phase: "recording",
+        detail: pageActionCapturePausedDetail(error)
+      })
+    );
+  }
+}
+
 async function handleCompletedTabUpdate(tabId: number): Promise<void> {
   const draft = await readDraft();
 
@@ -978,6 +1140,10 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
           url: sanitizedUrl,
           title: tab.title ?? sanitizedUrl,
           navigationType: "location"
+        },
+        new Date(),
+        {
+          tab: tabContextFromTab(tab, { tabId, title: tab.title ?? sanitizedUrl, url: sanitizedUrl })
         }
       );
     await saveDraft(nextDraft);
@@ -1026,7 +1192,7 @@ async function handleCompletedTabUpdate(tabId: number): Promise<void> {
 async function reconnectContentBridgeForRecording(
   tabId: number,
   draft: CaptureSessionDraft,
-  options: { successDetail?: string } = {}
+  options: { successDetail?: string; quietFailure?: boolean } = {}
 ): Promise<CaptureSessionDraft> {
   try {
     await ensureContentBridge(tabId, draft.sessionId, { injectNetworkProbe: true });
@@ -1041,6 +1207,10 @@ async function reconnectContentBridgeForRecording(
       detail: options.successDetail
     });
   } catch (error: unknown) {
+    if (options.quietFailure) {
+      return draft;
+    }
+
     const detail = pageActionCapturePausedDetail(error);
     console.warn(`[jittle-lamp] ${detail}`);
 
@@ -1111,7 +1281,11 @@ async function handleContentRuntimeMessage(
     }
 
     case "jl/interaction":
-      await saveDraft(appendDraftEvent(currentDraft, normalizeInteractionPayload(message.payload)));
+      await saveDraft(
+        appendDraftEvent(currentDraft, normalizeInteractionPayload(message.payload), new Date(), {
+          tab: tabContextFromSender(sender, currentDraft)
+        })
+      );
       return;
 
     case "jl/network":
@@ -1120,7 +1294,8 @@ async function handleContentRuntimeMessage(
           currentDraft,
           currentDraft.page.tabId,
           normalizeContentNetworkPayload(message.payload),
-          "content"
+          "content",
+          tabContextFromSender(sender, currentDraft)
         )
       );
       return;
@@ -1665,6 +1840,8 @@ async function handleDebuggerEvent(
           kind: "error",
           message: requestState.failureText,
           source: "runtime"
+        }, new Date(), {
+          tab: tabContextFromDraft(currentDraft, tabId)
         })
       );
       return;
@@ -1679,6 +1856,8 @@ async function handleDebuggerEvent(
           level: toConsoleLevel(payload.type),
           message: sanitizeCapturedText(stringifyConsoleArgs(payload.args).join(" ").trim()),
           args: []
+        }, new Date(), {
+          tab: tabContextFromDraft(currentDraft, tabId)
         })
       );
       return;
@@ -1704,6 +1883,8 @@ async function handleDebuggerEvent(
           kind: "error",
           message: sanitizeCapturedText(message || details.exception?.description || "Runtime exception thrown."),
           source: "runtime"
+        }, new Date(), {
+          tab: tabContextFromDraft(currentDraft, tabId)
         })
       );
       return;
@@ -1947,6 +2128,7 @@ async function ensureContentBridge(
 
   await chrome.scripting.executeScript({
     target: { tabId },
+    injectImmediately: true,
     files: ["content.js"]
   });
 
@@ -1976,6 +2158,7 @@ async function ensureWidgetBridge(tabId: number): Promise<void> {
 
   await chrome.scripting.executeScript({
     target: { tabId },
+    injectImmediately: true,
     files: ["content.js"]
   });
 }
@@ -1985,10 +2168,26 @@ async function ensureNetworkProbe(tabId: number): Promise<void> {
     await chrome.scripting.executeScript({
       target: { tabId },
       world: "MAIN",
+      injectImmediately: true,
       files: ["network-probe.js"]
     });
   } catch (error: unknown) {
     console.warn("[jittle-lamp] Unable to inject page network probe.", errorMessage(error));
+  }
+}
+
+async function stopTelemetryForTab(tabId: number, sessionId: string): Promise<void> {
+  stoppingTabIds.add(tabId);
+  try {
+    await signalContentCaptureEnded(tabId, sessionId);
+    await safeDetachDebugger(tabId);
+  } finally {
+    stoppingTabIds.delete(tabId);
+    webRequestFallbackTabIds.delete(tabId);
+    networkRequestsByTab.delete(tabId);
+    recentNetworkEventFingerprintsByTab.delete(tabId);
+    clearPendingRecovery(tabId);
+    await clearPendingRecoveryAlarm(tabId);
   }
 }
 
@@ -2364,13 +2563,16 @@ function appendNetworkEventIfNew(
   draft: CaptureSessionDraft,
   tabId: number | undefined,
   payload: NetworkEventPayload,
-  source: NetworkCaptureSource
+  source: NetworkCaptureSource,
+  tab?: TabContext
 ): CaptureSessionDraft {
   if (isDuplicateNetworkEvent(tabId, payload, source)) {
     return draft;
   }
 
-  return appendDraftEvent(draft, payload);
+  return appendDraftEvent(draft, payload, new Date(), {
+    tab: tab ?? tabContextFromDraft(draft, tabId)
+  });
 }
 
 function isDuplicateNetworkEvent(
@@ -2915,6 +3117,7 @@ async function readDraft(): Promise<CaptureSessionDraft | null> {
   }
 
   activeRecoveryState = meta.recovery ?? null;
+  activeCaptureTarget = meta.captureTarget ?? "tab";
 
   if (!rawDraft) {
     return null;
@@ -2972,6 +3175,7 @@ async function saveDraft(draft: CaptureSessionDraft): Promise<void> {
       [sessionStorageKey]: checkpoint,
       [sessionStorageMetaKey]: {
         eventCount: draft.events.length,
+        captureTarget: activeCaptureTarget,
         ...(activeRecoveryState ? { recovery: activeRecoveryState } : {})
       } satisfies SessionStorageMeta
     });
@@ -2985,6 +3189,7 @@ async function clearDraft(): Promise<void> {
   activeDraftCache = null;
   activeDraftEventCount = 0;
   activeRecoveryState = null;
+  activeCaptureTarget = "tab";
   pendingRecoveryCheckScheduled = false;
 
   if (typeof recoveryTabId === "number") {
@@ -3052,11 +3257,15 @@ function parseSessionStorageMeta(rawMeta: unknown): SessionStorageMeta {
   const candidate = rawMeta as {
     eventCount?: unknown;
     recovery?: unknown;
+    captureTarget?: unknown;
   };
 
   return {
     ...(typeof candidate.eventCount === "number" ? { eventCount: candidate.eventCount } : {}),
-    ...(isPendingRecoveryState(candidate.recovery) ? { recovery: candidate.recovery } : {})
+    ...(isPendingRecoveryState(candidate.recovery) ? { recovery: candidate.recovery } : {}),
+    ...(candidate.captureTarget === "tab" || candidate.captureTarget === "desktop"
+      ? { captureTarget: candidate.captureTarget }
+      : {})
   };
 }
 
@@ -4019,8 +4228,49 @@ function isHttpUrl(url: string): boolean {
 }
 
 function isRecordableTab(tab: chrome.tabs.Tab | undefined): tab is chrome.tabs.Tab & { id: number; url: string } {
-  const url = typeof tab?.url === "string" ? tab.url : typeof tab?.pendingUrl === "string" ? tab.pendingUrl : undefined;
+  const url = getRecordableTabUrl(tab);
   return typeof tab?.id === "number" && typeof url === "string" && isHttpUrl(url);
+}
+
+function getRecordableTabUrl(tab: chrome.tabs.Tab | null | undefined): string | undefined {
+  const url = typeof tab?.url === "string" ? tab.url : typeof tab?.pendingUrl === "string" ? tab.pendingUrl : undefined;
+  return url && isHttpUrl(url) ? url : undefined;
+}
+
+function tabContextFromSender(
+  sender: chrome.runtime.MessageSender,
+  draft: CaptureSessionDraft
+): TabContext | undefined {
+  return tabContextFromTab(sender.tab, draft.page);
+}
+
+function tabContextFromDraft(draft: CaptureSessionDraft, tabId: number | undefined): TabContext | undefined {
+  return tabContextFromTab(undefined, {
+    tabId: typeof tabId === "number" ? tabId : draft.page.tabId,
+    title: draft.page.title,
+    url: draft.page.url
+  });
+}
+
+function tabContextFromTab(
+  tab: chrome.tabs.Tab | null | undefined,
+  fallback: { tabId?: number | undefined; title?: string | undefined; url?: string | undefined } = {}
+): TabContext | undefined {
+  const id = typeof tab?.id === "number" ? tab.id : fallback.tabId;
+
+  if (typeof id !== "number") {
+    return undefined;
+  }
+
+  const title = (tab?.title ?? fallback.title)?.trim();
+  const rawUrl = getRecordableTabUrl(tab) ?? fallback.url;
+  const url = rawUrl && isHttpUrl(rawUrl) ? sanitizeCapturedUrl(rawUrl) : undefined;
+
+  return {
+    id,
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {})
+  };
 }
 
 function isRecordableStartupUrl(url: string): boolean {
@@ -4171,6 +4421,7 @@ async function resetForTests(options?: { preserveStorage?: boolean }): Promise<v
   activeDraftEventCount = 0;
   pendingRecoveryCheckScheduled = false;
   cloudAuthSessionCache = null;
+  activeCaptureTarget = "tab";
 
   const recoveryTabId = activeRecoveryState?.tabId;
   activeRecoveryState = null;
@@ -4198,6 +4449,8 @@ export const __backgroundTest = {
   handleAlarm,
   handleMaxRecordingDurationAlarm,
   handleDebuggerDetach,
+  handleLoadingTabUpdate,
+  handleActivatedTabUpdate,
   handleCompletedTabUpdate,
   handlePendingRecoveryAlarm,
   readDraft,

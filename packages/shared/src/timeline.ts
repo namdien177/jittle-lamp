@@ -1,4 +1,4 @@
-import type { ActionMergeGroup, NetworkSubtype, SessionArchive } from "./session";
+import type { ActionMergeGroup, NetworkSubtype, SessionArchive, TabContext } from "./session";
 
 export type TimelineKind = "lifecycle" | "interaction" | "network" | "console" | "error";
 export type TimelineSection = "actions" | "console" | "network";
@@ -11,6 +11,8 @@ export type TimelineItem = {
   kind: TimelineKind;
   section: TimelineSection;
   label: string;
+  tab?: TabContext;
+  tabLabel?: string;
   subtype?: NetworkSubtype;
   tags?: string[];
   payload:
@@ -44,44 +46,126 @@ export function deriveAnchorMs(archive: SessionArchive): number {
 
 export function buildTimeline(archive: SessionArchive): TimelineItem[] {
   const anchorMs = deriveAnchorMs(archive);
+  const tabLabels = buildArchiveTabLabels(archive);
+  const shouldShowTabLabels = tabLabels.size > 1;
 
   const items: TimelineItem[] = [
-    ...archive.sections.actions.map((entry) => ({
-      id: entry.id,
-      offsetMs: new Date(entry.at).getTime() - anchorMs,
-      seq: entry.seq,
-      at: entry.at,
-      kind: entry.payload.kind,
-      section: "actions" as const,
-      label: buildActionLabel(entry.payload),
-      tags: entry.tags,
-      payload: entry.payload
-    })),
-    ...archive.sections.console.map((entry) => ({
-      id: entry.id,
-      offsetMs: new Date(entry.at).getTime() - anchorMs,
-      seq: entry.seq,
-      at: entry.at,
-      kind: "console" as const,
-      section: "console" as const,
-      label: entry.payload.message,
-      payload: entry.payload
-    })),
-    ...archive.sections.network.map((entry) => ({
-      id: entry.id,
-      offsetMs: new Date(entry.at).getTime() - anchorMs,
-      seq: entry.seq,
-      at: entry.at,
-      kind: "network" as const,
-      section: "network" as const,
-      label: `${entry.payload.method} ${entry.payload.url}`,
-      subtype: entry.subtype,
-      payload: entry.payload
-    }))
+    ...archive.sections.actions.map((entry) => {
+      const tabLabel = entry.tab ? tabLabels.get(tabKey(entry.tab)) : undefined;
+      const label = buildActionLabel(entry.payload);
+
+      return {
+        id: entry.id,
+        offsetMs: new Date(entry.at).getTime() - anchorMs,
+        seq: entry.seq,
+        at: entry.at,
+        kind: entry.payload.kind,
+        section: "actions" as const,
+        label: prefixTabLabel(label, tabLabel, shouldShowTabLabels && entry.payload.kind !== "lifecycle"),
+        ...(entry.tab ? { tab: entry.tab } : {}),
+        ...(tabLabel ? { tabLabel } : {}),
+        tags: entry.tags,
+        payload: entry.payload
+      };
+    }),
+    ...archive.sections.console.map((entry) => {
+      const tabLabel = entry.tab ? tabLabels.get(tabKey(entry.tab)) : undefined;
+
+      return {
+        id: entry.id,
+        offsetMs: new Date(entry.at).getTime() - anchorMs,
+        seq: entry.seq,
+        at: entry.at,
+        kind: "console" as const,
+        section: "console" as const,
+        label: prefixTabLabel(entry.payload.message, tabLabel, shouldShowTabLabels),
+        ...(entry.tab ? { tab: entry.tab } : {}),
+        ...(tabLabel ? { tabLabel } : {}),
+        payload: entry.payload
+      };
+    }),
+    ...archive.sections.network.map((entry) => {
+      const tabLabel = entry.tab ? tabLabels.get(tabKey(entry.tab)) : undefined;
+
+      return {
+        id: entry.id,
+        offsetMs: new Date(entry.at).getTime() - anchorMs,
+        seq: entry.seq,
+        at: entry.at,
+        kind: "network" as const,
+        section: "network" as const,
+        label: prefixTabLabel(`${entry.payload.method} ${entry.payload.url}`, tabLabel, shouldShowTabLabels),
+        ...(entry.tab ? { tab: entry.tab } : {}),
+        ...(tabLabel ? { tabLabel } : {}),
+        subtype: entry.subtype,
+        payload: entry.payload
+      };
+    })
   ];
 
   items.sort((a, b) => a.offsetMs - b.offsetMs || a.seq - b.seq);
   return items;
+}
+
+function buildArchiveTabLabels(archive: SessionArchive): Map<string, string> {
+  const tabs = [
+    ...archive.sections.actions.flatMap((entry) => (entry.tab ? [entry.tab] : [])),
+    ...archive.sections.console.flatMap((entry) => (entry.tab ? [entry.tab] : [])),
+    ...archive.sections.network.flatMap((entry) => (entry.tab ? [entry.tab] : []))
+  ];
+  const byKey = new Map<string, TabContext>();
+
+  for (const tab of tabs) {
+    const key = tabKey(tab);
+    if (!byKey.has(key)) {
+      byKey.set(key, tab);
+    }
+  }
+
+  const titleCounts = new Map<string, number>();
+  for (const tab of byKey.values()) {
+    const title = normalizedTabTitle(tab);
+    titleCounts.set(title, (titleCounts.get(title) ?? 0) + 1);
+  }
+
+  const titleIndexes = new Map<string, number>();
+  const labels = new Map<string, string>();
+
+  for (const [key, tab] of byKey) {
+    const title = normalizedTabTitle(tab);
+    const count = titleCounts.get(title) ?? 0;
+
+    if (count > 1) {
+      const index = (titleIndexes.get(title) ?? 0) + 1;
+      titleIndexes.set(title, index);
+      labels.set(key, `${title} ${index}`);
+    } else {
+      labels.set(key, title);
+    }
+  }
+
+  return labels;
+}
+
+function tabKey(tab: TabContext): string {
+  return String(tab.id);
+}
+
+function normalizedTabTitle(tab: TabContext): string {
+  const title = tab.title?.trim();
+  if (title) return title;
+  if (tab.url) {
+    try {
+      return new URL(tab.url).hostname || `Tab ${tab.id}`;
+    } catch {
+      return tab.url;
+    }
+  }
+  return `Tab ${tab.id}`;
+}
+
+function prefixTabLabel(label: string, tabLabel: string | undefined, enabled: boolean): string {
+  return enabled && tabLabel ? `[${tabLabel}] ${label}` : label;
 }
 
 export function buildSectionTimeline(

@@ -32,6 +32,12 @@ export const pageContextSchema = z.object({
   tabId: z.number().int().nonnegative().optional()
 });
 
+export const tabContextSchema = z.object({
+  id: z.number().int().nonnegative(),
+  title: z.string().min(1).optional(),
+  url: z.string().url().optional()
+});
+
 export const consoleEventSchema = z.object({
   kind: z.literal("console"),
   level: z.enum(["debug", "info", "warn", "error"]),
@@ -273,6 +279,7 @@ export const sessionEventPayloadSchema = z.union([
 
 export const sessionEventSchema = z.object({
   at: isoTimestampSchema,
+  tab: tabContextSchema.optional(),
   payload: sessionEventPayloadSchema
 });
 
@@ -286,6 +293,7 @@ export const archiveActionSchema = z.object({
   id: archiveEntryIdSchema,
   seq: z.number().int().nonnegative(),
   at: isoTimestampSchema,
+  tab: tabContextSchema.optional(),
   tags: z.array(z.string().min(1)).default([]),
   payload: archiveActionPayloadSchema
 });
@@ -294,6 +302,7 @@ export const archiveConsoleEntrySchema = z.object({
   id: archiveEntryIdSchema,
   seq: z.number().int().nonnegative(),
   at: isoTimestampSchema,
+  tab: tabContextSchema.optional(),
   payload: consoleEventSchema
 });
 
@@ -301,6 +310,7 @@ export const archiveNetworkEntrySchema = z.object({
   id: archiveEntryIdSchema,
   seq: z.number().int().nonnegative(),
   at: isoTimestampSchema,
+  tab: tabContextSchema.optional(),
   subtype: networkSubtypeSchema,
   payload: networkEventSchema
 });
@@ -350,6 +360,7 @@ export const captureSessionDraftSchema = z.object({
 export type NetworkSubtype = z.infer<typeof networkSubtypeSchema>;
 export type CapturePhase = z.infer<typeof capturePhaseSchema>;
 export type SessionArtifact = z.infer<typeof sessionArtifactSchema>;
+export type TabContext = z.infer<typeof tabContextSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 export type SessionArchive = z.infer<typeof sessionArchiveSchema>;
 export type ArchiveAction = z.infer<typeof archiveActionSchema>;
@@ -447,7 +458,8 @@ export function createSessionDraft(input: {
 export function appendDraftEvent(
   draft: CaptureSessionDraft,
   payload: z.input<typeof sessionEventPayloadSchema>,
-  now: Date = new Date()
+  now: Date = new Date(),
+  context: { tab?: z.input<typeof tabContextSchema> | undefined } = {}
 ): CaptureSessionDraft {
   const timestamp = now.toISOString();
 
@@ -458,6 +470,7 @@ export function appendDraftEvent(
       ...draft.events,
       {
         at: timestamp,
+        ...(context.tab ? { tab: tabContextSchema.parse(context.tab) } : {}),
         payload: sessionEventPayloadSchema.parse(payload)
       }
     ]
@@ -555,6 +568,7 @@ export function createSessionArchive(draft: CaptureSessionDraft): SessionArchive
           id: generateArchiveEntryId(draft.sessionId, "actions", actions.length),
           seq,
           at: event.at,
+          ...(event.tab ? { tab: event.tab } : {}),
           tags: [],
           payload: event.payload
         });
@@ -565,6 +579,7 @@ export function createSessionArchive(draft: CaptureSessionDraft): SessionArchive
           id: generateArchiveEntryId(draft.sessionId, "console", consoleEntries.length),
           seq,
           at: event.at,
+          ...(event.tab ? { tab: event.tab } : {}),
           payload: event.payload
         });
         break;
@@ -574,6 +589,7 @@ export function createSessionArchive(draft: CaptureSessionDraft): SessionArchive
           id: generateArchiveEntryId(draft.sessionId, "network", networkEntries.length),
           seq,
           at: event.at,
+          ...(event.tab ? { tab: event.tab } : {}),
           subtype: event.payload.subtype ?? "other",
           payload: {
             ...event.payload,

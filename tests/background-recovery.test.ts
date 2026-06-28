@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { createSessionDraft, transitionDraftPhase, type CaptureSessionDraft } from "@jittle-lamp/shared";
+import { createSessionDraft, transitionDraftPhase, updateDraftPage, type CaptureSessionDraft } from "@jittle-lamp/shared";
 
 type BackgroundModule = typeof import("../apps/extension/src/background");
 type StubTab = {
@@ -714,6 +714,184 @@ describe("background recovery", () => {
     expect(lastLifecycleDetail(activeDraft)).toBe("Resumed capture after same-tab navigation.");
   });
 
+  test("reinjects capture while a refreshed tab is still loading", async () => {
+    await backgroundTest.saveDraft(createRecordingDraft());
+    chromeHarness.setTab({
+      id: 7,
+      status: "loading",
+      title: "Reloading",
+      url: "https://example.com/reload"
+    });
+    chromeHarness.setNextTabMessageError("Receiving end does not exist.");
+
+    await backgroundTest.handleLoadingTabUpdate(7);
+
+    expect(
+      chromeHarness.executeScriptCalls.some((call) => call.tabId === 7 && call.files?.includes("content.js"))
+    ).toBeTrue();
+    expect(
+      chromeHarness.executeScriptCalls.some((call) => call.tabId === 7 && call.files?.includes("network-probe.js"))
+    ).toBeTrue();
+    expect(
+      chromeHarness.tabMessages.some((entry) => entry.tabId === 7 && hasMessageType(entry.message, "jl/content-begin-capture"))
+    ).toBeTrue();
+  });
+
+  test("moves desktop telemetry to the newly active tab", async () => {
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Before",
+      url: "https://example.com/before"
+    });
+    await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording",
+      captureTarget: "desktop"
+    });
+    chromeHarness.setTab({
+      id: 8,
+      status: "complete",
+      title: "After",
+      url: "https://example.com/after"
+    });
+
+    await backgroundTest.handleActivatedTabUpdate(8);
+
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(activeDraft?.page.tabId).toBe(8);
+    expect(chromeHarness.debuggerDetachTabs).toContain(7);
+    expect(chromeHarness.debuggerAttachTabs).toContain(8);
+    expect(
+      chromeHarness.tabMessages.some((entry) => entry.tabId === 7 && hasMessageType(entry.message, "jl/content-end-capture"))
+    ).toBeTrue();
+    expect(
+      chromeHarness.tabMessages.some((entry) => entry.tabId === 8 && hasMessageType(entry.message, "jl/content-begin-capture"))
+    ).toBeTrue();
+    expect(lastLifecycleDetail(activeDraft)).toBe("Desktop telemetry moved to the active tab.");
+  });
+
+  test("records tab context on actions networks and console logs", async () => {
+    await backgroundTest.saveDraft(createRecordingDraft());
+    const draft = await backgroundTest.readDraft();
+
+    if (!draft) {
+      throw new Error("Expected a draft.");
+    }
+
+    await chromeHarness.dispatchRuntimeMessage(
+      {
+        type: "jl/interaction",
+        sessionId: draft.sessionId,
+        payload: {
+          kind: "interaction",
+          type: "click",
+          selector: "#submit"
+        }
+      },
+      { tab: { id: 7, title: "Checkout", url: "https://example.com/checkout" } as chrome.tabs.Tab }
+    );
+    await chromeHarness.dispatchRuntimeMessage(
+      {
+        type: "jl/network",
+        sessionId: draft.sessionId,
+        payload: {
+          kind: "network",
+          method: "POST",
+          url: "https://example.com/api/save",
+          subtype: "fetch",
+          request: {
+            headers: [],
+            cookies: []
+          }
+        }
+      },
+      { tab: { id: 7, title: "Checkout", url: "https://example.com/checkout" } as chrome.tabs.Tab }
+    );
+    await chromeHarness.emitDebuggerEvent({ tabId: 7 }, "Runtime.consoleAPICalled", {
+      type: "info",
+      args: [{ type: "string", value: "Saved" }]
+    });
+
+    const activeDraft = await backgroundTest.readDraft();
+    const interaction = activeDraft?.events.find((event) => event.payload.kind === "interaction");
+    const network = activeDraft?.events.find((event) => event.payload.kind === "network");
+    const consoleEntry = activeDraft?.events.find((event) => event.payload.kind === "console");
+
+    expect(interaction?.tab).toEqual({ id: 7, title: "Checkout", url: "https://example.com/checkout" });
+    expect(network?.tab).toEqual({ id: 7, title: "Checkout", url: "https://example.com/checkout" });
+    expect(consoleEntry?.tab).toEqual({ id: 7, title: "Example", url: "https://example.com/start" });
+  });
+
+  test("keeps tab-capture telemetry on the captured tab when another tab activates", async () => {
+    await backgroundTest.saveDraft(createRecordingDraft());
+    chromeHarness.setTab({
+      id: 8,
+      status: "complete",
+      title: "Other",
+      url: "https://example.com/other"
+    });
+
+    await backgroundTest.handleActivatedTabUpdate(8);
+
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(activeDraft?.page.tabId).toBe(7);
+    expect(
+      chromeHarness.tabMessages.some((entry) => entry.tabId === 8 && hasMessageType(entry.message, "jl/content-begin-capture"))
+    ).toBeFalse();
+  });
+
+  test("can stop desktop recording after telemetry pauses on an unrecordable active tab", async () => {
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Before",
+      url: "https://example.com/before"
+    });
+    await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording",
+      captureTarget: "desktop"
+    });
+    chromeHarness.setTab({
+      id: 9,
+      status: "complete",
+      title: "Extensions",
+      url: "chrome://extensions"
+    });
+
+    await backgroundTest.handleActivatedTabUpdate(9);
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(activeDraft?.phase).toBe("ready");
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-stop-and-export"))
+    ).toBeTrue();
+  });
+
+  test("resumes paused recordings by binding telemetry to the current http tab", async () => {
+    await backgroundTest.saveDraft(createPausedDraftWithoutTab());
+    chromeHarness.setTab({
+      id: 8,
+      status: "complete",
+      title: "Resume",
+      url: "https://example.com/resume"
+    });
+
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-resume-recording" });
+
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(activeDraft?.phase).toBe("recording");
+    expect(activeDraft?.page.tabId).toBe(8);
+    expect(chromeHarness.debuggerAttachTabs).toContain(8);
+    expect(
+      chromeHarness.tabMessages.some((entry) => entry.tabId === 8 && hasMessageType(entry.message, "jl/content-begin-capture"))
+    ).toBeTrue();
+  });
+
   test("keeps recording and marks page action capture paused when navigation reinjection is blocked", async () => {
     await backgroundTest.saveDraft(createRecordingDraft());
     chromeHarness.setTab({
@@ -890,6 +1068,13 @@ function createPausedDraft(): CaptureSessionDraft {
     "Paused recording from the popup.",
     new Date("2026-01-01T00:00:02.000Z")
   );
+}
+
+function createPausedDraftWithoutTab(): CaptureSessionDraft {
+  return updateDraftPage(createPausedDraft(), {
+    title: "Paused",
+    url: "https://example.com/paused"
+  });
 }
 
 function lastLifecycleDetail(draft: CaptureSessionDraft | null): string | undefined {

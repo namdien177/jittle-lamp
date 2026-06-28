@@ -166,6 +166,84 @@ describe("buildTimeline", () => {
     expect(items[0]!.label).toBe('Click "Login" button');
   });
 
+  test("hides tab label prefixes when the session only has one tab", () => {
+    const items = buildTimeline(
+      makeArchive([
+        {
+          at: T0,
+          tab: { id: 1, title: "Checkout", url: "https://example.com/checkout" },
+          payload: { kind: "interaction", type: "click", selector: "#submit" }
+        },
+        {
+          at: T1,
+          tab: { id: 1, title: "Checkout", url: "https://example.com/checkout" },
+          payload: { kind: "console", level: "info", message: "saved", args: [] }
+        }
+      ])
+    );
+
+    expect(items.map((item) => item.label)).toEqual(["click #submit", "saved"]);
+    expect(items[0]?.tabLabel).toBe("Checkout");
+  });
+
+  test("prefixes actions logs and network labels when active tab changes", () => {
+    const items = buildTimeline(
+      makeArchive([
+        {
+          at: T0,
+          tab: { id: 1, title: "Checkout", url: "https://example.com/checkout" },
+          payload: { kind: "interaction", type: "click", selector: "#submit" }
+        },
+        {
+          at: T1,
+          tab: { id: 2, title: "Settings", url: "https://example.com/settings" },
+          payload: {
+            kind: "interaction",
+            type: "navigation",
+            url: "https://example.com/settings",
+            title: "Settings"
+          }
+        },
+        {
+          at: T2,
+          tab: { id: 2, title: "Settings", url: "https://example.com/settings" },
+          payload: { kind: "network", method: "POST", url: "https://example.com/api/save", request: { headers: [], cookies: [] } }
+        },
+        {
+          at: T3,
+          tab: { id: 2, title: "Settings", url: "https://example.com/settings" },
+          payload: { kind: "console", level: "info", message: "saved", args: [] }
+        }
+      ])
+    );
+
+    expect(items.map((item) => item.label)).toEqual([
+      "[Checkout] click #submit",
+      '[Settings] Navigate to "Settings"',
+      "[Settings] POST https://example.com/api/save",
+      "[Settings] saved"
+    ]);
+  });
+
+  test("adds indexes when tab titles are duplicated", () => {
+    const items = buildTimeline(
+      makeArchive([
+        {
+          at: T0,
+          tab: { id: 1, title: "App", url: "https://a.example.com" },
+          payload: { kind: "interaction", type: "click", selector: "#one" }
+        },
+        {
+          at: T1,
+          tab: { id: 2, title: "App", url: "https://b.example.com" },
+          payload: { kind: "interaction", type: "click", selector: "#two" }
+        }
+      ])
+    );
+
+    expect(items.map((item) => item.label)).toEqual(["[App 1] click #one", "[App 2] click #two"]);
+  });
+
   test("events before anchor have negative offsetMs", () => {
     const items = buildTimeline(makeArchive([makeLifecycle(T1, "recording"), makeLifecycle(T0, "armed")]));
     const armedItem = items.find((i) => i.kind === "lifecycle" && "phase" in i.payload && i.payload.phase === "armed");
