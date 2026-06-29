@@ -23,6 +23,12 @@ type NetworkProbePayload = {
   failureText?: string;
 };
 
+type FetchProbeRequestMetadata = {
+  method: string;
+  url: string;
+  headers: Headers;
+};
+
 const globalWindow = window as typeof window & {
   __jittleLampNetworkProbeInstalled__?: boolean;
 };
@@ -44,15 +50,8 @@ function installFetchProbe(): void {
   ): Promise<Response> {
     const startedAtMs = performance.now();
     const requestId = `page-fetch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    let request: Request;
-
-    try {
-      request = new Request(input, init);
-    } catch {
-      return Reflect.apply(originalFetch, this, arguments as unknown as unknown[]) as Promise<Response>;
-    }
-
-    const requestBodyPromise = captureClonedRequestBody(request);
+    const request = getFetchRequestMetadata(input, init);
+    const requestBodyPromise = captureFetchRequestBody(input, init, request.method);
 
     try {
       const response = (await Reflect.apply(originalFetch, this, arguments as unknown as unknown[])) as Response;
@@ -94,6 +93,23 @@ function installFetchProbe(): void {
   };
 
   globalWindow.fetch = patchedFetch as typeof fetch;
+}
+
+function getFetchRequestMetadata(input: RequestInfo | URL, init?: RequestInit): FetchProbeRequestMetadata {
+  const inputRequest = input instanceof Request ? input : undefined;
+  const headers = new Headers(inputRequest?.headers);
+
+  if (init?.headers) {
+    new Headers(init.headers).forEach((value, name) => {
+      headers.set(name, value);
+    });
+  }
+
+  return {
+    method: (init?.method ?? inputRequest?.method ?? "GET").toUpperCase(),
+    url: inputRequest?.url ?? String(input),
+    headers
+  };
 }
 
 function installXhrProbe(): void {
@@ -183,40 +199,51 @@ function postNetworkPayload(payload: NetworkProbePayload): void {
   );
 }
 
-function captureClonedRequestBody(request: Request): Promise<NetworkProbeBody | undefined> {
-  if (request.method === "GET" || request.method === "HEAD") {
+function captureFetchRequestBody(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  method: string
+): Promise<NetworkProbeBody | undefined> {
+  if (method === "GET" || method === "HEAD") {
     return Promise.resolve(undefined);
   }
 
-  if (request.bodyUsed) {
+  if (init && "body" in init && init.body !== undefined) {
+    return safelyCaptureBody(init.body);
+  }
+
+  if (!(input instanceof Request)) {
+    return Promise.resolve(undefined);
+  }
+
+  if (input.bodyUsed) {
     return Promise.resolve({
       disposition: "unavailable",
       reason: "Request body is already used."
     });
   }
 
+  if (input.body) {
+    return Promise.resolve({
+      disposition: "unavailable",
+      reason: "Request body capture skipped to avoid disturbing the original request."
+    });
+  }
+
+  return Promise.resolve(undefined);
+}
+
+function safelyCaptureBody(body: BodyInit | Document | null | undefined): Promise<NetworkProbeBody | undefined> {
   try {
-    return captureRequestBody(request.clone());
+    return bodyToCapture(body).catch((error: unknown) => ({
+      disposition: "unavailable",
+      reason: error instanceof Error ? error.message : String(error)
+    }));
   } catch (error: unknown) {
     return Promise.resolve({
       disposition: "unavailable",
       reason: error instanceof Error ? error.message : String(error)
     });
-  }
-}
-
-async function captureRequestBody(request: Request): Promise<NetworkProbeBody | undefined> {
-  if (request.method === "GET" || request.method === "HEAD") {
-    return undefined;
-  }
-
-  try {
-    return textToCapture(await request.text(), request.headers.get("content-type") || undefined);
-  } catch (error: unknown) {
-    return {
-      disposition: "unavailable",
-      reason: error instanceof Error ? error.message : String(error)
-    };
   }
 }
 
