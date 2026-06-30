@@ -1,6 +1,6 @@
 import type * as React from "react";
 
-import type { NetworkSubtype, TimelineItem, TimelineSection } from "@jittle-lamp/shared";
+import type { ArchiveRecorderInfo, NetworkSubtype, TimelineItem, TimelineSection } from "@jittle-lamp/shared";
 
 export type ViewerModalRow = {
   id: string;
@@ -59,6 +59,7 @@ export type ViewerModalProps = {
 
   title: string;
   titleMeta?: string | null;
+  aboutEvidence: ArchiveRecorderInfo;
   tags: string[];
   source: ViewerSource;
   isOwner: boolean;

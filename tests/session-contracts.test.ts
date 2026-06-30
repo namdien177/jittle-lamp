@@ -60,7 +60,55 @@ describe("session contracts", () => {
     expect(archive.sections.actions).toHaveLength(3);
     expect(archive.sections.console).toHaveLength(0);
     expect(archive.sections.network).toHaveLength(0);
+    expect(archive.recorder.extension.version).toBe("unknown");
     expect(archive.artifacts[0]?.relativePath.endsWith("recording.webm")).toBeTrue();
+  });
+
+  test("stores the extension version used for a recording", () => {
+    const draft = createSessionDraft({
+      page: {
+        title: "Example",
+        url: "https://example.com"
+      },
+      now: new Date("2026-01-01T00:00:00.000Z")
+    });
+
+    const archive = createSessionArchive(draft, {
+      recorder: {
+        extension: {
+          kind: "browser-extension",
+          name: "jittle-lamp",
+          version: "1.7.2",
+          extensionId: "abcdefghijklmnop",
+          manifestVersion: 3
+        }
+      }
+    });
+
+    expect(archive.recorder.extension).toEqual({
+      kind: "browser-extension",
+      name: "jittle-lamp",
+      version: "1.7.2",
+      extensionId: "abcdefghijklmnop",
+      manifestVersion: 3
+    });
+  });
+
+  test("adds fallback recorder data when parsing old archives", () => {
+    const draft = createSessionDraft({
+      page: {
+        title: "Example",
+        url: "https://example.com"
+      },
+      now: new Date("2026-01-01T00:00:00.000Z")
+    });
+    const rawArchive = createSessionArchive(draft);
+    const { recorder: _recorder, ...legacyArchive } = rawArchive;
+
+    const parsed = sessionArchiveSchema.parse(legacyArchive);
+
+    expect(parsed.recorder.extension.name).toBe("jittle-lamp");
+    expect(parsed.recorder.extension.version).toBe("unknown");
   });
 
   test("preserves richer network payloads in exported bundles", () => {

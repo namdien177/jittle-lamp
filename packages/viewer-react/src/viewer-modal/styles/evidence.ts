@@ -250,6 +250,56 @@ export const evidenceStyles = `
   text-align: center;
 }
 
+.jl-vm-about {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.jl-vm-about-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
+  border-radius: 8px;
+  background: var(--jl-vm-surface, #111314);
+  padding: 14px;
+}
+
+.jl-vm-about-card strong {
+  color: var(--jl-vm-text, #efefef);
+  font-family: var(--font-display, system-ui, sans-serif);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.jl-vm-about-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.jl-vm-about-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.08));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.jl-vm-about-row dt {
+  color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
+}
+
+.jl-vm-about-row dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--jl-vm-text, #efefef);
+}
+
 .jl-vm-focus-btn {
   position: absolute;
   bottom: 12px;

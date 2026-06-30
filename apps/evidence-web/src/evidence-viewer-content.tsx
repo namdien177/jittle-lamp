@@ -438,6 +438,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       {...(viewerMode === "page" ? { closeLabel: "Back to evidence" } : {})}
       title={archive.name}
       titleMeta={recordingMeta}
+      aboutEvidence={archive.recorder}
       tags={[]}
       source={source}
       isOwner={isOwner}

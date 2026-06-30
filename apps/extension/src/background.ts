@@ -12,6 +12,7 @@ import {
   transitionDraftPhase,
   updateDraftPage,
   type CaptureSessionDraft,
+  type ArchiveRecorderInfo,
   type CloudAuthState,
   type CompanionState,
   type ContentRuntimeMessage,
@@ -731,7 +732,7 @@ async function stopRecordingSession(detail: string): Promise<void> {
     const offscreenResponse = await sendOffscreenMessage({
       type: "jl/offscreen-stop-and-export",
       sessionId: processingDraft.sessionId,
-      archive: createSessionArchive(processingDraft),
+      archive: createSessionArchive(processingDraft, { recorder: getExtensionRecorderInfo() }),
       cloudRequired: Boolean(cloudAuthSession?.token),
       ...(cloudAuthSession?.token ? { cloudAuthToken: cloudAuthSession.token } : {})
     });
@@ -773,6 +774,22 @@ async function stopRecordingSession(detail: string): Promise<void> {
       await closeOffscreenDocumentIfPresent();
     }
   }
+}
+
+function getExtensionRecorderInfo(): ArchiveRecorderInfo {
+  const manifest =
+    typeof chrome.runtime.getManifest === "function"
+      ? chrome.runtime.getManifest()
+      : { name: "jittle-lamp", version: "unknown", manifest_version: 3 };
+  const extension = {
+    kind: "browser-extension" as const,
+    name: manifest.name || "jittle-lamp",
+    version: manifest.version || "unknown",
+    ...(chrome.runtime.id ? { extensionId: chrome.runtime.id } : {}),
+    ...(typeof manifest.manifest_version === "number" ? { manifestVersion: manifest.manifest_version } : {})
+  };
+
+  return { extension };
 }
 
 async function pauseRecordingSession(): Promise<void> {

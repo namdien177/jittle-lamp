@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as React from "react";
 
 import { formatOffset, type NetworkSubtype, type TimelineSection } from "@jittle-lamp/shared";
@@ -21,16 +21,26 @@ const NETWORK_SUBTYPE_OPTIONS: ReadonlyArray<{ value: NetworkSubtype | "all"; la
   { value: "other", label: "Other" }
 ];
 
+type EvidenceTab = TimelineSection | "about";
+
 export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   const localRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = props.timelineRef ?? localRef;
-  const filteredRows = applyClientSearch(props.rows, props.searchQuery, props.activeSection);
+  const [activeTab, setActiveTab] = useState<EvidenceTab>(props.activeSection);
+  useEffect(() => setActiveTab(props.activeSection), [props.activeSection]);
+
   const sectionLabels = {
     actions: "Actions",
     console: "Logs",
-    network: "Network"
+    network: "Network",
+    about: "About Evidence"
   } as const;
-  const activeCountLabel = `${filteredRows.length} ${filteredRows.length === 1 ? "entry" : "entries"}`;
+  const filteredRows =
+    activeTab === "about" ? [] : applyClientSearch(props.rows, props.searchQuery, activeTab);
+  const activeCountLabel =
+    activeTab === "about"
+      ? "Extension details"
+      : `${filteredRows.length} ${filteredRows.length === 1 ? "entry" : "entries"}`;
 
   return (
     <div className="jl-vm-right">
@@ -38,33 +48,38 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
         <div className="jl-vm-pane-heading">
           <div>
             <span className="jl-vm-eyebrow">Evidence stream</span>
-            <strong>{sectionLabels[props.activeSection]}</strong>
+            <strong>{sectionLabels[activeTab]}</strong>
           </div>
           <span>{activeCountLabel}</span>
         </div>
         <div className="jl-vm-tabs-row">
           <div className="jl-vm-tabs">
-            {(["actions", "console", "network"] as const).map((section) => (
+            {(["actions", "console", "network", "about"] as const).map((section) => (
               <button
                 key={section}
                 type="button"
                 className="jl-vm-tab"
-                data-active={section === props.activeSection ? "true" : "false"}
-                onClick={() => props.onSectionChange(section)}
+                data-active={section === activeTab ? "true" : "false"}
+                onClick={() => {
+                  setActiveTab(section);
+                  if (section !== "about") props.onSectionChange(section);
+                }}
               >
                 {sectionLabels[section]}
               </button>
             ))}
           </div>
-          <input
-            className="jl-vm-search"
-            type="search"
-            placeholder="Search this evidence…"
-            value={props.searchQuery}
-            onChange={(event) => props.onSearchChange(event.currentTarget.value)}
-          />
+          {activeTab === "about" ? null : (
+            <input
+              className="jl-vm-search"
+              type="search"
+              placeholder="Search this evidence…"
+              value={props.searchQuery}
+              onChange={(event) => props.onSearchChange(event.currentTarget.value)}
+            />
+          )}
         </div>
-        {props.activeSection === "network" ? (
+        {activeTab === "network" ? (
           <div className="jl-vm-filters">
             {NETWORK_SUBTYPE_OPTIONS.map((opt) => (
               <button
@@ -80,30 +95,62 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
           </div>
         ) : null}
         <div className="jl-vm-list-wrap">
-          <div className="jl-vm-list" ref={timelineRef}>
-            {filteredRows.length === 0 ? (
-              <div className="jl-vm-empty">No entries match.</div>
-            ) : (
-              filteredRows.map((row) => (
-                <EvidenceRow
-                  key={row.id}
-                  row={row}
-                  active={row.id === props.activeItemId}
-                  onItemClick={props.onItemClick}
-                  onItemContextMenu={props.onItemContextMenu}
-                />
-              ))
-            )}
-          </div>
-          {!props.autoFollow ? (
+          {activeTab === "about" ? (
+            <AboutEvidencePanel {...props.aboutEvidence} />
+          ) : (
+            <div className="jl-vm-list" ref={timelineRef}>
+              {filteredRows.length === 0 ? (
+                <div className="jl-vm-empty">No entries match.</div>
+              ) : (
+                filteredRows.map((row) => (
+                  <EvidenceRow
+                    key={row.id}
+                    row={row}
+                    active={row.id === props.activeItemId}
+                    onItemClick={props.onItemClick}
+                    onItemContextMenu={props.onItemContextMenu}
+                  />
+                ))
+              )}
+            </div>
+          )}
+          {activeTab !== "about" && !props.autoFollow ? (
             <button type="button" className="jl-vm-focus-btn" onClick={props.onAutoFollowToggle}>
               ↓ Focus
             </button>
           ) : null}
-          {props.drawerItem ? (
+          {activeTab !== "about" && props.drawerItem ? (
             <NetworkDrawer item={props.drawerItem} onClose={props.onDrawerClose} onCopy={props.onCopy} />
           ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AboutEvidencePanel(props: ViewerModalProps["aboutEvidence"]): React.JSX.Element {
+  const extension = props.extension;
+  const rows = [
+    ["Recorded by", extension.name],
+    ["Extension version", extension.version],
+    ["Extension ID", extension.extensionId ?? "Not saved"],
+    ["Manifest [extension config]", extension.manifestVersion ? `MV${extension.manifestVersion}` : "Not saved"],
+    ["Recorder type", "Chrome extension"]
+  ];
+
+  return (
+    <div className="jl-vm-about">
+      <div className="jl-vm-about-card">
+        <span className="jl-vm-eyebrow">Extension used</span>
+        <strong>{extension.name}</strong>
+        <dl className="jl-vm-about-list">
+          {rows.map(([label, value]) => (
+            <div key={label} className="jl-vm-about-row">
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </div>
   );

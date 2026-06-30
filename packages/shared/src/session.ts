@@ -38,6 +38,26 @@ export const tabContextSchema = z.object({
   url: z.string().url().optional()
 });
 
+export const extensionRecorderInfoSchema = z.object({
+  kind: z.literal("browser-extension"),
+  name: z.string().min(1),
+  version: z.string().min(1),
+  extensionId: z.string().min(1).optional(),
+  manifestVersion: z.number().int().positive().optional()
+});
+
+export const archiveRecorderInfoSchema = z.object({
+  extension: extensionRecorderInfoSchema
+});
+
+export const defaultArchiveRecorderInfo = {
+  extension: {
+    kind: "browser-extension",
+    name: "jittle-lamp",
+    version: "unknown"
+  }
+} satisfies z.input<typeof archiveRecorderInfoSchema>;
+
 export const consoleEventSchema = z.object({
   kind: z.literal("console"),
   level: z.enum(["debug", "info", "warn", "error"]),
@@ -334,6 +354,7 @@ export const sessionArchiveSchema = z.object({
   updatedAt: isoTimestampSchema,
   phase: capturePhaseSchema,
   page: pageContextSchema,
+  recorder: archiveRecorderInfoSchema.default(defaultArchiveRecorderInfo),
   artifacts: z.array(sessionArtifactSchema),
   sections: z.object({
     actions: z.array(archiveActionSchema).default([]),
@@ -360,6 +381,7 @@ export const captureSessionDraftSchema = z.object({
 export type NetworkSubtype = z.infer<typeof networkSubtypeSchema>;
 export type CapturePhase = z.infer<typeof capturePhaseSchema>;
 export type SessionArtifact = z.infer<typeof sessionArtifactSchema>;
+export type ArchiveRecorderInfo = z.infer<typeof archiveRecorderInfoSchema>;
 export type TabContext = z.infer<typeof tabContextSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 export type SessionArchive = z.infer<typeof sessionArchiveSchema>;
@@ -549,7 +571,10 @@ export function generateArchiveEntryId(
   return `${sessionId}:${section}:${String(index).padStart(6, "0")}`;
 }
 
-export function createSessionArchive(draft: CaptureSessionDraft): SessionArchive {
+export function createSessionArchive(
+  draft: CaptureSessionDraft,
+  options: { recorder?: z.input<typeof archiveRecorderInfoSchema> } = {}
+): SessionArchive {
   const actions: ArchiveAction[] = [];
   const consoleEntries: ArchiveConsoleEntry[] = [];
   const networkEntries: ArchiveNetworkEntry[] = [];
@@ -608,6 +633,7 @@ export function createSessionArchive(draft: CaptureSessionDraft): SessionArchive
     updatedAt: draft.updatedAt,
     phase: draft.phase,
     page: draft.page,
+    recorder: options.recorder ?? defaultArchiveRecorderInfo,
     artifacts: draft.artifacts,
     sections: {
       actions,

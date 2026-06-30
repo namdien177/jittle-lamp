@@ -462,6 +462,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
       open
       onClose={desktop.closeViewer}
       title={payload.archive.name}
+      aboutEvidence={payload.archive.recorder}
       tags={tags}
       source={mapDesktopSource(payload.source)}
       isOwner={isOwner}
