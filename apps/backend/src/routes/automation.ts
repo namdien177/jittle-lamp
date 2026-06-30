@@ -39,7 +39,14 @@ const MAX_AUTOMATION_ZIP_BYTES = 20 * 1024 * 1024;
 const deriveArchiveDurationMs = (archive: {
 	createdAt: string;
 	updatedAt: string;
+	summary?: { videoDurationMs?: number | null };
 }): number | null => {
+	if (
+		typeof archive.summary?.videoDurationMs === "number" &&
+		Number.isFinite(archive.summary.videoDurationMs)
+	) {
+		return archive.summary.videoDurationMs;
+	}
 	const start = Date.parse(archive.createdAt);
 	const end = Date.parse(archive.updatedAt);
 	return Number.isFinite(start) && Number.isFinite(end)
@@ -519,7 +526,14 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 								automationTokenId: apiToken.id,
 								sessionId: validated.archive.sessionId,
 								durationMs: deriveArchiveDurationMs(validated.archive),
-								actionCount: validated.archive.sections.actions.length,
+								actionCount:
+									validated.archive.summary.actionCount ??
+									validated.archive.sections.actions.filter(
+										(entry) => entry.payload.kind === "interaction",
+									).length,
+								requestCount:
+									validated.archive.summary.requestCount ??
+									validated.archive.sections.network.length,
 							}),
 							scopeType: "organization",
 							scopeId: apiToken.orgId,

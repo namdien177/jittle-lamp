@@ -811,6 +811,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                         evidence.createdBy}
                     </span>
                   </span>
+                  <EvidenceStats evidence={evidence} />
                 </button>
                 <div className="mt-auto flex items-center gap-2 px-3 pb-3 pt-2.5">
                   <Button
@@ -900,11 +901,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                           <span className="block truncate text-base font-semibold text-foreground group-hover:text-primary">
                             {evidence.title}
                           </span>
-                          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                            <span>{formatDuration(evidence.durationMs)}</span>
-                            <span aria-hidden>·</span>
-                            <span>{formatActionCount(evidence.actionCount)}</span>
-                          </span>
+                          <EvidenceStats evidence={evidence} />
                         </span>
                       </div>
                     </TableCell>
@@ -1042,6 +1039,25 @@ function formatDuration(value: number | null): string {
 function formatActionCount(value: number | null): string {
   if (value === null) return "No actions";
   return `${value} action${value === 1 ? "" : "s"}`;
+}
+
+function formatRequestCount(value: number | null): string {
+  if (value === null) return "No requests";
+  return `${value} request${value === 1 ? "" : "s"}`;
+}
+
+function EvidenceStats(props: { evidence: ApiEvidenceSummary }): React.JSX.Element {
+  const { evidence } = props;
+
+  return (
+    <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+      <span>{formatDuration(evidence.durationMs)}</span>
+      <span aria-hidden>·</span>
+      <span>{formatActionCount(evidence.actionCount)}</span>
+      <span aria-hidden>·</span>
+      <span>{formatRequestCount(evidence.requestCount)}</span>
+    </span>
+  );
 }
 
 function FloatingEvidencePager(props: {

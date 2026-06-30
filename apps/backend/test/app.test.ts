@@ -2820,6 +2820,11 @@ describe("routes", () => {
 					createdBy: recorderA.userId,
 					title: "Newest A evidence",
 					sourceType: "browser",
+					sourceMetadata: JSON.stringify({
+						durationMs: 12_345,
+						actionCount: 3,
+						requestCount: 9,
+					}),
 					scopeType: "organization",
 					scopeId: owner.organizationId,
 					createdAt: now - 1_000,
@@ -2864,7 +2869,13 @@ describe("routes", () => {
 		);
 		expect(filtered.status).toBe(200);
 		const payload = (await filtered.json()) as {
-			evidences: Array<{ id: string; createdBy: string }>;
+			evidences: Array<{
+				id: string;
+				createdBy: string;
+				durationMs: number | null;
+				actionCount: number | null;
+				requestCount: number | null;
+			}>;
 			total: number;
 			page: number;
 			limit: number;
@@ -2877,6 +2888,9 @@ describe("routes", () => {
 		expect(payload.evidences[0]?.id).toBe(
 			inserted.find((row) => row.createdBy === recorderA.userId)?.id,
 		);
+		expect(payload.evidences[0]?.durationMs).toBe(12_345);
+		expect(payload.evidences[0]?.actionCount).toBe(3);
+		expect(payload.evidences[0]?.requestCount).toBe(9);
 
 		const searched = await app.handle(
 			new Request("http://localhost/evidences?search=Middle%20B&limit=24", {

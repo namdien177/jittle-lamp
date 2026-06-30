@@ -50,6 +50,12 @@ export const archiveRecorderInfoSchema = z.object({
   extension: extensionRecorderInfoSchema
 });
 
+export const archiveSummarySchema = z.object({
+  videoDurationMs: z.number().nonnegative().nullable().default(null),
+  actionCount: z.number().int().nonnegative().nullable().default(null),
+  requestCount: z.number().int().nonnegative().nullable().default(null)
+});
+
 export const defaultArchiveRecorderInfo = {
   extension: {
     kind: "browser-extension",
@@ -355,6 +361,11 @@ export const sessionArchiveSchema = z.object({
   phase: capturePhaseSchema,
   page: pageContextSchema,
   recorder: archiveRecorderInfoSchema.default(defaultArchiveRecorderInfo),
+  summary: archiveSummarySchema.default({
+    videoDurationMs: null,
+    actionCount: null,
+    requestCount: null
+  }),
   artifacts: z.array(sessionArtifactSchema),
   sections: z.object({
     actions: z.array(archiveActionSchema).default([]),
@@ -382,6 +393,7 @@ export type NetworkSubtype = z.infer<typeof networkSubtypeSchema>;
 export type CapturePhase = z.infer<typeof capturePhaseSchema>;
 export type SessionArtifact = z.infer<typeof sessionArtifactSchema>;
 export type ArchiveRecorderInfo = z.infer<typeof archiveRecorderInfoSchema>;
+export type ArchiveSummary = z.infer<typeof archiveSummarySchema>;
 export type TabContext = z.infer<typeof tabContextSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 export type SessionArchive = z.infer<typeof sessionArchiveSchema>;
@@ -573,11 +585,15 @@ export function generateArchiveEntryId(
 
 export function createSessionArchive(
   draft: CaptureSessionDraft,
-  options: { recorder?: z.input<typeof archiveRecorderInfoSchema> } = {}
+  options: {
+    recorder?: z.input<typeof archiveRecorderInfoSchema>;
+    videoDurationMs?: number | null;
+  } = {}
 ): SessionArchive {
   const actions: ArchiveAction[] = [];
   const consoleEntries: ArchiveConsoleEntry[] = [];
   const networkEntries: ArchiveNetworkEntry[] = [];
+  let interactionCount = 0;
 
   for (let index = 0; index < draft.events.length; index += 1) {
     const event = draft.events[index];
@@ -587,6 +603,17 @@ export function createSessionArchive(
 
     switch (event.payload.kind) {
       case "interaction":
+        interactionCount += 1;
+        actions.push({
+          id: generateArchiveEntryId(draft.sessionId, "actions", actions.length),
+          seq,
+          at: event.at,
+          ...(event.tab ? { tab: event.tab } : {}),
+          tags: [],
+          payload: event.payload
+        });
+        break;
+
       case "error":
       case "lifecycle":
         actions.push({
@@ -634,6 +661,11 @@ export function createSessionArchive(
     phase: draft.phase,
     page: draft.page,
     recorder: options.recorder ?? defaultArchiveRecorderInfo,
+    summary: {
+      videoDurationMs: options.videoDurationMs ?? null,
+      actionCount: interactionCount,
+      requestCount: networkEntries.length
+    },
     artifacts: draft.artifacts,
     sections: {
       actions,

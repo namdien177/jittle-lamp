@@ -92,6 +92,7 @@ type PendingCloudRetry = {
 type VideoThumbnail = {
   base64: string;
   mimeType: string;
+  durationMs: number | null;
 };
 
 const thumbnailMimeType = "image/jpeg";
@@ -145,7 +146,13 @@ async function handleRequest(
 
     case "jl/offscreen-stop-and-export": {
       const recordingBlob = await stopRecorder(request.sessionId);
-      const finalized = finalizeArchiveForExport(request.archive, recordingBlob.size, recordingBlob.type || "video/webm");
+      const videoDurationMs = await readVideoDurationMs(recordingBlob);
+      const finalized = finalizeArchiveForExport(
+        request.archive,
+        recordingBlob.size,
+        recordingBlob.type || "video/webm",
+        videoDurationMs
+      );
 
       const cloudUploadResult = await tryWriteArtifactsToCloud(
         finalized.archive,
@@ -288,7 +295,13 @@ async function tryWriteArtifactsToCloud(
       body: JSON.stringify({
         sessionId: archive.sessionId,
         title: archive.name,
-        sourceMetadata: JSON.stringify({ source: "extension" }),
+        sourceMetadata: JSON.stringify({
+          source: "extension",
+          sessionId: archive.sessionId,
+          durationMs: archive.summary.videoDurationMs,
+          actionCount: archive.summary.actionCount,
+          requestCount: archive.summary.requestCount
+        }),
         ...(replaceEvidenceId ? { replaceEvidenceId } : {}),
         ...(thumbnail
           ? {
@@ -486,8 +499,45 @@ async function createVideoThumbnail(recording: Blob): Promise<VideoThumbnail | n
     const dataUrl = canvas.toDataURL(thumbnailMimeType, 0.72);
     return {
       base64: dataUrl.slice(dataUrl.indexOf(",") + 1),
-      mimeType: thumbnailMimeType
+      mimeType: thumbnailMimeType,
+      durationMs: duration > 0 ? Math.round(duration * 1000) : null
     };
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function readVideoDurationMs(recording: Blob): Promise<number | null> {
+  const url = URL.createObjectURL(recording);
+  try {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        video.removeEventListener("loadedmetadata", onLoadedMetadata);
+        video.removeEventListener("error", onError);
+      };
+      const onLoadedMetadata = (): void => {
+        cleanup();
+        resolve();
+      };
+      const onError = (): void => {
+        cleanup();
+        reject(new Error("Video metadata could not be loaded."));
+      };
+
+      video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      video.src = url;
+    });
+
+    const duration = mediaDuration(video);
+    return duration > 0 ? Math.round(duration * 1000) : null;
   } catch {
     return null;
   } finally {
@@ -883,12 +933,14 @@ function keepCapturedAudioAudible(stream: MediaStream): AudioContext | null {
 function finalizeArchiveForExport(
   archive: SessionArchive,
   recordingBytes: number,
-  recordingMimeType: string
+  recordingMimeType: string,
+  videoDurationMs: number | null
 ): { archive: SessionArchive; jsonBlob: Blob } {
   let nextArchive = withRecordingArtifact(archive, {
     bytes: recordingBytes,
     mimeType: recordingMimeType || "video/webm"
   });
+  nextArchive = withArchiveSummary(nextArchive, videoDurationMs);
 
   for (let iteration = 0; iteration < 3; iteration += 1) {
     const jsonText = stringifyArchive(nextArchive);
@@ -908,6 +960,18 @@ function finalizeArchiveForExport(
   return {
     archive: nextArchive,
     jsonBlob: new Blob([stringifyArchive(nextArchive)], { type: "application/json" })
+  };
+}
+
+function withArchiveSummary(archive: SessionArchive, videoDurationMs: number | null): SessionArchive {
+  const actionCount = archive.sections.actions.filter((entry) => entry.payload.kind === "interaction").length;
+  return {
+    ...archive,
+    summary: {
+      videoDurationMs: videoDurationMs ?? archive.summary.videoDurationMs,
+      actionCount,
+      requestCount: archive.sections.network.length
+    }
   };
 }
 

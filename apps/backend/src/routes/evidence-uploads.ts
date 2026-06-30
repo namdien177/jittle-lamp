@@ -154,6 +154,7 @@ const evidenceSummarySchema = t.Object({
 	status: t.Union([t.Literal("ready"), t.Literal("pending")]),
 	durationMs: t.Union([t.Number(), t.Null()]),
 	actionCount: t.Union([t.Number(), t.Null()]),
+	requestCount: t.Union([t.Number(), t.Null()]),
 	tags: t.Array(
 		t.Object({
 			id: t.String({ minLength: 1 }),
@@ -260,12 +261,19 @@ const defaultEvidenceTags = [
 
 const parseEvidenceStats = (
 	sourceMetadata: string | null,
-): { durationMs: number | null; actionCount: number | null } => {
-	if (!sourceMetadata) return { durationMs: null, actionCount: null };
+): {
+	durationMs: number | null;
+	actionCount: number | null;
+	requestCount: number | null;
+} => {
+	if (!sourceMetadata) {
+		return { durationMs: null, actionCount: null, requestCount: null };
+	}
 	try {
 		const metadata = JSON.parse(sourceMetadata) as {
 			durationMs?: unknown;
 			actionCount?: unknown;
+			requestCount?: unknown;
 		};
 		return {
 			durationMs:
@@ -278,9 +286,14 @@ const parseEvidenceStats = (
 				Number.isFinite(metadata.actionCount)
 					? metadata.actionCount
 					: null,
+			requestCount:
+				typeof metadata.requestCount === "number" &&
+				Number.isFinite(metadata.requestCount)
+					? metadata.requestCount
+					: null,
 		};
 	} catch {
-		return { durationMs: null, actionCount: null };
+		return { durationMs: null, actionCount: null, requestCount: null };
 	}
 };
 

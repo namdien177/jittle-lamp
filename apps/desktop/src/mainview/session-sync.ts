@@ -28,11 +28,13 @@ export async function syncDesktopSessionToServer(input: {
   const thumbnail = recordingArtifact
     ? await createVideoThumbnail(new Blob([recordingArtifact.payload.slice().buffer as ArrayBuffer], { type: recordingArtifact.mimeType }))
     : null;
+  const durationMs = archiveStats.durationMs ?? thumbnail?.durationMs ?? null;
   const sourceMetadata = JSON.stringify({
     localSessionId: upload.sessionId,
     artifactFormat: "split",
-    durationMs: archiveStats.durationMs,
+    durationMs,
     actionCount: archiveStats.actionCount,
+    requestCount: archiveStats.requestCount,
     artifacts: upload.artifacts.map((artifact) => ({
       key: artifact.key,
       kind: artifact.kind,
@@ -96,21 +98,45 @@ export async function syncDesktopSessionToServer(input: {
 function readArchiveStats(payload: Uint8Array | undefined): {
   durationMs: number | null;
   actionCount: number | null;
+  requestCount: number | null;
 } {
-  if (!payload) return { durationMs: null, actionCount: null };
+  if (!payload) return { durationMs: null, actionCount: null, requestCount: null };
   try {
     const archive = JSON.parse(new TextDecoder().decode(payload)) as {
       createdAt?: string;
       updatedAt?: string;
-      sections?: { actions?: unknown[] };
+      summary?: {
+        videoDurationMs?: unknown;
+        actionCount?: unknown;
+        requestCount?: unknown;
+      };
+      sections?: {
+        actions?: Array<{ payload?: { kind?: unknown } }>;
+        network?: unknown[];
+      };
     };
     const start = Date.parse(archive.createdAt ?? "");
     const end = Date.parse(archive.updatedAt ?? "");
+    const fallbackDurationMs = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null;
+    const fallbackActionCount = Array.isArray(archive.sections?.actions)
+      ? archive.sections.actions.filter((entry) => entry.payload?.kind === "interaction").length
+      : null;
+    const fallbackRequestCount = Array.isArray(archive.sections?.network) ? archive.sections.network.length : null;
     return {
-      durationMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null,
-      actionCount: Array.isArray(archive.sections?.actions) ? archive.sections.actions.length : null
+      durationMs:
+        typeof archive.summary?.videoDurationMs === "number" && Number.isFinite(archive.summary.videoDurationMs)
+          ? archive.summary.videoDurationMs
+          : fallbackDurationMs,
+      actionCount:
+        typeof archive.summary?.actionCount === "number" && Number.isFinite(archive.summary.actionCount)
+          ? archive.summary.actionCount
+          : fallbackActionCount,
+      requestCount:
+        typeof archive.summary?.requestCount === "number" && Number.isFinite(archive.summary.requestCount)
+          ? archive.summary.requestCount
+          : fallbackRequestCount
     };
   } catch {
-    return { durationMs: null, actionCount: null };
+    return { durationMs: null, actionCount: null, requestCount: null };
   }
 }

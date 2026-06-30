@@ -1,6 +1,7 @@
 export type VideoThumbnail = {
   base64: string;
   mimeType: string;
+  durationMs: number | null;
 };
 
 const THUMBNAIL_MIME_TYPE = "image/jpeg";
@@ -63,6 +64,7 @@ export async function createVideoThumbnail(
     return {
       base64: dataUrl.slice(dataUrl.indexOf(",") + 1),
       mimeType: THUMBNAIL_MIME_TYPE,
+      durationMs: duration > 0 ? Math.round(duration * 1000) : null,
     };
   } catch {
     return null;

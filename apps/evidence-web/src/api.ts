@@ -260,6 +260,7 @@ export type ApiEvidenceSummary = {
 	status?: "ready" | "pending";
 	durationMs: number | null;
 	actionCount: number | null;
+	requestCount: number | null;
 	tags: ApiEvidenceTag[];
 };
 

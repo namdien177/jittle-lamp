@@ -61,6 +61,11 @@ describe("session contracts", () => {
     expect(archive.sections.console).toHaveLength(0);
     expect(archive.sections.network).toHaveLength(0);
     expect(archive.recorder.extension.version).toBe("unknown");
+    expect(archive.summary).toEqual({
+      videoDurationMs: null,
+      actionCount: 1,
+      requestCount: 0
+    });
     expect(archive.artifacts[0]?.relativePath.endsWith("recording.webm")).toBeTrue();
   });
 
@@ -94,6 +99,20 @@ describe("session contracts", () => {
     });
   });
 
+  test("stores video duration in the archive summary", () => {
+    const draft = createSessionDraft({
+      page: {
+        title: "Example",
+        url: "https://example.com"
+      },
+      now: new Date("2026-01-01T00:00:00.000Z")
+    });
+
+    const archive = createSessionArchive(draft, { videoDurationMs: 12_345 });
+
+    expect(archive.summary.videoDurationMs).toBe(12_345);
+  });
+
   test("adds fallback recorder data when parsing old archives", () => {
     const draft = createSessionDraft({
       page: {
@@ -103,12 +122,17 @@ describe("session contracts", () => {
       now: new Date("2026-01-01T00:00:00.000Z")
     });
     const rawArchive = createSessionArchive(draft);
-    const { recorder: _recorder, ...legacyArchive } = rawArchive;
+    const { recorder: _recorder, summary: _summary, ...legacyArchive } = rawArchive;
 
     const parsed = sessionArchiveSchema.parse(legacyArchive);
 
     expect(parsed.recorder.extension.name).toBe("jittle-lamp");
     expect(parsed.recorder.extension.version).toBe("unknown");
+    expect(parsed.summary).toEqual({
+      videoDurationMs: null,
+      actionCount: null,
+      requestCount: null
+    });
   });
 
   test("preserves richer network payloads in exported bundles", () => {
@@ -199,6 +223,7 @@ describe("session contracts", () => {
     expect(networkEvent.response?.setCookieHeaders[0]).toContain("session=abc123");
     expect(networkEvent.response?.body?.encoding).toBe("base64");
     expect(networkEvent.response?.body?.disposition).toBe("truncated");
+    expect(archive.summary.requestCount).toBe(1);
   });
 
   test("preserves tab context in exported rows", () => {

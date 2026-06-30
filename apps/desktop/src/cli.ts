@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     readFile(join(sessionFolder, recordingFileName)),
     readFile(join(sessionFolder, sessionArchiveFileName))
   ]);
+  const archiveStats = readArchiveStats(Uint8Array.from(archivePayload));
 
   const artifacts: UploadArtifact[] = [
     {
@@ -74,6 +75,9 @@ async function main(): Promise<void> {
   const sourceMetadata = JSON.stringify({
     localSessionId: sessionId,
     artifactFormat: "split",
+    durationMs: archiveStats.durationMs,
+    actionCount: archiveStats.actionCount,
+    requestCount: archiveStats.requestCount,
     artifacts: artifacts.map((artifact) => ({
       key: artifact.key,
       kind: artifact.kind,
@@ -151,6 +155,51 @@ async function main(): Promise<void> {
     organizationId: started.organizationId,
     uploadedArtifacts: artifacts.map((artifact) => ({ key: artifact.key, bytes: artifact.bytes }))
   }, null, 2));
+}
+
+function readArchiveStats(payload: Uint8Array): {
+  durationMs: number | null;
+  actionCount: number | null;
+  requestCount: number | null;
+} {
+  try {
+    const archive = JSON.parse(new TextDecoder().decode(payload)) as {
+      createdAt?: string;
+      updatedAt?: string;
+      summary?: {
+        videoDurationMs?: unknown;
+        actionCount?: unknown;
+        requestCount?: unknown;
+      };
+      sections?: {
+        actions?: Array<{ payload?: { kind?: unknown } }>;
+        network?: unknown[];
+      };
+    };
+    const start = Date.parse(archive.createdAt ?? "");
+    const end = Date.parse(archive.updatedAt ?? "");
+    const fallbackDurationMs = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null;
+    const fallbackActionCount = Array.isArray(archive.sections?.actions)
+      ? archive.sections.actions.filter((entry) => entry.payload?.kind === "interaction").length
+      : null;
+    const fallbackRequestCount = Array.isArray(archive.sections?.network) ? archive.sections.network.length : null;
+    return {
+      durationMs:
+        typeof archive.summary?.videoDurationMs === "number" && Number.isFinite(archive.summary.videoDurationMs)
+          ? archive.summary.videoDurationMs
+          : fallbackDurationMs,
+      actionCount:
+        typeof archive.summary?.actionCount === "number" && Number.isFinite(archive.summary.actionCount)
+          ? archive.summary.actionCount
+          : fallbackActionCount,
+      requestCount:
+        typeof archive.summary?.requestCount === "number" && Number.isFinite(archive.summary.requestCount)
+          ? archive.summary.requestCount
+          : fallbackRequestCount
+    };
+  } catch {
+    return { durationMs: null, actionCount: null, requestCount: null };
+  }
 }
 
 async function authedFetch<T = unknown>(token: string, path: string, init: RequestInit = {}): Promise<T> {
