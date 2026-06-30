@@ -90,7 +90,7 @@ export const shellStyles = `
 }
 
 .jl-vm-root .jl-vm-body {
-  grid-template-columns: minmax(420px, 1.35fr) minmax(360px, 600px);
+  --jl-vm-stream-width: 560px;
 }
 
 .jl-vm-root .jl-vm-video-wrap {
@@ -98,26 +98,33 @@ export const shellStyles = `
 }
 
 .jl-vm-body {
-  display: grid;
-  grid-template-columns: 3fr minmax(0, 600px);
+  display: flex;
   min-height: 0;
   overflow: hidden;
 }
 
 .jl-vm-left {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
-  min-width: 0;
+  min-width: min(420px, 100%);
   min-height: 0;
   background: var(--jl-vm-bg-deep);
 }
 
 .jl-vm-right {
+  flex: 0 0 min(var(--jl-vm-stream-width, 560px), 50vw);
+  width: min(var(--jl-vm-stream-width, 560px), 50vw);
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   position: relative;
+}
+
+.jl-vm-right[data-collapsed="true"] {
+  flex-basis: 48px;
+  width: 48px;
 }
 `;

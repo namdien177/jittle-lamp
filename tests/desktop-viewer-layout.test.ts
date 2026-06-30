@@ -14,8 +14,11 @@ describe("viewer modal layout CSS", () => {
     expect(css).toMatch(/\.jl-vm-root\s*\{[\s\S]*?height:\s*100%;/);
   });
 
-  test("two-column body keeps left flexible and caps right pane at 600px", () => {
-    expect(css).toMatch(/\.jl-vm-body\s*\{[\s\S]*?grid-template-columns:\s*3fr\s*minmax\(0,\s*600px\);/);
+  test("two-pane body keeps video flexible and stream pane resizable", () => {
+    expect(css).toMatch(/\.jl-vm-body\s*\{[\s\S]*?display:\s*flex;/);
+    expect(css).toMatch(/\.jl-vm-left\s*\{[\s\S]*?flex:\s*1 1 auto;/);
+    expect(css).toMatch(/\.jl-vm-right\s*\{[\s\S]*?flex:\s*0 0 min\(var\(--jl-vm-stream-width,\s*560px\),\s*50vw\);/);
+    expect(css).toMatch(/\.jl-vm-right\[data-collapsed="true"\]\s*\{[\s\S]*?flex-basis:\s*48px;/);
   });
 
   test("left/right panes can shrink without forcing layout overflow", () => {

@@ -27,12 +27,41 @@ export const responsiveStyles = `
   }
 
   .jl-vm-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
+    flex-direction: column;
   }
+
   .jl-vm-left {
     border-right: 0;
     border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
+    min-width: 0;
+  }
+
+  .jl-vm-right {
+    flex: 1 1 50%;
+    width: 100%;
+  }
+
+  .jl-vm-right[data-collapsed="true"] {
+    flex-basis: 44px;
+    width: 100%;
+  }
+
+  .jl-vm-stream-resizer {
+    display: none;
+  }
+
+  .jl-vm-stream-rail {
+    grid-template-columns: auto 1fr;
+    grid-template-rows: 1fr;
+    width: 100%;
+    height: 44px;
+    padding: 0 12px;
+    border-top: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
+    border-left: 0;
+  }
+
+  .jl-vm-stream-rail span {
+    writing-mode: horizontal-tb;
   }
 
   .jl-vm-tabs-row {

@@ -85,6 +85,10 @@ function useNavGroups(): NavGroup[] {
   ];
 }
 
+function getCollapsedNavLabel(item: NavItem): string {
+  return item.count === undefined ? item.label : `${item.label} · ${item.count}`;
+}
+
 function SidebarLink({
   item,
   onNavigate,
@@ -95,14 +99,15 @@ function SidebarLink({
   collapsed?: boolean;
 }): React.JSX.Element {
   const Icon = item.icon;
+  const collapsedLabel = getCollapsedNavLabel(item);
   return (
     <NavLink
       to={item.to}
       end={item.end ?? false}
       onClick={onNavigate}
-      title={collapsed ? item.label : undefined}
-      aria-label={collapsed ? item.label : undefined}
-      data-tooltip={collapsed ? item.label : undefined}
+      title={collapsed ? collapsedLabel : undefined}
+      aria-label={collapsed ? collapsedLabel : undefined}
+      data-tooltip={collapsed ? collapsedLabel : undefined}
       className={({ isActive }) =>
         cn(
           "jl-nav-item",
