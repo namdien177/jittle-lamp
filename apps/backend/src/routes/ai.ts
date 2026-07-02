@@ -460,16 +460,6 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 						401,
 					);
 				}
-				await recordAiAccessTokenUsage(db, {
-					tokenId: aiToken.id,
-					userId: aiToken.userId,
-					evidenceId: params.id,
-					method: request.method,
-					path: resolveRequestPath(request),
-					ipAddress: getRequestIpAddress(request),
-					userAgent: request.headers.get("user-agent"),
-				});
-
 				const evidence = await db.query.evidences.findFirst({
 					where: and(
 						eq(evidences.id, params.id),
@@ -499,6 +489,15 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 						404,
 					);
 				}
+				await recordAiAccessTokenUsage(db, {
+					tokenId: aiToken.id,
+					userId: aiToken.userId,
+					evidenceId: evidence.id,
+					method: request.method,
+					path: resolveRequestPath(request),
+					ipAddress: getRequestIpAddress(request),
+					userAgent: request.headers.get("user-agent"),
+				});
 
 				const evidencePolicy = createEvidencePolicy();
 				const [canView, canDownload] = await Promise.all([

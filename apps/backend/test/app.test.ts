@@ -2621,6 +2621,26 @@ describe("routes", () => {
 		expect(listedV2Token?.token).toBe(issuePayload.token);
 		expect(listedV2Token?.tokenVersion).toBe("v2");
 
+		const missingDebugResponse = await app.handle(
+			new Request(
+				"http://localhost/ai/evidences/019f14d3-8727-74ac-a4bb-a9244933fa90/debug",
+				{
+					headers: { authorization: `Bearer ${issuePayload.token}` },
+				},
+			),
+		);
+		expect(missingDebugResponse.status).toBe(404);
+		await expectApiError(missingDebugResponse, {
+			code: "EVIDENCE_NOT_FOUND",
+			message: "Evidence not found",
+			status: 404,
+		});
+		const missingDebugUsageLogs =
+			await db.query.aiAccessTokenUsageLogs.findMany({
+				where: eq(aiAccessTokenUsageLogs.tokenId, issuePayload.accessToken.id),
+			});
+		expect(missingDebugUsageLogs).toHaveLength(0);
+
 		const legacyToken = "jl_ai_legacy_hash_only_token";
 		const [legacyRow] = await db
 			.insert(aiAccessTokens)
