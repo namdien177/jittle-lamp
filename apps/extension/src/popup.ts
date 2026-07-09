@@ -1,4 +1,11 @@
-import { popupResponseSchema, type PopupResponse, type PopupState } from "@jittle-lamp/shared";
+import {
+  popupResponseSchema,
+  type PopupResponse,
+  type PopupState,
+  type RecordingOperation
+} from "@jittle-lamp/shared";
+
+import { deriveRecordingControlState } from "./recording-control-state";
 
 type CaptureTarget = "tab" | "desktop";
 
@@ -29,7 +36,9 @@ const messageValue = requireElement<HTMLParagraphElement>("[data-role='message-v
 const soundToggle = requireElement<HTMLInputElement>("[data-role='sound-toggle']");
 const targetButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-capture-target]"));
 const startButton = requireElement<HTMLButtonElement>("[data-role='start-button']");
+const startLabel = requireElement<HTMLSpanElement>("[data-role='start-label']");
 const stopButton = requireElement<HTMLButtonElement>("[data-role='stop-button']");
+const stopLabel = requireElement<HTMLSpanElement>("[data-role='stop-label']");
 const pauseButton = requireElement<HTMLButtonElement>("[data-role='pause-button']");
 const pauseIcon = requireElement<SVGElement>("[data-role='pause-icon']");
 const resumeIcon = requireElement<SVGElement>("[data-role='resume-icon']");
@@ -38,6 +47,10 @@ const abortButton = requireElement<HTMLButtonElement>("[data-role='abort-button'
 const draftTitleValue = requireElement<HTMLInputElement>("[data-role='draft-title-value']");
 
 let requestInFlight = false;
+let refreshInFlight = false;
+let requestRevision = 0;
+let renderedState: PopupState | null = null;
+let localRecordingOperation: RecordingOperation | null = null;
 let lastRenderedTitle = "";
 let draftTitleEdited = false;
 let selectedCaptureTarget: CaptureTarget = "tab";
@@ -45,6 +58,7 @@ const targetTabId = parseTargetTabId();
 const targetPage = parseTargetPage();
 
 syncCaptureTargetButtons();
+syncRecordingControls(null);
 void refreshState();
 setInterval(() => {
   void refreshState();
@@ -149,15 +163,18 @@ async function performAction(
   }
 
   requestInFlight = true;
-  setButtonsDisabled(true);
+  localRecordingOperation = operationForAction(type);
+  const revision = ++requestRevision;
+  syncRecordingControls(renderedState);
   let transientError: string | undefined;
+  let response: PopupResponse | undefined;
 
   try {
     if (type === "jl/popup-start-recording") {
       await requestOptionalNetworkFallbackPermission();
     }
 
-    const response = await sendPopupMessage(type);
+    response = await sendPopupMessage(type);
 
     if (response.error) {
       transientError = response.error;
@@ -168,6 +185,17 @@ async function performAction(
     requestInFlight = false;
   }
 
+  if (revision !== requestRevision) {
+    return;
+  }
+
+  if (response) {
+    localRecordingOperation = null;
+    renderState(response.state, transientError);
+    return;
+  }
+
+  renderState(renderedState ?? emptyPopupState(), transientError);
   await refreshState(transientError);
 }
 
@@ -184,15 +212,29 @@ async function requestOptionalNetworkFallbackPermission(): Promise<void> {
 }
 
 async function refreshState(errorOverride?: string): Promise<void> {
-  if (requestInFlight) {
+  if (requestInFlight || refreshInFlight) {
     return;
   }
 
+  refreshInFlight = true;
+  const revision = ++requestRevision;
+
   try {
     const response = await sendPopupMessage("jl/popup-get-state");
-    renderState(response.state, errorOverride ?? response.error);
+
+    if (revision === requestRevision) {
+      localRecordingOperation = null;
+      renderState(response.state, errorOverride ?? response.error);
+    }
   } catch (error: unknown) {
-    renderState(emptyPopupState(), errorOverride ?? (error instanceof Error ? error.message : String(error)));
+    if (revision === requestRevision) {
+      renderState(
+        renderedState ?? emptyPopupState(),
+        errorOverride ?? (error instanceof Error ? error.message : String(error))
+      );
+    }
+  } finally {
+    refreshInFlight = false;
   }
 }
 
@@ -264,7 +306,7 @@ async function persistTitleEdit(): Promise<void> {
   }
 
   requestInFlight = true;
-  setButtonsDisabled(true);
+  syncRecordingControls(renderedState);
   let transientError: string | undefined;
 
   try {
@@ -288,11 +330,13 @@ async function persistTitleEdit(): Promise<void> {
 }
 
 function renderState(state: PopupState, error?: string): void {
+  renderedState = state;
   const activeSession = state.activeSession;
   const canEditDraftTitle = state.canStart && !requestInFlight;
+  const visiblePhase = state.recordingOperation ?? activeSession?.phase ?? "idle";
 
-  statusBadge.textContent = activeSession?.phase ?? "idle";
-  statusBadge.dataset.phase = activeSession?.phase ?? "idle";
+  statusBadge.textContent = visiblePhase;
+  statusBadge.dataset.phase = visiblePhase;
 
   cloudStatus.textContent =
     state.cloud.status === "signed-in"
@@ -347,6 +391,7 @@ function renderState(state: PopupState, error?: string): void {
     .join("\n") || "—";
   artifactValue.textContent = artifactText;
   artifactValue.title = artifactText;
+  messageValue.setAttribute("role", error ? "alert" : "status");
 
   if (error) {
     setStatusMessage(error);
@@ -379,28 +424,7 @@ function renderState(state: PopupState, error?: string): void {
     messageValue.dataset.tone = "neutral";
   }
 
-  startButton.disabled = requestInFlight || !state.canStart;
-  soundToggle.disabled = requestInFlight || !state.canStart;
-  for (const targetButton of targetButtons) {
-    targetButton.disabled = requestInFlight || !state.canStart;
-  }
-  syncCaptureTargetButtons();
-  const isRecording = activeSession?.phase === "recording";
-  const isPaused = activeSession?.phase === "paused";
-  const canControlRecording = isRecording || isPaused;
-  stopButton.disabled = requestInFlight || !canControlRecording || !state.canStop;
-  pauseButton.disabled = requestInFlight || !canControlRecording;
-  abortButton.disabled = requestInFlight || !canControlRecording;
-  startButton.hidden = !state.canStart;
-  stopButton.hidden = !canControlRecording;
-  pauseButton.hidden = !canControlRecording;
-  abortButton.hidden = !canControlRecording;
-  pauseButton.dataset.mode = isPaused ? "resume" : "pause";
-  pauseButton.title = isPaused ? "Resume recording" : "Pause recording";
-  pauseButton.setAttribute("aria-label", pauseButton.title);
-  pauseLabel.textContent = isPaused ? "Resume recording" : "Pause recording";
-  pauseIcon.toggleAttribute("hidden", isPaused);
-  resumeIcon.toggleAttribute("hidden", !isPaused);
+  syncRecordingControls(state);
 }
 
 function setCaptureTarget(captureTarget: CaptureTarget): void {
@@ -421,16 +445,72 @@ function readDraftSessionName(): { name?: string } {
   return name ? { name } : {};
 }
 
-function setButtonsDisabled(disabled: boolean): void {
-  startButton.disabled = disabled;
-  soundToggle.disabled = disabled;
+function syncRecordingControls(state: PopupState | null): void {
+  const controls = deriveRecordingControlState(state, localRecordingOperation);
+  const forceDisabled = requestInFlight;
+
+  syncButton(startButton, startLabel, controls.start, forceDisabled);
+  syncButton(stopButton, stopLabel, controls.finish, forceDisabled);
+  syncButton(pauseButton, pauseLabel, controls.pause, forceDisabled);
+  syncIconButton(abortButton, controls.abort, forceDisabled);
+
+  soundToggle.disabled = forceDisabled || controls.busy || !state?.canStart;
   for (const targetButton of targetButtons) {
-    targetButton.disabled = disabled;
+    targetButton.disabled = forceDisabled || controls.busy || !state?.canStart;
   }
-  stopButton.disabled = disabled;
-  pauseButton.disabled = disabled;
-  abortButton.disabled = disabled;
-  cloudMenuButton.disabled = disabled;
+  syncCaptureTargetButtons();
+
+  pauseButton.dataset.mode = controls.pause.mode;
+  pauseButton.title = controls.pause.label;
+  pauseButton.setAttribute("aria-label", controls.pause.label);
+  pauseIcon.toggleAttribute("hidden", controls.pause.mode === "resume" || controls.pause.loading);
+  resumeIcon.toggleAttribute("hidden", controls.pause.mode === "pause" || controls.pause.loading);
+  statusBadge.setAttribute("aria-busy", String(controls.busy));
+}
+
+function syncButton(
+  button: HTMLButtonElement,
+  label: HTMLSpanElement,
+  control: { visible: boolean; disabled: boolean; loading: boolean; label: string },
+  forceDisabled: boolean
+): void {
+  button.hidden = !control.visible;
+  button.disabled = forceDisabled || control.disabled;
+  button.dataset.loading = String(control.loading);
+  button.setAttribute("aria-busy", String(control.loading));
+  label.textContent = control.label;
+}
+
+function syncIconButton(
+  button: HTMLButtonElement,
+  control: { visible: boolean; disabled: boolean; loading: boolean; label: string },
+  forceDisabled: boolean
+): void {
+  button.hidden = !control.visible;
+  button.disabled = forceDisabled || control.disabled;
+  button.dataset.loading = String(control.loading);
+  button.setAttribute("aria-busy", String(control.loading));
+  button.title = control.label;
+  button.setAttribute("aria-label", control.label);
+}
+
+function operationForAction(type: string): RecordingOperation | null {
+  switch (type) {
+    case "jl/popup-start-recording":
+      return "starting";
+    case "jl/popup-stop-recording":
+      return "stopping";
+    case "jl/popup-pause-recording":
+      return "pausing";
+    case "jl/popup-resume-recording":
+      return "resuming";
+    case "jl/popup-abort-recording":
+      return "aborting";
+    case "jl/popup-retry-upload":
+      return "retrying-upload";
+    default:
+      return null;
+  }
 }
 
 function setStatusMessage(message: string): void {
@@ -480,7 +560,8 @@ function emptyPopupState(): PopupState {
       status: "unknown",
       checkedAt: new Date().toISOString()
     },
-    canStart: true,
+    recordingOperation: null,
+    canStart: false,
     canStop: false
   };
 }

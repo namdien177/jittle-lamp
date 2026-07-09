@@ -1,4 +1,9 @@
-import { offscreenRequestSchema, type SessionArchive } from "@jittle-lamp/shared";
+import {
+  offscreenRequestSchema,
+  type OffscreenRequest,
+  type OffscreenResponse,
+  type SessionArchive
+} from "@jittle-lamp/shared";
 
 declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
 declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
@@ -14,6 +19,9 @@ const cloudWebOrigin = (
     ? __JITTLE_LAMP_WEB_ORIGIN__.trim()
     : "https://jittlelamp.dev"
 ).replace(/\/+$/, "");
+const healthRequestTimeoutMs = 2_000;
+const cloudControlRequestTimeoutMs = 15_000;
+const artifactUploadTimeoutMs = 2 * 60 * 1_000;
 
 type ChromeTabCaptureTrackConstraints = MediaTrackConstraints & {
   mandatory: {
@@ -95,6 +103,32 @@ type VideoThumbnail = {
   durationMs: number | null;
 };
 
+type StopAndExportRequest = Extract<OffscreenRequest, { type: "jl/offscreen-stop-and-export" }>;
+
+type RecorderStartOperation = {
+  sessionId: string;
+  promise: Promise<void>;
+};
+
+type RecorderStopOperation = {
+  sessionId: string;
+  promise: Promise<Blob>;
+};
+
+type StopAndExportOperation = {
+  sessionId: string;
+  promise: Promise<OffscreenResponse>;
+  status: "pending" | "settled";
+};
+
+type StartRecorderInput = {
+  sessionId: string;
+  streamId?: string;
+  captureTarget: CaptureTarget;
+  captureAudio: boolean;
+  playCapturedAudio: boolean;
+};
+
 const thumbnailMimeType = "image/jpeg";
 const thumbnailWidth = 240;
 const thumbnailHeight = 135;
@@ -102,6 +136,10 @@ const thumbnailCandidateSeconds = [2.5, 3, 4, 1, 0] as const;
 
 let activeRecorderState: ActiveRecorderState | null = null;
 let pendingCloudRetry: PendingCloudRetry | null = null;
+let recorderStartOperation: RecorderStartOperation | null = null;
+let recorderStopOperation: RecorderStopOperation | null = null;
+let completedRecording: { sessionId: string; blob: Blob } | null = null;
+let stopAndExportOperation: StopAndExportOperation | null = null;
 
 chrome.runtime.onMessage.addListener((rawMessage, _sender, sendResponse) => {
   const parsed = offscreenRequestSchema.safeParse(rawMessage);
@@ -123,16 +161,8 @@ chrome.runtime.onMessage.addListener((rawMessage, _sender, sendResponse) => {
 });
 
 async function handleRequest(
-  request: ReturnType<typeof offscreenRequestSchema.parse>
-): Promise<{
-  ok: boolean;
-  recordingBytes?: number;
-  eventBytes?: number;
-  destination?: "cloud" | "companion" | "downloads";
-  outputDir?: string;
-  cloudUrl?: string;
-  error?: string;
-}> {
+  request: OffscreenRequest
+): Promise<OffscreenResponse> {
   switch (request.type) {
     case "jl/offscreen-start-recording":
       await startRecorder({
@@ -144,70 +174,8 @@ async function handleRequest(
       });
       return { ok: true };
 
-    case "jl/offscreen-stop-and-export": {
-      const recordingBlob = await stopRecorder(request.sessionId);
-      const videoDurationMs = await readVideoDurationMs(recordingBlob);
-      const finalized = finalizeArchiveForExport(
-        request.archive,
-        recordingBlob.size,
-        recordingBlob.type || "video/webm",
-        videoDurationMs
-      );
-
-      const cloudUploadResult = await tryWriteArtifactsToCloud(
-        finalized.archive,
-        recordingBlob,
-        finalized.jsonBlob,
-        request.cloudAuthToken
-      );
-
-      if (request.cloudRequired && !request.cloudAuthToken) {
-        throw new Error("Cloud upload was required, but no extension auth token was available.");
-      }
-
-      if (!cloudUploadResult.saved && (request.cloudAuthToken || request.cloudRequired)) {
-        pendingCloudRetry = {
-          sessionId: request.sessionId,
-          archive: finalized.archive,
-          recordingBlob,
-          jsonBlob: finalized.jsonBlob,
-          ...(cloudUploadResult.evidenceId ? { evidenceId: cloudUploadResult.evidenceId } : {})
-        };
-        throw new Error(cloudUploadResult.error);
-      }
-
-      const companionResult = cloudUploadResult.saved
-        ? cloudUploadResult
-        : await tryWriteArtifactsToCompanion(
-        finalized.archive,
-        recordingBlob,
-        finalized.jsonBlob
-      );
-
-      if (!companionResult.saved) {
-        await Promise.all([
-          downloadBlob(
-            recordingBlob,
-            artifactPath(finalized.archive, "recording.webm"),
-            "video/webm"
-          ),
-          downloadBlob(
-            finalized.jsonBlob,
-            artifactPath(finalized.archive, "session.archive.json"),
-            "application/json"
-          )
-        ]);
-      }
-
-      return {
-        ok: true,
-        recordingBytes: recordingBlob.size,
-        eventBytes: finalized.jsonBlob.size,
-        destination: companionResult.saved ? companionResult.destination : "downloads",
-        ...(companionResult.saved && companionResult.destination === "cloud" ? { cloudUrl: companionResult.cloudUrl } : {}),
-        ...(companionResult.saved && companionResult.destination === "companion" ? { outputDir: companionResult.outputDir } : {})
-      };
-    }
+    case "jl/offscreen-stop-and-export":
+      return stopAndExport(request);
 
     case "jl/offscreen-pause-recording":
       await pauseRecorder(request.sessionId);
@@ -259,6 +227,105 @@ async function handleRequest(
   }
 }
 
+function stopAndExport(request: StopAndExportRequest): Promise<OffscreenResponse> {
+  const existingOperation = stopAndExportOperation;
+
+  if (existingOperation) {
+    if (existingOperation.sessionId === request.sessionId) {
+      return existingOperation.promise;
+    }
+
+    return Promise.reject(new Error("Another recording session is already being finalized."));
+  }
+
+  const promise = performStopAndExport(request);
+  const operation: StopAndExportOperation = {
+    sessionId: request.sessionId,
+    promise,
+    status: "pending"
+  };
+  stopAndExportOperation = operation;
+  void promise.then(
+    () => {
+      if (stopAndExportOperation === operation) {
+        operation.status = "settled";
+      }
+    },
+    () => {
+      if (stopAndExportOperation === operation) {
+        operation.status = "settled";
+      }
+    }
+  );
+
+  return promise;
+}
+
+async function performStopAndExport(request: StopAndExportRequest): Promise<OffscreenResponse> {
+  const recordingBlob = await stopRecorder(request.sessionId);
+  const videoDurationMs = await readVideoDurationMs(recordingBlob);
+  const finalized = finalizeArchiveForExport(
+    request.archive,
+    recordingBlob.size,
+    recordingBlob.type || "video/webm",
+    videoDurationMs
+  );
+
+  const cloudUploadResult = await tryWriteArtifactsToCloud(
+    finalized.archive,
+    recordingBlob,
+    finalized.jsonBlob,
+    request.cloudAuthToken
+  );
+
+  if (request.cloudRequired && !request.cloudAuthToken) {
+    throw new Error("Cloud upload was required, but no extension auth token was available.");
+  }
+
+  if (!cloudUploadResult.saved && (request.cloudAuthToken || request.cloudRequired)) {
+    pendingCloudRetry = {
+      sessionId: request.sessionId,
+      archive: finalized.archive,
+      recordingBlob,
+      jsonBlob: finalized.jsonBlob,
+      ...(cloudUploadResult.evidenceId ? { evidenceId: cloudUploadResult.evidenceId } : {})
+    };
+    throw new Error(cloudUploadResult.error);
+  }
+
+  const companionResult = cloudUploadResult.saved
+    ? cloudUploadResult
+    : await tryWriteArtifactsToCompanion(
+        finalized.archive,
+        recordingBlob,
+        finalized.jsonBlob
+      );
+
+  if (!companionResult.saved) {
+    await Promise.all([
+      downloadBlob(
+        recordingBlob,
+        artifactPath(finalized.archive, "recording.webm"),
+        "video/webm"
+      ),
+      downloadBlob(
+        finalized.jsonBlob,
+        artifactPath(finalized.archive, "session.archive.json"),
+        "application/json"
+      )
+    ]);
+  }
+
+  return {
+    ok: true,
+    recordingBytes: recordingBlob.size,
+    eventBytes: finalized.jsonBlob.size,
+    destination: companionResult.saved ? companionResult.destination : "downloads",
+    ...(companionResult.saved && companionResult.destination === "cloud" ? { cloudUrl: companionResult.cloudUrl } : {}),
+    ...(companionResult.saved && companionResult.destination === "companion" ? { outputDir: companionResult.outputDir } : {})
+  };
+}
+
 async function tryWriteArtifactsToCloud(
   archive: SessionArchive,
   recordingBlob: Blob,
@@ -273,18 +340,11 @@ async function tryWriteArtifactsToCloud(
   let startedEvidenceId: string | undefined;
 
   try {
-    const meResponse = await fetchCloud("Cloud auth check", `${cloudApiOrigin}/protected/me`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${authToken}` }
-    });
-
-    if (!meResponse.ok) {
-      return { saved: false, error: await responseErrorSummary(meResponse, "Cloud auth check failed") };
-    }
-
-    const recordingChecksum = await sha256Hex(await recordingBlob.arrayBuffer());
-    const archiveChecksum = await sha256Hex(await jsonBlob.arrayBuffer());
-    const thumbnail = await createVideoThumbnail(recordingBlob);
+    const [recordingChecksum, archiveChecksum, thumbnail] = await Promise.all([
+      sha256Blob(recordingBlob),
+      sha256Blob(jsonBlob),
+      createVideoThumbnail(recordingBlob)
+    ]);
 
     const startResponse = await fetchCloud("Cloud upload start", `${cloudApiOrigin}/evidences/desktop-sessions/sync/start`, {
       method: "POST",
@@ -323,45 +383,24 @@ async function tryWriteArtifactsToCloud(
     const payload = (await startResponse.json()) as CloudUploadStartPayload;
     startedEvidenceId = payload.evidenceId;
 
-    for (const session of payload.uploadSessions) {
-      const blob = session.key === "recording" ? recordingBlob : jsonBlob;
-      const putResponse = await fetchCloud(`Cloud artifact upload (${session.key})`, normalizeCloudUploadUrl(session.uploadUrl), {
-        method: "PUT",
-        headers: {
-          authorization: `Bearer ${authToken}`,
-          "content-type": session.headers["content-type"]
-        },
-        body: blob
-      });
-      if (!putResponse.ok) {
-        return {
-          saved: false,
-          error: await responseErrorSummary(putResponse, "Cloud artifact upload failed"),
-          evidenceId: payload.evidenceId
-        };
-      }
+    const uploadErrors = await Promise.all(
+      payload.uploadSessions.map((session) => uploadCloudArtifactSession({
+        session,
+        authToken,
+        recordingBlob,
+        jsonBlob,
+        recordingChecksum,
+        archiveChecksum
+      }))
+    );
+    const uploadError = uploadErrors.find((error): error is string => typeof error === "string");
 
-      const checksum = session.key === "recording" ? recordingChecksum : archiveChecksum;
-      const completeResponse = await fetchCloud(`Cloud artifact completion (${session.key})`, `${cloudApiOrigin}/evidences/uploads/${encodeURIComponent(session.uploadId)}/complete`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${authToken}`,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          bytes: blob.size,
-          checksum,
-          mimeType: session.headers["content-type"]
-        })
-      });
-
-      if (!completeResponse.ok) {
-        return {
-          saved: false,
-          error: await responseErrorSummary(completeResponse, "Cloud artifact completion failed"),
-          evidenceId: payload.evidenceId
-        };
-      }
+    if (uploadError) {
+      return {
+        saved: false,
+        error: uploadError,
+        evidenceId: payload.evidenceId
+      };
     }
 
     return {
@@ -379,12 +418,71 @@ async function tryWriteArtifactsToCloud(
   }
 }
 
-async function fetchCloud(label: string, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function uploadCloudArtifactSession(input: {
+  session: CloudUploadStartPayload["uploadSessions"][number];
+  authToken: string;
+  recordingBlob: Blob;
+  jsonBlob: Blob;
+  recordingChecksum: string;
+  archiveChecksum: string;
+}): Promise<string | null> {
+  const { session, authToken, recordingBlob, jsonBlob, recordingChecksum, archiveChecksum } = input;
+  const blob = session.key === "recording" ? recordingBlob : jsonBlob;
+  const checksum = session.key === "recording" ? recordingChecksum : archiveChecksum;
+
   try {
-    return await fetch(input, init);
+    const putResponse = await fetchCloud(
+      `Cloud artifact upload (${session.key})`,
+      normalizeCloudUploadUrl(session.uploadUrl),
+      {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${authToken}`,
+          "content-type": session.headers["content-type"]
+        },
+        body: blob
+      },
+      artifactUploadTimeoutMs
+    );
+
+    if (!putResponse.ok) {
+      return await responseErrorSummary(putResponse, "Cloud artifact upload failed");
+    }
+
+    const completeResponse = await fetchCloud(
+      `Cloud artifact completion (${session.key})`,
+      `${cloudApiOrigin}/evidences/uploads/${encodeURIComponent(session.uploadId)}/complete`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${authToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          bytes: blob.size,
+          checksum,
+          mimeType: session.headers["content-type"]
+        })
+      }
+    );
+
+    if (!completeResponse.ok) {
+      return await responseErrorSummary(completeResponse, "Cloud artifact completion failed");
+    }
+
+    return null;
   } catch (error: unknown) {
-    throw new Error(`${label} failed: ${errorMessage(error)}`);
+    return errorMessage(error);
   }
+}
+
+async function fetchCloud(
+  label: string,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = cloudControlRequestTimeoutMs
+): Promise<Response> {
+  return fetchWithTimeout(label, input, init, timeoutMs);
 }
 
 function normalizeCloudUploadUrl(uploadUrl: string): string {
@@ -440,6 +538,51 @@ async function responseErrorSummary(response: Response, label: string): Promise<
   } catch {
     return `${label} with ${status}.`;
   }
+}
+
+async function fetchWithTimeout(
+  label: string,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const externalSignal = init?.signal;
+  let timedOut = false;
+  const abortFromExternalSignal = (): void => {
+    controller.abort(externalSignal?.reason);
+  };
+
+  if (externalSignal?.aborted) {
+    abortFromExternalSignal();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternalSignal, { once: true });
+  }
+
+  const timeoutId = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (error: unknown) {
+    if (timedOut) {
+      throw new Error(`${label} timed out after ${Math.round(timeoutMs / 1_000)} seconds.`);
+    }
+
+    throw new Error(`${label} failed: ${errorMessage(error)}`);
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+    externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+  }
+}
+
+async function sha256Blob(blob: Blob): Promise<string> {
+  return sha256Hex(await blob.arrayBuffer());
 }
 
 async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
@@ -653,7 +796,12 @@ async function tryWriteArtifactsToCompanion(
   jsonBlob: Blob
 ): Promise<CompanionWriteResult> {
   try {
-    const healthResponse = await fetch(`${companionServerOrigin}/health`);
+    const healthResponse = await fetchWithTimeout(
+      "Companion health check",
+      `${companionServerOrigin}/health`,
+      undefined,
+      healthRequestTimeoutMs
+    );
 
     if (!healthResponse.ok) {
       return { saved: false };
@@ -694,7 +842,8 @@ async function uploadArtifactToCompanion(
   blob: Blob,
   contentType: string
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
+    `Companion artifact upload (${artifactName})`,
     `${companionServerOrigin}/api/sessions/${encodeURIComponent(sessionId)}/${artifactName}`,
     {
       method: "PUT",
@@ -702,7 +851,8 @@ async function uploadArtifactToCompanion(
         "content-type": contentType
       },
       body: blob
-    }
+    },
+    artifactUploadTimeoutMs
   );
 
   if (!response.ok) {
@@ -710,74 +860,176 @@ async function uploadArtifactToCompanion(
   }
 }
 
-async function startRecorder(input: {
-  sessionId: string;
-  streamId?: string;
-  captureTarget: CaptureTarget;
-  captureAudio: boolean;
-  playCapturedAudio: boolean;
-}): Promise<void> {
-  const { sessionId, streamId, captureTarget, captureAudio, playCapturedAudio } = input;
+function startRecorder(input: StartRecorderInput): Promise<void> {
+  const { sessionId } = input;
 
-  if (activeRecorderState?.sessionId === sessionId) {
-    return;
+  if (recorderStopOperation) {
+    return Promise.reject(new Error("The offscreen recording is already stopping."));
+  }
+
+  if (recorderStartOperation) {
+    return recorderStartOperation.sessionId === sessionId
+      ? recorderStartOperation.promise
+      : Promise.reject(new Error("Another offscreen recording is already starting."));
   }
 
   if (activeRecorderState) {
-    throw new Error("An offscreen recording is already active.");
+    return activeRecorderState.sessionId === sessionId
+      ? Promise.resolve()
+      : Promise.reject(new Error("An offscreen recording is already active."));
   }
 
+  try {
+    prepareForRecorderStart(sessionId);
+  } catch (error: unknown) {
+    return Promise.reject(error);
+  }
+
+  const promise = performStartRecorder(input);
+  const operation: RecorderStartOperation = { sessionId, promise };
+  recorderStartOperation = operation;
+  void promise.then(
+    () => {
+      if (recorderStartOperation === operation) {
+        recorderStartOperation = null;
+      }
+    },
+    () => {
+      if (recorderStartOperation === operation) {
+        recorderStartOperation = null;
+      }
+    }
+  );
+
+  return promise;
+}
+
+function prepareForRecorderStart(sessionId: string): void {
+  const exportOperation = stopAndExportOperation;
+
+  if (exportOperation?.status === "pending") {
+    throw new Error("The previous offscreen recording is still being finalized.");
+  }
+
+  if (exportOperation?.sessionId === sessionId || completedRecording?.sessionId === sessionId) {
+    throw new Error("This offscreen recording session has already stopped.");
+  }
+
+  if (exportOperation) {
+    stopAndExportOperation = null;
+  }
+
+  if (completedRecording) {
+    completedRecording = null;
+  }
+
+  if (pendingCloudRetry?.sessionId !== sessionId) {
+    pendingCloudRetry = null;
+  }
+}
+
+async function performStartRecorder(input: StartRecorderInput): Promise<void> {
+  const { sessionId, streamId, captureTarget, captureAudio, playCapturedAudio } = input;
   const stream = await getRecorderMediaStream({
     captureTarget,
     captureAudio,
     ...(streamId ? { streamId } : {})
   });
-  const audioContext = playCapturedAudio ? keepCapturedAudioAudible(stream) : null;
+  let audioContext: AudioContext | null = null;
 
-  const mimeType = preferredMimeType();
-  const chunks: Blob[] = [];
-  let resolveStop: ((blob: Blob) => void) | null = null;
-  let rejectStop: ((error: Error) => void) | null = null;
+  try {
+    audioContext = playCapturedAudio ? keepCapturedAudioAudible(stream) : null;
+    const mimeType = preferredMimeType();
+    const chunks: Blob[] = [];
+    let resolveStop: ((blob: Blob) => void) | null = null;
+    let rejectStop: ((error: Error) => void) | null = null;
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+    const stopPromise = new Promise<Blob>((resolve, reject) => {
+      resolveStop = resolve;
+      rejectStop = reject;
+    });
 
-  const recorder = mimeType
-    ? new MediaRecorder(stream, { mimeType })
-    : new MediaRecorder(stream);
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    });
 
-  const stopPromise = new Promise<Blob>((resolve, reject) => {
-    resolveStop = resolve;
-    rejectStop = reject;
-  });
+    recorder.addEventListener("stop", () => {
+      resolveStop?.(new Blob(chunks, { type: recorder.mimeType || "video/webm" }));
+    });
 
-  recorder.addEventListener("dataavailable", (event) => {
-    if (event.data.size > 0) {
-      chunks.push(event.data);
-    }
-  });
+    recorder.addEventListener("error", (event) => {
+      const message = event.error?.message || "MediaRecorder failed in the offscreen document.";
+      rejectStop?.(new Error(message));
+    });
 
-  recorder.addEventListener("stop", () => {
-    resolveStop?.(new Blob(chunks, { type: recorder.mimeType || "video/webm" }));
-  });
-
-  recorder.addEventListener("error", (event) => {
-    const message = event.error?.message || "MediaRecorder failed in the offscreen document.";
-    rejectStop?.(new Error(message));
-  });
-
-  recorder.start(1000);
-
-  activeRecorderState = {
-    sessionId,
-    stream,
-    recorder,
-    chunks,
-    stopPromise,
-    audioContext
-  };
+    recorder.start(1000);
+    activeRecorderState = {
+      sessionId,
+      stream,
+      recorder,
+      chunks,
+      stopPromise,
+      audioContext
+    };
+  } catch (error: unknown) {
+    stream.getTracks().forEach((track) => track.stop());
+    void audioContext?.close().catch(() => undefined);
+    throw error;
+  }
 }
 
-async function stopRecorder(sessionId: string): Promise<Blob> {
-  const recorderState = activeRecorderState;
+function stopRecorder(sessionId: string): Promise<Blob> {
+  if (recorderStopOperation) {
+    return recorderStopOperation.sessionId === sessionId
+      ? recorderStopOperation.promise
+      : Promise.reject(new Error("Another offscreen recording is already stopping."));
+  }
 
+  if (completedRecording?.sessionId === sessionId) {
+    return Promise.resolve(completedRecording.blob);
+  }
+
+  const startOperation = recorderStartOperation;
+  if (startOperation && startOperation.sessionId !== sessionId) {
+    return Promise.reject(new Error("Another offscreen recording is already starting."));
+  }
+
+  if (activeRecorderState && activeRecorderState.sessionId !== sessionId) {
+    return Promise.reject(new Error("Another offscreen recording is active."));
+  }
+
+  const promise = performStopRecorder(sessionId, startOperation);
+  const operation: RecorderStopOperation = { sessionId, promise };
+  recorderStopOperation = operation;
+  void promise.then(
+    () => {
+      if (recorderStopOperation === operation) {
+        recorderStopOperation = null;
+      }
+    },
+    () => {
+      if (recorderStopOperation === operation) {
+        recorderStopOperation = null;
+      }
+    }
+  );
+
+  return promise;
+}
+
+async function performStopRecorder(
+  sessionId: string,
+  startOperation: RecorderStartOperation | null
+): Promise<Blob> {
+  if (startOperation) {
+    await startOperation.promise;
+  }
+
+  const recorderState = activeRecorderState;
   if (!recorderState || recorderState.sessionId !== sessionId) {
     throw new Error("No matching offscreen recording session is active.");
   }
@@ -789,11 +1041,11 @@ async function stopRecorder(sessionId: string): Promise<Blob> {
       recorderState.recorder.stop();
     }
 
-    return await recorderState.stopPromise;
+    const blob = await recorderState.stopPromise;
+    completedRecording = { sessionId, blob };
+    return blob;
   } finally {
-    recorderState.stream.getTracks().forEach((track) => {
-      track.stop();
-    });
+    recorderState.stream.getTracks().forEach((track) => track.stop());
     void recorderState.audioContext?.close().catch(() => undefined);
   }
 }

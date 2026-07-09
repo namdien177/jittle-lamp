@@ -124,7 +124,10 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.phase-pill[data-phase="armed"] {
+.phase-pill[data-phase="armed"],
+.phase-pill[data-phase="starting"],
+.phase-pill[data-phase="pausing"],
+.phase-pill[data-phase="resuming"] {
   background: var(--warning-dim);
   color: var(--warning);
   border-color: rgba(245, 158, 11, 0.2);
@@ -136,7 +139,9 @@ h1 {
   border-color: rgba(34, 197, 94, 0.2);
 }
 
-.phase-pill[data-phase="processing"] {
+.phase-pill[data-phase="processing"],
+.phase-pill[data-phase="stopping"],
+.phase-pill[data-phase="retrying-upload"] {
   background: var(--warning-dim);
   color: var(--warning);
   border-color: rgba(245, 158, 11, 0.2);
@@ -593,6 +598,32 @@ h1 {
   cursor: default;
 }
 
+.button[data-loading="true"]:disabled {
+  opacity: 0.82;
+}
+
+.button[data-loading="true"] > svg {
+  display: none;
+}
+
+.button[data-loading="true"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: button-spin 700ms linear infinite;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .button[hidden],
 .companion-download[hidden] {
   display: none;
@@ -628,5 +659,21 @@ h1 {
   to {
     opacity: 1;
     transform: translateX(0) scaleX(1);
+  }
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 1.5s !important;
   }
 }

@@ -22,24 +22,12 @@ export function createDraftStorageCheckpoint(
   if (estimateSerializedBytes(bestCheckpoint) > maxBytes) {
     bestCheckpoint = reduceAnchorEventsToFit(redactedDraft, selectedIndices, maxBytes);
   } else {
-    const growingSelection = new Set(selectedIndices);
-
-    for (let index = redactedDraft.events.length - 1; index >= 0; index -= 1) {
-      if (growingSelection.has(index)) {
-        continue;
-      }
-
-      growingSelection.add(index);
-      const candidate = checkpointFromIndices(redactedDraft, Array.from(growingSelection));
-
-      if (estimateSerializedBytes(candidate) <= maxBytes) {
-        bestCheckpoint = candidate;
-        continue;
-      }
-
-      growingSelection.delete(index);
-      break;
-    }
+    bestCheckpoint = fillCheckpointWithRecentEvents(
+      redactedDraft,
+      selectedIndices,
+      maxBytes,
+      bestCheckpoint
+    );
   }
 
   if (estimateSerializedBytes(bestCheckpoint) <= maxBytes) {
@@ -52,6 +40,43 @@ export function createDraftStorageCheckpoint(
     ...redactedDraft,
     events: latestEvent ? [latestEvent] : []
   };
+}
+
+function fillCheckpointWithRecentEvents(
+  draft: CaptureSessionDraft,
+  anchorIndices: number[],
+  maxBytes: number,
+  anchorCheckpoint: CaptureSessionDraft
+): CaptureSessionDraft {
+  const anchors = new Set(anchorIndices);
+  const recentIndices: number[] = [];
+
+  for (let index = draft.events.length - 1; index >= 0; index -= 1) {
+    if (!anchors.has(index)) {
+      recentIndices.push(index);
+    }
+  }
+
+  let bestCheckpoint = anchorCheckpoint;
+  let low = 0;
+  let high = recentIndices.length;
+
+  while (low <= high) {
+    const count = Math.floor((low + high) / 2);
+    const candidate = checkpointFromIndices(draft, [
+      ...anchorIndices,
+      ...recentIndices.slice(0, count)
+    ]);
+
+    if (estimateSerializedBytes(candidate) <= maxBytes) {
+      bestCheckpoint = candidate;
+      low = count + 1;
+    } else {
+      high = count - 1;
+    }
+  }
+
+  return bestCheckpoint;
 }
 
 function redactDurableDraft(draft: CaptureSessionDraft): CaptureSessionDraft {

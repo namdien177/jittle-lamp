@@ -106,6 +106,15 @@ export const cloudAuthStateSchema = z.object({
   error: z.string().min(1).optional()
 });
 
+export const recordingOperationSchema = z.enum([
+  "starting",
+  "stopping",
+  "pausing",
+  "resuming",
+  "aborting",
+  "retrying-upload"
+]);
+
 export const popupStateSchema = z.object({
   activeSession: popupSessionSummarySchema.nullable(),
   companion: companionStateSchema,
@@ -113,6 +122,7 @@ export const popupStateSchema = z.object({
     status: "unknown",
     checkedAt: "1970-01-01T00:00:00.000Z"
   }),
+  recordingOperation: recordingOperationSchema.nullable().default(null),
   canStart: z.boolean(),
   canStop: z.boolean()
 });
@@ -242,6 +252,7 @@ export type PopupResponse = z.infer<typeof popupResponseSchema>;
 export type PopupSessionSummary = z.infer<typeof popupSessionSummarySchema>;
 export type CompanionState = z.infer<typeof companionStateSchema>;
 export type CloudAuthState = z.infer<typeof cloudAuthStateSchema>;
+export type RecordingOperation = z.infer<typeof recordingOperationSchema>;
 export type PopupState = z.infer<typeof popupStateSchema>;
 export type BackgroundToContentMessage = z.infer<typeof backgroundToContentMessageSchema>;
 export type ContentRuntimeMessage = z.infer<typeof contentRuntimeMessageSchema>;

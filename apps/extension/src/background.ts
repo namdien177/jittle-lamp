@@ -26,6 +26,7 @@ import {
 } from "@jittle-lamp/shared";
 
 import { createDraftStorageCheckpoint } from "./draft-storage";
+import { RecordingLifecycle } from "./recording-lifecycle";
 
 declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
 declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
@@ -91,6 +92,7 @@ let companionStateCacheExpiresAt = 0;
 let companionStateProbePromise: Promise<CompanionState> | null = null;
 let webRequestFallbackListenersRegistered = false;
 let activeCaptureTarget: CaptureTarget = "tab";
+const recordingLifecycle = new RecordingLifecycle();
 
 function authDebugLog(event: string, details: Record<string, unknown> = {}): void {
   console.debug("[jittle-lamp/auth]", event, details);
@@ -376,70 +378,53 @@ async function handleIncomingMessage(
         const captureTarget = popupRequest.data.captureTarget;
         const playTabAudio = popupRequest.data.playTabAudio ?? false;
         const requestSiteAccess = popupRequest.data.requestSiteAccess ?? false;
-        return queueDraftMutation(async () => {
-          try {
+        return handleRecordingOperation("starting", () =>
+          queueDraftMutation(async () => {
             await startRecordingSession(targetTabId, targetPage, {
               ...(sessionName ? { sessionName } : {}),
               captureTarget,
               playTabAudio,
               requestSiteAccess
             });
-            return buildPopupResponse(true);
-          } catch (error: unknown) {
-            return buildPopupResponse(false, errorMessage(error));
-          }
-        });
+          })
+        );
       }
 
       case "jl/popup-stop-recording":
-        return queueDraftMutation(async () => {
-          try {
+        return handleRecordingOperation("stopping", () =>
+          queueDraftMutation(async () => {
             await stopRecordingSession("Finished recording from the popup.");
-            return buildPopupResponse(true);
-          } catch (error: unknown) {
-            return buildPopupResponse(false, errorMessage(error));
-          }
-        });
+          })
+        );
 
       case "jl/popup-pause-recording":
-        return queueDraftMutation(async () => {
-          try {
+        return handleRecordingOperation("pausing", () =>
+          queueDraftMutation(async () => {
             await pauseRecordingSession();
-            return buildPopupResponse(true);
-          } catch (error: unknown) {
-            return buildPopupResponse(false, errorMessage(error));
-          }
-        });
+          })
+        );
 
       case "jl/popup-resume-recording":
-        return queueDraftMutation(async () => {
-          try {
+        return handleRecordingOperation("resuming", () =>
+          queueDraftMutation(async () => {
             await resumeRecordingSession();
-            return buildPopupResponse(true);
-          } catch (error: unknown) {
-            return buildPopupResponse(false, errorMessage(error));
-          }
-        });
+          })
+        );
 
       case "jl/popup-abort-recording":
-        return queueDraftMutation(async () => {
-          try {
+        return handleRecordingOperation("aborting", () =>
+          queueDraftMutation(async () => {
             await abortRecordingSession();
-            return buildPopupResponse(true, "Recording aborted and discarded.");
-          } catch (error: unknown) {
-            return buildPopupResponse(false, errorMessage(error));
-          }
-        });
+          }),
+          "Recording aborted and discarded."
+        );
 
       case "jl/popup-retry-upload":
-        return queueDraftMutation(async () => {
-          try {
+        return handleRecordingOperation("retrying-upload", () =>
+          queueDraftMutation(async () => {
             await retryFailedCloudUpload();
-            return buildPopupResponse(true);
-          } catch (error: unknown) {
-            return buildPopupResponse(false, errorMessage(error));
-          }
-        });
+          })
+        );
 
       case "jl/popup-start-cloud-sign-in":
         try {
@@ -473,11 +458,28 @@ async function handleIncomingMessage(
   const contentMessage = contentRuntimeMessageSchema.safeParse(rawMessage);
 
   if (contentMessage.success) {
+    if (recordingLifecycle.blocksCaptureIntake()) {
+      return { ok: true };
+    }
+
     await queueDraftMutation(() => handleContentRuntimeMessage(contentMessage.data, sender));
     return { ok: true };
   }
 
   return undefined;
+}
+
+async function handleRecordingOperation(
+  operation: Parameters<RecordingLifecycle["run"]>[0],
+  task: () => Promise<void>,
+  successMessage?: string
+): Promise<PopupResponse> {
+  try {
+    await recordingLifecycle.run(operation, task);
+    return buildPopupResponse(true, successMessage);
+  } catch (error: unknown) {
+    return buildPopupResponse(false, errorMessage(error));
+  }
 }
 
 async function startRecordingSession(
@@ -514,30 +516,33 @@ async function startRecordingSession(
   await saveDraft(draft);
 
   try {
-    if (options.requestSiteAccess) {
-      await requestOptionalNetworkCapturePermission();
-    }
+    const [, canUseWebRequestFallback] = await Promise.all([
+      ensureOffscreenDocument(),
+      options.requestSiteAccess
+        ? requestOptionalNetworkCapturePermission()
+        : hasNetworkCapturePermission()
+    ]);
 
-    const canUseWebRequestFallback = await hasNetworkCapturePermission();
     if (canUseWebRequestFallback) {
       registerWebRequestFallbackListeners();
     }
-    await ensureOffscreenDocument();
+
     await ensureRecordableTab(tab.id, "before tab capture", targetPage);
     const streamSelection = await getRecorderStreamSelection(tab.id, captureTarget, options.playTabAudio ?? false);
-    await ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: true });
     await ensureRecordableTab(tab.id, "before debugger attach", targetPage);
-    const debuggerAttached = await attachDebugger(tab.id, { canUseWebRequestFallback });
-
-    const offscreenResponse = await sendOffscreenMessage({
-      type: "jl/offscreen-start-recording",
-      sessionId: draft.sessionId,
-      tabId: tab.id,
-      captureTarget,
-      captureAudio: streamSelection.captureAudio,
-      playTabAudio: options.playTabAudio ?? false,
-      ...(streamSelection.streamId ? { streamId: streamSelection.streamId } : {})
-    });
+    const [, debuggerAttached, offscreenResponse] = await Promise.all([
+      ensureContentBridge(tab.id, draft.sessionId, { injectNetworkProbe: true }),
+      attachDebugger(tab.id, { canUseWebRequestFallback }),
+      sendOffscreenMessage({
+        type: "jl/offscreen-start-recording",
+        sessionId: draft.sessionId,
+        tabId: tab.id,
+        captureTarget,
+        captureAudio: streamSelection.captureAudio,
+        playTabAudio: options.playTabAudio ?? false,
+        ...(streamSelection.streamId ? { streamId: streamSelection.streamId } : {})
+      })
+    ]);
 
     if (!offscreenResponse.ok) {
       throw new Error(offscreenResponse.error ?? "Offscreen recorder failed to start.");
@@ -681,8 +686,11 @@ async function collectActiveTabs(): Promise<chrome.tabs.Tab[]> {
     { active: true, windowType: "normal" }
   ];
 
-  for (const query of queries) {
-    const tabs = await chrome.tabs.query(query).catch(() => []);
+  const tabLists = await Promise.all(
+    queries.map((query) => chrome.tabs.query(query).catch(() => []))
+  );
+
+  for (const tabs of tabLists) {
     for (const tab of tabs) {
       if (typeof tab.id === "number") {
         tabById.set(tab.id, tab);
@@ -709,21 +717,26 @@ async function stopRecordingSession(detail: string): Promise<void> {
   const processingDraft = transitionDraftPhase(currentDraft, "processing", detail);
   if (typeof tabId === "number") {
     clearPendingRecovery(tabId);
-    await clearPendingRecoveryAlarm(tabId);
+    stoppingTabIds.add(tabId);
   }
-  await clearMaxRecordingDurationAlarm();
-  await saveDraft(processingDraft);
 
   let keepOffscreenForRetry = false;
+  const cloudAuthSessionPromise = resolveCloudUploadSession();
 
   try {
-    if (typeof tabId === "number") {
-      stoppingTabIds.add(tabId);
-      await signalContentCaptureEnded(tabId, processingDraft.sessionId);
-      await safeDetachDebugger(tabId);
-    }
+    await Promise.all([
+      saveDraft(processingDraft),
+      clearMaxRecordingDurationAlarm(),
+      ...(typeof tabId === "number"
+        ? [
+            clearPendingRecoveryAlarm(tabId),
+            signalContentCaptureEnded(tabId, processingDraft.sessionId),
+            safeDetachDebugger(tabId)
+          ]
+        : [])
+    ]);
 
-    const cloudAuthSession = await resolveCloudUploadSession();
+    const cloudAuthSession = await cloudAuthSessionPromise;
     authDebugLog("stop-cloud-auth", {
       hasToken: Boolean(cloudAuthSession?.token),
       source: cloudAuthSession ? "extension-session" : "none",
@@ -1243,6 +1256,10 @@ async function handleContentRuntimeMessage(
   message: ReturnType<typeof contentRuntimeMessageSchema.parse>,
   sender: chrome.runtime.MessageSender
 ): Promise<void> {
+  if (recordingLifecycle.blocksCaptureIntake()) {
+    return;
+  }
+
   const currentDraft = await readDraft();
 
   if (!currentDraft) {
@@ -1381,6 +1398,10 @@ function registerWebRequestFallbackListeners(): void {
 }
 
 async function handleFallbackRequestStarted(details: chrome.webRequest.WebRequestBodyDetails): Promise<void> {
+  if (recordingLifecycle.blocksCaptureIntake()) {
+    return;
+  }
+
   if (!(await shouldCaptureFallbackNetwork(details.tabId))) {
     return;
   }
@@ -1401,6 +1422,10 @@ async function handleFallbackRequestStarted(details: chrome.webRequest.WebReques
 }
 
 async function handleFallbackRequestHeaders(details: chrome.webRequest.WebRequestHeadersDetails): Promise<void> {
+  if (recordingLifecycle.blocksCaptureIntake()) {
+    return;
+  }
+
   if (!(await shouldCaptureFallbackNetwork(details.tabId))) {
     return;
   }
@@ -1410,6 +1435,10 @@ async function handleFallbackRequestHeaders(details: chrome.webRequest.WebReques
 }
 
 async function handleFallbackResponseHeaders(details: chrome.webRequest.WebResponseHeadersDetails): Promise<void> {
+  if (recordingLifecycle.blocksCaptureIntake()) {
+    return;
+  }
+
   if (!(await shouldCaptureFallbackNetwork(details.tabId))) {
     return;
   }
@@ -1418,6 +1447,10 @@ async function handleFallbackResponseHeaders(details: chrome.webRequest.WebRespo
 }
 
 async function handleFallbackRequestCompleted(details: chrome.webRequest.WebResponseHeadersDetails): Promise<void> {
+  if (recordingLifecycle.blocksCaptureIntake()) {
+    return;
+  }
+
   if (!(await shouldCaptureFallbackNetwork(details.tabId))) {
     return;
   }
@@ -1451,6 +1484,10 @@ async function handleFallbackRequestCompleted(details: chrome.webRequest.WebResp
 }
 
 async function handleFallbackRequestFailed(details: chrome.webRequest.WebResponseErrorDetails): Promise<void> {
+  if (recordingLifecycle.blocksCaptureIntake()) {
+    return;
+  }
+
   if (!(await shouldCaptureFallbackNetwork(details.tabId))) {
     return;
   }
@@ -1655,6 +1692,10 @@ async function handleDebuggerEvent(
   method: string,
   params: unknown
 ): Promise<void> {
+  if (recordingLifecycle.blocksCaptureIntake()) {
+    return;
+  }
+
   const tabId = source.tabId;
 
   if (typeof tabId !== "number") {
@@ -2243,9 +2284,11 @@ async function attachDebugger(
 
   try {
     await debuggerApi.attach(debuggee, debuggerProtocolVersion);
-    await debuggerApi.sendCommand(debuggee, "Network.enable");
-    await debuggerApi.sendCommand(debuggee, "Runtime.enable");
-    await debuggerApi.sendCommand(debuggee, "Page.enable");
+    await Promise.all([
+      debuggerApi.sendCommand(debuggee, "Network.enable"),
+      debuggerApi.sendCommand(debuggee, "Runtime.enable"),
+      debuggerApi.sendCommand(debuggee, "Page.enable")
+    ]);
     webRequestFallbackTabIds.delete(tabId);
     return true;
   } catch (error: unknown) {
@@ -2374,18 +2417,20 @@ async function hasOffscreenDocument(): Promise<boolean> {
 }
 
 async function getActiveTab(): Promise<chrome.tabs.Tab & { id: number; url: string }> {
-  const httpCandidates = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true,
-    url: ["http://*/*", "https://*/*"]
-  });
-  const httpFallbacks = await chrome.tabs.query({
-    active: true,
-    currentWindow: true,
-    url: ["http://*/*", "https://*/*"]
-  });
-  const candidateTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const fallbackTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [httpCandidates, httpFallbacks, candidateTabs, fallbackTabs] = await Promise.all([
+    chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+      url: ["http://*/*", "https://*/*"]
+    }),
+    chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+      url: ["http://*/*", "https://*/*"]
+    }),
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }),
+    chrome.tabs.query({ active: true, currentWindow: true })
+  ]);
   const activeTab = [...httpCandidates, ...httpFallbacks].find((tab) => Boolean(tab?.id && tab.url));
   console.debug("[jittle-lamp] Active tab lookup candidates.", {
     lastFocusedWindowHttpTabs: httpCandidates.map((tab) => ({ id: tab.id, url: tab.url, windowId: tab.windowId })),
@@ -3327,23 +3372,29 @@ function toPopupState(
   companion: CompanionState,
   cloud: CloudAuthState
 ): PopupState {
+  const recordingOperation = recordingLifecycle.current();
+
   if (!activeSession) {
     return {
       activeSession: null,
       companion,
       cloud,
-      canStart: true,
+      recordingOperation,
+      canStart: recordingOperation === null,
       canStop: false
     };
   }
 
-  const canStop = activeSession.phase === "armed" || activeSession.phase === "recording" || activeSession.phase === "paused";
-  const canStart = !isSessionBusy(activeSession);
+  const canStop =
+    recordingOperation === null &&
+    (activeSession.phase === "armed" || activeSession.phase === "recording" || activeSession.phase === "paused");
+  const canStart = recordingOperation === null && !isSessionBusy(activeSession);
 
   return {
     activeSession: toPopupSessionSummary(activeSession),
     companion,
     cloud,
+    recordingOperation,
     canStart,
     canStop
   };
@@ -3462,18 +3513,15 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
       };
     }
 
-    const accountLabel = await readCloudAccountLabel(session.token) ?? session.accountLabel;
-    await saveCloudAuthSession({
-      token: session.token,
-      origin: session.origin,
-      ...(accountLabel ? { accountLabel } : {}),
-      ...(session.refreshToken ? { refreshToken: session.refreshToken } : {}),
-      ...(session.refreshExpiresAt ? { refreshExpiresAt: session.refreshExpiresAt } : {}),
-      expiresAt: normalizeExpirationMs(session.expiresAt) ??
-        getJwtExpirationMs(session.token) ??
-        Date.now() + 45 * 60 * 1000,
-      checkedAt
-    });
+    const accountLabel = session.accountLabel ?? await readCloudAccountLabel(session.token);
+
+    if (accountLabel && accountLabel !== session.accountLabel) {
+      await saveCloudAuthSession({
+        ...session,
+        accountLabel,
+        checkedAt
+      });
+    }
 
     return {
       status: "signed-in",
@@ -3702,6 +3750,12 @@ async function readStoredCloudAuthSession(): Promise<StoredCloudAuthSession | nu
 }
 
 async function resolveCloudUploadSession(): Promise<StoredCloudAuthSession | null> {
+  const cachedSession = readCachedCloudAuthSession("stop-export");
+
+  if (cachedSession) {
+    return cachedSession;
+  }
+
   const storedSession = await ensureFreshCloudAuthSession();
 
   if (storedSession) {
@@ -3715,10 +3769,16 @@ async function resolveCloudUploadSession(): Promise<StoredCloudAuthSession | nul
     return resumedSession;
   }
 
-  return readCachedCloudAuthSession("stop-export");
+  return null;
 }
 
 async function ensureFreshCloudAuthSession(): Promise<StoredCloudAuthSession | null> {
+  const cachedSession = readCachedCloudAuthSession("ensure-fresh");
+
+  if (cachedSession) {
+    return cachedSession;
+  }
+
   const storedSession = await readStoredCloudAuthSession();
 
   if (storedSession) {
@@ -4429,6 +4489,7 @@ async function flushDraftMutations(): Promise<void> {
 }
 
 async function resetForTests(options?: { preserveStorage?: boolean }): Promise<void> {
+  recordingLifecycle.resetForTests();
   networkRequestsByTab.clear();
   recentNetworkEventFingerprintsByTab.clear();
   stoppingTabIds.clear();

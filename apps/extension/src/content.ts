@@ -3,7 +3,8 @@ import {
   popupResponseSchema,
   sanitizeCapturedUrl,
   type PopupResponse,
-  type PopupState
+  type PopupState,
+  type RecordingOperation
 } from "@jittle-lamp/shared";
 import {
   BookOpen,
@@ -16,11 +17,14 @@ import {
   Monitor,
   Move,
   PanelTop,
+  Pause,
   Play,
   User,
   X,
   createElement
 } from "lucide";
+
+import { deriveRecordingControlState } from "./recording-control-state";
 
 declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
 
@@ -445,10 +449,14 @@ class FloatingWidgetController {
   private readonly statusText: HTMLSpanElement;
   private readonly phasePill: HTMLSpanElement;
   private readonly startButton: HTMLButtonElement;
+  private readonly startLabel: HTMLSpanElement;
   private readonly tabAudioToggleLabel: HTMLLabelElement;
   private readonly tabAudioToggle: HTMLInputElement;
   private readonly targetButtons: HTMLButtonElement[];
   private readonly stopButton: HTMLButtonElement;
+  private readonly stopLabel: HTMLSpanElement;
+  private readonly pauseButton: HTMLButtonElement;
+  private readonly pauseLabel: HTMLSpanElement;
   private readonly abortButton: HTMLButtonElement;
   private readonly recordingActions: HTMLDivElement;
   private readonly signInButton: HTMLButtonElement;
@@ -458,6 +466,11 @@ class FloatingWidgetController {
   private readonly closeButtons: HTMLButtonElement[];
   private readonly dragHandles: HTMLElement[];
   private refreshTimer: number | null = null;
+  private refreshInFlight = false;
+  private requestRevision = 0;
+  private actionInFlight = false;
+  private renderedState: PopupState | null = null;
+  private localRecordingOperation: RecordingOperation | null = null;
   private lastTitle = "";
   private compact = true;
 
@@ -500,10 +513,14 @@ class FloatingWidgetController {
     this.statusText = this.require<HTMLSpanElement>("[data-role='status']");
     this.phasePill = this.require<HTMLSpanElement>("[data-role='phase']");
     this.startButton = this.require<HTMLButtonElement>("[data-role='start']");
+    this.startLabel = this.require<HTMLSpanElement>("[data-role='start-label']");
     this.tabAudioToggleLabel = this.require<HTMLLabelElement>("[data-role='tab-audio-toggle']");
     this.tabAudioToggle = this.require<HTMLInputElement>("[data-role='tab-audio']");
     this.targetButtons = this.requireAll<HTMLButtonElement>("[data-capture-target]");
     this.stopButton = this.require<HTMLButtonElement>("[data-role='stop']");
+    this.stopLabel = this.require<HTMLSpanElement>("[data-role='stop-label']");
+    this.pauseButton = this.require<HTMLButtonElement>("[data-role='pause']");
+    this.pauseLabel = this.require<HTMLSpanElement>("[data-role='pause-label']");
     this.abortButton = this.require<HTMLButtonElement>("[data-role='abort']");
     this.recordingActions = this.require<HTMLDivElement>("[data-role='recording-actions']");
     this.signInButton = this.require<HTMLButtonElement>("[data-role='sign-in']");
@@ -516,6 +533,7 @@ class FloatingWidgetController {
     this.syncCollapseButton();
 
     this.bind();
+    this.syncRecordingControls(null);
   }
 
   show(initialState?: PopupState): void {
@@ -571,11 +589,28 @@ class FloatingWidgetController {
   }
 
   async refresh(error?: string): Promise<void> {
+    if (this.refreshInFlight || this.localRecordingOperation) {
+      return;
+    }
+
+    this.refreshInFlight = true;
+    const revision = ++this.requestRevision;
+
     try {
       const response = await sendPopupRequest("jl/popup-get-state");
-      this.render(response.state, error ?? response.error);
+
+      if (revision === this.requestRevision) {
+        this.render(response.state, error ?? response.error);
+      }
     } catch (refreshError: unknown) {
-      this.renderError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      if (revision === this.requestRevision) {
+        this.renderError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+        if (!this.renderedState) {
+          this.syncRecordingControls(null);
+        }
+      }
+    } finally {
+      this.refreshInFlight = false;
     }
   }
 
@@ -607,6 +642,14 @@ class FloatingWidgetController {
 
     this.stopButton.addEventListener("click", () => {
       void this.performAction("jl/popup-stop-recording");
+    });
+
+    this.pauseButton.addEventListener("click", () => {
+      void this.performAction(
+        this.pauseButton.dataset.mode === "resume"
+          ? "jl/popup-resume-recording"
+          : "jl/popup-pause-recording"
+      );
     });
 
     this.abortButton.addEventListener("click", () => {
@@ -711,25 +754,43 @@ class FloatingWidgetController {
     type:
       | "jl/popup-start-recording"
       | "jl/popup-stop-recording"
+      | "jl/popup-pause-recording"
+      | "jl/popup-resume-recording"
       | "jl/popup-abort-recording"
       | "jl/popup-start-cloud-sign-in"
       | "jl/popup-logout-cloud",
     options: { playTabAudio?: boolean; captureTarget?: CaptureTarget } = {}
   ): Promise<void> {
-    this.setBusy(true);
+    if (this.actionInFlight) {
+      return;
+    }
+
+    this.actionInFlight = true;
+    this.localRecordingOperation = operationForAction(type);
+    const revision = ++this.requestRevision;
+    this.syncRecordingControls(this.renderedState);
+
     try {
       const response = await sendPopupRequest(type, options);
-      this.render(response.state, response.error);
+
+      if (revision === this.requestRevision) {
+        this.localRecordingOperation = null;
+        this.render(response.state, response.error);
+      }
     } catch (error: unknown) {
+      this.localRecordingOperation = null;
       await this.refresh(error instanceof Error ? error.message : String(error));
     } finally {
-      this.setBusy(false);
+      this.actionInFlight = false;
+      this.syncRecordingControls(this.renderedState);
     }
   }
 
   private render(state: PopupState, error?: string): void {
+    this.renderedState = state;
     const activeSession = state.activeSession;
     const phase = activeSession?.phase ?? "idle";
+    const visiblePhase = state.recordingOperation ?? phase;
     const title = activeSession?.name ?? pageFallbackTitle();
     const account = describeAccount(state);
     const destination = describeDestination(state);
@@ -744,18 +805,19 @@ class FloatingWidgetController {
     this.sessionText.title = session;
     this.destinationText.textContent = destination;
     this.destinationText.title = destination;
-    const phaseLabel = statusPhaseLabel(phase, error);
+    const phaseLabel = statusPhaseLabel(visiblePhase, error);
     this.phasePill.textContent = phaseLabel;
-    this.phasePill.dataset.phase = phase;
+    this.phasePill.dataset.phase = visiblePhase;
     this.phasePill.title = phaseLabel;
     this.phasePill.setAttribute("aria-label", phaseLabel);
     this.compactPhasePill.textContent = phaseLabel;
-    this.compactPhasePill.dataset.phase = phase;
+    this.compactPhasePill.dataset.phase = visiblePhase;
     this.compactPhasePill.title = phaseLabel;
     this.compactPhasePill.setAttribute("aria-label", phaseLabel);
     const status = error ?? widgetStatusText(state);
     this.statusText.textContent = status;
     this.statusText.dataset.tone = error ? "error" : "neutral";
+    this.statusText.setAttribute("role", error ? "alert" : "status");
     this.accountButton.title = "Open evidence list";
     this.accountButton.setAttribute("aria-label", "Open evidence list");
     hydrateIconSlot(this.accountIconSlot, state.cloud.status === "signed-in" ? "User" : "Monitor");
@@ -778,22 +840,10 @@ class FloatingWidgetController {
     this.outputCopyButton.setAttribute("aria-label", cloudUrl ? "Copy evidence link" : "No recent evidence session");
     this.outputCopyButton.dataset.cloudUrl = cloudUrl ?? "";
 
-    const isRecording = activeSession?.phase === "recording";
-    this.startButton.hidden = !state.canStart;
-    this.stopButton.hidden = !isRecording;
-    this.abortButton.hidden = !isRecording;
-    this.recordingActions.hidden = !isRecording;
     this.signInButton.hidden = state.cloud.status === "signed-in";
     this.logoutButton.hidden = state.cloud.status !== "signed-in";
     this.logoutButton.disabled = state.cloud.status !== "signed-in";
-    this.startButton.disabled = !state.canStart;
-    this.tabAudioToggle.disabled = !state.canStart;
-    for (const targetButton of this.targetButtons) {
-      targetButton.disabled = !state.canStart;
-    }
-    this.syncCaptureTargetButtons();
-    this.stopButton.disabled = !isRecording || !state.canStop;
-    this.abortButton.disabled = !isRecording;
+    this.syncRecordingControls(state);
   }
 
   private renderError(message: string): void {
@@ -809,18 +859,59 @@ class FloatingWidgetController {
     this.compactPhasePill.setAttribute("aria-label", "FAILED");
   }
 
-  private setBusy(busy: boolean): void {
-    this.startButton.disabled = busy || this.startButton.hidden === true;
-    this.tabAudioToggle.disabled = busy || this.startButton.hidden === true;
+  private syncRecordingControls(state: PopupState | null): void {
+    const controls = deriveRecordingControlState(state, this.localRecordingOperation);
+    const forceDisabled = this.actionInFlight;
+
+    this.syncControlButton(this.startButton, this.startLabel, controls.start, forceDisabled);
+    this.syncControlButton(this.stopButton, this.stopLabel, controls.finish, forceDisabled);
+    this.syncControlButton(this.pauseButton, this.pauseLabel, controls.pause, forceDisabled);
+    this.syncIconControlButton(this.abortButton, controls.abort, forceDisabled);
+
+    this.recordingActions.hidden =
+      !controls.finish.visible && !controls.pause.visible && !controls.abort.visible;
+    this.tabAudioToggle.disabled = forceDisabled || controls.busy || !state?.canStart;
     for (const targetButton of this.targetButtons) {
-      targetButton.disabled = busy || this.startButton.hidden === true;
+      targetButton.disabled = forceDisabled || controls.busy || !state?.canStart;
     }
-    this.stopButton.disabled = busy || this.stopButton.hidden === true;
-    this.abortButton.disabled = busy || this.abortButton.hidden === true;
-    this.signInButton.disabled = busy || this.signInButton.hidden === true;
-    this.logoutButton.disabled = busy || this.logoutButton.hidden === true;
-    this.outputCopyButton.disabled = busy || this.outputCopyButton.hidden === true;
-    this.host.dataset.busy = String(busy);
+    this.syncCaptureTargetButtons();
+
+    this.pauseButton.dataset.mode = controls.pause.mode;
+    this.pauseButton.title = controls.pause.label;
+    this.pauseButton.setAttribute("aria-label", controls.pause.label);
+    hydrateButtonIcon(this.pauseButton, controls.pause.mode === "resume" ? "Play" : "Pause");
+
+    this.signInButton.disabled = forceDisabled || this.signInButton.hidden === true;
+    this.logoutButton.disabled = forceDisabled || this.logoutButton.hidden === true;
+    this.outputCopyButton.disabled = forceDisabled || this.outputCopyButton.hidden === true;
+    this.host.dataset.busy = String(controls.busy || forceDisabled);
+    this.host.dataset.operation = this.localRecordingOperation ?? state?.recordingOperation ?? "";
+  }
+
+  private syncControlButton(
+    button: HTMLButtonElement,
+    label: HTMLSpanElement,
+    control: { visible: boolean; disabled: boolean; loading: boolean; label: string },
+    forceDisabled: boolean
+  ): void {
+    button.hidden = !control.visible;
+    button.disabled = forceDisabled || control.disabled;
+    button.dataset.loading = String(control.loading);
+    button.setAttribute("aria-busy", String(control.loading));
+    label.textContent = control.label;
+  }
+
+  private syncIconControlButton(
+    button: HTMLButtonElement,
+    control: { visible: boolean; disabled: boolean; loading: boolean; label: string },
+    forceDisabled: boolean
+  ): void {
+    button.hidden = !control.visible;
+    button.disabled = forceDisabled || control.disabled;
+    button.dataset.loading = String(control.loading);
+    button.setAttribute("aria-busy", String(control.loading));
+    button.title = control.label;
+    button.setAttribute("aria-label", control.label);
   }
 
   private syncCollapseButton(): void {
@@ -919,6 +1010,8 @@ async function sendPopupRequest(
     | "jl/popup-get-state"
     | "jl/popup-start-recording"
     | "jl/popup-stop-recording"
+    | "jl/popup-pause-recording"
+    | "jl/popup-resume-recording"
     | "jl/popup-abort-recording"
     | "jl/popup-start-cloud-sign-in"
     | "jl/popup-logout-cloud",
@@ -960,13 +1053,49 @@ function isFloatingWidgetEvent(event: Event): boolean {
   );
 }
 
+function operationForAction(type: string): RecordingOperation | null {
+  switch (type) {
+    case "jl/popup-start-recording":
+      return "starting";
+    case "jl/popup-stop-recording":
+      return "stopping";
+    case "jl/popup-pause-recording":
+      return "pausing";
+    case "jl/popup-resume-recording":
+      return "resuming";
+    case "jl/popup-abort-recording":
+      return "aborting";
+    default:
+      return null;
+  }
+}
+
 function widgetStatusText(state: PopupState): string {
+  switch (state.recordingOperation) {
+    case "starting":
+      return "Starting capture…";
+    case "stopping":
+      return "Stopping capture and saving the session…";
+    case "pausing":
+      return "Pausing capture…";
+    case "resuming":
+      return "Resuming capture…";
+    case "aborting":
+      return "Discarding this recording…";
+    case "retrying-upload":
+      return "Retrying cloud upload…";
+  }
+
   if (state.activeSession?.phase === "recording") {
     return state.cloud.status === "signed-in"
       ? "Recording. Finish to upload to cloud, or abort to discard."
       : state.companion.status === "online"
         ? "Recording. Finish to save locally, or abort to discard."
         : "Recording. Finish to download locally, or abort to discard.";
+  }
+
+  if (state.activeSession?.phase === "paused") {
+    return "Recording paused. Resume, finish, or abort the session.";
   }
 
   if (state.cloud.status === "signed-in") {
@@ -981,20 +1110,40 @@ function widgetStatusText(state: PopupState): string {
 }
 
 function statusPhaseLabel(phase: string, error?: string): string {
-  if (error || phase === "failed") {
+  if (phase === "failed") {
     return "FAILED";
   }
 
-  if (phase === "processing") {
-    return "UPLOADING";
+  if (phase === "processing" || phase === "stopping" || phase === "retrying-upload") {
+    return "SAVING";
   }
 
-  if (phase === "armed") {
+  if (phase === "armed" || phase === "starting") {
     return "STARTING";
+  }
+
+  if (phase === "pausing") {
+    return "PAUSING";
+  }
+
+  if (phase === "paused") {
+    return "PAUSED";
+  }
+
+  if (phase === "resuming") {
+    return "RESUMING";
+  }
+
+  if (phase === "aborting") {
+    return "DISCARDING";
   }
 
   if (phase === "recording") {
     return "RECORDING";
+  }
+
+  if (error) {
+    return "FAILED";
   }
 
   return "READY";

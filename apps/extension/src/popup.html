@@ -14,7 +14,7 @@
           <h1>jittle-lamp</h1>
           <span class="phase-pill" data-role="status-badge">idle</span>
         </div>
-        <p class="summary" data-role="message-value"></p>
+        <p class="summary" data-role="message-value" role="status" aria-live="polite" aria-atomic="true"></p>
       </header>
 
       <section class="cloud-strip">
@@ -121,18 +121,18 @@
           </div>
         </div>
         <div class="recording-control-row">
-          <button class="button primary" data-role="start-button" type="button">
+          <button class="button primary" data-role="start-button" type="button" disabled aria-busy="true">
             <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
               <polygon points="6 3 20 12 6 21 6 3"></polygon>
             </svg>
-            <span>Start capture</span>
+            <span data-role="start-label">Checking…</span>
           </button>
           <button class="button secondary finish-button" data-role="stop-button" type="button" title="Finish recording" aria-label="Finish recording" hidden>
             <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10"></circle>
               <rect x="9" y="9" width="6" height="6" rx="1"></rect>
             </svg>
-            <span>Finish recording</span>
+            <span data-role="stop-label">Finish recording</span>
           </button>
           <button class="button secondary" data-role="pause-button" type="button" title="Pause recording" aria-label="Pause recording" hidden>
             <svg data-role="pause-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24">
