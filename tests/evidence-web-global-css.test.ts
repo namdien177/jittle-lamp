@@ -7,8 +7,11 @@ const css = readFileSync(
 );
 
 describe("evidence web global CSS", () => {
-  test("applies stable scrollbar gutter to app scroll surfaces", () => {
+  test("applies stable scrollbar gutter only to explicit overflow surfaces", () => {
     expect(css).toContain('@apply scrollbar-gutter-stable;');
-    expect(css).toMatch(/:where\([\s\S]*?\.jl-scroll[\s\S]*?\[class~="overflow-auto"\][\s\S]*?\[class~="overflow-y-auto"\][\s\S]*?\)/);
+    expect(css).toMatch(/:where\([\s\S]*?\[class~="overflow-auto"\][\s\S]*?\[class~="overflow-y-auto"\][\s\S]*?\)/);
+    expect(css).not.toMatch(/:where\([\s\S]*?\bhtml,\s*[\s\S]*?@apply scrollbar-gutter-stable;/);
+    expect(css).not.toMatch(/:where\([\s\S]*?\bbody,\s*[\s\S]*?@apply scrollbar-gutter-stable;/);
+    expect(css).not.toMatch(/:where\([\s\S]*?\.jl-scroll,\s*[\s\S]*?@apply scrollbar-gutter-stable;/);
   });
 });

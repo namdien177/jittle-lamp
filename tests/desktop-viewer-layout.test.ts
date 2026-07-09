@@ -18,6 +18,18 @@ const notesPaneSource = readFileSync(
   "utf8"
 );
 
+const videoPlayerSource = readFileSync(
+  new URL("../packages/viewer-react/src/viewer-modal/video-player.tsx", import.meta.url),
+  "utf8"
+);
+
+function expectScrollbarGutterOnOverflowRule(selector: string): void {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = css.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\}`))?.[1];
+  expect(rule).toContain("scrollbar-gutter: stable;");
+  expect(rule).toMatch(/overflow(?:-[xy])?:\s*(auto|scroll);/);
+}
+
 describe("viewer modal layout CSS", () => {
 
   test("modal occupies ~90% of the viewport on each axis", () => {
@@ -43,9 +55,14 @@ describe("viewer modal layout CSS", () => {
   });
 
   test("video player fills the available pane without cropping", () => {
+    expect(videoPlayerSource).toContain('<div className="jl-vm-video-host" data-vjs-player>');
+    expect(videoPlayerSource).toContain('className="video-js"');
+    expect(videoPlayerSource).not.toMatch(/className="jl-vm-video-inner"[\s\S]{0,160}data-vjs-player/);
+    expect(css).not.toContain(".video-js button");
     expect(css).toMatch(/\.jl-vm-video-inner\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
+    expect(css).toMatch(/\.jl-vm-video-inner \.jl-vm-video-host,\s*\.jl-vm-video-inner \.video-js\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?overflow:\s*hidden;/);
     expect(css).toMatch(/\.jl-vm-video-inner \.video-js\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
-    expect(css).toMatch(/\.jl-vm-video-inner \.video-js \.vjs-tech\s*\{[\s\S]*?object-fit:\s*contain;/);
+    expect(css).toMatch(/\.jl-vm-video-inner \.video-js \.vjs-tech,\s*\.jl-vm-video-inner \.jl-vm-video-host \.vjs-tech\s*\{[\s\S]*?object-fit:\s*contain;/);
   });
 
   test("custom video play button centers icons with flex", () => {
@@ -111,15 +128,15 @@ describe("viewer modal layout CSS", () => {
   });
 
   test("viewer scroll surfaces reserve stable scrollbar gutter", () => {
-    expect(css).toMatch(/\.jl-vm-tabs-row\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-filters\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-list\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-drawer-body\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-about\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-tagbar-list\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-tag-options\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-comments\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
-    expect(css).toMatch(/\.jl-vm-pre\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/);
+    expectScrollbarGutterOnOverflowRule(".jl-vm-tabs-row");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-filters");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-list");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-drawer-body");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-about");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-tagbar-list");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-tag-options");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-comments");
+    expectScrollbarGutterOnOverflowRule(".jl-vm-pre");
   });
 
   test("evidence rows are square until hovered or active", () => {

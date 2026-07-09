@@ -260,7 +260,6 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
     <div className="jl-vm-video-wrap">
       <div
         className="jl-vm-video-inner"
-        data-vjs-player
         data-playing={isPlaying ? "true" : "false"}
         data-controls={controlsVisible ? "visible" : "hidden"}
         onPointerMove={revealControls}
@@ -268,15 +267,17 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
           if (isPlaying) setControlsVisible(false);
         }}
       >
-        <video
-          ref={(videoEl) => {
-            videoNodeRef.current = videoEl;
-            assignVideoRef(props.videoRef, videoEl);
-          }}
-          className="video-js"
-          playsInline
-          preload="metadata"
-        />
+        <div className="jl-vm-video-host" data-vjs-player>
+          <video
+            ref={(videoEl) => {
+              videoNodeRef.current = videoEl;
+              assignVideoRef(props.videoRef, videoEl);
+            }}
+            className="video-js"
+            playsInline
+            preload="metadata"
+          />
+        </div>
 
         <button
           type="button"

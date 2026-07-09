@@ -1,8 +1,4 @@
-import { videoJsOfficialStyles } from "./video-js-official";
-
 export const videoStyles = `
-${videoJsOfficialStyles}
-
 .jl-vm-video-wrap {
   position: relative;
   background: #000;
@@ -24,15 +20,25 @@ ${videoJsOfficialStyles}
   container-type: inline-size;
 }
 
+.jl-vm-video-inner .jl-vm-video-host,
 .jl-vm-video-inner .video-js {
+  position: absolute;
+  inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   font-family: inherit;
   background: #000;
   color: #fff;
 }
 
-.jl-vm-video-inner .video-js .vjs-tech {
+.jl-vm-video-inner .video-js .vjs-tech,
+.jl-vm-video-inner .jl-vm-video-host .vjs-tech {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   background: #000;
 }

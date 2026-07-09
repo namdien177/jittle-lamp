@@ -294,9 +294,6 @@
   }
 
   :where(
-    html,
-    body,
-    .jl-scroll,
     [class~="overflow-auto"],
     [class~="overflow-x-auto"],
     [class~="overflow-y-auto"],
