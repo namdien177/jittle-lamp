@@ -4,37 +4,40 @@ export const notesStyles = `
   z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 46px;
+  gap: 8px;
+  min-height: 44px;
+  min-width: 0;
   padding: 8px 16px;
   border-top: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
   background: color-mix(in srgb, var(--jl-vm-bg, #0b0d0e) 92%, transparent);
 }
 
-.jl-vm-tagbar-main {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 8px;
-  color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-}
-
 .jl-vm-tagbar-list {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
-  flex-wrap: wrap;
+  max-width: 100%;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16)) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
 .jl-vm-tagbar-empty {
+  flex: 0 0 auto;
   font-size: 12px;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
 }
 
 .jl-vm-tag-pill {
   display: inline-flex;
+  flex: 0 0 auto;
   max-width: 140px;
   align-items: center;
   border: 1px solid;
@@ -57,6 +60,7 @@ export const notesStyles = `
   appearance: none;
   display: inline-flex;
   align-items: center;
+  min-height: 28px;
   gap: 5px;
   border: 1px solid rgba(34, 197, 94, 0.28);
   border-radius: 999px;
@@ -113,6 +117,7 @@ export const notesStyles = `
 .jl-vm-tag-options {
   max-height: 220px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 5px;
 }
 
@@ -195,6 +200,7 @@ export const notesStyles = `
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -232,14 +238,30 @@ export const notesStyles = `
 }
 
 .jl-vm-composer {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: end;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
+  border-radius: 8px;
+  background: var(--jl-vm-surface, #111314);
 }
 
 .jl-vm-composer .jl-vm-notes-textarea {
-  min-height: 76px;
+  min-height: 34px;
+  max-height: 58px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  line-height: 1.35;
+  overflow-y: hidden;
+}
+
+.jl-vm-composer .jl-vm-btn {
+  min-height: 32px;
+  padding: 7px 12px;
+  border-radius: 6px;
 }
 
 .jl-vm-notes-textarea {

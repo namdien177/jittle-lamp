@@ -114,11 +114,17 @@ export const evidenceStyles = `
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  align-self: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.jl-vm-pane-heading-actions > span {
+.jl-vm-pane-count {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
   border-radius: 999px;
   border: 1px solid rgba(34, 197, 94, 0.22);
   background: rgba(34, 197, 94, 0.1);
@@ -126,6 +132,8 @@ export const evidenceStyles = `
   padding: 3px 8px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .jl-vm-icon-btn {
@@ -159,14 +167,23 @@ export const evidenceStyles = `
 .jl-vm-tabs-row {
   display: flex;
   align-items: center;
+  max-width: 100%;
+  min-width: 0;
   gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
   padding: 10px 14px;
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
   background: color-mix(in srgb, var(--jl-vm-bg, #0b0d0e) 88%, transparent);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16)) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
 .jl-vm-tabs {
   display: flex;
+  flex: 0 0 auto;
   gap: 4px;
 }
 
@@ -183,6 +200,7 @@ export const evidenceStyles = `
   cursor: pointer;
   letter-spacing: 0;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .jl-vm-tab:hover {
@@ -197,8 +215,8 @@ export const evidenceStyles = `
 }
 
 .jl-vm-search {
-  flex: 1;
-  min-width: 120px;
+  flex: 1 0 160px;
+  min-width: 160px;
   background: var(--jl-vm-surface, #111314);
   border: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
   color: var(--jl-vm-text, #efefef);
@@ -209,14 +227,22 @@ export const evidenceStyles = `
 
 .jl-vm-filters {
   display: flex;
+  max-width: 100%;
+  min-width: 0;
   gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
   padding: 8px 14px;
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
-  flex-wrap: wrap;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16)) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
 .jl-vm-chip {
   appearance: none;
+  flex: 0 0 auto;
   border: 1px solid transparent;
   background: transparent;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
@@ -224,6 +250,7 @@ export const evidenceStyles = `
   padding: 4px 8px;
   border-radius: 999px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .jl-vm-chip:hover {
@@ -247,13 +274,16 @@ export const evidenceStyles = `
 
 .jl-vm-list {
   flex: 1;
-  overflow-y: auto;
+  max-width: 100%;
+  overflow: auto;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16)) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
 .jl-vm-row {
@@ -264,14 +294,14 @@ export const evidenceStyles = `
   background: transparent;
   border: 1px solid transparent;
   border-bottom-color: var(--jl-vm-border, rgba(239, 239, 239, 0.055));
-  border-radius: 8px;
+  border-radius: 0;
   cursor: pointer;
   text-align: left;
   font-size: 12px;
   color: var(--jl-vm-text, #efefef);
   align-items: center;
   min-width: 0;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, border-radius 120ms ease;
 }
 
 .jl-vm-row[data-kind="network"] {
@@ -281,11 +311,13 @@ export const evidenceStyles = `
 .jl-vm-row:hover {
   background: var(--jl-vm-surface, #111314);
   border-color: var(--jl-vm-border, rgba(239, 239, 239, 0.1));
+  border-radius: 8px;
 }
 
 .jl-vm-row[data-active="true"] {
   background: rgba(34, 197, 94, 0.12);
   border-color: rgba(34, 197, 94, 0.32);
+  border-radius: 8px;
 }
 
 .jl-vm-row[data-selected="true"] {
@@ -361,6 +393,7 @@ export const evidenceStyles = `
 .jl-vm-about {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 14px;
 }
 

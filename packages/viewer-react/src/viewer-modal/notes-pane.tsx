@@ -1,18 +1,77 @@
 import { useEffect, useRef, useState } from "react";
 import type * as React from "react";
-import { Check, Plus, Search, Tags } from "lucide-react";
+import { Check, Plus, Search } from "lucide-react";
 
 import { formatCommentTime } from "./format";
-import type { ViewerModalProps } from "./types";
+import type { ViewerEvidenceTag, ViewerModalProps } from "./types";
 import { EvidenceVideoPlayer } from "./video-player";
+
+type TagRailItem = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+const FALLBACK_TAG_COLOR = "#22c55e";
+const COMPOSER_MAX_ROWS = 2;
+
+function getNumericStyle(value: string): number {
+  const parsed = Number.parseFloat(value);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+
+  return 0;
+}
+
+function getComposerMaxHeight(textarea: HTMLTextAreaElement): number {
+  const styles = window.getComputedStyle(textarea);
+  const lineHeight = getNumericStyle(styles.lineHeight);
+  const verticalPadding =
+    getNumericStyle(styles.paddingTop) +
+    getNumericStyle(styles.paddingBottom) +
+    getNumericStyle(styles.borderTopWidth) +
+    getNumericStyle(styles.borderBottomWidth);
+
+  if (lineHeight <= 0) {
+    return textarea.scrollHeight;
+  }
+
+  return lineHeight * COMPOSER_MAX_ROWS + verticalPadding;
+}
+
+function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {
+  textarea.style.height = "auto";
+
+  const maxHeight = getComposerMaxHeight(textarea);
+  const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+  let overflowY = "hidden";
+
+  if (textarea.scrollHeight > maxHeight) {
+    overflowY = "auto";
+  }
+
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = overflowY;
+}
 
 export function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
   const hasDiscussion = props.discussionComments !== undefined;
+  const discussionValue = props.discussionValue ?? "";
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!hasDiscussion || !composerTextareaRef.current) {
+      return;
+    }
+
+    resizeComposerTextarea(composerTextareaRef.current);
+  }, [discussionValue, hasDiscussion]);
 
   return (
     <div className="jl-vm-left">
       <EvidenceVideoPlayer {...props} />
-      <EvidenceTagBar {...props} />
+      <SessionTagRail {...props} />
       {hasDiscussion ? (
         <div className="jl-vm-discussion">
           <div className="jl-vm-notes-label">
@@ -39,11 +98,16 @@ export function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
           </div>
           <div className="jl-vm-composer">
             <textarea
+              ref={composerTextareaRef}
               className="jl-vm-notes-textarea"
               placeholder="Leave a comment..."
-              value={props.discussionValue ?? ""}
+              rows={1}
+              value={discussionValue}
               readOnly={props.discussionReadOnly}
-              onChange={(event) => props.onDiscussionChange?.(event.currentTarget.value)}
+              onChange={(event) => {
+                props.onDiscussionChange?.(event.currentTarget.value);
+                resizeComposerTextarea(event.currentTarget);
+              }}
             />
             <button
               type="button"
@@ -55,7 +119,7 @@ export function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
               }
               onClick={props.onSubmitDiscussion}
             >
-              Comment
+              Send
             </button>
           </div>
         </div>
@@ -88,41 +152,61 @@ export function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
   );
 }
 
-function EvidenceTagBar(props: ViewerModalProps): React.JSX.Element | null {
-  const tags = props.evidenceTags ?? [];
-  const availableTags = props.availableEvidenceTags ?? [];
-  const canEdit = props.canUpdateEvidenceTags === true && availableTags.length > 0;
+function getSessionTagRailItems(props: ViewerModalProps): TagRailItem[] {
+  const evidenceTags = props.evidenceTags ?? [];
+  if (evidenceTags.length > 0) {
+    return evidenceTags;
+  }
 
-  if (tags.length === 0 && !canEdit) return null;
+  return props.tags.map((tag) => ({
+    id: tag,
+    name: tag,
+    color: FALLBACK_TAG_COLOR
+  }));
+}
+
+function SessionTagRail(props: ViewerModalProps): React.JSX.Element | null {
+  const evidenceTags = props.evidenceTags ?? [];
+  const displayTags = getSessionTagRailItems(props);
+  const availableTags = props.availableEvidenceTags ?? [];
+  const canEdit = props.canUpdateEvidenceTags === true;
+
+  if (displayTags.length === 0 && !canEdit) {
+    return null;
+  }
 
   return (
-    <div className="jl-vm-tagbar">
-      <div className="jl-vm-tagbar-main">
-        <Tags aria-hidden size={14} strokeWidth={2} />
-        {tags.length > 0 ? (
-          <div className="jl-vm-tagbar-list" aria-label="Evidence tags">
-            {tags.map((tag) => (
-              <EvidenceTagPill key={tag.id} tag={tag} />
-            ))}
-          </div>
-        ) : (
-          <span className="jl-vm-tagbar-empty">No tags</span>
-        )}
+    <div className="jl-vm-tagbar" aria-label="Session tags">
+      <div className="jl-vm-tagbar-list" aria-label="Current session tags">
+        <SessionTagRailContent tags={displayTags} />
       </div>
       {canEdit ? (
         <EvidenceTagPicker
-          tags={tags}
+          tags={evidenceTags}
           availableTags={availableTags}
           saving={props.evidenceTagsSaving === true}
           onChange={props.onEvidenceTagsChange ?? (() => undefined)}
-          empty={tags.length === 0}
         />
       ) : null}
     </div>
   );
 }
 
-function EvidenceTagPill(props: { tag: NonNullable<ViewerModalProps["evidenceTags"]>[number] }): React.JSX.Element {
+function SessionTagRailContent(props: { tags: TagRailItem[] }): React.JSX.Element {
+  if (props.tags.length === 0) {
+    return <span className="jl-vm-tagbar-empty">No tags</span>;
+  }
+
+  return (
+    <>
+      {props.tags.map((tag) => (
+        <EvidenceTagPill key={tag.id} tag={tag} />
+      ))}
+    </>
+  );
+}
+
+function EvidenceTagPill(props: { tag: TagRailItem }): React.JSX.Element {
   return (
     <span
       className="jl-vm-tag-pill"
@@ -138,10 +222,9 @@ function EvidenceTagPill(props: { tag: NonNullable<ViewerModalProps["evidenceTag
 }
 
 function EvidenceTagPicker(props: {
-  tags: NonNullable<ViewerModalProps["evidenceTags"]>;
-  availableTags: NonNullable<ViewerModalProps["availableEvidenceTags"]>;
+  tags: ViewerEvidenceTag[];
+  availableTags: ViewerEvidenceTag[];
   saving: boolean;
-  empty: boolean;
   onChange: (tagIds: string[]) => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
@@ -181,7 +264,7 @@ function EvidenceTagPicker(props: {
         onClick={() => setOpen((current) => !current)}
       >
         <Plus aria-hidden size={13} strokeWidth={2} />
-        {props.empty ? "Add Tags" : "Edit"}
+        Add tags
       </button>
       {open ? (
         <div className="jl-vm-tag-menu" role="dialog" aria-label="Choose evidence tags">

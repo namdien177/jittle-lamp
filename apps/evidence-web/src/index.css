@@ -293,6 +293,20 @@
     font-size: 16px;
   }
 
+  :where(
+    html,
+    body,
+    .jl-scroll,
+    [class~="overflow-auto"],
+    [class~="overflow-x-auto"],
+    [class~="overflow-y-auto"],
+    [class~="overflow-scroll"],
+    [class~="overflow-x-scroll"],
+    [class~="overflow-y-scroll"]
+  ) {
+    @apply scrollbar-gutter-stable;
+  }
+
   ::selection {
     background-color: color-mix(in srgb, var(--primary) 30%, transparent);
     color: var(--foreground);

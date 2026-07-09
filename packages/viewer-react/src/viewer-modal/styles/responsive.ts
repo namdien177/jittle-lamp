@@ -64,12 +64,32 @@ export const responsiveStyles = `
     writing-mode: horizontal-tb;
   }
 
+  .jl-vm-pane-heading-actions {
+    align-self: center;
+  }
+
+  .jl-vm-pane-count {
+    min-width: 28px;
+    padding: 3px 7px;
+    font-size: 0;
+  }
+
+  .jl-vm-pane-count::before {
+    content: attr(data-count);
+    font-size: 11px;
+  }
+
   .jl-vm-tabs-row {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .jl-vm-row {
+    min-width: 360px;
   }
 
   .jl-vm-row[data-kind="network"] {
+    min-width: 520px;
     grid-template-columns: 46px 48px minmax(0, 1fr) 38px;
   }
 

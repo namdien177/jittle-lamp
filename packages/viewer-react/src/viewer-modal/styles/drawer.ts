@@ -40,6 +40,7 @@ export const drawerStyles = `
   display: flex;
   flex-direction: column;
   gap: 14px;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16)) transparent;
 }
@@ -103,6 +104,7 @@ export const drawerStyles = `
   margin: 0;
   max-height: 320px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   cursor: pointer;
   color: var(--jl-vm-text, #efefef);
 }

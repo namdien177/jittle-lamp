@@ -31,6 +31,29 @@ function clampStreamWidth(width: number): number {
   return Math.min(MAX_STREAM_WIDTH, Math.max(MIN_STREAM_WIDTH, Math.round(width)));
 }
 
+function getVisibleRows(tab: EvidenceTab, rows: ViewerModalRow[], searchQuery: string): ViewerModalRow[] {
+  if (tab === "about") return [];
+  return applyClientSearch(rows, searchQuery, tab);
+}
+
+function getCountValue(tab: EvidenceTab, count: number): string {
+  if (tab === "about") return "Info";
+  return String(count);
+}
+
+function getCountLabel(tab: EvidenceTab, count: number): string {
+  if (tab === "about") return "Extension details";
+  if (count === 1) return "1 entry";
+  return `${count} entries`;
+}
+
+function getCountTitle(tab: EvidenceTab): string {
+  if (tab === "actions") return "Number of actions";
+  if (tab === "console") return "Number of logs";
+  if (tab === "network") return "Number of network entries";
+  return "Extension details";
+}
+
 export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   const localRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = props.timelineRef ?? localRef;
@@ -66,12 +89,10 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
     network: "Network",
     about: "About Evidence"
   } as const;
-  const filteredRows =
-    activeTab === "about" ? [] : applyClientSearch(props.rows, props.searchQuery, activeTab);
-  const activeCountLabel =
-    activeTab === "about"
-      ? "Extension details"
-      : `${filteredRows.length} ${filteredRows.length === 1 ? "entry" : "entries"}`;
+  const filteredRows = getVisibleRows(activeTab, props.rows, props.searchQuery);
+  const activeCountValue = getCountValue(activeTab, filteredRows.length);
+  const activeCountLabel = getCountLabel(activeTab, filteredRows.length);
+  const activeCountTitle = getCountTitle(activeTab);
 
   return (
     <div
@@ -123,7 +144,14 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
             <strong>{sectionLabels[activeTab]}</strong>
           </div>
           <div className="jl-vm-pane-heading-actions">
-            <span>{activeCountLabel}</span>
+            <span
+              className="jl-vm-pane-count"
+              data-count={activeCountValue}
+              title={activeCountTitle}
+              aria-label={activeCountTitle}
+            >
+              {activeCountLabel}
+            </span>
             <button
               type="button"
               className="jl-vm-icon-btn"

@@ -321,7 +321,7 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
 
           <button
             type="button"
-            className="jl-vm-vc-icon"
+            className="jl-vm-vc-icon jl-vm-vc-mute"
             aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
             onClick={toggleMute}
           >
@@ -349,7 +349,7 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
 
           <button
             type="button"
-            className="jl-vm-vc-icon"
+            className="jl-vm-vc-icon jl-vm-vc-fullscreen"
             aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
             onClick={toggleFullscreen}
           >
