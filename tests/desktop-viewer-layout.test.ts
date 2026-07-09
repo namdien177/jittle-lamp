@@ -49,8 +49,12 @@ describe("viewer modal layout CSS", () => {
   });
 
   test("custom video play button centers icons with flex", () => {
-    expect(css).toMatch(/\.jl-vm-vc-bigplay\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
-    expect(css).toMatch(/\.jl-vm-vc-bigplay svg,\s*\.jl-vm-vc-play svg,\s*\.jl-vm-vc-icon svg\s*\{[\s\S]*?display:\s*block;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-surface\s*\{[\s\S]*?display:\s*block;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-bigplay\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-bigplay svg,\s*\.jl-vm-video-inner button\.jl-vm-vc-play svg,\s*\.jl-vm-video-inner button\.jl-vm-vc-icon svg\s*\{[\s\S]*?display:\s*block;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-play,\s*\.jl-vm-video-inner button\.jl-vm-vc-icon,\s*\.jl-vm-video-inner button\.jl-vm-vc-rate\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-play\s*\{[\s\S]*?background:\s*#fff;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-icon\s*\{[\s\S]*?background:\s*transparent;/);
   });
 
   test("custom video controls reflow inside narrow video containers", () => {
@@ -58,6 +62,8 @@ describe("viewer modal layout CSS", () => {
     expect(css).toContain("@container (max-width: 560px)");
     expect(css).toMatch(/\.jl-vm-vc-bar\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*32px 24px;/);
     expect(css).toMatch(/\.jl-vm-vc-progress\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-row:\s*2;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-mute\s*\{[\s\S]*?grid-column:\s*4;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-fullscreen\s*\{[\s\S]*?grid-column:\s*6;/);
   });
 
   test("header actions collapse to tooltip-backed icon buttons below 1200px", () => {
@@ -123,7 +129,10 @@ describe("viewer modal layout CSS", () => {
   });
 
   test("pane heading count stays aligned and becomes number-only on mobile", () => {
-    expect(css).toMatch(/\.jl-vm-pane-heading-actions\s*\{[\s\S]*?align-items:\s*center;[\s\S]*?align-self:\s*center;/);
+    expect(css).not.toContain(".jl-vm-pane-heading > div");
+    expect(evidencePaneSource).toContain('className="jl-vm-pane-title"');
+    expect(css).toMatch(/\.jl-vm-pane-title\s*\{[\s\S]*?flex-direction:\s*column;/);
+    expect(css).toMatch(/\.jl-vm-pane-heading \.jl-vm-pane-heading-actions\s*\{[\s\S]*?align-items:\s*center;[\s\S]*?align-self:\s*center;/);
     expect(css).toMatch(/\.jl-vm-pane-count\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?min-height:\s*28px;/);
     expect(css).toMatch(/\.jl-vm-pane-count::before\s*\{[\s\S]*?content:\s*attr\(data-count\);/);
     expect(evidencePaneSource).toContain("title={activeCountTitle}");

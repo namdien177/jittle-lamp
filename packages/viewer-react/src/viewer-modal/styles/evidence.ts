@@ -97,7 +97,7 @@ export const evidenceStyles = `
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
 }
 
-.jl-vm-pane-heading > div {
+.jl-vm-pane-title {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -110,7 +110,7 @@ export const evidenceStyles = `
   line-height: 1.2;
 }
 
-.jl-vm-pane-heading-actions {
+.jl-vm-pane-heading .jl-vm-pane-heading-actions {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;

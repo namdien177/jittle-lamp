@@ -139,7 +139,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
       )}
       <div className="jl-vm-evidence">
         <div className="jl-vm-pane-heading">
-          <div>
+          <div className="jl-vm-pane-title">
             <span className="jl-vm-eyebrow">Evidence stream</span>
             <strong>{sectionLabels[activeTab]}</strong>
           </div>

@@ -50,10 +50,11 @@ ${videoJsOfficialStyles}
 }
 
 /* Click-to-toggle surface sits over the video, beneath the controls. */
-.jl-vm-vc-surface {
+.jl-vm-video-inner button.jl-vm-vc-surface {
   position: absolute;
   inset: 0;
   z-index: 1;
+  display: block;
   appearance: none;
   border: 0;
   margin: 0;
@@ -62,7 +63,7 @@ ${videoJsOfficialStyles}
   cursor: pointer;
 }
 
-.jl-vm-vc-bigplay {
+.jl-vm-video-inner button.jl-vm-vc-bigplay {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -86,21 +87,21 @@ ${videoJsOfficialStyles}
   transition: background 160ms ease, transform 160ms ease;
 }
 
-.jl-vm-vc-bigplay svg,
-.jl-vm-vc-play svg,
-.jl-vm-vc-icon svg {
+.jl-vm-video-inner button.jl-vm-vc-bigplay svg,
+.jl-vm-video-inner button.jl-vm-vc-play svg,
+.jl-vm-video-inner button.jl-vm-vc-icon svg {
   display: block;
   flex: 0 0 auto;
 }
 
-.jl-vm-vc-bigplay:hover,
-.jl-vm-vc-bigplay:focus-visible {
+.jl-vm-video-inner button.jl-vm-vc-bigplay:hover,
+.jl-vm-video-inner button.jl-vm-vc-bigplay:focus-visible {
   background: rgba(0, 0, 0, 0.72);
   transform: translate(-50%, -50%) scale(1.05);
   outline: none;
 }
 
-.jl-vm-vc-bar {
+.jl-vm-video-inner .jl-vm-vc-bar {
   position: absolute;
   right: 16px;
   bottom: 16px;
@@ -124,25 +125,27 @@ ${videoJsOfficialStyles}
   --jl-vm-vc-fill: #ffffff;
 }
 
-.jl-vm-vc-bar[data-visible="false"] {
+.jl-vm-video-inner .jl-vm-vc-bar[data-visible="false"] {
   pointer-events: none;
   opacity: 0;
   transform: translateY(10px);
 }
 
-.jl-vm-vc-play,
-.jl-vm-vc-icon,
-.jl-vm-vc-rate {
+.jl-vm-video-inner button.jl-vm-vc-play,
+.jl-vm-video-inner button.jl-vm-vc-icon,
+.jl-vm-video-inner button.jl-vm-vc-rate {
   appearance: none;
   border: 0;
   cursor: pointer;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  line-height: 1;
   transition: background 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
-.jl-vm-vc-play {
+.jl-vm-video-inner button.jl-vm-vc-play {
   width: 34px;
   height: 34px;
   border-radius: 9999px;
@@ -150,13 +153,13 @@ ${videoJsOfficialStyles}
   color: #0a0a0a;
 }
 
-.jl-vm-vc-play:hover,
-.jl-vm-vc-play:focus-visible {
+.jl-vm-video-inner button.jl-vm-vc-play:hover,
+.jl-vm-video-inner button.jl-vm-vc-play:focus-visible {
   transform: scale(1.06);
   outline: none;
 }
 
-.jl-vm-vc-icon {
+.jl-vm-video-inner button.jl-vm-vc-icon {
   width: 34px;
   height: 34px;
   border-radius: 9999px;
@@ -164,14 +167,14 @@ ${videoJsOfficialStyles}
   color: rgba(255, 255, 255, 0.85);
 }
 
-.jl-vm-vc-icon:hover,
-.jl-vm-vc-icon:focus-visible {
+.jl-vm-video-inner button.jl-vm-vc-icon:hover,
+.jl-vm-video-inner button.jl-vm-vc-icon:focus-visible {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
   outline: none;
 }
 
-.jl-vm-vc-rate {
+.jl-vm-video-inner button.jl-vm-vc-rate {
   min-width: 38px;
   height: 28px;
   padding: 0 8px;
@@ -183,13 +186,13 @@ ${videoJsOfficialStyles}
   font-weight: 700;
 }
 
-.jl-vm-vc-rate:hover,
-.jl-vm-vc-rate:focus-visible {
+.jl-vm-video-inner button.jl-vm-vc-rate:hover,
+.jl-vm-video-inner button.jl-vm-vc-rate:focus-visible {
   background: rgba(255, 255, 255, 0.22);
   outline: none;
 }
 
-.jl-vm-vc-time {
+.jl-vm-video-inner .jl-vm-vc-time {
   flex-shrink: 0;
   width: 42px;
   color: rgba(255, 255, 255, 0.78);
@@ -199,11 +202,11 @@ ${videoJsOfficialStyles}
   text-align: right;
 }
 
-.jl-vm-vc-time-total {
+.jl-vm-video-inner .jl-vm-vc-time-total {
   text-align: left;
 }
 
-.jl-vm-vc-range {
+.jl-vm-video-inner .jl-vm-vc-range {
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
@@ -213,17 +216,17 @@ ${videoJsOfficialStyles}
   outline: none;
 }
 
-.jl-vm-vc-progress {
+.jl-vm-video-inner .jl-vm-vc-progress {
   flex: 1;
   min-width: 80px;
 }
 
-.jl-vm-vc-volume {
+.jl-vm-video-inner .jl-vm-vc-volume {
   flex-shrink: 0;
   width: 72px;
 }
 
-.jl-vm-vc-range::-webkit-slider-thumb {
+.jl-vm-video-inner .jl-vm-vc-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 13px;
@@ -234,7 +237,7 @@ ${videoJsOfficialStyles}
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
-.jl-vm-vc-range::-moz-range-thumb {
+.jl-vm-video-inner .jl-vm-vc-range::-moz-range-thumb {
   width: 13px;
   height: 13px;
   border: 0;
@@ -243,14 +246,14 @@ ${videoJsOfficialStyles}
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
-.jl-vm-vc-range::-moz-range-track {
+.jl-vm-video-inner .jl-vm-vc-range::-moz-range-track {
   height: 4px;
   border-radius: 9999px;
   background: transparent;
 }
 
 @container (max-width: 560px) {
-  .jl-vm-vc-bar {
+  .jl-vm-video-inner .jl-vm-vc-bar {
     right: 8px;
     bottom: 8px;
     left: 8px;
@@ -266,13 +269,13 @@ ${videoJsOfficialStyles}
     border-radius: 14px;
   }
 
-  .jl-vm-vc-play,
-  .jl-vm-vc-icon {
+  .jl-vm-video-inner button.jl-vm-vc-play,
+  .jl-vm-video-inner button.jl-vm-vc-icon {
     width: 32px;
     height: 32px;
   }
 
-  .jl-vm-vc-time {
+  .jl-vm-video-inner .jl-vm-vc-time {
     grid-column: 2;
     grid-row: 1;
     width: auto;
@@ -281,39 +284,39 @@ ${videoJsOfficialStyles}
     text-align: left;
   }
 
-  .jl-vm-vc-progress {
+  .jl-vm-video-inner .jl-vm-vc-progress {
     grid-column: 1 / -1;
     grid-row: 2;
     width: 100%;
     min-width: 0;
   }
 
-  .jl-vm-vc-play {
+  .jl-vm-video-inner button.jl-vm-vc-play {
     grid-column: 1;
     grid-row: 1;
   }
 
-  .jl-vm-vc-mute {
+  .jl-vm-video-inner button.jl-vm-vc-mute {
     grid-column: 4;
     grid-row: 1;
   }
 
-  .jl-vm-vc-rate {
+  .jl-vm-video-inner button.jl-vm-vc-rate {
     grid-column: 5;
     grid-row: 1;
   }
 
-  .jl-vm-vc-fullscreen {
+  .jl-vm-video-inner button.jl-vm-vc-fullscreen {
     grid-column: 6;
     grid-row: 1;
   }
 
-  .jl-vm-vc-volume,
-  .jl-vm-vc-time-total {
+  .jl-vm-video-inner .jl-vm-vc-volume,
+  .jl-vm-video-inner .jl-vm-vc-time-total {
     display: none;
   }
 
-  .jl-vm-vc-rate {
+  .jl-vm-video-inner button.jl-vm-vc-rate {
     min-width: 38px;
     height: 28px;
     padding: 0 6px;
@@ -322,24 +325,24 @@ ${videoJsOfficialStyles}
 }
 
 @container (max-width: 400px) {
-  .jl-vm-vc-bar {
+  .jl-vm-video-inner .jl-vm-vc-bar {
     grid-template-columns: 32px auto minmax(0, 1fr) 32px 32px;
     column-gap: 5px;
     min-height: 70px;
     padding: 7px;
   }
 
-  .jl-vm-vc-rate {
+  .jl-vm-video-inner button.jl-vm-vc-rate {
     display: none;
   }
 
-  .jl-vm-vc-fullscreen {
+  .jl-vm-video-inner button.jl-vm-vc-fullscreen {
     grid-column: 5;
   }
 }
 
 @media (max-width: 700px) {
-  .jl-vm-vc-bar {
+  .jl-vm-video-inner .jl-vm-vc-bar {
     right: max(8px, env(safe-area-inset-right));
     bottom: max(8px, env(safe-area-inset-bottom));
     left: max(8px, env(safe-area-inset-left));
