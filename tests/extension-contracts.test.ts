@@ -35,6 +35,7 @@ describe("extension contracts", () => {
     });
 
     expect(response.state.activeSession).toBeNull();
+    expect(response.state.recordingOperation).toBeNull();
     expect(response.state.canStart).toBeTrue();
   });
 
@@ -377,6 +378,15 @@ describe("extension contracts", () => {
     expect(popupResumeRequest.type).toBe("jl/popup-resume-recording");
     expect(offscreenPauseRequest.type).toBe("jl/offscreen-pause-recording");
     expect(offscreenResumeRequest.type).toBe("jl/offscreen-resume-recording");
+  });
+
+  test("parses the fast recorder stop request used before export", () => {
+    const request = offscreenRequestSchema.parse({
+      type: "jl/offscreen-stop-recording",
+      sessionId: "jl_test1234"
+    });
+
+    expect(request.type).toBe("jl/offscreen-stop-recording");
   });
 
   test("parses offscreen export requests with full session archives", () => {

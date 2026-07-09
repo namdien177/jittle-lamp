@@ -174,6 +174,14 @@ async function handleRequest(
       });
       return { ok: true };
 
+    case "jl/offscreen-stop-recording": {
+      const recordingBlob = await stopRecorder(request.sessionId);
+      return {
+        ok: true,
+        recordingBytes: recordingBlob.size
+      };
+    }
+
     case "jl/offscreen-stop-and-export":
       return stopAndExport(request);
 
@@ -1341,24 +1349,46 @@ async function triggerAnchorDownload(url: string, filename: string): Promise<voi
 
 async function waitForDownload(downloadId: number): Promise<void> {
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => {
+      globalThis.clearTimeout(timeoutId);
+      chrome.downloads.onChanged.removeListener(listener);
+    };
+    const settle = (state: string | undefined): void => {
+      if (settled || (state !== "complete" && state !== "interrupted")) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      if (state === "complete") {
+        resolve();
+      } else {
+        reject(new Error("A local recorder download was interrupted."));
+      }
+    };
     const listener = (delta: chrome.downloads.DownloadDelta): void => {
       if (delta.id !== downloadId || !delta.state?.current) {
         return;
       }
 
-      if (delta.state.current === "complete") {
-        chrome.downloads.onChanged.removeListener(listener);
-        resolve();
+      settle(delta.state.current);
+    };
+    const timeoutId = globalThis.setTimeout(() => {
+      if (settled) {
         return;
       }
 
-      if (delta.state.current === "interrupted") {
-        chrome.downloads.onChanged.removeListener(listener);
-        reject(new Error("A local recorder download was interrupted."));
-      }
-    };
+      settled = true;
+      cleanup();
+      reject(new Error("Timed out while waiting for a local recorder download."));
+    }, 5 * 60 * 1_000);
 
     chrome.downloads.onChanged.addListener(listener);
+    void chrome.downloads.search({ id: downloadId }).then(
+      (items) => settle(items[0]?.state),
+      () => undefined
+    );
   });
 }
 

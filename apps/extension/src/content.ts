@@ -1198,6 +1198,7 @@ const floatingWidgetIcons = {
   Monitor,
   Move,
   PanelTop,
+  Pause,
   Play,
   User,
   X
@@ -1479,14 +1480,24 @@ function floatingWidgetTemplate(): string {
       }
 
       .jl-pill[data-phase="processing"],
-      .jl-pill[data-phase="armed"] {
+      .jl-pill[data-phase="armed"],
+      .jl-pill[data-phase="starting"],
+      .jl-pill[data-phase="stopping"],
+      .jl-pill[data-phase="pausing"],
+      .jl-pill[data-phase="resuming"],
+      .jl-pill[data-phase="retrying-upload"] {
         border-color: rgba(245, 158, 11, 0.34);
         background: rgba(245, 158, 11, 0.14);
         color: #f59e0b;
       }
 
       .jl-pill[data-phase="processing"]::before,
-      .jl-pill[data-phase="armed"]::before {
+      .jl-pill[data-phase="armed"]::before,
+      .jl-pill[data-phase="starting"]::before,
+      .jl-pill[data-phase="stopping"]::before,
+      .jl-pill[data-phase="pausing"]::before,
+      .jl-pill[data-phase="resuming"]::before,
+      .jl-pill[data-phase="retrying-upload"]::before {
         background: #f59e0b;
         animation: jl-status-blink 0.75s ease-in-out infinite;
       }
@@ -1614,6 +1625,30 @@ function floatingWidgetTemplate(): string {
       .jl-button:disabled {
         cursor: default;
         opacity: 0.45;
+      }
+
+      .jl-button[data-loading="true"]:disabled {
+        opacity: 0.82;
+      }
+
+      .jl-button[data-loading="true"] .jl-action-icon {
+        display: none;
+      }
+
+      .jl-button[data-loading="true"]::before {
+        content: "";
+        width: 16px;
+        height: 16px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: jl-button-spin 700ms linear infinite;
+      }
+
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid #22c55e;
+        outline-offset: 2px;
       }
 
       .jl-start {
@@ -1811,6 +1846,21 @@ function floatingWidgetTemplate(): string {
         text-align: left;
       }
 
+      .jl-pause {
+        flex: 0 1 150px;
+        grid-template-columns: 30px minmax(0, 1fr);
+        align-items: center;
+        justify-items: start;
+        gap: 8px;
+        width: auto;
+        min-width: 112px;
+        padding: 0 10px;
+        background: #181818;
+        color: #efefef;
+        border-color: rgba(255, 255, 255, 0.13);
+        text-align: left;
+      }
+
       .jl-abort {
         flex: 0 0 56px;
         width: 56px;
@@ -1826,6 +1876,11 @@ function floatingWidgetTemplate(): string {
         color: #22c55e;
       }
 
+      .jl-pause .jl-action-icon {
+        background: rgba(245, 158, 11, 0.14);
+        color: #f59e0b;
+      }
+
       .jl-abort .jl-action-icon {
         background: rgba(239, 68, 68, 0.14);
         color: #ef4444;
@@ -1833,6 +1888,21 @@ function floatingWidgetTemplate(): string {
 
       .jl-record-action::after {
         content: none;
+      }
+
+      @keyframes jl-button-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition-duration: 0.01ms !important;
+          animation-duration: 1.5s !important;
+        }
       }
 
       .jl-button[hidden] {
@@ -1997,9 +2067,9 @@ function floatingWidgetTemplate(): string {
         </div>
         <div class="jl-actions">
           <div class="jl-record-panel">
-            <button class="jl-button jl-start" data-role="start" type="button">
+            <button class="jl-button jl-start" data-role="start" type="button" disabled aria-busy="true">
               <span class="jl-action-icon" data-icon="Play"></span>
-              <span>Start capture</span>
+              <span data-role="start-label">Checking…</span>
             </button>
             <div class="jl-rec-options" aria-label="Recording options">
               <label class="jl-audio-toggle jl-rec-option" data-role="tab-audio-toggle" title="Play captured sound while recording">
@@ -2038,7 +2108,11 @@ function floatingWidgetTemplate(): string {
           <div class="jl-recording-actions" data-role="recording-actions" hidden>
             <button class="jl-button jl-record-action jl-finish" data-role="stop" type="button" title="Finish recording" aria-label="Finish recording" hidden>
               <span class="jl-action-icon" data-icon="CircleStop"></span>
-              <span>Finish recording</span>
+              <span data-role="stop-label">Finish recording</span>
+            </button>
+            <button class="jl-button jl-record-action jl-pause" data-role="pause" data-mode="pause" type="button" title="Pause recording" aria-label="Pause recording" hidden>
+              <span class="jl-action-icon" data-icon="Pause"></span>
+              <span data-role="pause-label">Pause recording</span>
             </button>
             <button class="jl-button jl-record-action jl-abort" data-role="abort" type="button" title="Abort recording" aria-label="Abort recording" hidden>
               <span class="jl-action-icon" data-icon="X"></span>
@@ -2071,7 +2145,7 @@ function floatingWidgetTemplate(): string {
               </div>
             </div>
           </div>
-          <span class="jl-status" data-role="status" hidden>Ready.</span>
+          <span class="jl-status" data-role="status" role="status" aria-live="polite" aria-atomic="true">Ready.</span>
         </div>
         <button class="jl-request-chip jl-sign-in" data-role="sign-in" type="button">Sign in</button>
       </div>

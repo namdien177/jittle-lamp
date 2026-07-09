@@ -161,6 +161,73 @@ describe("background recovery", () => {
     ).toBeFalse();
   });
 
+  test("joins duplicate Finish clicks and rejects conflicting actions while saving", async () => {
+    const exportResponse = createDeferred<unknown>();
+    const initialDraft = createRecordingDraft();
+    chromeHarness.setOffscreenStopResponse(exportResponse.promise);
+    await backgroundTest.saveDraft(initialDraft);
+
+    const firstFinish = chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+    await waitForRuntimeMessage("jl/offscreen-stop-and-export");
+    const secondFinish = chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+
+    const stateResult = await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-get-state" });
+    const stateResponse = stateResult.response as {
+      state?: { recordingOperation?: string | null; canStart?: boolean; canStop?: boolean };
+    };
+    expect(stateResponse.state?.recordingOperation).toBe("stopping");
+    expect(stateResponse.state?.canStart).toBeFalse();
+    expect(stateResponse.state?.canStop).toBeFalse();
+
+    const conflictingStart = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording"
+    });
+    expect(conflictingStart.response).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('while "stopping" is active')
+    });
+
+    const lateInteraction = await chromeHarness.dispatchRuntimeMessage(
+      {
+        type: "jl/interaction",
+        sessionId: initialDraft.sessionId,
+        payload: {
+          kind: "interaction",
+          type: "click",
+          selector: "#late-click"
+        }
+      },
+      { tab: createTab({ id: 7, url: "https://example.com/start" }) }
+    );
+    expect(lateInteraction.response).toEqual({ ok: true });
+
+    exportResponse.resolve({
+      ok: true,
+      destination: "downloads",
+      recordingBytes: 128,
+      eventBytes: 64
+    });
+    const [firstResult, secondResult] = await Promise.all([firstFinish, secondFinish]);
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(firstResult.response).toMatchObject({ ok: true });
+    expect(secondResult.response).toMatchObject({ ok: true });
+    expect(activeDraft?.events.some((event) => event.payload.kind === "interaction" && event.payload.selector === "#late-click")).toBeFalse();
+    expect(
+      chromeHarness.runtimeMessages.filter((message) => hasMessageType(message, "jl/offscreen-stop-and-export"))
+    ).toHaveLength(1);
+    const exportMessage = chromeHarness.runtimeMessages.find((message) =>
+      hasMessageType(message, "jl/offscreen-stop-and-export")
+    ) as { archive?: { phase?: string } } | undefined;
+    expect(exportMessage?.archive?.phase).toBe("ready");
+    expect(
+      chromeHarness.runtimeMessages.filter((message) => hasMessageType(message, "jl/offscreen-stop-recording"))
+    ).toHaveLength(1);
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-start-recording"))
+    ).toBeFalse();
+  });
+
   test("pauses active recordings without exporting artifacts", async () => {
     await backgroundTest.saveDraft(createRecordingDraft());
 
@@ -1181,6 +1248,29 @@ function setNavigatorForTest(navigatorValue: {
 
     Reflect.deleteProperty(globalThis, "navigator");
   };
+}
+
+function createDeferred<Value>() {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
+async function waitForRuntimeMessage(type: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (chromeHarness.runtimeMessages.some((message) => hasMessageType(message, type))) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  throw new Error(`Timed out waiting for runtime message: ${type}`);
 }
 
 function createChromeHarness() {

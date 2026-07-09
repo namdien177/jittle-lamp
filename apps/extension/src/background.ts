@@ -372,7 +372,7 @@ async function handleIncomingMessage(
         return buildPopupResponse(true);
 
       case "jl/popup-start-recording": {
-        const targetTabId = popupRequest.data.tabId;
+        const targetTabId = popupRequest.data.tabId ?? sender.tab?.id;
         const targetPage = popupRequest.data.page;
         const sessionName = popupRequest.data.name;
         const captureTarget = popupRequest.data.captureTarget;
@@ -722,9 +722,15 @@ async function stopRecordingSession(detail: string): Promise<void> {
 
   let keepOffscreenForRetry = false;
   const cloudAuthSessionPromise = resolveCloudUploadSession();
+  const recorderStopPromise = sendOffscreenMessage({
+    type: "jl/offscreen-stop-recording",
+    sessionId: processingDraft.sessionId
+  });
 
   try {
-    await Promise.all([
+    const [recorderStopResponse, cloudAuthSession] = await Promise.all([
+      recorderStopPromise,
+      cloudAuthSessionPromise,
       saveDraft(processingDraft),
       clearMaxRecordingDurationAlarm(),
       ...(typeof tabId === "number"
@@ -736,7 +742,10 @@ async function stopRecordingSession(detail: string): Promise<void> {
         : [])
     ]);
 
-    const cloudAuthSession = await cloudAuthSessionPromise;
+    if (!recorderStopResponse.ok) {
+      throw new Error(recorderStopResponse.error ?? "Offscreen recorder failed to stop.");
+    }
+
     authDebugLog("stop-cloud-auth", {
       hasToken: Boolean(cloudAuthSession?.token),
       source: cloudAuthSession ? "extension-session" : "none",
@@ -745,7 +754,14 @@ async function stopRecordingSession(detail: string): Promise<void> {
     const offscreenResponse = await sendOffscreenMessage({
       type: "jl/offscreen-stop-and-export",
       sessionId: processingDraft.sessionId,
-      archive: createSessionArchive(processingDraft, { recorder: getExtensionRecorderInfo() }),
+      archive: createSessionArchive(
+        transitionDraftPhase(
+          processingDraft,
+          "ready",
+          "Recording stopped and the session archive was prepared for export."
+        ),
+        { recorder: getExtensionRecorderInfo() }
+      ),
       cloudRequired: Boolean(cloudAuthSession?.token),
       ...(cloudAuthSession?.token ? { cloudAuthToken: cloudAuthSession.token } : {})
     });
@@ -3502,7 +3518,7 @@ async function readCloudAuthState(): Promise<CloudAuthState> {
 
     if (!session) {
       await resumePendingCloudAuthFlow();
-      session = await ensureFreshCloudAuthSession();
+      session = readCachedCloudAuthSession("cloud-state-after-resume");
     }
 
     if (!session) {
@@ -3669,7 +3685,8 @@ async function readCloudAccountLabel(token: string): Promise<string | undefined>
   try {
     const response = await fetch(`${configuredCloudApiOrigin}/protected/me`, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}` }
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(cloudAuthProbeTimeoutMs)
     });
 
     if (!response.ok) {
@@ -3763,7 +3780,7 @@ async function resolveCloudUploadSession(): Promise<StoredCloudAuthSession | nul
   }
 
   await resumePendingCloudAuthFlow();
-  const resumedSession = await ensureFreshCloudAuthSession();
+  const resumedSession = readCachedCloudAuthSession("stop-export-after-resume");
 
   if (resumedSession) {
     return resumedSession;

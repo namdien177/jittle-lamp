@@ -207,6 +207,11 @@ export const offscreenStopAndExportRequestSchema = z.object({
   cloudAuthToken: z.string().min(1).optional()
 });
 
+export const offscreenStopRecordingRequestSchema = z.object({
+  type: z.literal("jl/offscreen-stop-recording"),
+  sessionId: sessionIdSchema
+});
+
 export const offscreenPauseRecordingRequestSchema = z.object({
   type: z.literal("jl/offscreen-pause-recording"),
   sessionId: sessionIdSchema
@@ -230,6 +235,7 @@ export const offscreenRetryCloudUploadRequestSchema = z.object({
 
 export const offscreenRequestSchema = z.discriminatedUnion("type", [
   offscreenStartRecordingRequestSchema,
+  offscreenStopRecordingRequestSchema,
   offscreenStopAndExportRequestSchema,
   offscreenPauseRecordingRequestSchema,
   offscreenResumeRecordingRequestSchema,
