@@ -72,6 +72,26 @@ const startDesktopSessionSyncBodySchema = t.Object({
 	),
 });
 
+const startManualUploadBodySchema = t.Object({
+	sessionId: t.String({ minLength: 1 }),
+	title: t.String({ minLength: 1 }),
+	sourceMetadata: t.Optional(t.String()),
+	thumbnailBase64: t.Optional(t.String({ maxLength: 20_000 })),
+	thumbnailMimeType: t.Optional(t.String({ minLength: 1 })),
+	artifacts: t.Array(
+		t.Object({
+			key: t.Union([t.Literal("recording"), t.Literal("archive")]),
+			kind: t.Union(
+				evidenceArtifactKindSchema.options.map((value) => t.Literal(value)),
+			),
+			mimeType: t.String({ minLength: 1 }),
+			bytes: t.Number({ minimum: 0 }),
+			checksum: t.String({ minLength: 1 }),
+		}),
+		{ minItems: 2, maxItems: 2 },
+	),
+});
+
 const completeUploadBodySchema = t.Object({
 	bytes: t.Number({ minimum: 0 }),
 	checksum: t.String({ minLength: 1 }),
@@ -993,6 +1013,179 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 						response: {
 							200: startUploadResponseSchema,
+							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.post(
+					"/evidences/manual-uploads/start",
+					async ({
+						authContext,
+						body,
+						db,
+						request,
+						requestId,
+						runtime,
+						set,
+					}) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+
+						const scopeDenied = requireSessionScope(
+							authContext,
+							"evidence:write",
+							requestId,
+							set,
+						);
+						if (scopeDenied) {
+							return scopeDenied;
+						}
+
+						const workspace = resolveActiveWorkspace(
+							authContext.activeOrgId,
+							authContext.localUserId,
+						);
+						if (!workspace) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"ORG_CONTEXT_UNRESOLVED",
+								"No active organization found for current user",
+								403,
+							);
+						}
+						if (
+							!(await organizationMemberHasPermission(db, {
+								organizationId: workspace.activeOrgId,
+								localUserId: workspace.localUserId,
+								permission: "evidence.create",
+							}))
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_CREATE_FORBIDDEN",
+								"Your role cannot create evidence in this organization",
+								403,
+							);
+						}
+
+						const artifactKeys = new Set(
+							body.artifacts.map((artifact) => artifact.key),
+						);
+						const hasRequiredArtifacts =
+							artifactKeys.has("recording") && artifactKeys.has("archive");
+						const hasValidKinds = body.artifacts.every((artifact) =>
+							artifact.key === "recording"
+								? artifact.kind === "recording"
+								: artifact.kind === "network-log",
+						);
+						if (!hasRequiredArtifacts || !hasValidKinds) {
+							set.status = 400;
+							return createApiError(
+								requestId,
+								"MANUAL_UPLOAD_ARTIFACTS_REQUIRED",
+								"Manual upload requires a recording video and a session archive artifact",
+								400,
+							);
+						}
+
+						const now = Date.now();
+						const created = await db.transaction(async (tx) => {
+							const [evidence] = await tx
+								.insert(evidences)
+								.values({
+									orgId: workspace.activeOrgId,
+									createdBy: workspace.localUserId,
+									title: body.title,
+									sourceType: "manual-upload",
+									sourceExternalId: body.sessionId,
+									sourceMetadata: body.sourceMetadata,
+									thumbnailBase64: body.thumbnailBase64,
+									thumbnailMimeType: body.thumbnailMimeType,
+									scopeType: "organization",
+									scopeId: workspace.activeOrgId,
+									updatedAt: now,
+								})
+								.returning({ id: evidences.id, orgId: evidences.orgId });
+
+							if (!evidence) {
+								throw new Error("Failed to create manual upload evidence");
+							}
+
+							const uploadSessions = [];
+							for (const artifactInput of body.artifacts) {
+								const [artifact] = await tx
+									.insert(evidenceArtifacts)
+									.values({
+										evidenceId: evidence.id,
+										kind: artifactInput.kind,
+										s3Key: `uploads/${workspace.activeOrgId}/${evidence.id}/${artifactInput.key}-${crypto.randomUUID()}`,
+										mimeType: artifactInput.mimeType,
+										bytes: Math.trunc(artifactInput.bytes),
+										checksum: artifactInput.checksum,
+										uploadStatus: "uploading",
+										updatedAt: now,
+									})
+									.returning({
+										id: evidenceArtifacts.id,
+										s3Key: evidenceArtifacts.s3Key,
+									});
+
+								if (!artifact) {
+									throw new Error("Failed to create manual upload artifact");
+								}
+
+								uploadSessions.push({
+									key: artifactInput.key,
+									uploadId: artifact.id,
+									expiresAt: now + UPLOAD_SESSION_TTL_MS,
+									uploadUrl: `${resolveExternalRequestOrigin(request, runtime)}/evidences/uploads/${artifact.id}/blob`,
+									method: "PUT" as const,
+									headers: {
+										"content-type": artifactInput.mimeType,
+									},
+									storageKey: artifact.s3Key,
+								});
+							}
+
+							return {
+								evidenceId: evidence.id,
+								organizationId: evidence.orgId,
+								uploadSessions,
+							};
+						});
+
+						await recordOrganizationActivity(db, {
+							organizationId: created.organizationId,
+							actorUserId: workspace.localUserId,
+							action: "evidence.created",
+							entity: evidenceActivityEntity(created.evidenceId),
+							message: "Created manual evidence upload",
+							metadata: {
+								sourceType: "manual-upload",
+								sourceExternalId: body.sessionId,
+							},
+							ipAddress: getRequestIpAddress(request),
+						});
+
+						return created;
+					},
+					{
+						body: startManualUploadBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary:
+								"Starts a manual evidence upload with recording and generated archive artifacts",
+						},
+						response: {
+							200: startDesktopSessionSyncResponseSchema,
 							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,

@@ -25,6 +25,7 @@ import { UserButton } from "../../auth";
 import { useEvidences } from "../../queries";
 import { Badge } from "../ui/badge";
 import { buttonVariants } from "../ui/button";
+import { UploadEvidenceButton } from "../upload-evidence-button";
 import { EvidenceSearch } from "./evidence-search";
 import { OrgSwitcher } from "./org-switcher";
 
@@ -335,6 +336,15 @@ export function WorkspaceShell({
           </div>
           <div className="jl-topbar-spacer" />
           <div className="jl-topbar-actions">
+            <UploadEvidenceButton
+              size="sm"
+              className="hidden md:inline-flex"
+            />
+            <UploadEvidenceButton
+              variant="outline"
+              iconOnly
+              className="md:hidden"
+            />
             <EvidenceSearch />
             <button
               type="button"

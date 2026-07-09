@@ -12,7 +12,6 @@ import {
   MoreVertical,
   Pencil,
   Play,
-  Plus,
   RefreshCw,
   Search,
   Share2,
@@ -23,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { PageBody, PageHeader } from "../components/page";
+import { UploadEvidenceButton } from "../components/upload-evidence-button";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
@@ -457,14 +457,17 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         title="Evidence library"
         description={`${total} records in this workspace.`}
         actions={
-          <Button
-            variant="outline"
-            onClick={() => void evidencesQuery.refetch()}
-            disabled={loading}
-          >
-            <RefreshCw aria-hidden className={cn(loading && "animate-spin")} />
-            Refresh
-          </Button>
+          <>
+            <UploadEvidenceButton />
+            <Button
+              variant="outline"
+              onClick={() => void evidencesQuery.refetch()}
+              disabled={loading}
+            >
+              <RefreshCw aria-hidden className={cn(loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </>
         }
       />
       <PageBody>
@@ -713,15 +716,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             }
             description={
               evidences.length === 0
-                ? "Upload from the desktop app or open a local archive in Quick view. Uploads land in the active organisation automatically."
+                ? "Upload a ZIP, MP4, WebM, or WebP. Video-only files get an empty log."
                 : "Try a different search term or filter."
             }
             action={
               evidences.length === 0 ? (
-                <Button onClick={() => navigate("/quick-view")}>
-                  <Plus aria-hidden />
-                  Open a local archive
-                </Button>
+                <UploadEvidenceButton label="Upload evidence" />
               ) : (
                 <Button
                   variant="outline"

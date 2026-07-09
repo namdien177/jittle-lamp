@@ -362,6 +362,37 @@ export type CreatedShareLink = {
 	scope: "internal";
 };
 
+export type EvidenceUploadArtifactKind =
+	| "recording"
+	| "transcript"
+	| "screenshot"
+	| "network-log"
+	| "attachment";
+
+export type ManualEvidenceUploadArtifact = {
+	key: "recording" | "archive";
+	kind: EvidenceUploadArtifactKind;
+	mimeType: string;
+	bytes: number;
+	checksum: string;
+};
+
+export type UploadSession = {
+	key: string;
+	uploadId: string;
+	expiresAt: number;
+	uploadUrl: string;
+	method: "PUT";
+	headers: { "content-type": string };
+	storageKey: string;
+};
+
+export type StartedManualEvidenceUpload = {
+	evidenceId: string;
+	organizationId: string;
+	uploadSessions: UploadSession[];
+};
+
 export const api = {
 	resolveShareLink: (getToken: FetchToken, locator: string) =>
 		authedFetch<ResolveShareLinkResponse>(
@@ -395,6 +426,64 @@ export const api = {
 			`/evidences${suffix}`,
 		);
 	},
+
+	startManualEvidenceUpload: (
+		getToken: FetchToken,
+		body: {
+			sessionId: string;
+			title: string;
+			sourceMetadata?: string;
+			thumbnailBase64?: string;
+			thumbnailMimeType?: string;
+			artifacts: ManualEvidenceUploadArtifact[];
+		},
+	) =>
+		authedFetch<StartedManualEvidenceUpload>(
+			getToken,
+			"/evidences/manual-uploads/start",
+			{
+				method: "POST",
+				body: JSON.stringify(body),
+			},
+		),
+
+	uploadEvidenceBlob: async (
+		getToken: FetchToken,
+		uploadUrl: string,
+		payload: Uint8Array,
+		mimeType: string,
+	): Promise<void> => {
+		const token = await getToken();
+		if (!token) throw new Error("Sign in is required.");
+
+		const response = await fetch(uploadUrl, {
+			method: "PUT",
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": mimeType,
+			},
+			body: payload.slice().buffer as ArrayBuffer,
+		});
+		if (!response.ok) {
+			throw new Error(
+				await readApiError(response, `Upload failed (${response.status}).`),
+			);
+		}
+	},
+
+	completeEvidenceUpload: (
+		getToken: FetchToken,
+		uploadId: string,
+		body: { bytes: number; checksum: string; mimeType: string },
+	) =>
+		authedFetch<{ uploadId: string; evidenceId: string; status: "committed" }>(
+			getToken,
+			`/evidences/uploads/${encodeURIComponent(uploadId)}/complete`,
+			{
+				method: "POST",
+				body: JSON.stringify(body),
+			},
+		),
 
 	listEvidenceTags: (getToken: FetchToken, orgId?: string) => {
 		const query = new URLSearchParams();
