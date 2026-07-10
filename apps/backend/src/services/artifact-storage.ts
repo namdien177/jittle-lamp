@@ -16,6 +16,7 @@ export type ArtifactStorage = {
 		contentType: string;
 		checksumSha256: string;
 	}) => Promise<void>;
+	getObject: (input: { key: string }) => Promise<Uint8Array>;
 	createReadUrl: (input: {
 		key: string;
 		responseContentType: string;
@@ -60,6 +61,18 @@ export const createArtifactStorage = (
 				}),
 			);
 		},
+		getObject: async (input) => {
+			const response = await client.send(
+				new GetObjectCommand({
+					Bucket: runtime.s3?.bucket,
+					Key: input.key,
+				}),
+			);
+			if (!response.Body) {
+				throw new Error("Stored artifact body is empty");
+			}
+			return response.Body.transformToByteArray();
+		},
 		createReadUrl: async (input) => {
 			const ttlSeconds =
 				input.expiresInSeconds ?? runtime.s3?.signedUrlTtlSeconds ?? 900;
@@ -95,6 +108,11 @@ const createMemoryArtifactStorage = (): ArtifactStorage => ({
 			contentType: input.contentType,
 			checksumSha256: input.checksumSha256,
 		});
+	},
+	getObject: async (input) => {
+		const stored = memoryObjects.get(input.key);
+		if (!stored) throw new Error("Stored artifact was not found");
+		return Uint8Array.from(stored.body);
 	},
 	createReadUrl: async () => {
 		throw new Error(

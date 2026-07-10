@@ -50,6 +50,13 @@ export class InvalidEvidenceUploadError extends Error {
 }
 
 const textEncoder = new TextEncoder();
+export const MAX_MANUAL_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+const assertVideoSize = (bytes: number): void => {
+  if (bytes > MAX_MANUAL_VIDEO_UPLOAD_BYTES) {
+    throw new InvalidEvidenceUploadError("Video files must be 50 MB or smaller.");
+  }
+};
 
 const supportedVideoTypes = new Set(["video/mp4", "video/webm", "image/webp"]);
 const videoMimeByExtension = new Map([
@@ -248,6 +255,7 @@ async function prepareZipUpload(file: File): Promise<PreparedManualUpload> {
     const picked = pickSessionBundleFiles(files);
     archiveJson = picked.archiveJson;
     recordingWebm = picked.recordingWebm;
+    assertVideoSize(recordingWebm.byteLength);
     archive = parseSessionArchiveJson(archiveJson);
   } catch (error) {
     throw new InvalidEvidenceUploadError(
@@ -340,7 +348,10 @@ export async function prepareManualEvidenceUploadFile(
   if (isZipFile(file)) return prepareZipUpload(file);
 
   const videoMimeType = detectVideoMimeType(file);
-  if (videoMimeType) return prepareRawVideoUpload(file, videoMimeType);
+  if (videoMimeType) {
+    assertVideoSize(file.size);
+    return prepareRawVideoUpload(file, videoMimeType);
+  }
 
   throw new UnsupportedUploadFileError();
 }

@@ -27,6 +27,7 @@ import {
 } from "../services/organization-activity";
 import { organizationMemberHasPermission } from "../services/organization-permissions";
 import type { BackendDb } from "../services/user-provisioning";
+import { MAX_VIDEO_UPLOAD_BYTES } from "../services/video-normalizer";
 
 const startUploadBodySchema = t.Object({
 	title: t.String({ minLength: 1 }),
@@ -1095,6 +1096,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								400,
 							);
 						}
+						const recordingArtifact = body.artifacts.find(
+							(artifact) => artifact.key === "recording",
+						);
+						if (
+							recordingArtifact &&
+							recordingArtifact.bytes > MAX_VIDEO_UPLOAD_BYTES
+						) {
+							set.status = 413;
+							return createApiError(
+								requestId,
+								"VIDEO_UPLOAD_TOO_LARGE",
+								"Video files must be 50 MB or smaller",
+								413,
+							);
+						}
 
 						const now = Date.now();
 						const created = await db.transaction(async (tx) => {
@@ -1189,6 +1205,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							413: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
@@ -2095,6 +2112,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							columns: {
 								id: true,
 								s3Key: true,
+								kind: true,
 								mimeType: true,
 								uploadStatus: true,
 								createdAt: true,
@@ -2150,10 +2168,16 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
+						const maximumBytes =
+							artifact.kind === "recording"
+								? MAX_VIDEO_UPLOAD_BYTES
+								: MAX_UPLOAD_BYTES;
 						const tooLargeResponse = createApiError(
 							requestId,
 							"UPLOAD_TOO_LARGE",
-							`Upload exceeds maximum allowed size of ${MAX_UPLOAD_BYTES} bytes`,
+							artifact.kind === "recording"
+								? "Video files must be 50 MB or smaller"
+								: `Upload exceeds maximum allowed size of ${MAX_UPLOAD_BYTES} bytes`,
 							413,
 						);
 
@@ -2161,13 +2185,13 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						const contentLength = contentLengthHeader
 							? Number.parseInt(contentLengthHeader, 10)
 							: null;
-						if (contentLength !== null && contentLength > MAX_UPLOAD_BYTES) {
+						if (contentLength !== null && contentLength > maximumBytes) {
 							set.status = 413;
 							return tooLargeResponse;
 						}
 
 						const payload = await request.arrayBuffer();
-						if (payload.byteLength > MAX_UPLOAD_BYTES) {
+						if (payload.byteLength > maximumBytes) {
 							set.status = 413;
 							return tooLargeResponse;
 						}
@@ -2238,7 +2262,17 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.post(
 					"/evidences/uploads/:uploadId/complete",
-					async ({ authContext, body, db, params, requestId, set }) => {
+					async ({
+						artifactStorage,
+						authContext,
+						body,
+						db,
+						params,
+						requestId,
+						set,
+						videoNormalizationQueue,
+						videoNormalizer,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -2273,6 +2307,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							columns: {
 								id: true,
 								evidenceId: true,
+								kind: true,
+								s3Key: true,
 								bytes: true,
 								checksum: true,
 								mimeType: true,
@@ -2281,7 +2317,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							},
 							with: {
 								evidence: {
-									columns: { id: true, orgId: true },
+									columns: { id: true, orgId: true, sourceType: true },
 								},
 							},
 						});
@@ -2343,11 +2379,64 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
+						let finalizedBlob: UploadedBlobMetadata = {
+							bytes: artifact.bytes,
+							checksum: artifact.checksum,
+							mimeType: artifact.mimeType,
+						};
+						if (
+							artifact.kind === "recording" &&
+							artifact.evidence.sourceType === "manual-upload"
+						) {
+							try {
+								finalizedBlob = await videoNormalizationQueue.run(async () => {
+									const sourcePayload = await artifactStorage.getObject({
+										key: artifact.s3Key,
+									});
+									const normalized = await videoNormalizer({
+										payload: sourcePayload,
+										mimeType: artifact.mimeType,
+									});
+									if (normalized.payload.byteLength > MAX_VIDEO_UPLOAD_BYTES) {
+										throw new Error("Normalized video exceeds the 50 MB limit");
+									}
+									const checksum = await encodeSha256(
+										normalized.payload.slice().buffer,
+									);
+									await artifactStorage.putObject({
+										key: artifact.s3Key,
+										body: normalized.payload,
+										contentType: normalized.mimeType,
+										checksumSha256: sha256HexToBase64(checksum),
+									});
+									return {
+										bytes: normalized.payload.byteLength,
+										checksum,
+										mimeType: normalized.mimeType,
+									};
+								});
+							} catch (error) {
+								set.status = 422;
+								return createApiError(
+									requestId,
+									"VIDEO_NORMALIZATION_FAILED",
+									error instanceof Error
+										? error.message
+										: "Video could not be converted to 720p",
+									422,
+								);
+							}
+						}
+
 						const now = Date.now();
 						await db.transaction(async (tx) => {
 							await tx
 								.update(evidenceArtifacts)
-								.set({ uploadStatus: "uploaded", updatedAt: now })
+								.set({
+									...finalizedBlob,
+									uploadStatus: "uploaded",
+									updatedAt: now,
+								})
 								.where(eq(evidenceArtifacts.id, artifact.id));
 
 							await tx

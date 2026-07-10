@@ -27,6 +27,10 @@ FROM oven/bun:1.3.13-slim AS runtime
 
 WORKDIR /app/apps/backend
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/packages/shared /app/packages/shared
 COPY --from=build /app/apps/backend/package.json ./package.json

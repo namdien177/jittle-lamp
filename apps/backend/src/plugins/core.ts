@@ -5,13 +5,17 @@ import type { Logger } from "pino";
 import type { RuntimeConfig } from "../config/runtime";
 import { createApiError } from "../http/api-error";
 import type { ArtifactStorage } from "../services/artifact-storage";
+import type { TaskQueue } from "../services/task-queue";
 import type { BackendDb } from "../services/user-provisioning";
+import type { VideoNormalizer } from "../services/video-normalizer";
 
 type CorePluginParams = {
 	runtime: RuntimeConfig;
 	db: BackendDb | null;
 	logger: Logger;
 	artifactStorage: ArtifactStorage;
+	videoNormalizationQueue: TaskQueue;
+	videoNormalizer: VideoNormalizer;
 };
 
 const getRequestId = (
@@ -59,9 +63,18 @@ export const createCorePlugin = ({
 	db,
 	logger,
 	artifactStorage,
+	videoNormalizationQueue,
+	videoNormalizer,
 }: CorePluginParams) =>
 	new Elysia({ name: "backend-core" })
-		.decorate({ runtime, db, logger, artifactStorage })
+		.decorate({
+			runtime,
+			db,
+			logger,
+			artifactStorage,
+			videoNormalizationQueue,
+			videoNormalizer,
+		})
 		.use(
 			// Official CORS plugin handles preflight (204), Vary, and origin
 			// reflection. Origins are restricted to the configured web app, Clerk

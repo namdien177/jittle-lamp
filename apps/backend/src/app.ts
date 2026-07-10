@@ -18,18 +18,35 @@ import { createOrganizationRoutes } from "./routes/orgs";
 import { createProtectedRoutes } from "./routes/protected";
 import { createShareLinkRoutes } from "./routes/share-links";
 import { createArtifactStorage } from "./services/artifact-storage";
+import { createTaskQueue } from "./services/task-queue";
+import {
+	normalizeVideoTo720p,
+	type VideoNormalizer,
+} from "./services/video-normalizer";
 import { createLogger } from "./utils/logger";
 
 export const createApp = (
 	source: Record<string, string | undefined> = process.env,
+	dependencies: { videoNormalizer?: VideoNormalizer } = {},
 ) => {
 	const env = parseEnv(source);
 	const runtime = buildRuntimeConfig(env);
 	const logger = createLogger(runtime.logLevel);
 	const db = createDb(runtime.databaseUrl, runtime.tursoAuthToken);
 	const artifactStorage = createArtifactStorage(runtime);
+	const videoNormalizationQueue = createTaskQueue(
+		runtime.videoNormalizationConcurrency,
+	);
+	const videoNormalizer = dependencies.videoNormalizer ?? normalizeVideoTo720p;
 
-	const core = createCorePlugin({ runtime, db, logger, artifactStorage });
+	const core = createCorePlugin({
+		runtime,
+		db,
+		logger,
+		artifactStorage,
+		videoNormalizationQueue,
+		videoNormalizer,
+	});
 	const auth = createClerkAuthPlugin(core);
 
 	const app = new Elysia().use(core);

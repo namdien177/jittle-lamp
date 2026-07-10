@@ -35,6 +35,12 @@ const envSchema = z
 		S3_SECRET_ACCESS_KEY: optionalNonEmptyString,
 		S3_FORCE_PATH_STYLE: z.string().optional(),
 		S3_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(60).optional(),
+		VIDEO_NORMALIZATION_CONCURRENCY: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.max(8)
+			.default(2),
 		LOG_LEVEL: z
 			.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
 			.optional(),

@@ -342,14 +342,23 @@ describe("evidence upload routes", () => {
 			.setExpirationTime("5m")
 			.sign(privateKey);
 
-		const { app } = createApp({
-			NODE_ENV: "development",
-			DATABASE_URL: databaseUrl,
-			APP_VERSION: "9.9.9",
-			APP_SECRET: TEST_APP_SECRET,
-			CLERK_JWT_KEY: jwtKey,
-			CLERK_AUDIENCE: "test-audience",
-		});
+		const normalizedRecording = new TextEncoder().encode("720p mp4");
+		const { app } = createApp(
+			{
+				NODE_ENV: "development",
+				DATABASE_URL: databaseUrl,
+				APP_VERSION: "9.9.9",
+				APP_SECRET: TEST_APP_SECRET,
+				CLERK_JWT_KEY: jwtKey,
+				CLERK_AUDIENCE: "test-audience",
+			},
+			{
+				videoNormalizer: async () => ({
+					payload: normalizedRecording,
+					mimeType: "video/mp4",
+				}),
+			},
+		);
 
 		const recordingBody = "manual mp4 bytes";
 		const archiveBody = JSON.stringify({
@@ -365,6 +374,46 @@ describe("evidence upload routes", () => {
 			actionCount: 0,
 			requestCount: 0,
 		});
+		const oversizedResponse = await app.handle(
+			new Request("http://localhost/evidences/manual-uploads/start", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					sessionId: "jl_manual_too_large",
+					title: "Oversized video",
+					artifacts: [
+						{
+							key: "recording",
+							kind: "recording",
+							mimeType: "video/mp4",
+							bytes: 50 * 1024 * 1024 + 1,
+							checksum: "sha256:oversized",
+						},
+						{
+							key: "archive",
+							kind: "network-log",
+							mimeType: "application/json",
+							bytes: archiveBody.length,
+							checksum: `sha256:${await sha256Hex(archiveBody)}`,
+						},
+					],
+				}),
+			}),
+		);
+		expect(oversizedResponse.status).toBe(413);
+		await expectApiError(oversizedResponse, {
+			code: "VIDEO_UPLOAD_TOO_LARGE",
+			message: "Video files must be 50 MB or smaller",
+			status: 413,
+		});
+		expect(
+			await db.query.evidences.findFirst({
+				where: eq(evidences.sourceExternalId, "jl_manual_too_large"),
+			}),
+		).toBeUndefined();
 		const startResponse = await app.handle(
 			new Request("http://localhost/evidences/manual-uploads/start", {
 				method: "POST",
@@ -472,7 +521,12 @@ describe("evidence upload routes", () => {
 
 		const artifacts = await db.query.evidenceArtifacts.findMany({
 			where: eq(evidenceArtifacts.evidenceId, startPayload.evidenceId),
-			columns: { kind: true, mimeType: true, uploadStatus: true },
+			columns: {
+				kind: true,
+				mimeType: true,
+				bytes: true,
+				uploadStatus: true,
+			},
 		});
 		expect(artifacts).toHaveLength(2);
 		expect(artifacts.map((artifact) => artifact.kind).sort()).toEqual([
@@ -482,6 +536,12 @@ describe("evidence upload routes", () => {
 		expect(
 			artifacts.every((artifact) => artifact.uploadStatus === "uploaded"),
 		).toBe(true);
+		expect(
+			artifacts.find((artifact) => artifact.kind === "recording"),
+		).toMatchObject({
+			mimeType: "video/mp4",
+			bytes: normalizedRecording.byteLength,
+		});
 
 		const evidenceResponse = await app.handle(
 			new Request(`http://localhost/evidences/${startPayload.evidenceId}`, {
