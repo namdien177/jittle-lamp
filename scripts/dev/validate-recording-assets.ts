@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
-import { sessionArchiveSchema, type SessionArchive } from "@jittle-lamp/shared";
+import { sessionArchiveSchema, type SessionArchive } from "../../packages/shared/src/index";
 
 type ValidationOptions = {
   fixture?: boolean;
