@@ -15,6 +15,7 @@ import {
 	users,
 } from "../src/db/schema";
 import { ensureUserAndPersonalOrganization } from "../src/services/user-provisioning";
+import { MAX_VIDEO_UPLOAD_BYTES } from "../src/services/video-normalizer";
 import {
 	applyMigrations,
 	bytesBody,
@@ -904,6 +905,83 @@ describe("evidence upload routes", () => {
 		expect(injectionPayload.uploadSession.uploadUrl).not.toContain(
 			"attacker.example.com",
 		);
+	});
+
+	it("rejects oversized desktop recordings before creating evidence", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		expect(db).not.toBeNull();
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_desktop_too_large",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_desktop_too_large" },
+		});
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const token = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_desktop_too_large")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const response = await app.handle(
+			new Request("http://localhost/evidences/desktop-sessions/sync/start", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					sessionId: "jl_desktop_too_large",
+					title: "Oversized desktop recording",
+					artifacts: [
+						{
+							key: "recording",
+							kind: "recording",
+							mimeType: "video/webm",
+							bytes: MAX_VIDEO_UPLOAD_BYTES + 1,
+							checksum: "sha256:oversized",
+						},
+						{
+							key: "archive",
+							kind: "network-log",
+							mimeType: "application/json",
+							bytes: 2,
+							checksum: `sha256:${await sha256Hex("{}")}`,
+						},
+					],
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(413);
+		await expectApiError(response, {
+			code: "VIDEO_UPLOAD_TOO_LARGE",
+			message: "Video files must be 50 MB or smaller",
+			status: 413,
+		});
+		expect(
+			await db.query.evidences.findFirst({
+				where: eq(evidences.sourceExternalId, "jl_desktop_too_large"),
+			}),
+		).toBeUndefined();
 	});
 
 	it("replaces cloud artifacts when resyncing a desktop session", async () => {

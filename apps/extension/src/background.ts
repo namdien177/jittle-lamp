@@ -5,6 +5,7 @@ import {
   contentRuntimeMessageSchema,
   createSessionArchive,
   createSessionDraft,
+  offscreenRecordingLimitReachedMessageSchema,
   offscreenResponseSchema,
   popupRequestSchema,
   renameSessionDraft,
@@ -26,6 +27,7 @@ import {
 } from "@jittle-lamp/shared";
 
 import { createDraftStorageCheckpoint } from "./draft-storage";
+import { getRecordingCapturePolicy } from "./recording-capture-policy";
 import { RecordingLifecycle } from "./recording-lifecycle";
 
 declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
@@ -457,6 +459,28 @@ async function handleIncomingMessage(
 
   const contentMessage = contentRuntimeMessageSchema.safeParse(rawMessage);
 
+  const recordingLimitMessage = offscreenRecordingLimitReachedMessageSchema.safeParse(rawMessage);
+
+  if (recordingLimitMessage.success) {
+    return handleRecordingOperation("stopping", () =>
+      queueDraftMutation(async () => {
+        const draft = await readDraft();
+
+        if (
+          !draft ||
+          draft.sessionId !== recordingLimitMessage.data.sessionId ||
+          (draft.phase !== "recording" && draft.phase !== "paused")
+        ) {
+          return;
+        }
+
+        await stopRecordingSession(
+          "Stopped recording automatically before the video exceeded the safe upload size."
+        );
+      })
+    );
+  }
+
   if (contentMessage.success) {
     if (recordingLifecycle.blocksCaptureIntake()) {
       return { ok: true };
@@ -555,7 +579,7 @@ async function startRecordingSession(
         startRecordingDetail(captureTarget, debuggerAttached, canUseWebRequestFallback)
       )
     );
-    scheduleMaxRecordingDurationAlarm();
+    scheduleMaxRecordingDurationAlarm(captureTarget);
   } catch (error: unknown) {
     webRequestFallbackTabIds.delete(tab.id);
     networkRequestsByTab.delete(tab.id);
@@ -884,7 +908,7 @@ async function resumeRecordingSession(): Promise<void> {
 
   const recordingDraft = transitionDraftPhase(draftToResume, "recording", "Resumed recording from the popup.");
   await saveDraft(recordingDraft);
-  scheduleMaxRecordingDurationAlarm();
+  scheduleMaxRecordingDurationAlarm(activeCaptureTarget);
   await ensureContentBridge(tabId, recordingDraft.sessionId, { injectNetworkProbe: true });
   if (currentDraft.page.tabId !== tabId) {
     const canUseWebRequestFallback = await hasNetworkCapturePermission();
@@ -2074,9 +2098,9 @@ function schedulePendingRecoveryAlarm(recovery: PendingRecoveryState | null): vo
   });
 }
 
-function scheduleMaxRecordingDurationAlarm(): void {
+function scheduleMaxRecordingDurationAlarm(captureTarget: CaptureTarget): void {
   chrome.alarms.create(maxRecordingDurationAlarmName, {
-    when: Date.now() + maxRecordingDurationMs
+    when: Date.now() + getRecordingCapturePolicy(captureTarget, false).maxDurationMs
   });
 }
 
@@ -2113,7 +2137,11 @@ async function handleMaxRecordingDurationAlarm(): Promise<void> {
     return;
   }
 
-  await stopRecordingSession("Stopped recording automatically after reaching the 5-minute limit.");
+  await stopRecordingSession(
+    activeCaptureTarget === "desktop"
+      ? "Stopped recording automatically after reaching the 2-minute desktop limit."
+      : "Stopped recording automatically after reaching the 5-minute limit."
+  );
 }
 
 async function handlePendingRecoveryAlarm(alarmName: string): Promise<void> {
@@ -4479,7 +4507,11 @@ function rawErrorMessage(error: unknown): string {
 }
 
 function isHandledRuntimeMessage(rawMessage: unknown): boolean {
-  return popupRequestSchema.safeParse(rawMessage).success || contentRuntimeMessageSchema.safeParse(rawMessage).success;
+  return (
+    popupRequestSchema.safeParse(rawMessage).success ||
+    contentRuntimeMessageSchema.safeParse(rawMessage).success ||
+    offscreenRecordingLimitReachedMessageSchema.safeParse(rawMessage).success
+  );
 }
 
 async function sendOffscreenMessage(message: OffscreenRequest) {

@@ -5,6 +5,16 @@ import {
   type SessionArchive
 } from "@jittle-lamp/shared";
 
+import {
+  RecordingDurationClock,
+  resolveRecordingDurationMs
+} from "./recording-duration";
+import {
+  RecordingByteBudget,
+  captureWithTimeout,
+  getRecordingCapturePolicy
+} from "./recording-capture-policy";
+
 declare const __JITTLE_LAMP_API_ORIGIN__: string | undefined;
 declare const __JITTLE_LAMP_WEB_ORIGIN__: string | undefined;
 
@@ -48,6 +58,8 @@ type ActiveRecorderState = {
   chunks: Blob[];
   stopPromise: Promise<Blob>;
   audioContext: AudioContext | null;
+  durationClock: RecordingDurationClock;
+  byteBudget: RecordingByteBudget;
 };
 
 type CompanionWriteResult =
@@ -138,7 +150,7 @@ let activeRecorderState: ActiveRecorderState | null = null;
 let pendingCloudRetry: PendingCloudRetry | null = null;
 let recorderStartOperation: RecorderStartOperation | null = null;
 let recorderStopOperation: RecorderStopOperation | null = null;
-let completedRecording: { sessionId: string; blob: Blob } | null = null;
+let completedRecording: { sessionId: string; blob: Blob; durationMs: number } | null = null;
 let stopAndExportOperation: StopAndExportOperation | null = null;
 
 chrome.runtime.onMessage.addListener((rawMessage, _sender, sendResponse) => {
@@ -271,7 +283,11 @@ function stopAndExport(request: StopAndExportRequest): Promise<OffscreenResponse
 
 async function performStopAndExport(request: StopAndExportRequest): Promise<OffscreenResponse> {
   const recordingBlob = await stopRecorder(request.sessionId);
-  const videoDurationMs = await readVideoDurationMs(recordingBlob);
+  const metadataDurationMs = await readVideoDurationMs(recordingBlob);
+  const elapsedDurationMs = completedRecording?.sessionId === request.sessionId
+    ? completedRecording.durationMs
+    : null;
+  const videoDurationMs = resolveRecordingDurationMs(metadataDurationMs, elapsedDurationMs);
   const finalized = finalizeArchiveForExport(
     request.archive,
     recordingBlob.size,
@@ -938,6 +954,7 @@ function prepareForRecorderStart(sessionId: string): void {
 
 async function performStartRecorder(input: StartRecorderInput): Promise<void> {
   const { sessionId, streamId, captureTarget, captureAudio, playCapturedAudio } = input;
+  const capturePolicy = getRecordingCapturePolicy(captureTarget, captureAudio);
   const stream = await getRecorderMediaStream({
     captureTarget,
     captureAudio,
@@ -951,17 +968,39 @@ async function performStartRecorder(input: StartRecorderInput): Promise<void> {
     const chunks: Blob[] = [];
     let resolveStop: ((blob: Blob) => void) | null = null;
     let rejectStop: ((error: Error) => void) | null = null;
-    const recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType })
-      : new MediaRecorder(stream);
+    const recorder = new MediaRecorder(stream, {
+      ...(mimeType ? { mimeType } : {}),
+      ...capturePolicy.recorderOptions
+    });
+    const byteBudget = new RecordingByteBudget({
+      warningBytes: capturePolicy.warningRecordingBytes,
+      maxBytes: capturePolicy.maxRecordingBytes
+    });
     const stopPromise = new Promise<Blob>((resolve, reject) => {
       resolveStop = resolve;
       rejectStop = reject;
     });
 
     recorder.addEventListener("dataavailable", (event) => {
-      if (event.data.size > 0) {
+      if (event.data.size <= 0) {
+        return;
+      }
+
+      const budgetResult = byteBudget.observeChunk(event.data.size);
+      if (budgetResult.accept) {
         chunks.push(event.data);
+      }
+
+      if (budgetResult.warningReached) {
+        console.warn("[jittle-lamp] Recording is approaching the safe upload size.", {
+          sessionId,
+          recordingBytes: budgetResult.totalBytes,
+          maxRecordingBytes: capturePolicy.maxRecordingBytes
+        });
+      }
+
+      if (budgetResult.limitReached) {
+        void notifyRecordingLimitReached(sessionId, budgetResult.totalBytes);
       }
     });
 
@@ -981,7 +1020,9 @@ async function performStartRecorder(input: StartRecorderInput): Promise<void> {
       recorder,
       chunks,
       stopPromise,
-      audioContext
+      audioContext,
+      durationClock: new RecordingDurationClock(),
+      byteBudget
     };
   } catch (error: unknown) {
     stream.getTracks().forEach((track) => track.stop());
@@ -1045,12 +1086,13 @@ async function performStopRecorder(
   activeRecorderState = null;
 
   try {
+    const durationMs = recorderState.durationClock.elapsedMs();
     if (recorderState.recorder.state !== "inactive") {
       recorderState.recorder.stop();
     }
 
     const blob = await recorderState.stopPromise;
-    completedRecording = { sessionId, blob };
+    completedRecording = { sessionId, blob, durationMs };
     return blob;
   } finally {
     recorderState.stream.getTracks().forEach((track) => track.stop());
@@ -1067,6 +1109,7 @@ async function pauseRecorder(sessionId: string): Promise<void> {
 
   if (recorderState.recorder.state === "recording") {
     recorderState.recorder.pause();
+    recorderState.durationClock.pause();
   }
 
   await recorderState.audioContext?.suspend().catch(() => undefined);
@@ -1081,6 +1124,7 @@ async function resumeRecorder(sessionId: string): Promise<void> {
 
   if (recorderState.recorder.state === "paused") {
     recorderState.recorder.resume();
+    recorderState.durationClock.resume();
   }
 
   await recorderState.audioContext?.resume().catch(() => undefined);
@@ -1104,14 +1148,13 @@ async function getRecorderMediaStream(input: {
 }): Promise<MediaStream> {
   if (input.captureTarget === "desktop") {
     try {
-      return await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          frameRate: {
-            max: 30
-          }
-        },
+      const policy = getRecordingCapturePolicy(input.captureTarget, input.captureAudio);
+      const capturePromise = navigator.mediaDevices.getDisplayMedia({
+        video: policy.videoConstraints ?? true,
         audio: input.captureAudio
       });
+
+      return await captureWithTimeout(capturePromise, policy.pickerTimeoutMs ?? 60_000);
     } catch (error: unknown) {
       throw new Error(desktopCaptureErrorMessage(error));
     }
@@ -1126,6 +1169,22 @@ async function getRecorderMediaStream(input: {
     streamId: input.streamId,
     captureAudio: input.captureAudio
   }));
+}
+
+async function notifyRecordingLimitReached(sessionId: string, recordingBytes: number): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({
+      type: "jl/offscreen-recording-limit-reached",
+      sessionId,
+      reason: "size",
+      recordingBytes
+    });
+  } catch (error: unknown) {
+    console.error("[jittle-lamp] Could not stop the recording at the safe upload size.", {
+      sessionId,
+      error: errorMessage(error)
+    });
+  }
 }
 
 function desktopCaptureErrorMessage(error: unknown): string {

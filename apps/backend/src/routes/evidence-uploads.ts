@@ -628,6 +628,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								400,
 							);
 						}
+						if (
+							body.artifacts.some(
+								(artifact) =>
+									artifact.kind === "recording" &&
+									artifact.bytes > MAX_VIDEO_UPLOAD_BYTES,
+							)
+						) {
+							set.status = 413;
+							return createApiError(
+								requestId,
+								"VIDEO_UPLOAD_TOO_LARGE",
+								"Video files must be 50 MB or smaller",
+								413,
+							);
+						}
 
 						const existingEvidence = body.replaceEvidenceId
 							? await db.query.evidences.findFirst({

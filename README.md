@@ -319,7 +319,7 @@ The companion only accepts artifact writes from `chrome-extension://` origins an
 7. Interact with the page, then press **Stop**.
 8. If the companion server is running, artifacts are handed to the desktop app. Otherwise Chromium prompts you to save the session artifacts:
    - `recording.webm`
-   - `session.events.json`
+   - `session.archive.json`
 
 ### Recorder architecture
 
