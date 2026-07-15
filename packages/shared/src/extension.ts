@@ -233,6 +233,13 @@ export const offscreenRetryCloudUploadRequestSchema = z.object({
   cloudAuthToken: z.string().min(1)
 });
 
+export const offscreenRecordingLimitReachedMessageSchema = z.object({
+  type: z.literal("jl/offscreen-recording-limit-reached"),
+  sessionId: sessionIdSchema,
+  reason: z.literal("size"),
+  recordingBytes: z.number().int().nonnegative()
+});
+
 export const offscreenRequestSchema = z.discriminatedUnion("type", [
   offscreenStartRecordingRequestSchema,
   offscreenStopRecordingRequestSchema,

@@ -11,6 +11,7 @@ import {
   contentRuntimeMessageSchema,
   createSessionArchive,
   createSessionDraft,
+  offscreenRecordingLimitReachedMessageSchema,
   offscreenResponseSchema,
   offscreenRequestSchema,
   popupRequestSchema,
@@ -19,6 +20,17 @@ import {
 } from "@jittle-lamp/shared";
 
 describe("extension contracts", () => {
+  test("parses offscreen video size limit messages", () => {
+    const message = offscreenRecordingLimitReachedMessageSchema.parse({
+      type: "jl/offscreen-recording-limit-reached",
+      sessionId: "jl_test1234",
+      reason: "size",
+      recordingBytes: 45 * 1024 * 1024
+    });
+
+    expect(message.reason).toBe("size");
+  });
+
   test("parses popup state responses with no active session", () => {
     const response = popupResponseSchema.parse({
       ok: true,

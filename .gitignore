@@ -4,6 +4,8 @@ dist/
 build/
 artifacts/
 coverage/
+.playwright-cli/
+output/
 *.log
 *.tsbuildinfo
 release-artifacts/

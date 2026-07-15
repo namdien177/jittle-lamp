@@ -91,6 +91,27 @@ describe("background recovery", () => {
     expect(alarmInfo?.when).toBe(new Date("2026-01-01T00:05:00.000Z").getTime());
   });
 
+  test("uses the shorter duration limit for desktop capture", async () => {
+    const restoreStartTime = freezeSystemTime("2026-01-01T00:00:00.000Z");
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording",
+      captureTarget: "desktop"
+    });
+    restoreStartTime();
+
+    expect(result.responded).toBeTrue();
+    expect(chromeHarness.getAlarmInfo(backgroundTest.maxRecordingDurationAlarmName)?.when).toBe(
+      new Date("2026-01-01T00:02:00.000Z").getTime()
+    );
+  });
+
   test("uses a popup-provided name for new recording sessions", async () => {
     chromeHarness.setTab({
       id: 7,
@@ -557,6 +578,47 @@ describe("background recovery", () => {
       "Stopped recording automatically after reaching the 5-minute limit."
     );
     expect(chromeHarness.clearedAlarms).toContain(backgroundTest.maxRecordingDurationAlarmName);
+    expect(
+      chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-stop-and-export"))
+    ).toBeTrue();
+  });
+
+  test("reports the two-minute limit when desktop capture stops automatically", async () => {
+    chromeHarness.setTab({
+      id: 7,
+      status: "complete",
+      title: "Example",
+      url: "https://example.com/start"
+    });
+    await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/popup-start-recording",
+      captureTarget: "desktop"
+    });
+
+    await backgroundTest.handleMaxRecordingDurationAlarm();
+
+    expect(lifecycleDetails(await backgroundTest.readDraft())).toContain(
+      "Stopped recording automatically after reaching the 2-minute desktop limit."
+    );
+  });
+
+  test("exports the session when the recorder reaches the safe video byte limit", async () => {
+    const draft = createRecordingDraft();
+    await backgroundTest.saveDraft(draft);
+
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/offscreen-recording-limit-reached",
+      sessionId: draft.sessionId,
+      reason: "size",
+      recordingBytes: 45 * 1024 * 1024
+    });
+    const activeDraft = await backgroundTest.readDraft();
+
+    expect(result.responded).toBeTrue();
+    expect(activeDraft?.phase).toBe("ready");
+    expect(lifecycleDetails(activeDraft)).toContain(
+      "Stopped recording automatically before the video exceeded the safe upload size."
+    );
     expect(
       chromeHarness.runtimeMessages.some((message) => hasMessageType(message, "jl/offscreen-stop-and-export"))
     ).toBeTrue();
