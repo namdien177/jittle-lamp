@@ -9,7 +9,7 @@ The canonical repository is moving to:
 - Source branches and release tags have been copied from GitHub.
 - GitHub remains the fallback remote while production and public releases still depend on it.
 - GitLab CI verifies the full Bun workspace.
-- Commits on `main` and stable version tags build the backend image into the project Container Registry.
+- Commits on `main` and stable version tags validate the production backend image.
 - Backend deployment, production data, DNS, and public desktop releases have not been cut over.
 
 ## GitLab CI
@@ -21,11 +21,10 @@ Merge requests run:
 3. backend lint, typecheck, and tests
 4. workspace typecheck, tests, and build
 
-After merge, the backend image is published as:
-
-`$CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA`
-
-Stable version tags use the semantic version tag as the image tag.
+After merge, GitLab builds the production Dockerfile into a temporary OCI image
+and verifies that the output is non-empty. Publication is deliberately disabled:
+the shared Kubernetes runner cannot reach the GitLab Container Registry endpoint
+on port `5050`, and the LittleLives ECR repository has not yet been provisioned.
 
 ## Deployment prerequisites
 
@@ -38,6 +37,10 @@ Before adding a production deployment job, LittleLives DevOps must confirm:
 - deployment strategy and rollback command
 - database migration job ownership
 - monitoring, alerting, and log destination
+
+The current LittleLives convention is AWS ECR. Once DevOps creates the
+`jittle-lamp` repository and grants the runner access, replace the temporary OCI
+output with the standard ECR BuildKit push and add the Argo CD deployment job.
 
 The application containers must set `RUN_DB_MIGRATIONS=false`. Database migrations
 should be executed once by a dedicated deployment job before the new application
@@ -74,4 +77,3 @@ previous personal accounts.
 - Keep the old API hostname and GitHub release delivery available until compatible
   clients have been published and adopted.
 - Transfer the domain registrar only after the backend and data migration are stable.
-
