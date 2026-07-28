@@ -2,6 +2,11 @@
 
 `jittle-lamp` is a QA evidence manager for capturing, organizing, reviewing, and sharing product evidence across browser recordings, screenshots, logs, test cases, and shared review links.
 
+The canonical source repository is migrating to
+[`Front-End/jittle-lamp`](https://git.littlelives.io/Front-End/jittle-lamp).
+GitHub remains the temporary public release source for existing desktop clients
+during the migration. See [the GitLab migration notes](docs/gitlab-migration.md).
+
 ![Jittle Lamp product preview](apps/evidence-web/assets/img-prev.png)
 
 ## Install Desktop App

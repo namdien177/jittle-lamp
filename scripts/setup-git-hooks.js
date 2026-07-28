@@ -6,6 +6,11 @@ const repoRoot = process.cwd();
 const gitMetadataPath = join(repoRoot, ".git");
 const preCommitHookPath = join(repoRoot, ".githooks", "pre-commit");
 
+if (process.env.CI) {
+	console.log("Skipping git hook install in CI.");
+	process.exit(0);
+}
+
 if (!existsSync(gitMetadataPath)) {
 	console.log("Skipping git hook install: .git metadata not found.");
 	process.exit(0);
