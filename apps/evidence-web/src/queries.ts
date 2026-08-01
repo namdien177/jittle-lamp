@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import type { MigrationStatus } from "@jittle-lamp/shared";
 import {
 	QueryClient,
 	useMutation,
@@ -39,6 +40,7 @@ import {
 } from "./ai-prompt";
 import { useAuth } from "./auth";
 import { type LoadedSession, loadRemoteSessionArtifacts } from "./loader";
+import { migrationPollingInterval } from "./migration-ui-state";
 
 export function createQueryClient(): QueryClient {
 	return new QueryClient({
@@ -71,6 +73,8 @@ export const queryKeys = {
 	aiAccessTokens: () => ["ai-access-tokens"] as const,
 	automationApiTokens: () => ["automation-api-tokens"] as const,
 	organizations: () => ["organizations"] as const,
+	migration: (orgId: string) => ["migration", orgId] as const,
+	inboundMigrations: () => ["inbound-migrations"] as const,
 	organizationMembers: (
 		orgId: string,
 		options: {
@@ -181,6 +185,109 @@ export function useAccountProfile() {
 		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
 	});
 }
+
+export function useMigrationStatus(orgId: string | null) {
+	const auth = useAuth();
+	const getToken = useAuthToken();
+	return useQuery<MigrationStatus>({
+		queryKey: queryKeys.migration(orgId ?? "none"),
+		queryFn: () => api.getMigrationStatus(getToken, orgId ?? ""),
+		enabled: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(orgId),
+		refetchInterval: (query) => migrationPollingInterval(query.state.data),
+	});
+}
+
+export function useInboundMigrations() {
+	const auth = useAuth();
+	const getToken = useAuthToken();
+	return useQuery({
+		queryKey: queryKeys.inboundMigrations(),
+		queryFn: () => api.listInboundMigrations(getToken),
+		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
+		refetchInterval: (query) => {
+			const intervals = query.state.data?.migrations.map(migrationPollingInterval) ?? [];
+			return intervals.includes(2_000) ? 2_000 : intervals.includes(15_000) ? 15_000 : false;
+		},
+	});
+}
+
+const useMigrationMutation = <TInput, TResult>(
+	mutationFn: (getToken: FetchToken, input: TInput) => Promise<TResult>,
+) => {
+	const getToken = useAuthToken();
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: TInput) => mutationFn(getToken, input),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: ["migration"] });
+			void queryClient.invalidateQueries({ queryKey: queryKeys.inboundMigrations() });
+			void queryClient.invalidateQueries({ queryKey: queryKeys.accountProfile() });
+		},
+	});
+};
+
+export const useCreateMigrationReceiverCode = () =>
+	useMigrationMutation((_getToken: FetchToken, _input: void) =>
+		api.createMigrationReceiverCode(_getToken),
+	);
+
+export const useRevokeMigrationReceiverCode = () =>
+	useMigrationMutation((getToken, codeId: string) =>
+		api.revokeMigrationReceiverCode(getToken, codeId),
+	);
+
+export const useCheckMigrationCompatibility = () =>
+	useMigrationMutation(
+		(getToken, input: { orgId: string; targetApiOrigin: string }) =>
+			api.checkMigrationCompatibility(getToken, input.orgId, input.targetApiOrigin),
+	);
+
+export const usePairMigration = () =>
+	useMigrationMutation(
+		(getToken, input: { orgId: string; targetApiOrigin: string; passphrase: string }) =>
+			api.pairMigration(getToken, input.orgId, input),
+	);
+
+export const useStartMigrationRun = () =>
+	useMigrationMutation(
+		(getToken, input: { orgId: string; kind: "full" | "delta" | "final" }) =>
+			api.startMigrationRun(getToken, input.orgId, input.kind),
+	);
+
+export const useMigrationRunAction = () =>
+	useMigrationMutation(
+		(
+			getToken,
+			input: {
+				orgId: string;
+				runId: string;
+				action: "pause" | "resume" | "retry";
+				override?: boolean;
+			},
+		) =>
+			api.setMigrationRunAction(
+				getToken,
+				input.orgId,
+				input.runId,
+				input.action,
+				input.override,
+			),
+	);
+
+export const useFinalizeMigration = () =>
+	useMigrationMutation((getToken, orgId: string) =>
+		api.finalizeMigration(getToken, orgId),
+	);
+
+export const useAbortMigrationFinalization = () =>
+	useMigrationMutation((getToken, orgId: string) =>
+		api.abortMigrationFinalization(getToken, orgId),
+	);
+
+export const useBreakMigration = () =>
+	useMigrationMutation((getToken, orgId: string) =>
+		api.breakMigration(getToken, orgId),
+	);
 
 export function useAiAccessTokens() {
 	const auth = useAuth();

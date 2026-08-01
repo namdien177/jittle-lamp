@@ -4,11 +4,13 @@ import {
 	cleanupAbandonedEvidenceUploads,
 	purgeExpiredDeletedEvidences,
 } from "./services/evidence-maintenance";
+import { createMigrationWorker } from "./services/migration-worker";
 import { cleanupExpiredOrganizationActivityLogs } from "./services/organization-activity";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
 import { runDatabaseMigrations } from "./startup/run-database-migrations";
 
-const { app, runtime, logger, db, artifactStorage } = createApp(process.env);
+const { app, runtime, logger, db, artifactStorage, organizationMigration } =
+	createApp(process.env);
 
 if (
 	(runtime.nodeEnv === "production" || runtime.nodeEnv === "staging") &&
@@ -26,7 +28,37 @@ if (
 try {
 	await runDatabaseMigrations({ db, runtime, logger });
 	if (db) {
+		if (organizationMigration) {
+			for (
+				let index = 0;
+				index < runtime.migrationWorkerConcurrency;
+				index += 1
+			) {
+				createMigrationWorker({
+					db,
+					workerId: `migration-worker-${process.pid}-${index}`,
+					handler: organizationMigration.processRun,
+				}).start();
+			}
+			logger.info(
+				{ concurrency: runtime.migrationWorkerConcurrency },
+				"durable organization migration worker started",
+			);
+		}
 		const runMaintenance = async () => {
+			if (organizationMigration) {
+				try {
+					const cleaned = await organizationMigration.cleanupMaintenance();
+					if (cleaned.receiverCodes > 0 || cleaned.payloads > 0) {
+						logger.info(cleaned, "organization migration staging cleaned up");
+					}
+				} catch (err) {
+					logger.error(
+						{ err },
+						"failed to clean up organization migration staging",
+					);
+				}
+			}
 			try {
 				const removed = await cleanupExpiredGuestMemberships(db);
 				if (removed > 0) {

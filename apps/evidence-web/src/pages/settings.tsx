@@ -1,5 +1,6 @@
 import {
 	AlertTriangle,
+	ArrowRightLeft,
 	Bot,
 	Building2,
 	CalendarClock,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
+import type { MigrationCompatibility, ReceiverCode } from "@jittle-lamp/shared";
 import { Link, NavLink, Outlet } from "react-router";
 
 import {
@@ -42,9 +44,24 @@ import {
 	useAutomationApiTokens,
 	useCreateAiAccessToken,
 	useCreateAutomationApiToken,
+	useCreateMigrationReceiverCode,
+	useRevokeMigrationReceiverCode,
+	useInboundMigrations,
+	useCheckMigrationCompatibility,
+	usePairMigration,
+	useMigrationStatus,
+	useStartMigrationRun,
+	useMigrationRunAction,
+	useFinalizeMigration,
+	useAbortMigrationFinalization,
+	useBreakMigration,
 	useRevokeAiAccessToken,
 	useRevokeAutomationApiToken,
 } from "../queries";
+import {
+	migrationActions,
+	migrationProgressPercent,
+} from "../migration-ui-state";
 import { useToast } from "../toast";
 import { copyToClipboard } from "../utils";
 
@@ -267,6 +284,7 @@ function SettingsSectionNav(): React.JSX.Element {
 		{ to: "/settings", label: "Overview", icon: UserCog },
 		{ to: "/settings/ai-tokens", label: "AI tokens", icon: Bot },
 		{ to: "/settings/api-tokens", label: "API tokens", icon: UploadCloud },
+		{ to: "/settings/migration", label: "Migration", icon: ArrowRightLeft },
 	];
 
 	return (
@@ -1187,5 +1205,165 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 				onCancel={() => setTokenToRevoke(null)}
 			/>
 		</>
+	);
+}
+
+const mutationError = (error: unknown): string =>
+	error instanceof Error ? error.message : "The migration request failed.";
+
+function ProgressRow(props: {
+	label: string;
+	completed: number;
+	total: number;
+}): React.JSX.Element {
+	const percent = migrationProgressPercent(props.completed, props.total);
+	return (
+		<div className="grid gap-1">
+			<div className="flex justify-between text-sm text-muted-foreground">
+				<span>{props.label}</span>
+				<span>{props.completed.toLocaleString()} / {props.total.toLocaleString()}</span>
+			</div>
+			<div className="h-2 overflow-hidden rounded-full bg-muted">
+				<div className="h-full bg-primary transition-[width]" style={{ width: `${percent}%` }} />
+			</div>
+		</div>
+	);
+}
+
+export function SettingsMigrationPage(): React.JSX.Element {
+	const toast = useToast();
+	const profileQuery = useAccountProfile();
+	const activeOrg = profileQuery.data?.organizations.find((org) => org.isActive) ?? null;
+	const canSend = Boolean(activeOrg && !activeOrg.isPersonal && activeOrg.role === "admin");
+	const statusQuery = useMigrationStatus(canSend ? activeOrg?.id ?? null : null);
+	const inboundQuery = useInboundMigrations();
+	const createReceiver = useCreateMigrationReceiverCode();
+	const revokeReceiver = useRevokeMigrationReceiverCode();
+	const checkCompatibility = useCheckMigrationCompatibility();
+	const pair = usePairMigration();
+	const startRun = useStartMigrationRun();
+	const runAction = useMigrationRunAction();
+	const finalize = useFinalizeMigration();
+	const abort = useAbortMigrationFinalization();
+	const breakLink = useBreakMigration();
+	const [receiverCode, setReceiverCode] = useState<ReceiverCode | null>(null);
+	const [targetApiOrigin, setTargetApiOrigin] = useState("");
+	const [passphrase, setPassphrase] = useState("");
+	const [compatibility, setCompatibility] = useState<MigrationCompatibility | null>(null);
+	const [finalizeConfirmed, setFinalizeConfirmed] = useState(false);
+	const [breakConfirmation, setBreakConfirmation] = useState("");
+	const status = statusQuery.data;
+	const actions = migrationActions(status);
+	const run = status?.run;
+	const orgId = activeOrg?.id ?? "";
+	const busy =
+		pair.isPending || startRun.isPending || runAction.isPending || finalize.isPending ||
+		abort.isPending || breakLink.isPending;
+
+	const reportError = (title: string) => (error: unknown) =>
+		toast.error(title, mutationError(error));
+
+	return (
+		<div className="grid gap-4">
+			<SettingCard title="Receive data" description="Create a one-time code valid for 15 minutes.">
+				<div className="grid gap-3">
+					{receiverCode ? (
+						<div className="grid gap-2 rounded-md border border-border bg-muted p-3 font-mono text-sm">
+							<span className="break-all">{receiverCode.apiOrigin}</span>
+							<span className="break-all font-semibold text-foreground">{receiverCode.passphrase}</span>
+							<span className="text-muted-foreground">Expires {formatDateTime(receiverCode.expiresAt)}</span>
+						</div>
+					) : null}
+					<div className="flex flex-wrap gap-2">
+						<Button
+							disabled={createReceiver.isPending}
+							onClick={() => createReceiver.mutate(undefined, {
+								onSuccess: ({ receiverCode: code }) => setReceiverCode(code),
+								onError: reportError("Unable to create receiver code"),
+							})}
+						>
+							{receiverCode ? "Generate new code" : "Generate receiver code"}
+						</Button>
+						{receiverCode ? (
+							<Button variant="outline" disabled={revokeReceiver.isPending} onClick={() =>
+								revokeReceiver.mutate(receiverCode.id, {
+									onSuccess: () => setReceiverCode(null),
+									onError: reportError("Unable to revoke receiver code"),
+								})
+							}>Revoke</Button>
+						) : null}
+					</div>
+					{(inboundQuery.data?.migrations ?? []).map((migration) => (
+						<div key={migration.link?.id} className="rounded-md border border-border p-3 text-sm">
+							<div className="flex justify-between gap-2"><span>{migration.link?.remoteApiOrigin}</span><Badge variant="outline">{migration.run?.status ?? migration.accessState}</Badge></div>
+							{migration.run ? <ProgressRow label="Records" {...migration.run.progress.records} /> : null}
+						</div>
+					))}
+				</div>
+			</SettingCard>
+
+			<SettingCard title="Send active organisation" description="Check compatibility before redeeming a receiver code.">
+				{canSend && activeOrg ? (
+					<div className="grid gap-3">
+						<div className="grid gap-3 md:grid-cols-2">
+							<Field label="Destination API origin" htmlFor="migration-origin">
+								<Input id="migration-origin" type="url" placeholder="https://api.destination.example" value={targetApiOrigin} onChange={(event) => {
+									setTargetApiOrigin(event.target.value);
+									setCompatibility(null);
+								}} />
+							</Field>
+							<Field label="One-time passphrase" htmlFor="migration-passphrase">
+								<Input id="migration-passphrase" type="password" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} />
+							</Field>
+						</div>
+						<div className="flex flex-wrap gap-2">
+							<Button variant="outline" disabled={!targetApiOrigin || checkCompatibility.isPending} onClick={() =>
+								checkCompatibility.mutate({ orgId, targetApiOrigin }, {
+									onSuccess: ({ compatibility: result }) => setCompatibility(result),
+									onError: reportError("Destination is not compatible"),
+								})
+							}>Check compatibility</Button>
+							<Button disabled={!compatibility || !passphrase || pair.isPending} onClick={() =>
+								pair.mutate({ orgId, targetApiOrigin, passphrase }, {
+									onSuccess: () => { setPassphrase(""); toast.success("Migration paired and queued"); },
+									onError: reportError("Unable to pair migration"),
+								})
+							}>Pair and start</Button>
+						</div>
+						{compatibility ? (
+							<div className="rounded-md border border-success/35 bg-success/10 p-3 text-sm">
+								<p className="font-semibold">Compatible Jittle Lamp {compatibility.applicationVersion}</p>
+								<p className="text-muted-foreground">Protocol {compatibility.protocolVersion} · {compatibility.features.join(", ")}</p>
+							</div>
+						) : null}
+					</div>
+				) : <p className="text-sm text-muted-foreground">Select a team organisation where you are an admin.</p>}
+			</SettingCard>
+
+			{status?.link ? (
+				<SettingCard title="Current link" description={`${status.link.remoteApiOrigin} · ${status.link.state}`}>
+					<div className="grid gap-4">
+						{run ? (
+							<div className="grid gap-3">
+								<div className="flex flex-wrap items-center gap-2"><Badge variant="brand">{run.stage}</Badge><Badge variant="outline">{run.status}</Badge>{run.errorMessage ? <span className="text-sm text-destructive">{run.errorMessage}</span> : null}</div>
+								<ProgressRow label="Identities" {...run.progress.identities} />
+								<ProgressRow label="Records" {...run.progress.records} />
+								<ProgressRow label="Artifacts" {...run.progress.artifacts} />
+								<ProgressRow label="Bytes" completed={run.progress.bytes.transferred} total={run.progress.bytes.total} />
+							</div>
+						) : null}
+						<div className="flex flex-wrap gap-2">
+							{actions.canPause && run ? <Button variant="outline" disabled={busy} onClick={() => runAction.mutate({ orgId, runId: run.id, action: "pause" }, { onError: reportError("Unable to pause") })}>Pause</Button> : null}
+							{actions.canResume && run ? <Button disabled={busy} onClick={() => runAction.mutate({ orgId, runId: run.id, action: "resume" }, { onError: reportError("Unable to resume") })}>Resume</Button> : null}
+							{actions.canSync ? <Button disabled={busy} onClick={() => startRun.mutate({ orgId, kind: "delta" }, { onError: reportError("Unable to sync changes") })}>Sync changes</Button> : null}
+							{actions.canRetry && run ? <><Button disabled={busy} onClick={() => runAction.mutate({ orgId, runId: run.id, action: "retry" }, { onError: reportError("Unable to retry") })}>Retry</Button><Button variant="outline" disabled={busy} onClick={() => runAction.mutate({ orgId, runId: run.id, action: "retry", override: true }, { onError: reportError("Unable to override retry") })}>Retry with override</Button></> : null}
+						</div>
+						{actions.canFinalize ? <label className="flex items-center gap-2 rounded-md border border-warning/35 bg-warning/10 p-3 text-sm"><input type="checkbox" checked={finalizeConfirmed} onChange={(event) => setFinalizeConfirmed(event.currentTarget.checked)} />I understand the source becomes read-only.<Button className="ml-auto" disabled={!finalizeConfirmed || busy} onClick={() => finalize.mutate(orgId, { onError: reportError("Unable to finalize") })}>Finalize</Button></label> : null}
+						{actions.canAbortFinalization ? <Button variant="outline" disabled={busy} onClick={() => abort.mutate(orgId, { onError: reportError("Unable to abort finalization") })}>Abort finalization</Button> : null}
+						{actions.canBreak ? <div className="grid gap-2 rounded-md border border-destructive/35 p-3"><Field label={`Type ${activeOrg?.name} to unlock the source`} htmlFor="break-migration"><Input id="break-migration" value={breakConfirmation} onChange={(event) => setBreakConfirmation(event.target.value)} /></Field><Button variant="destructive" disabled={breakConfirmation !== activeOrg?.name || busy} onClick={() => breakLink.mutate(orgId, { onSuccess: () => setBreakConfirmation(""), onError: reportError("Unable to break migration") })}>Break migration</Button></div> : null}
+					</div>
+				</SettingCard>
+			) : null}
+		</div>
 	);
 }

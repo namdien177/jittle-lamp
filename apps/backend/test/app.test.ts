@@ -316,6 +316,8 @@ describe("routes", () => {
 				role: string;
 				isPersonal: boolean;
 				isActive: boolean;
+				migrationAccessState: string | null;
+				migrationDestinationWebOrigin: string | null;
 			}>;
 		};
 		expect(payload.userId).toBe("user_clerk_settings_profile");
@@ -331,6 +333,8 @@ describe("routes", () => {
 			role: "admin",
 			isPersonal: true,
 			isActive: false,
+			migrationAccessState: null,
+			migrationDestinationWebOrigin: null,
 		});
 		expect(payload.organizations).toContainEqual({
 			id: teamOrganization.id,
@@ -338,6 +342,8 @@ describe("routes", () => {
 			role: "developer",
 			isPersonal: false,
 			isActive: true,
+			migrationAccessState: null,
+			migrationDestinationWebOrigin: null,
 		});
 	});
 

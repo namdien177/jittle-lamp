@@ -121,6 +121,11 @@ export const ensureDefaultOrganizationRoles = async (
 	db: PermissionDb,
 	organizationId: string,
 ): Promise<void> => {
+	const existing = await db.query.organizationRoles.findMany({
+		where: eq(organizationRoles.organizationId, organizationId),
+		columns: { key: true },
+	});
+	const existingKeys = new Set(existing.map((role) => role.key));
 	const now = Date.now();
 	for (const key of [
 		"admin",
@@ -128,6 +133,7 @@ export const ensureDefaultOrganizationRoles = async (
 		"developer",
 		"qa_engineer",
 	] as const) {
+		if (existingKeys.has(key)) continue;
 		await db
 			.insert(organizationRoles)
 			.values({

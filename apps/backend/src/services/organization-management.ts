@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, ne } from "drizzle-orm";
 import type { z } from "zod/v4";
 import {
 	createOrganizationInputSchema,
@@ -13,6 +13,8 @@ import {
 	organizationInvitations,
 	organizationJoinRequests,
 	organizationMembers,
+	organizationMigrationLinks,
+	organizationMigrationStates,
 	organizationRoles,
 	organizations,
 	users,
@@ -43,6 +45,8 @@ export type OrganizationSummary = {
 	memberCount: number;
 	createdAt: number;
 	joinedAt: number;
+	migrationAccessState: string | null;
+	migrationDestinationWebOrigin: string | null;
 };
 
 export type OrganizationMemberSummary = {
@@ -201,6 +205,8 @@ export const createOrganization = async (
 			memberCount: 1,
 			createdAt: organization.createdAt,
 			joinedAt: Date.now(),
+			migrationAccessState: null,
+			migrationDestinationWebOrigin: null,
 		};
 	});
 };
@@ -240,17 +246,63 @@ export const listOrganizationsForUser = async (
 		counts.set(membership.organizationId, allMembers.length);
 	}
 
-	return memberships.map((membership) => ({
-		id: membership.organization.id,
-		name: membership.organization.name,
-		role: normalizeOrganizationRoleKey(membership.role),
-		isPersonal: membership.organization.isPersonal,
-		requireInvitationApproval:
-			membership.organization.requireInvitationApproval,
-		memberCount: counts.get(membership.organizationId) ?? 1,
-		createdAt: membership.organization.createdAt,
-		joinedAt: membership.createdAt,
-	}));
+	const states =
+		memberships.length > 0
+			? await db
+					.select()
+					.from(organizationMigrationStates)
+					.where(
+						inArray(
+							organizationMigrationStates.organizationId,
+							memberships.map((membership) => membership.organizationId),
+						),
+					)
+			: [];
+	const stateByOrganization = new Map(
+		states.map((state) => [state.organizationId, state] as const),
+	);
+	const migrationLinks =
+		states.length > 0
+			? await db
+					.select({
+						id: organizationMigrationLinks.id,
+						lastSuccessfulAt: organizationMigrationLinks.lastSuccessfulAt,
+					})
+					.from(organizationMigrationLinks)
+					.where(
+						inArray(
+							organizationMigrationLinks.id,
+							states.map((state) => state.linkId),
+						),
+					)
+			: [];
+	const linkById = new Map(
+		migrationLinks.map((link) => [link.id, link] as const),
+	);
+	return memberships
+		.filter((membership) => {
+			const state = stateByOrganization.get(membership.organizationId);
+			return !(
+				state?.accessState === "importing" &&
+				!linkById.get(state.linkId)?.lastSuccessfulAt
+			);
+		})
+		.map((membership) => ({
+			id: membership.organization.id,
+			name: membership.organization.name,
+			role: normalizeOrganizationRoleKey(membership.role),
+			isPersonal: membership.organization.isPersonal,
+			requireInvitationApproval:
+				membership.organization.requireInvitationApproval,
+			memberCount: counts.get(membership.organizationId) ?? 1,
+			createdAt: membership.organization.createdAt,
+			joinedAt: membership.createdAt,
+			migrationAccessState:
+				stateByOrganization.get(membership.organizationId)?.accessState ?? null,
+			migrationDestinationWebOrigin:
+				stateByOrganization.get(membership.organizationId)
+					?.destinationWebOrigin ?? null,
+		}));
 };
 
 export const getOrganizationRole = async (
@@ -1323,10 +1375,26 @@ export const cleanupExpiredGuestMemberships = async (
 			lt(organizationMembers.guestExpiresAt, now),
 			isNull(organizationMembers.teamId),
 		),
-		columns: { id: true, role: true },
+		columns: { id: true, role: true, organizationId: true },
 	});
+	const paused = new Set(
+		(
+			await db.query.organizationMigrationStates.findMany({
+				where: inArray(organizationMigrationStates.accessState, [
+					"importing",
+					"synced_read_only",
+					"finalizing_read_only",
+					"completed_source_read_only",
+					"ready_to_activate",
+				]),
+				columns: { organizationId: true },
+			})
+		).map((state) => state.organizationId),
+	);
 	const removable = expired.filter(
-		(row) => normalizeOrganizationRoleKey(row.role) !== "admin",
+		(row) =>
+			normalizeOrganizationRoleKey(row.role) !== "admin" &&
+			!paused.has(row.organizationId),
 	);
 	for (const row of removable) {
 		await db

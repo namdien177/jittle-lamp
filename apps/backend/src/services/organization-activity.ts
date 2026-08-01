@@ -1,8 +1,9 @@
-import { and, desc, eq, gte, lt, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte } from "drizzle-orm";
 
 import {
 	createOrganizationActivityLogInputSchema,
 	organizationActivityLogs,
+	organizationMigrationStates,
 } from "../db/schema";
 import type { BackendDb } from "./user-provisioning";
 
@@ -130,9 +131,31 @@ export const cleanupExpiredOrganizationActivityLogs = async (
 	retentionMs = ORGANIZATION_ACTIVITY_RETENTION_MS,
 ): Promise<number> => {
 	const cutoff = now - retentionMs;
+	const paused = new Set(
+		(
+			await db.query.organizationMigrationStates.findMany({
+				where: inArray(organizationMigrationStates.accessState, [
+					"importing",
+					"synced_read_only",
+					"finalizing_read_only",
+					"completed_source_read_only",
+					"ready_to_activate",
+				]),
+				columns: { organizationId: true },
+			})
+		).map((state) => state.organizationId),
+	);
+	const expired = await db.query.organizationActivityLogs.findMany({
+		where: lt(organizationActivityLogs.createdAt, cutoff),
+		columns: { id: true, organizationId: true },
+	});
+	const ids = expired
+		.filter((row) => !paused.has(row.organizationId))
+		.map((row) => row.id);
+	if (ids.length === 0) return 0;
 	const removed = await db
 		.delete(organizationActivityLogs)
-		.where(lt(organizationActivityLogs.createdAt, cutoff))
+		.where(inArray(organizationActivityLogs.id, ids))
 		.returning({ id: organizationActivityLogs.id });
 	return removed.length;
 };

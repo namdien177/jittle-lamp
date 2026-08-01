@@ -1,7 +1,11 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 
-import { organizationMembers } from "../db/schema";
+import {
+	organizationMembers,
+	organizationMigrationLinks,
+	organizationMigrationStates,
+} from "../db/schema";
 import { apiErrorSchema } from "../http/api-error";
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import {
@@ -31,6 +35,8 @@ const organizationSummarySchema = t.Object({
 	role: t.String({ minLength: 1 }),
 	isPersonal: t.Boolean(),
 	isActive: t.Boolean(),
+	migrationAccessState: t.Union([t.String(), t.Null()]),
+	migrationDestinationWebOrigin: t.Union([t.String(), t.Null()]),
 });
 
 const protectedMeResponseSchema = t.Object({
@@ -111,13 +117,65 @@ export const createProtectedRoutes = (auth: ClerkAuthPlugin) =>
 								})
 							: [];
 
-					const organizations = memberships.map((membership) => ({
-						id: membership.organization.id,
-						name: membership.organization.name,
-						role: normalizeOrganizationRoleKey(membership.role),
-						isPersonal: membership.organization.isPersonal,
-						isActive: membership.organization.id === authContext.activeOrgId,
-					}));
+					const migrationStates =
+						db && memberships.length > 0
+							? await db
+									.select()
+									.from(organizationMigrationStates)
+									.where(
+										inArray(
+											organizationMigrationStates.organizationId,
+											memberships.map(
+												(membership) => membership.organizationId,
+											),
+										),
+									)
+							: [];
+					const stateByOrganization = new Map(
+						migrationStates.map(
+							(state) => [state.organizationId, state] as const,
+						),
+					);
+					const migrationLinks =
+						db && migrationStates.length > 0
+							? await db
+									.select({
+										id: organizationMigrationLinks.id,
+										lastSuccessfulAt:
+											organizationMigrationLinks.lastSuccessfulAt,
+									})
+									.from(organizationMigrationLinks)
+									.where(
+										inArray(
+											organizationMigrationLinks.id,
+											migrationStates.map((state) => state.linkId),
+										),
+									)
+							: [];
+					const linkById = new Map(
+						migrationLinks.map((link) => [link.id, link] as const),
+					);
+					const organizations = memberships
+						.filter((membership) => {
+							const state = stateByOrganization.get(membership.organizationId);
+							return !(
+								state?.accessState === "importing" &&
+								!linkById.get(state.linkId)?.lastSuccessfulAt
+							);
+						})
+						.map((membership) => ({
+							id: membership.organization.id,
+							name: membership.organization.name,
+							role: normalizeOrganizationRoleKey(membership.role),
+							isPersonal: membership.organization.isPersonal,
+							isActive: membership.organization.id === authContext.activeOrgId,
+							migrationAccessState:
+								stateByOrganization.get(membership.organizationId)
+									?.accessState ?? null,
+							migrationDestinationWebOrigin:
+								stateByOrganization.get(membership.organizationId)
+									?.destinationWebOrigin ?? null,
+						}));
 
 					return {
 						userId: authContext.userId,

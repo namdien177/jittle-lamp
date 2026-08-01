@@ -67,6 +67,8 @@ const organizationSummarySchema = t.Object({
 	memberCount: t.Number({ minimum: 0 }),
 	createdAt: t.Number(),
 	joinedAt: t.Number(),
+	migrationAccessState: t.Union([t.String(), t.Null()]),
+	migrationDestinationWebOrigin: t.Union([t.String(), t.Null()]),
 });
 
 const memberSummarySchema = t.Object({
