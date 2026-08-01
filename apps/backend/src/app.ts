@@ -14,10 +14,26 @@ import { createEvidenceUploadRoutes } from "./routes/evidence-uploads";
 import { createEvidenceRoutes } from "./routes/evidences";
 import { createExtensionAuthRoutes } from "./routes/extension-auth";
 import { createHealthRoutes } from "./routes/health";
+import {
+	createMigrationDiscoveryRoutes,
+	createMigrationManagementRoutes,
+} from "./routes/migrations";
 import { createOrganizationRoutes } from "./routes/orgs";
 import { createProtectedRoutes } from "./routes/protected";
 import { createShareLinkRoutes } from "./routes/share-links";
-import { createArtifactStorage } from "./services/artifact-storage";
+import {
+	type ArtifactStorage,
+	createArtifactStorage,
+} from "./services/artifact-storage";
+import {
+	type ClerkDirectory,
+	createClerkDirectory,
+} from "./services/clerk-directory";
+import {
+	createHttpMigrationPeerClient,
+	type MigrationPeerClient,
+} from "./services/migration-peer-client";
+import { createOrganizationMigration } from "./services/organization-migration";
 import { createTaskQueue } from "./services/task-queue";
 import {
 	normalizeVideoTo720p,
@@ -27,17 +43,42 @@ import { createLogger } from "./utils/logger";
 
 export const createApp = (
 	source: Record<string, string | undefined> = process.env,
-	dependencies: { videoNormalizer?: VideoNormalizer } = {},
+	dependencies: {
+		videoNormalizer?: VideoNormalizer;
+		artifactStorage?: ArtifactStorage;
+		migrationPeerClient?: MigrationPeerClient;
+		clerkDirectory?: ClerkDirectory;
+	} = {},
 ) => {
 	const env = parseEnv(source);
 	const runtime = buildRuntimeConfig(env);
 	const logger = createLogger(runtime.logLevel);
 	const db = createDb(runtime.databaseUrl, runtime.tursoAuthToken);
-	const artifactStorage = createArtifactStorage(runtime);
+	const artifactStorage =
+		dependencies.artifactStorage ?? createArtifactStorage(runtime);
 	const videoNormalizationQueue = createTaskQueue(
 		runtime.videoNormalizationConcurrency,
 	);
 	const videoNormalizer = dependencies.videoNormalizer ?? normalizeVideoTo720p;
+	const migrationPeerClient =
+		dependencies.migrationPeerClient ?? createHttpMigrationPeerClient(runtime);
+	const clerkDirectory: ClerkDirectory =
+		dependencies.clerkDirectory ??
+		(runtime.clerkSecretKey
+			? createClerkDirectory(runtime)
+			: {
+					exportProfile: async () => {
+						throw new Error(
+							"CLERK_SECRET_KEY is required for organization migration",
+						);
+					},
+					findByVerifiedEmail: async () => [],
+					createUser: async () => {
+						throw new Error(
+							"CLERK_SECRET_KEY is required for organization migration",
+						);
+					},
+				});
 
 	const core = createCorePlugin({
 		runtime,
@@ -48,6 +89,16 @@ export const createApp = (
 		videoNormalizer,
 	});
 	const auth = createClerkAuthPlugin(core);
+	const organizationMigration = db
+		? createOrganizationMigration({
+				db,
+				runtime,
+				artifactStorage,
+				peerClient: migrationPeerClient,
+				clerkDirectory,
+				directoryConfigured: Boolean(dependencies.clerkDirectory),
+			})
+		: null;
 
 	const app = new Elysia().use(core);
 
@@ -90,6 +141,7 @@ export const createApp = (
 	}
 
 	app
+		.use(createMigrationDiscoveryRoutes(core, organizationMigration))
 		.use(createHealthRoutes(core))
 		.use(createAiRoutes(auth))
 		.use(createAutomationRoutes(auth))
@@ -100,9 +152,10 @@ export const createApp = (
 		.use(createEvidenceRoutes(auth))
 		.use(createShareLinkRoutes(auth))
 		.use(createOrganizationRoutes(auth))
+		.use(createMigrationManagementRoutes(auth, organizationMigration))
 		.use(createProtectedRoutes(auth));
 
-	return { app, runtime, logger, db, artifactStorage };
+	return { app, runtime, logger, db, artifactStorage, organizationMigration };
 };
 
 export type App = ReturnType<typeof createApp>["app"];

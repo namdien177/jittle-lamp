@@ -69,6 +69,16 @@ export {
 	organizationRoleSchema,
 } from "./tables/organization-members";
 export {
+	jittleLampInstances,
+	migrationEntityMappings,
+	migrationIdentityMappings,
+	migrationReceiverCodes,
+	organizationMigrationItems,
+	organizationMigrationLinks,
+	organizationMigrationRuns,
+	organizationMigrationStates,
+} from "./tables/organization-migrations";
+export {
 	createOrganizationRoleInputSchema,
 	type OrganizationPermission,
 	type OrganizationRoleKey,

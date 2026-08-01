@@ -42,6 +42,20 @@ const isDevelopmentRuntime = (runtime: RuntimeConfig) =>
 
 const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, "");
 
+const errorChainIncludes = (error: unknown, marker: string): boolean => {
+	let current: unknown = error;
+	const seen = new Set<unknown>();
+	while (current && !seen.has(current)) {
+		seen.add(current);
+		if (String(current).includes(marker)) return true;
+		current =
+			typeof current === "object" && "cause" in current
+				? (current as { cause?: unknown }).cause
+				: null;
+	}
+	return false;
+};
+
 const isAllowedCorsOrigin = (runtime: RuntimeConfig, origin: string) => {
 	const normalizedOrigin = normalizeOrigin(origin);
 	const allowedOrigins = [
@@ -92,7 +106,7 @@ export const createCorePlugin = ({
 				preflight: true,
 			}),
 		)
-		.onRequest(({ request, set, logger }) => {
+		.onRequest(({ request, set }) => {
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
 			set.headers["x-request-id"] = requestId;
 
@@ -112,15 +126,22 @@ export const createCorePlugin = ({
 				requestLogger: logger.child({ requestId }),
 			};
 		})
-		.onError(({ code, error, logger, request, set }) => {
+		.onError({ as: "global" }, ({ code, error, request, set }) => {
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
 			const requestLogger = logger.child({ requestId });
-			const status =
-				set.status && Number(set.status) >= 400
+			const migrationReadOnly = errorChainIncludes(
+				error,
+				"ORG_MIGRATION_READ_ONLY",
+			);
+			const status = migrationReadOnly
+				? 423
+				: set.status && Number(set.status) >= 400
 					? Number(set.status)
 					: code === "VALIDATION"
 						? 400
-						: 500;
+						: code === "NOT_FOUND"
+							? 404
+							: 500;
 
 			requestLogger.error({ err: error, code, status }, "request failed");
 			set.status = status;
@@ -128,14 +149,20 @@ export const createCorePlugin = ({
 			// Never leak internal error detail for unexpected server errors; the
 			// full error is logged above. Client-facing 4xx messages (e.g.
 			// validation) remain informative.
-			const message =
-				status >= 500
+			const message = migrationReadOnly
+				? "This organization is read-only during or after migration"
+				: status >= 500
 					? "Internal server error"
 					: error instanceof Error
 						? error.message
 						: "Unexpected error";
 
-			return createApiError(requestId, String(code), message, status);
+			return createApiError(
+				requestId,
+				migrationReadOnly ? "ORG_MIGRATION_READ_ONLY" : String(code),
+				message,
+				status,
+			);
 		});
 
 export type CorePlugin = ReturnType<typeof createCorePlugin>;

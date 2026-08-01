@@ -1,6 +1,10 @@
 import { and, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 
-import { evidenceArtifacts, evidences } from "../db/schema";
+import {
+	evidenceArtifacts,
+	evidences,
+	organizationMigrationStates,
+} from "../db/schema";
 import type { ArtifactStorage } from "./artifact-storage";
 import type { BackendDb } from "./user-provisioning";
 
@@ -11,6 +15,25 @@ import type { BackendDb } from "./user-provisioning";
  */
 export const ABANDONED_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
 export const EVIDENCE_BIN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const RETENTION_PAUSED_STATES = [
+	"importing",
+	"synced_read_only",
+	"finalizing_read_only",
+	"completed_source_read_only",
+	"ready_to_activate",
+] as const;
+
+const retentionPausedOrganizationIds = async (db: BackendDb) =>
+	new Set(
+		(
+			await db.query.organizationMigrationStates.findMany({
+				where: inArray(organizationMigrationStates.accessState, [
+					...RETENTION_PAUSED_STATES,
+				]),
+				columns: { organizationId: true },
+			})
+		).map((state) => state.organizationId),
+	);
 
 const deleteUnreferencedArtifactKeys = async (
 	db: BackendDb,
@@ -49,13 +72,17 @@ export const cleanupAbandonedEvidenceUploads = async (
 
 	const staleEvidences = await db.query.evidences.findMany({
 		where: and(lt(evidences.createdAt, cutoff), isNull(evidences.deletedAt)),
-		columns: { id: true },
+		columns: { id: true, orgId: true },
 	});
-	if (staleEvidences.length === 0) {
+	const paused = await retentionPausedOrganizationIds(db);
+	const eligibleEvidences = staleEvidences.filter(
+		(evidence) => !paused.has(evidence.orgId),
+	);
+	if (eligibleEvidences.length === 0) {
 		return 0;
 	}
 
-	const staleEvidenceIds = staleEvidences.map((evidence) => evidence.id);
+	const staleEvidenceIds = eligibleEvidences.map((evidence) => evidence.id);
 	const artifacts = await db.query.evidenceArtifacts.findMany({
 		where: inArray(evidenceArtifacts.evidenceId, staleEvidenceIds),
 		columns: { evidenceId: true, s3Key: true, uploadStatus: true },
@@ -99,13 +126,15 @@ export const purgeExpiredDeletedEvidences = async (
 			isNotNull(evidences.deletedAt),
 			lt(evidences.deletePurgesAt, now),
 		),
-		columns: { id: true },
+		columns: { id: true, orgId: true },
 	});
-	if (expired.length === 0) {
+	const paused = await retentionPausedOrganizationIds(db);
+	const eligible = expired.filter((evidence) => !paused.has(evidence.orgId));
+	if (eligible.length === 0) {
 		return 0;
 	}
 
-	const evidenceIds = expired.map((evidence) => evidence.id);
+	const evidenceIds = eligible.map((evidence) => evidence.id);
 	const artifacts = await db.query.evidenceArtifacts.findMany({
 		where: inArray(evidenceArtifacts.evidenceId, evidenceIds),
 		columns: { s3Key: true },

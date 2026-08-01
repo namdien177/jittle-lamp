@@ -22,7 +22,7 @@ import {
 
 import { cn } from "../../lib/cn";
 import { UserButton } from "../../auth";
-import { useEvidences } from "../../queries";
+import { useAccountProfile, useEvidences } from "../../queries";
 import { Badge } from "../ui/badge";
 import { buttonVariants } from "../ui/button";
 import { UploadEvidenceButton } from "../upload-evidence-button";
@@ -249,6 +249,16 @@ export function WorkspaceShell({
 }): React.JSX.Element {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const accountProfile = useAccountProfile();
+  const activeOrganization = accountProfile.data?.organizations.find(
+    (organization) => organization.id === accountProfile.data.activeOrgId,
+  );
+  const migrationReadOnly = Boolean(
+    activeOrganization?.migrationAccessState &&
+      !["writable", "diverged"].includes(
+        activeOrganization.migrationAccessState,
+      ),
+  );
   const [dark, setDark] = useState(() => {
     if (typeof window === "undefined") return false;
     const stored = window.localStorage.getItem("jl-theme");
@@ -336,15 +346,19 @@ export function WorkspaceShell({
           </div>
           <div className="jl-topbar-spacer" />
           <div className="jl-topbar-actions">
-            <UploadEvidenceButton
-              size="sm"
-              className="hidden md:inline-flex"
-            />
-            <UploadEvidenceButton
-              variant="outline"
-              iconOnly
-              className="md:hidden"
-            />
+            {!migrationReadOnly ? (
+              <>
+                <UploadEvidenceButton
+                  size="sm"
+                  className="hidden md:inline-flex"
+                />
+                <UploadEvidenceButton
+                  variant="outline"
+                  iconOnly
+                  className="md:hidden"
+                />
+              </>
+            ) : null}
             <EvidenceSearch />
             <button
               type="button"
@@ -392,6 +406,30 @@ export function WorkspaceShell({
             <UserButton />
           </div>
         </header>
+        {migrationReadOnly ? (
+          <div
+            role="status"
+            className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+          >
+            This organisation is read-only during migration.{" "}
+            <Link className="font-medium underline" to="/settings/migration">
+              View migration
+            </Link>
+            {activeOrganization?.migrationDestinationWebOrigin ? (
+              <>
+                {" · "}
+                <a
+                  className="font-medium underline"
+                  href={activeOrganization.migrationDestinationWebOrigin}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open destination
+                </a>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         <main className="jl-main jl-scroll" data-flush={isEvidenceDetail ? "true" : "false"}>
           {children}
         </main>

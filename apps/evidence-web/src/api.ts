@@ -1,4 +1,11 @@
 import { apiOrigin } from "./env";
+import type {
+	MigrationCompatibility,
+	MigrationLink,
+	MigrationRun,
+	MigrationStatus,
+	ReceiverCode,
+} from "@jittle-lamp/shared";
 
 export type FetchToken = () => Promise<string | null>;
 
@@ -73,6 +80,8 @@ export type ApiOrganization = {
 	role: string;
 	isPersonal: boolean;
 	isActive: boolean;
+	migrationAccessState: string | null;
+	migrationDestinationWebOrigin: string | null;
 };
 
 export type ApiOrgSummary = {
@@ -84,6 +93,8 @@ export type ApiOrgSummary = {
 	memberCount: number;
 	createdAt: number;
 	joinedAt: number;
+	migrationAccessState: string | null;
+	migrationDestinationWebOrigin: string | null;
 };
 
 export type ApiMember = {
@@ -771,6 +782,97 @@ export const api = {
 			getToken,
 			`/automation/api-tokens/${encodeURIComponent(tokenId)}`,
 			{ method: "DELETE" },
+		),
+
+	createMigrationReceiverCode: (getToken: FetchToken) =>
+		authedFetch<{ receiverCode: ReceiverCode }>(getToken, "/migrations/receiver-codes", {
+			method: "POST",
+		}),
+
+	revokeMigrationReceiverCode: (getToken: FetchToken, codeId: string) =>
+		authedFetch<{ ok: true }>(
+			getToken,
+			`/migrations/receiver-codes/${encodeURIComponent(codeId)}`,
+			{ method: "DELETE" },
+		),
+
+	listInboundMigrations: (getToken: FetchToken) =>
+		authedFetch<{ migrations: MigrationStatus[] }>(getToken, "/migrations/inbound"),
+
+	checkMigrationCompatibility: (
+		getToken: FetchToken,
+		orgId: string,
+		targetApiOrigin: string,
+	) =>
+		authedFetch<{ compatibility: MigrationCompatibility }>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migrations/preflight`,
+			{ method: "POST", body: JSON.stringify({ targetApiOrigin }) },
+		),
+
+	pairMigration: (
+		getToken: FetchToken,
+		orgId: string,
+		body: { targetApiOrigin: string; passphrase: string },
+	) =>
+		authedFetch<{ link: MigrationLink }>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migrations/pair`,
+			{ method: "POST", body: JSON.stringify(body) },
+		),
+
+	getMigrationStatus: (getToken: FetchToken, orgId: string) =>
+		authedFetch<MigrationStatus>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migration`,
+		),
+
+	startMigrationRun: (
+		getToken: FetchToken,
+		orgId: string,
+		kind: "full" | "delta" | "final",
+	) =>
+		authedFetch<{ run: MigrationRun }>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migration/runs`,
+			{ method: "POST", body: JSON.stringify({ kind }) },
+		),
+
+	setMigrationRunAction: (
+		getToken: FetchToken,
+		orgId: string,
+		runId: string,
+		action: "pause" | "resume" | "retry",
+		override = false,
+	) =>
+		authedFetch<{ ok: true }>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migration/runs/${encodeURIComponent(runId)}/${action}`,
+			{
+				method: "POST",
+				...(action === "retry" ? { body: JSON.stringify({ override }) } : {}),
+			},
+		),
+
+	finalizeMigration: (getToken: FetchToken, orgId: string) =>
+		authedFetch<{ run: MigrationRun }>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migration/finalize`,
+			{ method: "POST" },
+		),
+
+	abortMigrationFinalization: (getToken: FetchToken, orgId: string) =>
+		authedFetch<{ ok: true }>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migration/finalization/abort`,
+			{ method: "POST" },
+		),
+
+	breakMigration: (getToken: FetchToken, orgId: string) =>
+		authedFetch<{ ok: true }>(
+			getToken,
+			`/orgs/${encodeURIComponent(orgId)}/migration/break`,
+			{ method: "POST" },
 		),
 
 	selectActiveOrganization: (getToken: FetchToken, orgId: string) =>

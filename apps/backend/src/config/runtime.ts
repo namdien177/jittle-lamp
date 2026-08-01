@@ -20,6 +20,7 @@ export type RuntimeConfig = {
 	runDbMigrations: boolean;
 	tursoAuthToken: string | undefined;
 	videoNormalizationConcurrency: number;
+	migrationWorkerConcurrency: number;
 	s3:
 		| {
 				bucket: string;
@@ -101,6 +102,7 @@ export const buildRuntimeConfig = (env: AppEnv): RuntimeConfig => {
 		runDbMigrations: parseBooleanFlag(env.RUN_DB_MIGRATIONS, false),
 		tursoAuthToken: env.TURSO_AUTH_TOKEN,
 		videoNormalizationConcurrency: env.VIDEO_NORMALIZATION_CONCURRENCY,
+		migrationWorkerConcurrency: env.MIGRATION_WORKER_CONCURRENCY,
 		s3:
 			env.S3_BUCKET &&
 			env.S3_REGION &&
