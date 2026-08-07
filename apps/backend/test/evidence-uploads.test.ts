@@ -390,7 +390,7 @@ describe("evidence upload routes", () => {
 							key: "recording",
 							kind: "recording",
 							mimeType: "video/mp4",
-							bytes: 50 * 1024 * 1024 + 1,
+							bytes: MAX_VIDEO_UPLOAD_BYTES + 1,
 							checksum: "sha256:oversized",
 						},
 						{
@@ -407,7 +407,7 @@ describe("evidence upload routes", () => {
 		expect(oversizedResponse.status).toBe(413);
 		await expectApiError(oversizedResponse, {
 			code: "VIDEO_UPLOAD_TOO_LARGE",
-			message: "Video files must be 50 MB or smaller",
+			message: "Video files must be 60 MB or smaller",
 			status: 413,
 		});
 		expect(
@@ -974,7 +974,7 @@ describe("evidence upload routes", () => {
 		expect(response.status).toBe(413);
 		await expectApiError(response, {
 			code: "VIDEO_UPLOAD_TOO_LARGE",
-			message: "Video files must be 50 MB or smaller",
+			message: "Video files must be 60 MB or smaller",
 			status: 413,
 		});
 		expect(

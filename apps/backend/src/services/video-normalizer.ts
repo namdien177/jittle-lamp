@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_VIDEO_UPLOAD_BYTES = 60 * 1024 * 1024;
 
 export type NormalizedVideo = {
 	payload: Uint8Array;

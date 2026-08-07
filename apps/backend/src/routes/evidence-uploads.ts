@@ -686,7 +686,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							return createApiError(
 								requestId,
 								"VIDEO_UPLOAD_TOO_LARGE",
-								"Video files must be 50 MB or smaller",
+								"Video files must be 60 MB or smaller",
 								413,
 							);
 						}
@@ -1169,7 +1169,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							return createApiError(
 								requestId,
 								"VIDEO_UPLOAD_TOO_LARGE",
-								"Video files must be 50 MB or smaller",
+								"Video files must be 60 MB or smaller",
 								413,
 							);
 						}
@@ -2252,7 +2252,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							requestId,
 							"UPLOAD_TOO_LARGE",
 							artifact.kind === "recording"
-								? "Video files must be 50 MB or smaller"
+								? "Video files must be 60 MB or smaller"
 								: `Upload exceeds maximum allowed size of ${MAX_UPLOAD_BYTES} bytes`,
 							413,
 						);
@@ -2474,7 +2474,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 										mimeType: artifact.mimeType,
 									});
 									if (normalized.payload.byteLength > MAX_VIDEO_UPLOAD_BYTES) {
-										throw new Error("Normalized video exceeds the 50 MB limit");
+										throw new Error("Normalized video exceeds the 60 MB limit");
 									}
 									const checksum = await encodeSha256(
 										normalized.payload.slice().buffer,

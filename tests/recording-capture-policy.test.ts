@@ -12,8 +12,8 @@ describe("recording capture policy", () => {
 
     expect(policy.maxDurationMs).toBe(2 * 60 * 1000);
     expect(policy.pickerTimeoutMs).toBe(60 * 1000);
-    expect(policy.warningRecordingBytes).toBe(40 * 1024 * 1024);
-    expect(policy.maxRecordingBytes).toBe(45 * 1024 * 1024);
+    expect(policy.warningRecordingBytes).toBe(50 * 1024 * 1024);
+    expect(policy.maxRecordingBytes).toBe(55 * 1024 * 1024);
     expect(policy.videoConstraints).toEqual({
       width: { max: 1280 },
       height: { max: 720 },

@@ -50,11 +50,11 @@ export class InvalidEvidenceUploadError extends Error {
 }
 
 const textEncoder = new TextEncoder();
-export const MAX_MANUAL_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_MANUAL_VIDEO_UPLOAD_BYTES = 60 * 1024 * 1024;
 
 const assertVideoSize = (bytes: number): void => {
   if (bytes > MAX_MANUAL_VIDEO_UPLOAD_BYTES) {
-    throw new InvalidEvidenceUploadError("Video files must be 50 MB or smaller.");
+    throw new InvalidEvidenceUploadError("Video files must be 60 MB or smaller.");
   }
 };
 
