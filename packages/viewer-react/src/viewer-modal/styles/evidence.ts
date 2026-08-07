@@ -395,6 +395,9 @@ export const evidenceStyles = `
   overflow-y: auto;
   scrollbar-gutter: stable;
   padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .jl-vm-about-card {

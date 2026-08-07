@@ -66,6 +66,7 @@ export type EvidenceViewerContentProps = {
   onTransferEvidence?: () => void;
   renamingEvidence?: boolean;
   copyingLlmPrompt?: boolean;
+  recordedBy?: { displayName: string; email: string | null } | null;
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -141,13 +142,13 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     onCopyLlmPrompt,
     onTransferEvidence,
     renamingEvidence = false,
-    copyingLlmPrompt = false
+    copyingLlmPrompt = false,
+    recordedBy = null
   } = props;
 
   const appTheme = useAppTheme();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
-  const autoScrollingRef = useRef(false);
 
   const [mergeGroups, setMergeGroups] = useState<ActionMergeGroup[]>(loadedMergeGroups);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -169,7 +170,10 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     [loadedArchive, mergeGroups]
   );
 
-  const recordingMeta = useMemo(() => formatRecordingMeta(loadedArchive), [loadedArchive]);
+  const recordingMeta = useMemo(
+    () => formatRecordingMeta(loadedArchive, recordedBy?.displayName ?? null),
+    [loadedArchive, recordedBy]
+  );
   const videoDurationHintMs = useMemo(
     () => getVideoDurationHintMs(loadedArchive, loadedTimeline),
     [loadedArchive, loadedTimeline]
@@ -331,6 +335,11 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     setMergeDialog(initialMergeDialog);
   };
 
+  const scrollActiveRowIntoView = (behavior: ScrollBehavior): void => {
+    const activeBtn = timelineRef.current?.querySelector<HTMLElement>("[data-active='true']") ?? null;
+    activeBtn?.scrollIntoView({ block: "nearest", behavior });
+  };
+
   const updateHighlight = (): void => {
     const videoEl = videoRef.current;
     if (!videoEl) return;
@@ -338,18 +347,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     // `sectionItems` already equals the section timeline for the active section
     // (memoized), so reuse it instead of rebuilding on every video time update.
     setActiveIndex(findActiveIndex(sectionItems, currentMs));
-
-    if (autoFollow) {
-      const tl = timelineRef.current;
-      const activeBtn = tl?.querySelector<HTMLElement>("[data-active='true']") ?? null;
-      if (activeBtn) {
-        autoScrollingRef.current = true;
-        activeBtn.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        window.setTimeout(() => {
-          autoScrollingRef.current = false;
-        }, 300);
-      }
-    }
+    if (autoFollow) scrollActiveRowIntoView("smooth");
   };
 
   const onCopy = (value: string, label: string): void => {
@@ -439,6 +437,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       title={archive.name}
       titleMeta={recordingMeta}
       aboutEvidence={archive.recorder}
+      recordedBy={recordedBy}
       tags={[]}
       source={source}
       isOwner={isOwner}
@@ -523,7 +522,12 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
           });
         }
       }}
-      onAutoFollowToggle={() => setAutoFollow(true)}
+      onAutoFollowToggle={() => {
+        setAutoFollow(true);
+        // Snap back to the active row right away, even while paused.
+        requestAnimationFrame(() => scrollActiveRowIntoView("smooth"));
+      }}
+      onUserScroll={() => setAutoFollow(false)}
       timelineRef={timelineRef}
       drawerItem={drawerItem}
       onDrawerClose={() => setNetworkDetailIndex(null)}
@@ -556,16 +560,17 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   );
 }
 
-function formatRecordingMeta(archive: SessionArchive): string {
+function formatRecordingMeta(archive: SessionArchive, recordedByName: string | null): string {
+  const bySuffix = recordedByName ? ` by ${recordedByName}` : "";
   const started = new Date(archive.createdAt);
   const ended = new Date(archive.updatedAt);
-  if (!Number.isFinite(started.getTime())) return "";
+  if (!Number.isFinite(started.getTime())) return recordedByName ? `Recorded${bySuffix}` : "";
   const startText = formatDateTime(started);
   if (!Number.isFinite(ended.getTime()) || archive.updatedAt === archive.createdAt) {
-    return `Recorded ${startText}`;
+    return `Recorded ${startText}${bySuffix}`;
   }
   const endText = formatDateTime(ended);
-  return `Recorded ${startText} to ${endText}`;
+  return `Recorded ${startText} to ${endText}${bySuffix}`;
 }
 
 function formatDateTime(value: Date): string {

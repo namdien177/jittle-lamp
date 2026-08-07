@@ -113,6 +113,7 @@ export type DesktopController = {
   clickTimelineItem: (itemId: string, offsetMs: number, event: React.MouseEvent<HTMLButtonElement>) => void;
   openTimelineContext: (itemId: string, event: React.MouseEvent<HTMLButtonElement>) => void;
   focusViewerTimeline: () => void;
+  unfollowViewerTimeline: () => void;
   closeNetworkDetail: () => void;
   updateTimelineHighlight: () => void;
   handleViewerVideoError: () => void;
@@ -916,6 +917,12 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
         next.autoFollow = true;
       });
     },
+    unfollowViewerTimeline: () => {
+      if (!viewerStateRef.current.autoFollow) return;
+      updateViewer((next) => {
+        next.autoFollow = false;
+      });
+    },
     closeNetworkDetail: () => {
       updateViewer((next) => {
         next.networkDetailIndex = null;
@@ -934,7 +941,7 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
       if (!current.autoFollow || isAutoScrollingRef.current) return;
       isAutoScrollingRef.current = true;
       requestAnimationFrame(() => {
-        const activeRow = viewerReactRootRef.current?.querySelector<HTMLElement>(".viewer-timeline .timeline-item[data-active='true']");
+        const activeRow = viewerReactRootRef.current?.querySelector<HTMLElement>(".jl-vm-row[data-active='true']");
         activeRow?.scrollIntoView({ block: "nearest" });
         isAutoScrollingRef.current = false;
       });

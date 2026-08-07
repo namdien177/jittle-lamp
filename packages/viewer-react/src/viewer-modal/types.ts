@@ -60,6 +60,8 @@ export type ViewerModalProps = {
   title: string;
   titleMeta?: string | null;
   aboutEvidence: ArchiveRecorderInfo;
+  /** The person who recorded/uploaded this evidence, when the host app knows it. */
+  recordedBy?: { displayName: string; email?: string | null } | null;
   tags: string[];
   source: ViewerSource;
   isOwner: boolean;
@@ -113,6 +115,9 @@ export type ViewerModalProps = {
   onItemClick: (row: ViewerModalRow, event: React.MouseEvent<HTMLButtonElement>) => void;
   onItemContextMenu: (row: ViewerModalRow, event: React.MouseEvent<HTMLButtonElement>) => void;
   onAutoFollowToggle: () => void;
+  /** Called when the user scrolls the evidence stream themselves (wheel, touch,
+   * or scrollbar drag) so the host can pause auto-follow. */
+  onUserScroll?: () => void;
   timelineRef?: React.RefObject<HTMLDivElement | null>;
 
   drawerItem: TimelineItem | null;

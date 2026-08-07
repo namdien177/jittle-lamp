@@ -509,6 +509,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
         }
       }}
       onAutoFollowToggle={desktop.focusViewerTimeline}
+      onUserScroll={desktop.unfollowViewerTimeline}
       timelineRef={desktop.viewerReactRootRef}
       drawerItem={drawerItem}
       onDrawerClose={desktop.closeNetworkDetail}

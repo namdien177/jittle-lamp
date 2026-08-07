@@ -207,9 +207,19 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
         ) : null}
         <div className="jl-vm-list-wrap">
           {activeTab === "about" ? (
-            <AboutEvidencePanel {...props.aboutEvidence} />
+            <AboutEvidencePanel about={props.aboutEvidence} recordedBy={props.recordedBy ?? null} />
           ) : (
-            <div className="jl-vm-list" ref={timelineRef}>
+            <div
+              className="jl-vm-list"
+              ref={timelineRef}
+              onWheel={() => props.onUserScroll?.()}
+              onTouchMove={() => props.onUserScroll?.()}
+              onPointerDown={(event) => {
+                // A pointerdown on the list itself (not on a row) is a
+                // scrollbar drag or padding press — treat it as manual scroll.
+                if (event.target === event.currentTarget) props.onUserScroll?.();
+              }}
+            >
               {filteredRows.length === 0 ? (
                 <div className="jl-vm-empty">No entries match.</div>
               ) : (
@@ -239,10 +249,14 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   );
 }
 
-function AboutEvidencePanel(props: ViewerModalProps["aboutEvidence"]): React.JSX.Element {
-  const extension = props.extension;
-  const rows = [
-    ["Recorded by", extension.name],
+function AboutEvidencePanel(props: {
+  about: ViewerModalProps["aboutEvidence"];
+  recordedBy: NonNullable<ViewerModalProps["recordedBy"]> | null;
+}): React.JSX.Element {
+  const extension = props.about.extension;
+  const recordedBy = props.recordedBy;
+  const extensionRows = [
+    ["Extension", extension.name],
     ["Extension version", extension.version],
     ["Extension ID", extension.extensionId ?? "Not saved"],
     ["Manifest [extension config]", extension.manifestVersion ? `MV${extension.manifestVersion}` : "Not saved"],
@@ -251,11 +265,27 @@ function AboutEvidencePanel(props: ViewerModalProps["aboutEvidence"]): React.JSX
 
   return (
     <div className="jl-vm-about">
+      {recordedBy ? (
+        <div className="jl-vm-about-card">
+          <span className="jl-vm-eyebrow">Recorded by</span>
+          <strong>{recordedBy.displayName}</strong>
+          <dl className="jl-vm-about-list">
+            <div className="jl-vm-about-row">
+              <dt>Name</dt>
+              <dd>{recordedBy.displayName}</dd>
+            </div>
+            <div className="jl-vm-about-row">
+              <dt>Email</dt>
+              <dd>{recordedBy.email ?? "Not available"}</dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
       <div className="jl-vm-about-card">
         <span className="jl-vm-eyebrow">Extension used</span>
         <strong>{extension.name}</strong>
         <dl className="jl-vm-about-list">
-          {rows.map(([label, value]) => (
+          {extensionRows.map(([label, value]) => (
             <div key={label} className="jl-vm-about-row">
               <dt>{label}</dt>
               <dd>{value}</dd>

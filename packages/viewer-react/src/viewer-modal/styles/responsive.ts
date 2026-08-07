@@ -7,17 +7,27 @@ export const responsiveStyles = `
   .jl-vm-overlay .jl-vm-modal {
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     border-radius: 0;
+    border: 0;
   }
 
   .jl-vm-root {
     height: auto;
     min-height: calc(100vh - 56px);
+    min-height: calc(100dvh - 56px);
   }
 
   .jl-vm-header {
     align-items: flex-start;
     flex-direction: column;
+    gap: 8px;
+    padding: 10px 14px;
+    min-height: 0;
+  }
+
+  .jl-vm-root .jl-vm-header {
+    padding: 10px 14px;
   }
 
   .jl-vm-actions,
@@ -26,24 +36,51 @@ export const responsiveStyles = `
     flex-wrap: wrap;
   }
 
+  /* The whole viewer becomes one scrollable column: video first, then tags,
+     discussion, and the evidence stream. Nothing overlaps; the stream keeps
+     its own internal scroll so the tabs stay reachable. */
   .jl-vm-body {
     flex-direction: column;
+    overflow: hidden auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .jl-vm-left {
+    flex: 0 0 auto;
     border-right: 0;
     border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
     min-width: 0;
+    min-height: 0;
+  }
+
+  .jl-vm-video-wrap {
+    flex: 0 0 auto;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 46vh;
+    max-height: 46svh;
+  }
+
+  .jl-vm-discussion,
+  .jl-vm-notes {
+    flex: 0 0 auto;
+    max-height: 280px;
   }
 
   .jl-vm-right {
-    flex: 1 1 50%;
+    flex: 0 0 auto;
     width: 100%;
+    min-height: 0;
   }
 
   .jl-vm-right[data-collapsed="true"] {
     flex-basis: 44px;
     width: 100%;
+  }
+
+  .jl-vm-list {
+    max-height: 62vh;
+    max-height: 62svh;
   }
 
   .jl-vm-stream-resizer {
@@ -85,11 +122,11 @@ export const responsiveStyles = `
   }
 
   .jl-vm-row {
-    min-width: 360px;
+    min-width: 320px;
   }
 
   .jl-vm-row[data-kind="network"] {
-    min-width: 520px;
+    min-width: 480px;
     grid-template-columns: 46px 48px minmax(0, 1fr) 38px;
   }
 
@@ -97,28 +134,12 @@ export const responsiveStyles = `
     display: none;
   }
 
-  .jl-vm-video-controls {
-    padding: 0 8px 6px;
-  }
-
-  .jl-vm-video-control {
-    width: 34px;
-    height: 34px;
-  }
-
-  .jl-vm-video-volume:hover .jl-vm-video-volume-slider,
-  .jl-vm-video-volume:focus-within .jl-vm-video-volume-slider {
-    width: 52px;
-  }
-
-  .jl-vm-video-time {
-    padding: 0 6px;
-    font-size: inherit;
-  }
-
-  .jl-vm-video-time-sep,
-  .jl-vm-video-time-total {
-    display: none;
+  .jl-vm-feedback {
+    top: auto;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    justify-content: space-between;
   }
 }
 `;
