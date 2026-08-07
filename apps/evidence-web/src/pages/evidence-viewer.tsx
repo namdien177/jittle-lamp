@@ -396,6 +396,7 @@ function RemoteEvidenceLoader(props: {
       fetchVideoBytes={fetchVideoBytes}
       onVideoError={handleVideoError}
       onClose={() => navigate(props.viewerMode === "page" ? "/evidence" : "/")}
+      recordedBy={loaded.evidence.createdByProfile ?? null}
       discussionComments={comments}
       discussionValue={commentDraft}
       discussionSaving={createComment.isPending}

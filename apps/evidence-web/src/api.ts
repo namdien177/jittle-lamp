@@ -266,6 +266,8 @@ export type ApiEvidenceSummary = {
 	thumbnailBase64?: string | null;
 	thumbnailMimeType?: string | null;
 	createdBy: string;
+	/** Present on the evidence detail endpoint only. */
+	createdByProfile?: { displayName: string; email: string | null } | null;
 	createdAt: number;
 	updatedAt: number;
 	status?: "ready" | "pending";

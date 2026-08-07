@@ -19,6 +19,53 @@ function assignVideoRef(ref: React.RefObject<HTMLVideoElement | null>, videoEl: 
   (ref as { current: HTMLVideoElement | null }).current = videoEl;
 }
 
+type WebkitFullscreenElement = HTMLElement & {
+  webkitRequestFullscreen?: () => void;
+};
+
+type WebkitFullscreenDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => void;
+};
+
+type WebkitFullscreenVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
+
+function getFullscreenElement(): Element | null {
+  const doc = document as WebkitFullscreenDocument;
+  return doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+}
+
+/**
+ * Fullscreens the wrapper that hosts both the video and the viewer's own
+ * control bar (video.js's player fullscreen would only take the <video> host,
+ * leaving the custom controls behind). Falls back to the native video
+ * fullscreen on iOS Safari where element fullscreen is unavailable.
+ */
+function requestWrapperFullscreen(wrapper: HTMLElement, videoEl: HTMLVideoElement | null): void {
+  if (typeof wrapper.requestFullscreen === "function") {
+    void wrapper.requestFullscreen().catch(() => undefined);
+    return;
+  }
+  const webkitWrapper = wrapper as WebkitFullscreenElement;
+  if (typeof webkitWrapper.webkitRequestFullscreen === "function") {
+    webkitWrapper.webkitRequestFullscreen();
+    return;
+  }
+  const webkitVideo = videoEl as WebkitFullscreenVideo | null;
+  webkitVideo?.webkitEnterFullscreen?.();
+}
+
+function exitAnyFullscreen(): void {
+  const doc = document as WebkitFullscreenDocument;
+  if (typeof doc.exitFullscreen === "function") {
+    void doc.exitFullscreen().catch(() => undefined);
+    return;
+  }
+  doc.webkitExitFullscreen?.();
+}
+
 function videoSourceType(source: string | null | undefined): string {
   if (!source) return "video/webm";
   const url = source.startsWith("blob:") ? null : new URL(source, window.location.href);
@@ -56,6 +103,7 @@ function rangeFill(pct: number): React.CSSProperties {
 
 export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   const videoNodeRef = useRef<HTMLVideoElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<Player | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestCallbacksRef = useRef({
@@ -157,7 +205,6 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
       const r = player.playbackRate();
       if (typeof r === "number") setRate(r);
     };
-    const handleFullscreen = (): void => setIsFullscreen(player.isFullscreen() ?? false);
     const handleError = (): void => latestCallbacksRef.current.onVideoError?.();
 
     player.on("timeupdate", handleTimeUpdate);
@@ -168,7 +215,6 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
     player.on("pause", handlePause);
     player.on("volumechange", handleVolume);
     player.on("ratechange", handleRate);
-    player.on("fullscreenchange", handleFullscreen);
     player.on("error", handleError);
     handleVolume();
 
@@ -182,7 +228,6 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
       player.off("pause", handlePause);
       player.off("volumechange", handleVolume);
       player.off("ratechange", handleRate);
-      player.off("fullscreenchange", handleFullscreen);
       player.off("error", handleError);
       player.dispose();
       playerRef.current = null;
@@ -191,6 +236,20 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
     // Mount-once: the player is created a single time. `revealControls`/
     // `clearHideTimer` are stable callbacks and `videoRef` is a stable ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = (): void => {
+      const wrapper = wrapperRef.current;
+      const fullscreenEl = getFullscreenElement();
+      setIsFullscreen(Boolean(wrapper && fullscreenEl && (fullscreenEl === wrapper || wrapper.contains(fullscreenEl))));
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -238,10 +297,10 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
   }, []);
 
   const toggleFullscreen = useCallback((): void => {
-    const player = playerRef.current;
-    if (!player) return;
-    if (player.isFullscreen()) void player.exitFullscreen();
-    else void player.requestFullscreen();
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    if (getFullscreenElement()) exitAnyFullscreen();
+    else requestWrapperFullscreen(wrapper, videoNodeRef.current);
   }, []);
 
   const cycleRate = useCallback((): void => {
@@ -259,9 +318,11 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
   return (
     <div className="jl-vm-video-wrap">
       <div
+        ref={wrapperRef}
         className="jl-vm-video-inner"
         data-playing={isPlaying ? "true" : "false"}
         data-controls={controlsVisible ? "visible" : "hidden"}
+        data-fullscreen={isFullscreen ? "true" : "false"}
         onPointerMove={revealControls}
         onPointerLeave={() => {
           if (isPlaying) setControlsVisible(false);
@@ -283,7 +344,15 @@ export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element 
           type="button"
           className="jl-vm-vc-surface"
           aria-label={isPlaying ? "Pause" : "Play"}
-          onClick={togglePlay}
+          onClick={() => {
+            // On touch screens the first tap only reveals the hidden controls;
+            // a second tap (controls now visible) toggles playback.
+            if (isPlaying && !controlsVisible) {
+              revealControls();
+              return;
+            }
+            togglePlay();
+          }}
         />
 
         {!isPlaying ? (

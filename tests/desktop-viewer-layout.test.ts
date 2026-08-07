@@ -77,10 +77,19 @@ describe("viewer modal layout CSS", () => {
   test("custom video controls reflow inside narrow video containers", () => {
     expect(css).toMatch(/\.jl-vm-video-inner\s*\{[\s\S]*?container-type:\s*inline-size;/);
     expect(css).toContain("@container (max-width: 560px)");
-    expect(css).toMatch(/\.jl-vm-vc-bar\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*32px 24px;/);
+    expect(css).toMatch(/\.jl-vm-vc-bar\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*36px 24px;/);
     expect(css).toMatch(/\.jl-vm-vc-progress\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-row:\s*2;/);
-    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-mute\s*\{[\s\S]*?grid-column:\s*4;/);
-    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-fullscreen\s*\{[\s\S]*?grid-column:\s*6;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-mute\s*\{[\s\S]*?grid-column:\s*5;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-fullscreen\s*\{[\s\S]*?grid-column:\s*7;/);
+    // Compact bar keeps the total duration visible next to the current time.
+    expect(css).toMatch(/\.jl-vm-vc-time-total::before\s*\{[\s\S]*?content:\s*"\/ ";/);
+  });
+
+  test("fullscreen targets the wrapper so custom controls stay visible", () => {
+    expect(videoPlayerSource).toContain("requestWrapperFullscreen(wrapper, videoNodeRef.current)");
+    expect(videoPlayerSource).not.toContain("player.requestFullscreen");
+    expect(videoPlayerSource).toContain('document.addEventListener("fullscreenchange"');
+    expect(css).toMatch(/\.jl-vm-video-inner:fullscreen\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
   });
 
   test("header actions collapse to tooltip-backed icon buttons below 1200px", () => {
@@ -123,8 +132,8 @@ describe("viewer modal layout CSS", () => {
     expect(css).toMatch(/\.jl-vm-filters\s*\{[\s\S]*?overflow-x:\s*auto;[\s\S]*?overflow-y:\s*hidden;/);
     expect(css).toMatch(/\.jl-vm-chip\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?white-space:\s*nowrap;/);
     expect(css).toMatch(/\.jl-vm-list\s*\{[\s\S]*?overflow:\s*auto;/);
-    expect(css).toMatch(/\.jl-vm-row\s*\{[\s\S]*?min-width:\s*360px;/);
-    expect(css).toMatch(/\.jl-vm-row\[data-kind="network"\]\s*\{[\s\S]*?min-width:\s*520px;/);
+    expect(css).toMatch(/\.jl-vm-row\s*\{[\s\S]*?min-width:\s*320px;/);
+    expect(css).toMatch(/\.jl-vm-row\[data-kind="network"\]\s*\{[\s\S]*?min-width:\s*480px;/);
   });
 
   test("viewer scroll surfaces reserve stable scrollbar gutter", () => {

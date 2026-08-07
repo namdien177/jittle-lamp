@@ -10,6 +10,7 @@ import {
 	evidenceTagAssignments,
 	organizationEvidenceTags,
 	organizationMembers,
+	users,
 } from "../db/schema";
 import {
 	apiErrorSchema,
@@ -20,6 +21,10 @@ import {
 	type ClerkAuthPlugin,
 	requireSessionScope,
 } from "../plugins/clerk-auth";
+import {
+	formatClerkDisplayName,
+	resolveClerkUserProfile,
+} from "../services/clerk-user-profile";
 import {
 	evidenceActivityEntity,
 	getRequestIpAddress,
@@ -250,9 +255,51 @@ const listEvidencesResponseSchema = t.Object({
 	limit: t.Number({ minimum: 1 }),
 });
 
+const evidenceCreatorProfileSchema = t.Nullable(
+	t.Object({
+		displayName: t.String({ minLength: 1 }),
+		email: t.Nullable(t.String()),
+	}),
+);
+
 const loadEvidenceResponseSchema = t.Object({
-	evidence: evidenceSummarySchema,
+	evidence: t.Composite([
+		evidenceSummarySchema,
+		t.Object({ createdByProfile: evidenceCreatorProfileSchema }),
+	]),
 });
+
+/**
+ * Resolves the human identity behind an evidence's `createdBy` local user so
+ * viewers can see who recorded it. Falls back to a short user-id label when
+ * the Clerk profile is unavailable (deleted user, missing secret key, outage).
+ */
+const resolveEvidenceCreatorProfile = async (
+	db: BackendDb,
+	runtime: RuntimeConfig,
+	createdBy: string,
+): Promise<{ displayName: string; email: string | null } | null> => {
+	const creator = await db.query.users.findFirst({
+		where: eq(users.id, createdBy),
+		columns: { clerkUserId: true },
+	});
+	if (!creator) return null;
+	try {
+		const profile = await resolveClerkUserProfile(runtime, creator.clerkUserId);
+		return {
+			displayName: formatClerkDisplayName({
+				clerkUserId: creator.clerkUserId,
+				firstName: profile.firstName,
+				lastName: profile.lastName,
+				username: profile.username,
+				email: profile.email,
+			}),
+			email: profile.email,
+		};
+	} catch {
+		return { displayName: `User ${createdBy.slice(0, 8)}`, email: null };
+	}
+};
 
 const listEvidenceArtifactsResponseSchema = t.Object({
 	artifacts: t.Array(evidenceArtifactSummarySchema),
@@ -1643,7 +1690,15 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.get(
 					"/evidences/:id",
-					async ({ authContext, db, params, query, requestId, set }) => {
+					async ({
+						authContext,
+						db,
+						params,
+						query,
+						requestId,
+						runtime,
+						set,
+					}) => {
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
@@ -1714,12 +1769,18 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						}
 
 						const { artifacts, tags, ...evidenceSummary } = evidence;
+						const createdByProfile = await resolveEvidenceCreatorProfile(
+							db,
+							runtime,
+							evidence.createdBy,
+						);
 						return {
 							evidence: {
 								...evidenceSummary,
 								...parseEvidenceStats(evidenceSummary.sourceMetadata),
 								status: deriveEvidenceStatus(artifacts),
 								tags: tags.map((assignment) => assignment.tag),
+								createdByProfile,
 							},
 						};
 					},

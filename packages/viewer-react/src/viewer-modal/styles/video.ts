@@ -55,6 +55,19 @@ export const videoStyles = `
   cursor: none;
 }
 
+/* The wrapper itself goes fullscreen so the custom control bar rides along. */
+.jl-vm-video-inner:fullscreen {
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+.jl-vm-video-inner[data-fullscreen="true"] .jl-vm-vc-bar {
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+}
+
 /* Click-to-toggle surface sits over the video, beneath the controls. */
 .jl-vm-video-inner button.jl-vm-vc-surface {
   position: absolute;
@@ -264,30 +277,41 @@ export const videoStyles = `
     bottom: 8px;
     left: 8px;
     display: grid;
-    grid-template-columns: 32px auto minmax(0, 1fr) 32px 38px 32px;
-    grid-template-rows: 32px 24px;
+    grid-template-columns: 36px auto auto minmax(0, 1fr) 36px 40px 36px;
+    grid-template-rows: 36px 24px;
     align-items: center;
     column-gap: 6px;
-    row-gap: 8px;
+    row-gap: 6px;
     height: auto;
-    min-height: 72px;
+    min-height: 76px;
     padding: 8px;
     border-radius: 14px;
   }
 
   .jl-vm-video-inner button.jl-vm-vc-play,
   .jl-vm-video-inner button.jl-vm-vc-icon {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
   }
 
   .jl-vm-video-inner .jl-vm-vc-time {
     grid-column: 2;
     grid-row: 1;
     width: auto;
-    min-width: 40px;
+    min-width: 34px;
     font-size: 11px;
     text-align: left;
+  }
+
+  .jl-vm-video-inner .jl-vm-vc-time-total {
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .jl-vm-video-inner .jl-vm-vc-time-total::before {
+    content: "/ ";
   }
 
   .jl-vm-video-inner .jl-vm-vc-progress {
@@ -303,38 +327,45 @@ export const videoStyles = `
   }
 
   .jl-vm-video-inner button.jl-vm-vc-mute {
-    grid-column: 4;
-    grid-row: 1;
-  }
-
-  .jl-vm-video-inner button.jl-vm-vc-rate {
     grid-column: 5;
     grid-row: 1;
   }
 
-  .jl-vm-video-inner button.jl-vm-vc-fullscreen {
+  .jl-vm-video-inner button.jl-vm-vc-rate {
     grid-column: 6;
+    grid-row: 1;
+    min-width: 40px;
+    height: 30px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .jl-vm-video-inner button.jl-vm-vc-fullscreen {
+    grid-column: 7;
     grid-row: 1;
   }
 
-  .jl-vm-video-inner .jl-vm-vc-volume,
-  .jl-vm-video-inner .jl-vm-vc-time-total {
+  .jl-vm-video-inner .jl-vm-vc-volume {
     display: none;
   }
 
-  .jl-vm-video-inner button.jl-vm-vc-rate {
-    min-width: 38px;
-    height: 28px;
-    padding: 0 6px;
-    font-size: 11px;
+  /* Widen the seek thumb for touch. */
+  .jl-vm-video-inner .jl-vm-vc-progress::-webkit-slider-thumb {
+    width: 16px;
+    height: 16px;
+  }
+
+  .jl-vm-video-inner .jl-vm-vc-progress::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
   }
 }
 
 @container (max-width: 400px) {
   .jl-vm-video-inner .jl-vm-vc-bar {
-    grid-template-columns: 32px auto minmax(0, 1fr) 32px 32px;
+    grid-template-columns: 36px auto auto minmax(0, 1fr) 36px 36px;
     column-gap: 5px;
-    min-height: 70px;
+    min-height: 74px;
     padding: 7px;
   }
 
@@ -342,8 +373,12 @@ export const videoStyles = `
     display: none;
   }
 
-  .jl-vm-video-inner button.jl-vm-vc-fullscreen {
+  .jl-vm-video-inner button.jl-vm-vc-mute {
     grid-column: 5;
+  }
+
+  .jl-vm-video-inner button.jl-vm-vc-fullscreen {
+    grid-column: 6;
   }
 }
 
