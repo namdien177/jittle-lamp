@@ -7,7 +7,7 @@ import {
 } from "../apps/evidence-web/src/manual-upload";
 
 describe("manual evidence upload", () => {
-  test("rejects videos larger than 50 MB before reading the file", async () => {
+  test("rejects videos larger than 60 MB before reading the file", async () => {
     const file = {
       name: "oversized.mp4",
       type: "video/mp4",
@@ -21,7 +21,7 @@ describe("manual evidence upload", () => {
       InvalidEvidenceUploadError,
     );
     await expect(prepareManualEvidenceUploadFile(file)).rejects.toThrow(
-      "Video files must be 50 MB or smaller.",
+      "Video files must be 60 MB or smaller.",
     );
   });
 });

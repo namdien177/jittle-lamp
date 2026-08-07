@@ -205,6 +205,12 @@ async function requestOptionalNetworkFallbackPermission(): Promise<void> {
   }
 
   try {
+    const alreadyGranted = await chrome.permissions.contains(networkFallbackPermissions);
+
+    if (alreadyGranted) {
+      return;
+    }
+
     await chrome.permissions.request(networkFallbackPermissions);
   } catch (error: unknown) {
     console.warn("Unable to request optional network fallback permission.", error);

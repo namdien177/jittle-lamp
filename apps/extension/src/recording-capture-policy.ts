@@ -99,8 +99,8 @@ export async function captureWithTimeout<Stream extends StoppableCaptureStream>(
 const tabMaxDurationMs = 5 * 60 * 1000;
 const desktopMaxDurationMs = 2 * 60 * 1000;
 const desktopPickerTimeoutMs = 60 * 1000;
-const warningRecordingBytes = 40 * 1024 * 1024;
-const maxRecordingBytes = 45 * 1024 * 1024;
+const warningRecordingBytes = 50 * 1024 * 1024;
+const maxRecordingBytes = 55 * 1024 * 1024;
 
 export function getRecordingCapturePolicy(
   target: RecordingCaptureTarget,

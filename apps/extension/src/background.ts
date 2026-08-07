@@ -45,6 +45,8 @@ const companionHealthTimeoutMs = 1_200;
 const companionOnlineRefreshMs = 3_000;
 const companionOfflineRefreshMs = 30_000;
 const cloudAuthProbeTimeoutMs = 1_800;
+const cloudAuthRequestTimeoutMs = 10_000;
+const cloudAuthStateCacheTtlMs = 5_000;
 const configuredCloudWebOrigin = (
   typeof __JITTLE_LAMP_WEB_ORIGIN__ === "string" ? __JITTLE_LAMP_WEB_ORIGIN__.trim() : ""
 ).replace(/\/+$/, "");
@@ -92,6 +94,9 @@ let cloudAuthSessionCache: StoredCloudAuthSession | null = null;
 let companionStateCache: CompanionState | null = null;
 let companionStateCacheExpiresAt = 0;
 let companionStateProbePromise: Promise<CompanionState> | null = null;
+let cloudAuthStateCache: CloudAuthState | null = null;
+let cloudAuthStateCacheExpiresAt = 0;
+let cloudAuthStateProbePromise: Promise<CloudAuthState> | null = null;
 let webRequestFallbackListenersRegistered = false;
 let activeCaptureTarget: CaptureTarget = "tab";
 const recordingLifecycle = new RecordingLifecycle();
@@ -374,6 +379,18 @@ async function handleIncomingMessage(
         return buildPopupResponse(true);
 
       case "jl/popup-start-recording": {
+        const finalizingDraft = activeDraftCache;
+        if (
+          recordingLifecycle.current() === null &&
+          finalizingDraft?.phase === "processing" &&
+          !isStaleProcessingDraft(finalizingDraft)
+        ) {
+          return buildPopupResponse(
+            false,
+            "The previous session is still being finalized and uploaded. Wait for it to finish before starting a new recording."
+          );
+        }
+
         const targetTabId = popupRequest.data.tabId ?? sender.tab?.id;
         const targetPage = popupRequest.data.page;
         const sessionName = popupRequest.data.name;
@@ -3539,6 +3556,35 @@ async function probeCompanionState(): Promise<CompanionState> {
 }
 
 async function readCloudAuthState(): Promise<CloudAuthState> {
+  const now = Date.now();
+
+  if (cloudAuthStateCache && cloudAuthStateCacheExpiresAt > now) {
+    return cloudAuthStateCache;
+  }
+
+  if (cloudAuthStateProbePromise) {
+    return cloudAuthStateProbePromise;
+  }
+
+  cloudAuthStateProbePromise = probeCloudAuthState().then((state) => {
+    cloudAuthStateCache = state;
+    cloudAuthStateCacheExpiresAt = Date.now() + cloudAuthStateCacheTtlMs;
+    return state;
+  });
+
+  try {
+    return await cloudAuthStateProbePromise;
+  } finally {
+    cloudAuthStateProbePromise = null;
+  }
+}
+
+function invalidateCloudAuthStateCache(): void {
+  cloudAuthStateCache = null;
+  cloudAuthStateCacheExpiresAt = 0;
+}
+
+async function probeCloudAuthState(): Promise<CloudAuthState> {
   const checkedAt = new Date().toISOString();
 
   try {
@@ -3589,7 +3635,8 @@ async function startCloudSignInFlow(): Promise<void> {
   }
 
   const response = await fetch(`${configuredCloudApiOrigin}/extension-auth/flows`, {
-    method: "POST"
+    method: "POST",
+    signal: AbortSignal.timeout(cloudAuthRequestTimeoutMs)
   });
 
   if (!response.ok) {
@@ -3620,6 +3667,7 @@ async function startCloudSignInFlow(): Promise<void> {
   };
 
   await savePendingCloudAuthFlow(pendingCloudAuthFlow);
+  invalidateCloudAuthStateCache();
   await chrome.tabs.create({ url: payload.verificationUriComplete });
   void pollCloudSignInFlow(pendingCloudAuthFlow);
 }
@@ -3654,7 +3702,9 @@ async function pollCloudSignInFlow(
     return;
   }
 
-  const response = await fetch(`${configuredCloudApiOrigin}/extension-auth/flows/${encodeURIComponent(flow.deviceCode)}`);
+  const response = await fetch(`${configuredCloudApiOrigin}/extension-auth/flows/${encodeURIComponent(flow.deviceCode)}`, {
+    signal: AbortSignal.timeout(cloudAuthRequestTimeoutMs)
+  });
 
   if (!response.ok) {
     throw new Error(`Unable to poll extension sign-in (${response.status}).`);
@@ -3844,7 +3894,8 @@ async function refreshCloudAuthSession(session: RefreshableCloudAuthSession): Pr
     const response = await fetch(`${configuredCloudApiOrigin}/extension-auth/sessions/refresh`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refreshToken: session.refreshToken })
+      body: JSON.stringify({ refreshToken: session.refreshToken }),
+      signal: AbortSignal.timeout(cloudAuthRequestTimeoutMs)
     });
 
     if (!response.ok) {
@@ -4181,10 +4232,12 @@ async function saveCloudAuthSession(session: StoredCloudAuthSession): Promise<vo
     hasAccountLabel: Boolean(session.accountLabel)
   });
   cloudAuthSessionCache = session;
+  invalidateCloudAuthStateCache();
 }
 
 async function clearCloudAuthSession(): Promise<void> {
   cloudAuthSessionCache = null;
+  invalidateCloudAuthStateCache();
   await chrome.storage.local.remove([cloudAuthStorageKey, cloudAuthDurableStorageKey, cloudAuthFlowStorageKey]);
 }
 
@@ -4548,6 +4601,7 @@ async function resetForTests(options?: { preserveStorage?: boolean }): Promise<v
   activeDraftEventCount = 0;
   pendingRecoveryCheckScheduled = false;
   cloudAuthSessionCache = null;
+  invalidateCloudAuthStateCache();
   activeCaptureTarget = "tab";
 
   const recoveryTabId = activeRecoveryState?.tabId;
