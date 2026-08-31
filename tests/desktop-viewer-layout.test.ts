@@ -77,10 +77,11 @@ describe("viewer modal layout CSS", () => {
   test("custom video controls reflow inside narrow video containers", () => {
     expect(css).toMatch(/\.jl-vm-video-inner\s*\{[\s\S]*?container-type:\s*inline-size;/);
     expect(css).toContain("@container (max-width: 560px)");
-    expect(css).toMatch(/\.jl-vm-vc-bar\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*36px 24px;/);
-    expect(css).toMatch(/\.jl-vm-vc-progress\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-row:\s*2;/);
+    expect(css).toMatch(/\.jl-vm-vc-bar\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*24px 44px;/);
+    expect(css).toMatch(/\.jl-vm-vc-progress\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-row:\s*1;/);
     expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-mute\s*\{[\s\S]*?grid-column:\s*5;/);
     expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-fullscreen\s*\{[\s\S]*?grid-column:\s*7;/);
+    expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-rate\s*\{[\s\S]*?min-width:\s*44px;[\s\S]*?height:\s*44px;/);
     // Compact bar keeps the total duration visible next to the current time.
     expect(css).toMatch(/\.jl-vm-vc-time-total::before\s*\{[\s\S]*?content:\s*"\/ ";/);
   });
@@ -127,13 +128,13 @@ describe("viewer modal layout CSS", () => {
     expect(css).toMatch(/\.jl-vm-composer \.jl-vm-btn\s*\{[\s\S]*?min-height:\s*32px;/);
   });
 
-  test("evidence tabs, filters, and list can scroll sideways on narrow panes", () => {
+  test("evidence tabs and filters stay reachable on narrow panes", () => {
     expect(css).toMatch(/\.jl-vm-tabs-row\s*\{[\s\S]*?overflow-x:\s*auto;[\s\S]*?overflow-y:\s*hidden;/);
     expect(css).toMatch(/\.jl-vm-filters\s*\{[\s\S]*?overflow-x:\s*auto;[\s\S]*?overflow-y:\s*hidden;/);
     expect(css).toMatch(/\.jl-vm-chip\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?white-space:\s*nowrap;/);
     expect(css).toMatch(/\.jl-vm-list\s*\{[\s\S]*?overflow:\s*auto;/);
-    expect(css).toMatch(/\.jl-vm-row\s*\{[\s\S]*?min-width:\s*320px;/);
-    expect(css).toMatch(/\.jl-vm-row\[data-kind="network"\]\s*\{[\s\S]*?min-width:\s*480px;/);
+    expect(css).toMatch(/@media \(max-width: 900px\)[\s\S]*?\.jl-vm-row\s*\{[\s\S]*?min-width:\s*0;/);
+    expect(css).toMatch(/@media \(max-width: 900px\)[\s\S]*?\.jl-vm-row\[data-kind="network"\]\s*\{[\s\S]*?min-width:\s*0;/);
   });
 
   test("viewer scroll surfaces reserve stable scrollbar gutter", () => {
@@ -167,6 +168,8 @@ describe("viewer modal layout CSS", () => {
 
   test("drawer can grow to at most 70% of the right pane", () => {
     expect(css).toMatch(/\.jl-vm-drawer\s*\{[\s\S]*?max-height:\s*70%;/);
+    expect(css).toMatch(/@media \(max-width: 900px\)[\s\S]*?\.jl-vm-drawer\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?max-height:\s*min\(74dvh, 640px\);/);
+    expect(css).toMatch(/\.jl-vm-drawer-actions \.jl-vm-btn-icon\s*\{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px;/);
   });
 
   test("row labels truncate instead of pushing the layout", () => {

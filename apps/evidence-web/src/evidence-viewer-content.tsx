@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildVisibleActionRows,
   buildSectionTimeline,
@@ -31,6 +31,7 @@ import type { ActionMergeGroup } from "@jittle-lamp/shared";
 
 import { buildReviewedArchive } from "./archive-export";
 import { buildReviewedZipBlob } from "./adapters";
+import { scrollElementWithinContainer } from "./contained-scroll";
 
 export type FeedbackTone = "neutral" | "success" | "error";
 
@@ -335,10 +336,12 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     setMergeDialog(initialMergeDialog);
   };
 
-  const scrollActiveRowIntoView = (behavior: ScrollBehavior): void => {
-    const activeBtn = timelineRef.current?.querySelector<HTMLElement>("[data-active='true']") ?? null;
-    activeBtn?.scrollIntoView({ block: "nearest", behavior });
-  };
+  const scrollActiveRowWithinList = useCallback((behavior: ScrollBehavior): void => {
+    const list = timelineRef.current;
+    const activeRow = list?.querySelector<HTMLElement>("[data-active='true']") ?? null;
+    if (!list || !activeRow) return;
+    scrollElementWithinContainer(list, activeRow, behavior);
+  }, []);
 
   const updateHighlight = (): void => {
     const videoEl = videoRef.current;
@@ -347,7 +350,6 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     // `sectionItems` already equals the section timeline for the active section
     // (memoized), so reuse it instead of rebuilding on every video time update.
     setActiveIndex(findActiveIndex(sectionItems, currentMs));
-    if (autoFollow) scrollActiveRowIntoView("smooth");
   };
 
   const onCopy = (value: string, label: string): void => {
@@ -399,6 +401,11 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
 
   const activeItem = activeIndex >= 0 ? sectionItems[activeIndex] : null;
   const activeItemId = activeItem ? activeItem.id : null;
+
+  useEffect(() => {
+    if (!autoFollow || !activeItemId) return;
+    scrollActiveRowWithinList("auto");
+  }, [activeItemId, autoFollow, scrollActiveRowWithinList]);
 
   const rows: ViewerModalRow[] = sectionItems.map((item) => {
     const isMerged = "mergedRangeText" in item && item.mergedRangeText !== undefined;
@@ -524,8 +531,6 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       }}
       onAutoFollowToggle={() => {
         setAutoFollow(true);
-        // Snap back to the active row right away, even while paused.
-        requestAnimationFrame(() => scrollActiveRowIntoView("smooth"));
       }}
       onUserScroll={() => setAutoFollow(false)}
       timelineRef={timelineRef}
