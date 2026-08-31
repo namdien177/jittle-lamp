@@ -12,6 +12,12 @@ export const responsiveStyles = `
     border: 0;
   }
 
+  .jl-vm-modal,
+  .jl-vm-root {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
   .jl-vm-root {
     height: auto;
     min-height: calc(100vh - 56px);
@@ -22,18 +28,32 @@ export const responsiveStyles = `
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
-    padding: 10px 14px;
+    width: 100%;
+    min-width: 0;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
     min-height: 0;
+    box-sizing: border-box;
   }
 
   .jl-vm-root .jl-vm-header {
-    padding: 10px 14px;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
   }
 
-  .jl-vm-actions,
   .jl-vm-header-left {
     width: 100%;
+    min-width: 0;
+  }
+
+  .jl-vm-actions {
+    width: 100%;
     flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .jl-vm-actions .jl-vm-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
   }
 
   /* The whole viewer becomes one scrollable column: video first, then tags,
@@ -42,11 +62,14 @@ export const responsiveStyles = `
   .jl-vm-body {
     flex-direction: column;
     overflow: hidden auto;
+    overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
   }
 
   .jl-vm-left {
     flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
     border-right: 0;
     border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
     min-width: 0;
@@ -67,9 +90,15 @@ export const responsiveStyles = `
     max-height: 280px;
   }
 
+  .jl-vm-composer .jl-vm-btn {
+    min-width: 52px;
+    min-height: 44px;
+  }
+
   .jl-vm-right {
     flex: 0 0 auto;
     width: 100%;
+    max-width: 100%;
     min-height: 0;
   }
 
@@ -81,6 +110,8 @@ export const responsiveStyles = `
   .jl-vm-list {
     max-height: 62vh;
     max-height: 62svh;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
   }
 
   .jl-vm-stream-resizer {
@@ -122,11 +153,12 @@ export const responsiveStyles = `
   }
 
   .jl-vm-row {
-    min-width: 320px;
+    min-width: 0;
+    min-height: 44px;
   }
 
   .jl-vm-row[data-kind="network"] {
-    min-width: 480px;
+    min-width: 0;
     grid-template-columns: 46px 48px minmax(0, 1fr) 38px;
   }
 
@@ -140,6 +172,84 @@ export const responsiveStyles = `
     bottom: max(12px, env(safe-area-inset-bottom));
     left: 12px;
     justify-content: space-between;
+  }
+
+  .jl-vm-drawer {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: min(74vh, 640px);
+    max-height: min(74dvh, 640px);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: 18px 18px 0 0;
+    box-sizing: border-box;
+    z-index: 120;
+  }
+
+  .jl-vm-drawer-header {
+    flex: 0 0 auto;
+    min-height: 60px;
+    padding: 8px 12px;
+    background: var(--jl-vm-bg, #0b0d0e);
+  }
+
+  .jl-vm-drawer-actions .jl-vm-btn {
+    min-height: 44px;
+  }
+
+  .jl-vm-drawer-actions .jl-vm-btn-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .jl-vm-drawer-body {
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 600px) {
+  .jl-vm-tabs-row {
+    align-items: stretch;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .jl-vm-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .jl-vm-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .jl-vm-tab {
+    min-height: 44px;
+  }
+
+  .jl-vm-search {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+
+  .jl-vm-chip {
+    min-height: 36px;
+  }
+
+  .jl-vm-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .jl-vm-pane-count {
+    min-height: 36px;
   }
 }
 `;

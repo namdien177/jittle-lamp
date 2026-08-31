@@ -97,7 +97,7 @@ function formatTime(seconds: number): string {
 function rangeFill(pct: number): React.CSSProperties {
   const clamped = Math.max(0, Math.min(100, pct));
   return {
-    background: `linear-gradient(to right, var(--jl-vm-vc-fill) ${clamped}%, rgba(255, 255, 255, 0.24) ${clamped}%)`
+    backgroundImage: `linear-gradient(to right, var(--jl-vm-vc-fill) ${clamped}%, rgba(255, 255, 255, 0.24) ${clamped}%)`
   };
 }
 

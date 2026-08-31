@@ -228,9 +228,12 @@ export const videoStyles = `
 .jl-vm-video-inner .jl-vm-vc-range {
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
+  height: 20px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.24);
+  background-color: transparent;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 4px;
   cursor: pointer;
   outline: none;
 }
@@ -277,26 +280,27 @@ export const videoStyles = `
     bottom: 8px;
     left: 8px;
     display: grid;
-    grid-template-columns: 36px auto auto minmax(0, 1fr) 36px 40px 36px;
-    grid-template-rows: 36px 24px;
+    grid-template-columns: 44px auto auto minmax(0, 1fr) 44px 44px 44px;
+    grid-template-rows: 24px 44px;
     align-items: center;
     column-gap: 6px;
-    row-gap: 6px;
+    row-gap: 4px;
     height: auto;
-    min-height: 76px;
-    padding: 8px;
+    min-height: 82px;
+    padding: 6px 8px 8px;
     border-radius: 14px;
+    background: rgba(0, 0, 0, 0.68);
   }
 
   .jl-vm-video-inner button.jl-vm-vc-play,
   .jl-vm-video-inner button.jl-vm-vc-icon {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
   }
 
   .jl-vm-video-inner .jl-vm-vc-time {
     grid-column: 2;
-    grid-row: 1;
+    grid-row: 2;
     width: auto;
     min-width: 34px;
     font-size: 11px;
@@ -305,7 +309,7 @@ export const videoStyles = `
 
   .jl-vm-video-inner .jl-vm-vc-time-total {
     grid-column: 3;
-    grid-row: 1;
+    grid-row: 2;
     min-width: 0;
     color: rgba(255, 255, 255, 0.55);
   }
@@ -316,33 +320,34 @@ export const videoStyles = `
 
   .jl-vm-video-inner .jl-vm-vc-progress {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 1;
     width: 100%;
     min-width: 0;
+    height: 24px;
   }
 
   .jl-vm-video-inner button.jl-vm-vc-play {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
   }
 
   .jl-vm-video-inner button.jl-vm-vc-mute {
     grid-column: 5;
-    grid-row: 1;
+    grid-row: 2;
   }
 
   .jl-vm-video-inner button.jl-vm-vc-rate {
     grid-column: 6;
-    grid-row: 1;
-    min-width: 40px;
-    height: 30px;
+    grid-row: 2;
+    min-width: 44px;
+    height: 44px;
     padding: 0 6px;
     font-size: 11px;
   }
 
   .jl-vm-video-inner button.jl-vm-vc-fullscreen {
     grid-column: 7;
-    grid-row: 1;
+    grid-row: 2;
   }
 
   .jl-vm-video-inner .jl-vm-vc-volume {
@@ -361,12 +366,10 @@ export const videoStyles = `
   }
 }
 
-@container (max-width: 400px) {
+@container (max-width: 360px) {
   .jl-vm-video-inner .jl-vm-vc-bar {
-    grid-template-columns: 36px auto auto minmax(0, 1fr) 36px 36px;
+    grid-template-columns: 44px auto auto minmax(0, 1fr) 44px 44px;
     column-gap: 5px;
-    min-height: 74px;
-    padding: 7px;
   }
 
   .jl-vm-video-inner button.jl-vm-vc-rate {

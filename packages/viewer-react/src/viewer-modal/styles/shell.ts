@@ -17,7 +17,9 @@ export const shellStyles = `
 .jl-vm-root {
   position: relative;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
+  min-width: 0;
   width: min(90vw, 1600px);
   height: 90vh;
   background: var(--jl-vm-bg);
@@ -99,8 +101,11 @@ export const shellStyles = `
 
 .jl-vm-body {
   display: flex;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .jl-vm-left {
