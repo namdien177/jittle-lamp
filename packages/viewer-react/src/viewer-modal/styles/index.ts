@@ -1,3 +1,4 @@
+import { compactStyles } from "./compact";
 import { contextMenuStyles } from "./context-menu";
 import { drawerStyles } from "./drawer";
 import { evidenceStyles } from "./evidence";
@@ -22,5 +23,6 @@ export const viewerModalStyles = [
   drawerStyles,
   contextMenuStyles,
   feedbackStyles,
-  responsiveStyles
+  responsiveStyles,
+  compactStyles
 ].join("\n");

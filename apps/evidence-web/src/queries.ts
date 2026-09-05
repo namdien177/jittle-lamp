@@ -289,7 +289,7 @@ export const useBreakMigration = () =>
 		api.breakMigration(getToken, orgId),
 	);
 
-export function useAiAccessTokens() {
+export function useAiAccessTokens(enabled = true) {
 	const auth = useAuth();
 	const getToken = useAuthToken();
 	return useQuery<{ accessTokens: ApiAiAccessToken[] }>({
@@ -299,7 +299,7 @@ export function useAiAccessTokens() {
 			clearCachedInactiveAiAccessTokenSecrets(data.accessTokens);
 			return data;
 		},
-		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
+		enabled: enabled && auth.isLoaded && Boolean(auth.isSignedIn),
 	});
 }
 
@@ -427,13 +427,13 @@ export function useEvidences(
 	});
 }
 
-export function useEvidenceTags(orgId?: string) {
+export function useEvidenceTags(orgId?: string, enabled = true) {
 	const auth = useAuth();
 	const getToken = useAuthToken();
 	return useQuery<{ tags: ApiEvidenceTag[] }>({
 		queryKey: queryKeys.evidenceTags(orgId),
 		queryFn: () => api.listEvidenceTags(getToken, orgId),
-		enabled: auth.isLoaded && Boolean(auth.isSignedIn),
+		enabled: enabled && auth.isLoaded && Boolean(auth.isSignedIn),
 	});
 }
 
@@ -1141,27 +1141,13 @@ async function fetchRemoteEvidence(
 		throw new Error("No evidence locator provided.");
 	}
 
-	const artifactResult = await api.listEvidenceArtifacts(
-		getToken,
-		evidenceId,
-		orgId,
-	);
-	const { recordingArtifact, videoArtifact } = selectEvidenceVideoArtifact(
-		artifactResult.artifacts,
-	);
-	const archiveArtifact = artifactResult.artifacts.find(
-		(artifact) =>
-			artifact.kind === "network-log" && artifact.uploadStatus === "uploaded",
-	);
-	if (!videoArtifact || !archiveArtifact) {
-		throw new Error("Evidence is missing recording or archive artifacts.");
-	}
-
-	const [videoReadUrl, archiveReadUrl] = await Promise.all([
-		api.createArtifactReadUrl(getToken, evidenceId, videoArtifact.id, orgId),
-		api.createArtifactReadUrl(getToken, evidenceId, archiveArtifact.id, orgId),
-	]);
-	const evidenceResult = await api.loadEvidence(getToken, evidenceId, orgId);
+  const playback = await api.loadEvidencePlayback(getToken, evidenceId, orgId, signal);
+  const { recordingArtifact, videoArtifact } = selectEvidenceVideoArtifact(playback.artifacts);
+  const archiveArtifact = playback.artifacts.find(artifact => artifact.kind === "network-log" && artifact.uploadStatus === "uploaded");
+  if (!videoArtifact || !archiveArtifact) throw new Error("Evidence is missing recording or archive artifacts.");
+  const videoReadUrl = playback.readUrls.find(readUrl => readUrl.artifactId === videoArtifact.id);
+  const archiveReadUrl = playback.readUrls.find(readUrl => readUrl.artifactId === archiveArtifact.id);
+  if (!videoReadUrl || !archiveReadUrl) throw new Error("Playback links are missing. Reload this evidence to try again.");
 	const session = await loadRemoteSessionArtifacts({
 		archiveUrl: archiveReadUrl.url,
 		videoUrl: videoReadUrl.url,
@@ -1176,7 +1162,7 @@ async function fetchRemoteEvidence(
 		kind: "loaded",
 		data: {
 			session,
-			evidence: evidenceResult.evidence,
+			evidence: playback.evidence,
 			evidenceId,
 			shareSlug,
 			orgId,

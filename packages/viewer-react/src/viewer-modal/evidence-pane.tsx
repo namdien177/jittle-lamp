@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { evidenceRowHeight, getRowWindow } from "./row-window";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { ChevronsLeft, ChevronsRight, GripVertical } from "lucide-react";
 
@@ -86,10 +87,40 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   const sectionLabels = {
     actions: "Actions",
     console: "Logs",
-    network: "Network",
-    about: "About Evidence"
+    network: "Requests",
+    about: "Info"
   } as const;
-  const filteredRows = getVisibleRows(activeTab, props.rows, props.searchQuery);
+  const filteredRows = useMemo(() => getVisibleRows(activeTab, props.rows, props.searchQuery), [activeTab, props.rows, props.searchQuery]);
+  const [viewport, setViewport] = useState({ top: 0, height: 600 });
+  const virtual = props.compact && filteredRows.length > 100;
+  const rowWindow = virtual ? getRowWindow(filteredRows.length, viewport.top, viewport.height) :
+    { start: 0, end: filteredRows.length, before: 0, after: 0 };
+  useEffect(() => {
+    const list = timelineRef.current;
+    if (!list) return;
+    const measure = (): void => setViewport({ top: list.scrollTop, height: list.clientHeight });
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    measure();
+    return () => observer.disconnect();
+  }, [activeTab, collapsed, timelineRef]);
+  useLayoutEffect(() => {
+    const list = timelineRef.current;
+    if (!list) return;
+    list.scrollTop = 0;
+    setViewport({ top: 0, height: list.clientHeight });
+  }, [activeTab, props.searchQuery, props.subtypeFilter, timelineRef]);
+  useLayoutEffect(() => {
+    if (!virtual || !props.autoFollow || !props.activeItemId) return;
+    const index = filteredRows.findIndex(row => row.id === props.activeItemId);
+    const list = timelineRef.current;
+    if (!list || index < 0) return;
+    const top = index * evidenceRowHeight;
+    if (top < list.scrollTop || top + evidenceRowHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = Math.max(0, top - list.clientHeight / 2);
+      setViewport({ top: list.scrollTop, height: list.clientHeight });
+    }
+  }, [props.activeItemId, props.autoFollow, filteredRows, virtual, timelineRef]);
   const activeCountValue = getCountValue(activeTab, filteredRows.length);
   const activeCountLabel = getCountLabel(activeTab, filteredRows.length);
   const activeCountTitle = getCountTitle(activeTab);
@@ -138,7 +169,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
         </div>
       )}
       <div className="jl-vm-evidence">
-        <div className="jl-vm-pane-heading">
+        {!props.compact ? <div className="jl-vm-pane-heading">
           <div className="jl-vm-pane-title">
             <span className="jl-vm-eyebrow">Evidence stream</span>
             <strong>{sectionLabels[activeTab]}</strong>
@@ -162,18 +193,20 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
               <ChevronsRight aria-hidden size={16} strokeWidth={2} />
             </button>
           </div>
-        </div>
+        </div> : null}
         <div className="jl-vm-tabs-row">
           <div className="jl-vm-tabs">
-            {(["actions", "console", "network", "about"] as const).map((section) => (
+            {(["actions", "network", "console", "about"] as const).map((section) => (
               <button
                 key={section}
                 type="button"
                 className="jl-vm-tab"
+                aria-pressed={section === activeTab}
                 data-active={section === activeTab ? "true" : "false"}
                 onClick={() => {
                   setActiveTab(section);
                   if (section !== "about") props.onSectionChange(section);
+                  else props.onInfoOpen?.();
                 }}
               >
                 {sectionLabels[section]}
@@ -184,7 +217,8 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
             <input
               className="jl-vm-search"
               type="search"
-              placeholder="Search this evidence…"
+              placeholder="Search…"
+              aria-label="Search evidence entries"
               value={props.searchQuery}
               onChange={(event) => props.onSearchChange(event.currentTarget.value)}
             />
@@ -212,6 +246,27 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
             <div
               className="jl-vm-list"
               ref={timelineRef}
+              tabIndex={0}
+              aria-label={`${sectionLabels[activeTab]} entries`}
+              onScroll={event => {
+                if (virtual) setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight });
+              }}
+              onKeyDown={event => {
+                if (!virtual || !["ArrowDown", "ArrowUp"].includes(event.key)) return;
+                const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-item-id]");
+                const current = filteredRows.findIndex(row => row.id === button?.dataset.itemId);
+                const next = Math.max(0, Math.min(filteredRows.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
+                const row = filteredRows[next];
+                if (!row) return;
+                event.preventDefault();
+                props.onUserScroll?.();
+                event.currentTarget.scrollTop = next * evidenceRowHeight;
+                setViewport({ top: next * evidenceRowHeight, height: event.currentTarget.clientHeight });
+                requestAnimationFrame(() => {
+                  const buttons = timelineRef.current?.querySelectorAll<HTMLButtonElement>("[data-item-id]");
+                  Array.from(buttons ?? []).find(button => button.dataset.itemId === row.id)?.focus({ preventScroll: true });
+                });
+              }}
               onWheel={() => props.onUserScroll?.()}
               onTouchMove={() => props.onUserScroll?.()}
               onPointerDown={(event) => {
@@ -220,10 +275,11 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
                 if (event.target === event.currentTarget) props.onUserScroll?.();
               }}
             >
+              <div style={{ height: rowWindow.before }} aria-hidden />
               {filteredRows.length === 0 ? (
                 <div className="jl-vm-empty">No entries match.</div>
               ) : (
-                filteredRows.map((row) => (
+                filteredRows.slice(rowWindow.start, rowWindow.end).map((row) => (
                   <EvidenceRow
                     key={row.id}
                     row={row}
@@ -233,6 +289,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
                   />
                 ))
               )}
+              <div style={{ height: rowWindow.after }} aria-hidden />
             </div>
           )}
           {activeTab !== "about" && !props.autoFollow ? (

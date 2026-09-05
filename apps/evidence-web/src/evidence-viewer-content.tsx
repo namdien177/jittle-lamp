@@ -50,6 +50,8 @@ export type EvidenceViewerContentProps = {
   onVideoError: (videoEl: HTMLVideoElement) => void;
   onClose: () => void;
   viewerMode?: "modal" | "page";
+  onDetailsOpen?: () => void;
+  onInfoOpen?: () => void;
   discussionComments?: ViewerDiscussionComment[];
   discussionValue?: string;
   discussionSaving?: boolean;
@@ -407,7 +409,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     scrollActiveRowWithinList("auto");
   }, [activeItemId, autoFollow, scrollActiveRowWithinList]);
 
-  const rows: ViewerModalRow[] = sectionItems.map((item) => {
+  const rows = useMemo<ViewerModalRow[]>(() => sectionItems.map((item) => {
     const isMerged = "mergedRangeText" in item && item.mergedRangeText !== undefined;
     const status = item.payload.kind === "network" ? item.payload.status ?? null : null;
     const subtype = item.kind === "network" ? item.subtype ?? null : null;
@@ -432,11 +434,14 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     return isMerged && item.mergedRangeText !== undefined
       ? { ...base, mergedRange: item.mergedRangeText }
       : base;
-  });
+  }), [sectionItems, activeSection, selectedActionIds]);
 
   return (
     <ViewerModal
       open
+      {...(props.onInfoOpen ? { onInfoOpen: props.onInfoOpen } : {})}
+      compact
+      {...(props.onDetailsOpen ? { onDetailsOpen: props.onDetailsOpen } : {})}
       onClose={closeViewer}
       mode={viewerMode}
       theme={appTheme}

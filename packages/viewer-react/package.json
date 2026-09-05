@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "build": "bun run --cwd ../shared build && bun run --cwd ../viewer-core build && bun run build:js && bun run build:types",
-    "build:js": "bun build ./src/index.ts --outdir ./dist --target browser --format esm",
+    "build:js": "bun build ./src/index.ts --outdir ./dist --target browser --format esm --splitting",
     "build:types": "bun x tsc -p tsconfig.build.json"
   },
   "dependencies": {

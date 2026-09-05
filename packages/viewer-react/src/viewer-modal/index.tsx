@@ -51,6 +51,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
     <div
       className={mode === "page" ? "jl-vm-root" : "jl-vm-modal"}
       data-jl-theme={theme}
+      data-compact={props.compact ? "true" : "false"}
       role={mode === "modal" ? "dialog" : undefined}
       aria-modal={mode === "modal" ? "true" : undefined}
       aria-label={props.title}

@@ -92,6 +92,7 @@ export function QuickViewPage(): React.JSX.Element {
         videoSrc={phase.loaded.videoUrl}
         recordingBytesInitial={phase.loaded.recordingBytes}
         source="zip"
+        viewerMode="page"
         isOwner
         shareLinkUrl={null}
         fetchVideoBytes={fetchVideoBytes}

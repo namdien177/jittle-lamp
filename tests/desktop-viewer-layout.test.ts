@@ -55,8 +55,8 @@ describe("viewer modal layout CSS", () => {
   });
 
   test("video player fills the available pane without cropping", () => {
-    expect(videoPlayerSource).toContain('<div className="jl-vm-video-host" data-vjs-player>');
-    expect(videoPlayerSource).toContain('className="video-js"');
+    expect(videoPlayerSource).toContain('<div className="jl-vm-video-host">');
+    expect(videoPlayerSource).toContain('className="vjs-tech"');
     expect(videoPlayerSource).not.toMatch(/className="jl-vm-video-inner"[\s\S]{0,160}data-vjs-player/);
     expect(css).not.toContain(".video-js button");
     expect(css).toMatch(/\.jl-vm-video-inner\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
@@ -106,7 +106,7 @@ describe("viewer modal layout CSS", () => {
 
   test("session tags render as a horizontal rail between video and discussion", () => {
     expect(notesPaneSource.indexOf("<EvidenceVideoPlayer")).toBeLessThan(
-      notesPaneSource.indexOf("<SessionTagRail")
+      notesPaneSource.indexOf("{props.compact ?")
     );
     expect(notesPaneSource.indexOf("<SessionTagRail")).toBeLessThan(
       notesPaneSource.indexOf('className="jl-vm-discussion"')

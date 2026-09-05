@@ -30,7 +30,11 @@ import {
 	getRequestIpAddress,
 	recordOrganizationActivity,
 } from "../services/organization-activity";
-import { organizationMemberHasPermission } from "../services/organization-permissions";
+import {
+	getOrganizationMembershipRole,
+	getOrganizationRolePermissions,
+	organizationMemberHasPermission,
+} from "../services/organization-permissions";
 import type { BackendDb } from "../services/user-provisioning";
 import { MAX_VIDEO_UPLOAD_BYTES } from "../services/video-normalizer";
 
@@ -1913,6 +1917,199 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
+				)
+				.get(
+					"/evidences/:id/playback",
+					async ({
+						artifactStorage,
+						authContext,
+						db,
+						params,
+						query,
+						request,
+						requestId,
+						set,
+					}) => {
+						set.headers["cache-control"] = "private, no-store";
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const resolvedOrg = await resolveRequestedOrgId({
+							authContext,
+							db,
+							requestedOrgId: query.orgId,
+							requestId,
+							set,
+						});
+						if (!resolvedOrg.ok) return resolvedOrg.error;
+						// Preserve both gates used by the metadata and signed-read endpoints.
+						const role = await getOrganizationMembershipRole(db, {
+							organizationId: resolvedOrg.orgId,
+							localUserId: resolvedOrg.localUserId,
+						});
+						const permissions = role
+							? await getOrganizationRolePermissions(db, {
+									organizationId: resolvedOrg.orgId,
+									role,
+								})
+							: new Set<string>();
+						if (
+							!permissions.has("evidence.view") ||
+							!permissions.has("evidence.download")
+						) {
+							set.status = 403;
+							return createApiError(
+								requestId,
+								"EVIDENCE_PLAYBACK_FORBIDDEN",
+								"Your role cannot play this evidence",
+								403,
+							);
+						}
+						const evidence = await db.query.evidences.findFirst({
+							where: and(
+								eq(evidences.id, params.id),
+								eq(evidences.orgId, resolvedOrg.orgId),
+								isNull(evidences.deletedAt),
+							),
+							columns: {
+								id: true,
+								orgId: true,
+								title: true,
+								sourceType: true,
+								sourceExternalId: true,
+								sourceMetadata: true,
+								thumbnailBase64: true,
+								thumbnailMimeType: true,
+								createdBy: true,
+								createdAt: true,
+								updatedAt: true,
+							},
+							with: {
+								artifacts: { orderBy: desc(evidenceArtifacts.createdAt) },
+								tags: {
+									with: {
+										tag: { columns: { id: true, name: true, color: true } },
+									},
+								},
+							},
+						});
+						if (!evidence) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_FOUND",
+								"Evidence not found",
+								404,
+							);
+						}
+						if (artifactStorage.mode !== "s3") {
+							set.status = 503;
+							return createApiError(
+								requestId,
+								"ARTIFACT_STORAGE_NOT_CONFIGURED",
+								"S3 artifact storage is not configured",
+								503,
+							);
+						}
+						const { artifacts, tags, ...summary } = evidence;
+						const ready = artifacts.filter(
+							(artifact) => artifact.uploadStatus === "uploaded",
+						);
+						const recordings = ready.filter(
+							(artifact) => artifact.kind === "recording",
+						);
+						const video =
+							recordings.find((artifact) =>
+								[
+									"video/mp4",
+									"application/x-mpegURL",
+									"application/vnd.apple.mpegurl",
+								].includes(artifact.mimeType),
+							) ??
+							recordings.find(
+								(artifact) => artifact.mimeType === "video/webm",
+							) ??
+							recordings[0];
+						const archive = ready.find(
+							(artifact) => artifact.kind === "network-log",
+						);
+						if (!video || !archive) {
+							set.status = 409;
+							return createApiError(
+								requestId,
+								"EVIDENCE_NOT_READY",
+								"The recording is still uploading. Try again shortly.",
+								409,
+							);
+						}
+						const readUrls = await Promise.all(
+							[video, archive].map(async (artifact) => {
+								const signed = await artifactStorage.createReadUrl({
+									key: artifact.s3Key,
+									responseContentType: artifact.mimeType,
+								});
+								return {
+									artifactId: artifact.id,
+									url: signed.url,
+									expiresAt: signed.expiresAt,
+									renewAfterMs: Math.max(
+										30_000,
+										signed.ttlSeconds * 1000 * 0.7,
+									),
+								};
+							}),
+						);
+						await recordOrganizationActivity(db, {
+							organizationId: resolvedOrg.orgId,
+							actorUserId: resolvedOrg.localUserId,
+							action: "evidence.download_url.created",
+							entity: evidenceActivityEntity(evidence.id),
+							message: "Created evidence playback links",
+							metadata: { artifactIds: [video.id, archive.id] },
+							ipAddress: getRequestIpAddress(request),
+						});
+						return {
+							evidence: {
+								...summary,
+								...parseEvidenceStats(summary.sourceMetadata),
+								status: deriveEvidenceStatus(artifacts),
+								tags: tags.map((assignment) => assignment.tag),
+								createdByProfile: null,
+							},
+							artifacts: artifacts.map(
+								({ s3Key: _storageKey, ...artifact }) => artifact,
+							),
+							readUrls,
+						};
+					},
+					{
+						params: t.Object({ id: t.String({ minLength: 1 }) }),
+						query: evidenceQuerySchema,
+						detail: {
+							tags: ["evidences"],
+							summary:
+								"Loads evidence metadata and playback links in one authorized request",
+						},
+						response: {
+							200: t.Object({
+								evidence: loadEvidenceResponseSchema.properties.evidence,
+								artifacts: t.Array(evidenceArtifactSummarySchema),
+								readUrls: t.Array(
+									t.Composite([
+										artifactReadUrlResponseSchema,
+										t.Object({ artifactId: t.String() }),
+									]),
+								),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},

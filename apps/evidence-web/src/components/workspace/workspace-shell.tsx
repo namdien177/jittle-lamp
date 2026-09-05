@@ -2,13 +2,9 @@ import React, { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router";
 import {
   Archive,
-  Bell,
   Building2,
   ChevronRight,
   ExternalLink,
-  FileText,
-  FlaskConical,
-  LayoutDashboard,
   Menu,
   Moon,
   PanelLeftClose,
@@ -22,7 +18,7 @@ import {
 
 import { cn } from "../../lib/cn";
 import { UserButton } from "../../auth";
-import { useAccountProfile, useEvidences } from "../../queries";
+import { useAccountProfile } from "../../queries";
 import { Badge } from "../ui/badge";
 import { buttonVariants } from "../ui/button";
 import { UploadEvidenceButton } from "../upload-evidence-button";
@@ -44,45 +40,15 @@ type NavItem = {
 type NavGroup = { heading: string; items: NavItem[] };
 
 function useNavGroups(): NavGroup[] {
-  const evidencesQuery = useEvidences();
-  const evidenceCount = evidencesQuery.data?.total;
-
   return [
-    {
-      heading: "Workspace",
-      items: [
-        { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
-        {
-          to: "/evidence",
-          label: "Evidence",
-          icon: Video,
-          ...(evidenceCount !== undefined ? { count: evidenceCount } : {}),
-        },
-      ],
-    },
-    {
-      heading: "Library",
-      items: [
-        {
-          to: "/test-cases",
-          label: "Test cases",
-          icon: FlaskConical,
-          soon: true,
-        },
-        { to: "/documents", label: "Documents", icon: FileText, soon: true },
-      ],
-    },
-    {
-      heading: "Tools",
-      items: [{ to: "/quick-view", label: "Quick view", icon: Archive }],
-    },
-    {
-      heading: "Organisation",
-      items: [
-        { to: "/organisations", label: "Organisations", icon: Building2 },
-        { to: "/settings", label: "Settings", icon: Settings },
-      ],
-    },
+    { heading: "Evidence", items: [
+      { to: "/evidence", label: "Recordings", icon: Video },
+      { to: "/quick-view", label: "Open local file", icon: Archive }
+    ] },
+    { heading: "Workspace", items: [
+      { to: "/organisations", label: "Organisations", icon: Building2 },
+      { to: "/settings", label: "Settings", icon: Settings }
+    ] }
   ];
 }
 
@@ -295,8 +261,9 @@ export function WorkspaceShell({
     <div
       className="jl-app"
       data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
+      data-evidence-focus={isEvidenceDetail ? "true" : "false"}
     >
-      <aside
+      {!isEvidenceDetail ? <aside
         className="jl-sidebar jl-scroll"
         data-open={mobileOpen}
         data-collapsed={sidebarCollapsed ? "true" : "false"}
@@ -314,7 +281,7 @@ export function WorkspaceShell({
         >
           <X className="size-4" aria-hidden />
         </button>
-      </aside>
+      </aside> : null}
       {mobileOpen ? (
         <button
           type="button"
@@ -324,7 +291,7 @@ export function WorkspaceShell({
         />
       ) : null}
 
-        <header className="jl-topbar">
+        {!isEvidenceDetail ? <header className="jl-topbar">
           <button
             type="button"
             aria-label="Open navigation"
@@ -359,7 +326,7 @@ export function WorkspaceShell({
                 />
               </>
             ) : null}
-            <EvidenceSearch />
+            {location.pathname !== "/evidence" ? <EvidenceSearch /> : null}
             <button
               type="button"
               aria-label="Toggle theme"
@@ -369,43 +336,9 @@ export function WorkspaceShell({
             >
               {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
             </button>
-            <button
-              type="button"
-              aria-label="Notifications"
-              title="Notifications"
-              className="jl-theme-toggle hidden sm:grid"
-            >
-              <Bell aria-hidden />
-            </button>
-            <a
-              href={CHROME_EXTENSION_URL}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Install Chrome Extension"
-              title="Install Chrome Extension"
-              className={cn(
-                buttonVariants({ variant: "outline", size: "icon" }),
-                "sm:hidden",
-              )}
-            >
-              <Puzzle aria-hidden />
-            </a>
-            <a
-              href={CHROME_EXTENSION_URL}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(
-                buttonVariants({ variant: "outline", size: "sm" }),
-                "hidden sm:inline-flex",
-              )}
-            >
-              <Puzzle aria-hidden />
-              Install Chrome Extension
-              <ExternalLink aria-hidden className="size-3.5" />
-            </a>
             <UserButton />
           </div>
-        </header>
+        </header> : null}
         {migrationReadOnly ? (
           <div
             role="status"

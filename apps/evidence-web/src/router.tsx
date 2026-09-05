@@ -2,6 +2,7 @@ import React from "react";
 import {
   createBrowserRouter,
   Outlet,
+  Navigate,
   redirect,
   ScrollRestoration,
   useLocation,
@@ -15,26 +16,11 @@ import { RequireAuth } from "./components/workspace/require-auth";
 import { WorkspaceShell } from "./components/workspace/workspace-shell";
 import { DesktopAuthApprovalPage, ExtensionAuthApprovalPage } from "./desktop-auth-page";
 import { ComingSoonPage } from "./pages/coming-soon";
-import { DashboardPage } from "./pages/dashboard";
-import { EvidenceLibraryPage } from "./pages/evidence-library";
 import { CloudEvidencePage, SharedEvidencePage } from "./pages/evidence-viewer";
 import { JoinPage } from "./pages/join";
 import { LandingPage } from "./pages/landing";
-import {
-  OrganisationDetailLayout,
-  OrganisationsListPage,
-  OrgActivityTab,
-  OrgEvidencesTab,
-  OrgInvitationsTab,
-  OrgLibraryTab,
-  OrgMembersTab,
-  OrgOptionsTab,
-  OrgRolesTab
-} from "./pages/organisations";
 import { PrivacyPage } from "./pages/privacy";
-import { QuickViewPage } from "./pages/quick-view";
 import { RouteError } from "./pages/route-error";
-import { SettingsAiTokensPage, SettingsApiTokensPage, SettingsMigrationPage, SettingsOverviewPage, SettingsPage } from "./pages/settings";
 
 /** Thin progress bar shown during route transitions. */
 function GlobalPendingBar(): React.JSX.Element | null {
@@ -111,46 +97,46 @@ export const router = createBrowserRouter([
       {
         element: <WorkspaceLayout />,
         children: [
-          { index: true, element: <DashboardPage /> },
-          { path: "evidence", element: <EvidenceLibraryPage /> },
+          { index: true, element: <Navigate to="/evidence" replace /> },
+          { path: "evidence", lazy: async () => ({ Component: (await import("./pages/evidence-library")).EvidenceLibraryPage }) },
           { path: "evidence/:evidenceId", element: <CloudEvidencePage /> },
           { path: "test-cases", element: <ComingSoonPage variant="test-cases" /> },
           { path: "documents", element: <ComingSoonPage variant="documents" /> },
-          { path: "organisations", element: <OrganisationsListPage /> },
+          { path: "organisations", lazy: async () => ({ Component: (await import("./pages/organisations")).OrganisationsListPage }) },
           {
             path: "organisations/:orgId",
-            element: <OrganisationDetailLayout />,
+            lazy: async () => ({ Component: (await import("./pages/organisations")).OrganisationDetailLayout }),
             loader: ({ params }) => {
               if (!params.orgId) throw redirect("/organisations");
               return null;
             },
             children: [
-              { index: true, element: <OrgMembersTab /> },
+              { index: true, lazy: async () => ({ Component: (await import("./pages/organisations")).OrgMembersTab }) },
               // Legacy alias: members lived at .../members before becoming the index.
               { path: "members", loader: ({ params }) => redirect(`/organisations/${params.orgId}`) },
-              { path: "roles", element: <OrgRolesTab /> },
-              { path: "invitations", element: <OrgInvitationsTab /> },
-              { path: "activity", element: <OrgActivityTab /> },
-              { path: "evidences", element: <OrgEvidencesTab /> },
-              { path: "library", element: <OrgLibraryTab /> },
-              { path: "options", element: <OrgOptionsTab /> }
+              { path: "roles", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgRolesTab }) },
+              { path: "invitations", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgInvitationsTab }) },
+              { path: "activity", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgActivityTab }) },
+              { path: "evidences", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgEvidencesTab }) },
+              { path: "library", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgLibraryTab }) },
+              { path: "options", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgOptionsTab }) }
             ]
           },
           {
             path: "settings",
-            element: <SettingsPage />,
+            lazy: async () => ({ Component: (await import("./pages/settings")).SettingsPage }),
             children: [
-              { index: true, element: <SettingsOverviewPage /> },
-              { path: "ai-tokens", element: <SettingsAiTokensPage /> },
-              { path: "api-tokens", element: <SettingsApiTokensPage /> },
-              { path: "migration", element: <SettingsMigrationPage /> }
+              { index: true, lazy: async () => ({ Component: (await import("./pages/settings")).SettingsOverviewPage }) },
+              { path: "ai-tokens", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsAiTokensPage }) },
+              { path: "api-tokens", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsApiTokensPage }) },
+              { path: "migration", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsMigrationPage }) }
             ]
           }
         ]
       },
 
       // Public / standalone routes.
-      { path: "quick-view", element: <QuickViewPage /> },
+      { path: "quick-view", lazy: async () => ({ Component: (await import("./pages/quick-view")).QuickViewPage }) },
       { path: "privacy", element: <PrivacyPage /> },
       { path: "join", element: <JoinPage /> },
       { path: "share/:shareToken", element: <SharedEvidencePage /> },

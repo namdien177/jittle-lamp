@@ -68,9 +68,7 @@ export function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
     resizeComposerTextarea(composerTextareaRef.current);
   }, [discussionValue, hasDiscussion]);
 
-  return (
-    <div className="jl-vm-left">
-      <EvidenceVideoPlayer {...props} />
+  const supplemental = <>
       <SessionTagRail {...props} />
       {hasDiscussion ? (
         <div className="jl-vm-discussion">
@@ -148,6 +146,20 @@ export function VideoNotesPane(props: ViewerModalProps): React.JSX.Element {
           />
         </div>
       )}
+  </>;
+
+  return (
+    <div className="jl-vm-left">
+      <EvidenceVideoPlayer {...props} />
+      {props.compact ? (
+        <details className="jl-vm-secondary" onToggle={event => {
+          if (event.currentTarget.open) props.onDetailsOpen?.();
+        }}>
+          <summary>Discussion &amp; tags</summary>
+          <div className="jl-vm-secondary-content">{supplemental}</div>
+        </details>
+      ) : supplemental}
+
     </div>
   );
 }

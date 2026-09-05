@@ -453,14 +453,13 @@ export function EvidenceLibraryPage(): React.JSX.Element {
   return (
     <>
       <PageHeader
-        eyebrow="Workspace"
-        title="Evidence library"
-        description={`${total} records in this workspace.`}
+        className="jl-library-header"
+        title={<>Recordings <span className="jl-library-count">{total}</span></>}
         actions={
           <>
-            <UploadEvidenceButton />
             <Button
-              variant="outline"
+              variant="ghost"
+              size="sm"
               onClick={() => void evidencesQuery.refetch()}
               disabled={loading}
             >
@@ -1296,13 +1295,6 @@ function EvidenceThumbnail(props: {
     >
       {thumbnailSrc ? (
         <>
-          <img
-            src={thumbnailSrc}
-            alt=""
-            loading="lazy"
-            aria-hidden
-            className="absolute inset-0 size-full scale-110 object-cover opacity-70 blur-lg"
-          />
           <img
             src={thumbnailSrc}
             alt=""

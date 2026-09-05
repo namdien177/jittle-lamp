@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { ArrowRightLeft, Bot, Copy, Download, Link, Pencil, X } from "lucide-react";
+import { ArrowRightLeft, Bot, Copy, Download, Link, Pencil, MoreHorizontal, X } from "lucide-react";
 
 import type { ViewerModalProps } from "./types";
 
@@ -43,6 +43,7 @@ function HeaderActionButton(props: HeaderActionButtonProps): React.JSX.Element {
       disabled={props.disabled}
       data-label={props.label}
       aria-label={props.label}
+      title={props.label}
       onClick={props.onClick}
     >
       {props.icon}
@@ -237,7 +238,18 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
           <TitleMeta value={props.titleMeta} />
         </div>
       </div>
-      <div className="jl-vm-actions">{actions}</div>
+      <div className="jl-vm-actions">{props.compact ? <>
+        {actions.filter(action => ["copy-share-link", "create-share-link", "download-zip"].includes(String(action.key)))}
+        {actions.some(action => ["rename", "copy-evidence", "copy-llm-prompt", "transfer-evidence"].includes(String(action.key))) ? (
+          <details className="jl-vm-more">
+            <summary aria-label="More evidence options" title="More evidence options"><MoreHorizontal size={18} aria-hidden /></summary>
+            <div className="jl-vm-more-menu" onClick={event => event.currentTarget.closest("details")?.removeAttribute("open")}>
+              {actions.filter(action => ["rename", "copy-evidence", "copy-llm-prompt", "transfer-evidence"].includes(String(action.key)))}
+            </div>
+          </details>
+        ) : null}
+        {actions.filter(action => action.key === "close")}
+      </> : actions}</div>
     </header>
   );
 }

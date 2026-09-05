@@ -1,5 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type * as React from "react";
+import videojs from "video.js";
+import type Player from "video.js/dist/types/player";
 import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
 export type VideoPlayerProps = {
@@ -99,19 +101,10 @@ function rangeFill(pct: number): React.CSSProperties {
   };
 }
 
-const AdaptivePlayer = lazy(() => import("./adaptive-video-player").then(module => ({ default: module.AdaptiveEvidenceVideoPlayer })));
-
-export function EvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
-  const type = videoSourceType(props.videoSrc);
-  if (type.includes("mpegURL") || type.includes("dash+xml")) {
-    return <Suspense fallback={<div className="jl-vm-video-wrap" role="status">Loading stream…</div>}><AdaptivePlayer {...props} /></Suspense>;
-  }
-  return <NativeEvidenceVideoPlayer {...props} />;
-}
-
-function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
+export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   const videoNodeRef = useRef<HTMLVideoElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const playerRef = useRef<Player | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestCallbacksRef = useRef({
     onVideoTimeUpdate: props.onVideoTimeUpdate,
@@ -148,25 +141,45 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   const revealControls = useCallback((): void => {
     clearHideTimer();
     setControlsVisible(true);
-    const player = videoNodeRef.current;
-    if (player && !player.paused) {
+    const player = playerRef.current;
+    if (player && !player.paused()) {
       hideTimerRef.current = setTimeout(() => setControlsVisible(false), AUTO_HIDE_MS);
     }
   }, [clearHideTimer]);
 
   useEffect(() => {
     const videoEl = videoNodeRef.current;
-    if (!videoEl) return;
-    const player = videoEl;
-    assignVideoRef(props.videoRef, videoEl);
+    if (!videoEl || playerRef.current) return;
+
+    const player = videojs(videoEl, {
+      controls: false,
+      fill: true,
+      fluid: false,
+      responsive: true,
+      preload: "metadata",
+      bigPlayButton: false,
+      controlBar: false,
+      liveui: false,
+      sources: []
+    });
+    playerRef.current = player;
 
     const syncArchivedDuration = (): void => {
-      const actual = player.duration;
-      const hint = (durationHintMsRef.current ?? 0) / 1000;
-      setDuration(Number.isFinite(actual) && actual > 0 ? actual : hint);
+      const durationHintMs = durationHintMsRef.current;
+      if (durationHintMs && durationHintMs > 0) {
+        const durationHintSeconds = durationHintMs / 1000;
+        const currentDuration = player.duration();
+        if (currentDuration === undefined || !Number.isFinite(currentDuration) || currentDuration <= 0) {
+          player.duration(durationHintSeconds);
+        }
+        player.removeClass("vjs-live");
+        player.removeClass("vjs-liveui");
+      }
+      const nextDuration = player.duration();
+      if (typeof nextDuration === "number" && Number.isFinite(nextDuration)) setDuration(nextDuration);
     };
     const handleTimeUpdate = (): void => {
-      const t = player.currentTime;
+      const t = player.currentTime();
       if (typeof t === "number" && Number.isFinite(t)) setCurrentTime(t);
       latestCallbacksRef.current.onVideoTimeUpdate();
     };
@@ -184,43 +197,43 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
       setControlsVisible(true);
     };
     const handleVolume = (): void => {
-      const v = player.volume;
+      const v = player.volume();
       if (typeof v === "number") setVolume(v);
-      setMuted(Boolean(player.muted));
+      setMuted(Boolean(player.muted()));
     };
     const handleRate = (): void => {
-      const r = player.playbackRate;
+      const r = player.playbackRate();
       if (typeof r === "number") setRate(r);
     };
     const handleError = (): void => latestCallbacksRef.current.onVideoError?.();
 
-    player.addEventListener("timeupdate", handleTimeUpdate);
-    player.addEventListener("seeked", handleTimeUpdate);
-    player.addEventListener("durationchange", handleDurationChange);
-    player.addEventListener("loadedmetadata", handleDurationChange);
-    player.addEventListener("play", handlePlay);
-    player.addEventListener("pause", handlePause);
-    player.addEventListener("volumechange", handleVolume);
-    player.addEventListener("ratechange", handleRate);
-    player.addEventListener("error", handleError);
+    player.on("timeupdate", handleTimeUpdate);
+    player.on("seeked", handleTimeUpdate);
+    player.on("durationchange", handleDurationChange);
+    player.on("loadedmetadata", handleDurationChange);
+    player.on("play", handlePlay);
+    player.on("pause", handlePause);
+    player.on("volumechange", handleVolume);
+    player.on("ratechange", handleRate);
+    player.on("error", handleError);
     handleVolume();
-    syncArchivedDuration();
 
     return () => {
       clearHideTimer();
-      player.removeEventListener("timeupdate", handleTimeUpdate);
-      player.removeEventListener("seeked", handleTimeUpdate);
-      player.removeEventListener("durationchange", handleDurationChange);
-      player.removeEventListener("loadedmetadata", handleDurationChange);
-      player.removeEventListener("play", handlePlay);
-      player.removeEventListener("pause", handlePause);
-      player.removeEventListener("volumechange", handleVolume);
-      player.removeEventListener("ratechange", handleRate);
-      player.removeEventListener("error", handleError);
-      player.pause();
+      player.off("timeupdate", handleTimeUpdate);
+      player.off("seeked", handleTimeUpdate);
+      player.off("durationchange", handleDurationChange);
+      player.off("loadedmetadata", handleDurationChange);
+      player.off("play", handlePlay);
+      player.off("pause", handlePause);
+      player.off("volumechange", handleVolume);
+      player.off("ratechange", handleRate);
+      player.off("error", handleError);
+      player.dispose();
+      playerRef.current = null;
       assignVideoRef(props.videoRef, null);
     };
-    // The video and listeners live for this mount. `revealControls`/
+    // Mount-once: the player is created a single time. `revealControls`/
     // `clearHideTimer` are stable callbacks and `videoRef` is a stable ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -239,34 +252,48 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
     };
   }, []);
 
-  const togglePlay = useCallback((): void => {
-    const player = videoNodeRef.current;
+  useEffect(() => {
+    const player = playerRef.current;
     if (!player) return;
-    if (player.paused) void player.play().catch(() => latestCallbacksRef.current.onVideoError?.());
+    if (!props.videoSrc) {
+      player.reset();
+      setIsPlaying(false);
+      setCurrentTime(0);
+      return;
+    }
+    if (player.currentSrc() === props.videoSrc) return;
+    player.src({ src: props.videoSrc, type: videoSourceType(props.videoSrc) });
+    player.load();
+  }, [props.videoSrc]);
+
+  const togglePlay = useCallback((): void => {
+    const player = playerRef.current;
+    if (!player) return;
+    if (player.paused()) void player.play();
     else player.pause();
   }, []);
 
   const handleSeek = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
-    const player = videoNodeRef.current;
+    const player = playerRef.current;
     const next = Number(event.target.value);
     setCurrentTime(next);
-    if (player) player.currentTime = next;
+    if (player) player.currentTime(next);
   }, []);
 
   const handleVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
-    const player = videoNodeRef.current;
+    const player = playerRef.current;
     const next = Number(event.target.value);
     setVolume(next);
     if (player) {
-      player.volume = next;
-      player.muted = next === 0;
+      player.volume(next);
+      player.muted(next === 0);
     }
   }, []);
 
   const toggleMute = useCallback((): void => {
-    const player = videoNodeRef.current;
+    const player = playerRef.current;
     if (!player) return;
-    player.muted = !player.muted;
+    player.muted(!player.muted());
   }, []);
 
   const toggleFullscreen = useCallback((): void => {
@@ -277,11 +304,11 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   }, []);
 
   const cycleRate = useCallback((): void => {
-    const player = videoNodeRef.current;
+    const player = playerRef.current;
     if (!player) return;
-    const idx = playbackRates.indexOf(player.playbackRate ?? 1);
+    const idx = playbackRates.indexOf(player.playbackRate() ?? 1);
     const next = playbackRates[(idx + 1) % playbackRates.length] ?? 1;
-    player.playbackRate = next;
+    player.playbackRate(next);
     setRate(next);
   }, []);
 
@@ -301,14 +328,13 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
           if (isPlaying) setControlsVisible(false);
         }}
       >
-        <div className="jl-vm-video-host">
+        <div className="jl-vm-video-host" data-vjs-player>
           <video
             ref={(videoEl) => {
               videoNodeRef.current = videoEl;
               assignVideoRef(props.videoRef, videoEl);
             }}
-            className="vjs-tech"
-            src={props.videoSrc ?? undefined}
+            className="video-js"
             playsInline
             preload="metadata"
           />

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -138,17 +139,24 @@ function RemoteEvidenceLoader(props: {
     ...(props.remoteOrgId !== undefined ? { orgId: props.remoteOrgId } : {})
   });
   const accountQuery = useAccountProfile();
-  const aiTokensQuery = useAiAccessTokens();
+  const aiTokensQuery = useAiAccessTokens(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const stableGetToken: FetchToken = useRef(() => auth.getToken()).current;
   const latestUrlsRef = useRef<{ videoReadUrl: ArtifactReadUrl; archiveReadUrl: ArtifactReadUrl } | null>(null);
   const loaded: RemoteEvidenceData | null = query.data?.kind === "loaded" ? query.data.data : null;
+  const infoQuery = useQuery({
+    queryKey: ["evidence-info", loaded?.evidenceId, loaded?.orgId],
+    queryFn: () => api.loadEvidence(stableGetToken, loaded!.evidenceId, loaded?.orgId),
+    enabled: infoOpen && Boolean(loaded),
+  });
   const [commentDraft, setCommentDraft] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [workspaceAction, setWorkspaceAction] = useState<"copy" | "transfer" | null>(null);
-  const commentsQuery = useEvidenceComments(loaded?.evidenceId ?? null, loaded?.orgId);
-  const tagsQuery = useEvidenceTags(loaded?.orgId);
+  const commentsQuery = useEvidenceComments(detailsOpen ? loaded?.evidenceId ?? null : null, loaded?.orgId);
+  const tagsQuery = useEvidenceTags(loaded?.orgId, detailsOpen);
   const createAiToken = useCreateAiAccessToken();
   const createComment = useCreateEvidenceComment();
   const updateTags = useUpdateEvidenceTags();
@@ -385,6 +393,8 @@ function RemoteEvidenceLoader(props: {
     <>
     <EvidenceViewerContent
       key={loaded.evidenceId}
+      onDetailsOpen={() => setDetailsOpen(true)}
+      onInfoOpen={() => setInfoOpen(true)}
       loadedArchive={viewerArchive}
       loadedTimeline={loaded.session.timeline}
       loadedMergeGroups={loaded.session.mergeGroups}
@@ -396,7 +406,7 @@ function RemoteEvidenceLoader(props: {
       fetchVideoBytes={fetchVideoBytes}
       onVideoError={handleVideoError}
       onClose={() => navigate(props.viewerMode === "page" ? "/evidence" : "/")}
-      recordedBy={loaded.evidence.createdByProfile ?? null}
+      recordedBy={infoQuery.data?.evidence.createdByProfile ?? loaded.evidence.createdByProfile ?? null}
       discussionComments={comments}
       discussionValue={commentDraft}
       discussionSaving={createComment.isPending}

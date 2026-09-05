@@ -1274,3 +1274,15 @@
     animation: none;
   }
 }
+
+/* Keep the recording workspace quiet and give the viewer the full viewport. */
+.jl-app[data-evidence-focus="true"] { display: flex; flex-direction: column; height: 100dvh; min-height: 0; }
+.jl-app[data-evidence-focus="true"] .jl-main { flex: 1; min-height: 0; padding: 0; margin: 0; overflow: hidden; }
+.jl-app { --sidebar-w: 224px; --sidebar-collapsed-w: 64px; --topbar-h: 48px; --font-display: "Avenir Next", "Segoe UI", sans-serif; --font-body: "Avenir Next", "Segoe UI", sans-serif; }
+.jl-sidebar { background: var(--background); }
+.jl-topbar { background: var(--background); }
+
+.jl-library-header { margin-bottom: 16px; gap: 8px; align-items: center; }
+.jl-library-header h1 { font-family: var(--font-body); font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+.jl-library-count { margin-left: 8px; font-size: 13px; font-weight: 400; color: var(--muted-foreground); }
+.jl-app[data-evidence-focus="true"] .jl-vm-root { height: 100%; }

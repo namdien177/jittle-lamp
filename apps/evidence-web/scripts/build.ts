@@ -79,7 +79,8 @@ const build = await Bun.build({
   format: "esm",
   define: browserDefines,
   plugins: [dedupeReactPlugin],
-  naming: "[name].js",
+  naming: { entry: "[name].js", chunk: "chunks/[name]-[hash].js", asset: "[name]-[hash].[ext]" },
+  splitting: true,
   minify: true
 });
 

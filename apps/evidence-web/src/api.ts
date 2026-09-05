@@ -560,6 +560,12 @@ export const api = {
 		);
 	},
 
+  loadEvidencePlayback: (getToken: FetchToken, evidenceId: string, orgId?: string, signal?: AbortSignal) =>
+    authedFetch<{ evidence: ApiEvidenceSummary; artifacts: EvidenceArtifact[]; readUrls: Array<ArtifactReadUrl & { artifactId: string }> }>(
+      getToken, `/evidences/${encodeURIComponent(evidenceId)}/playback${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`,
+      signal ? { signal } : undefined
+    ),
+
 	loadEvidence: (getToken: FetchToken, evidenceId: string, orgId?: string) =>
 		authedFetch<ApiEvidenceResponse>(
 			getToken,
