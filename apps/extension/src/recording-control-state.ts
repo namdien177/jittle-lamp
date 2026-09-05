@@ -33,7 +33,7 @@ export function deriveRecordingControlState(
   const startVisible = state === null || isStarting || Boolean(state.canStart);
   const finishVisible = isStopping || canControlRecording;
   const pauseVisible = isPausing || isResuming || canControlRecording;
-  const abortVisible = isAborting || canControlRecording;
+  const abortVisible = isAborting || canControlRecording || phase === "failed";
   const pauseMode = isResuming || (!isPausing && isPaused) ? "resume" : "pause";
 
   return {
@@ -67,7 +67,7 @@ export function deriveRecordingControlState(
       visible: abortVisible,
       disabled: !abortVisible || busy,
       loading: isAborting,
-      label: isAborting ? "Discarding…" : "Abort recording"
+      label: isAborting ? "Discarding…" : phase === "failed" ? "Discard recording" : "Abort recording"
     }
   };
 }

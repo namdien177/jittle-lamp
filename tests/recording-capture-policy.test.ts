@@ -25,7 +25,7 @@ describe("recording capture policy", () => {
     });
   });
 
-  test("stops before accepting a chunk that would exceed the video budget", () => {
+  test("preserves the over-limit chunk and final flush while requesting stop only once", () => {
     const budget = new RecordingByteBudget({
       warningBytes: 40,
       maxBytes: 45
@@ -38,10 +38,13 @@ describe("recording capture policy", () => {
       limitReached: false
     });
     expect(budget.observeChunk(6)).toEqual({
-      accept: false,
-      totalBytes: 40,
+      accept: true,
+      totalBytes: 46,
       warningReached: false,
       limitReached: true
+    });
+    expect(budget.observeChunk(3)).toEqual({
+      accept: true, totalBytes: 49, warningReached: false, limitReached: false
     });
   });
 

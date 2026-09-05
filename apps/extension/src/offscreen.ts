@@ -1,3 +1,5 @@
+import { z } from "zod/v4";
+import { storePendingRecording, readPendingRecording, deletePendingRecording } from "./pending-recording";
 import {
   offscreenRequestSchema,
   type OffscreenRequest,
@@ -91,15 +93,16 @@ type CompanionHealthPayload = {
   outputDir?: string;
 };
 
-type CloudUploadStartPayload = {
-  evidenceId: string;
-  uploadSessions: Array<{
-    key: "recording" | "archive";
-    uploadId: string;
-    uploadUrl: string;
-    headers: { "content-type": string };
-  }>;
-};
+const cloudUploadStartSchema = z.object({
+  evidenceId: z.string().min(1),
+  uploadSessions: z.array(z.object({
+    key: z.enum(["recording", "archive"]),
+    uploadId: z.string().min(1),
+    uploadUrl: z.url(),
+    headers: z.object({ "content-type": z.string().min(1) })
+  })).length(2).refine((sessions) => new Set(sessions.map((session) => session.key)).size === 2)
+});
+type CloudUploadStartPayload = z.infer<typeof cloudUploadStartSchema>;
 
 type PendingCloudRetry = {
   sessionId: string;
@@ -148,6 +151,7 @@ const thumbnailCandidateSeconds = [2.5, 3, 4, 1, 0] as const;
 
 let activeRecorderState: ActiveRecorderState | null = null;
 let pendingCloudRetry: PendingCloudRetry | null = null;
+let recoveryStorageWarning = "";
 let recorderStartOperation: RecorderStartOperation | null = null;
 let recorderStopOperation: RecorderStopOperation | null = null;
 let completedRecording: { sessionId: string; blob: Blob; durationMs: number } | null = null;
@@ -165,7 +169,7 @@ chrome.runtime.onMessage.addListener((rawMessage, _sender, sendResponse) => {
     .catch((error: unknown) => {
       sendResponse({
         ok: false,
-        error: errorMessage(error)
+        error: errorMessage(error) + recoveryStorageWarning
       });
     });
 
@@ -207,11 +211,23 @@ async function handleRequest(
 
     case "jl/offscreen-abort-recording":
       await stopRecorder(request.sessionId).catch(() => undefined);
+      await deletePendingRecording(request.sessionId);
       pendingCloudRetry = null;
       return { ok: true };
 
+    case "jl/offscreen-save-local": {
+      const retry = pendingCloudRetry ?? await readPendingRecording(request.sessionId);
+      if (!retry || retry.sessionId !== request.sessionId) {
+        throw new Error("No saved recording is available for this session.");
+      }
+      await saveArtifactsLocally(retry);
+      await deletePendingRecording(request.sessionId);
+      pendingCloudRetry = null;
+      return { ok: true, destination: "downloads", recordingBytes: retry.recordingBlob.size, eventBytes: retry.jsonBlob.size };
+    }
+
     case "jl/offscreen-retry-cloud-upload": {
-      const retry = pendingCloudRetry;
+      const retry = pendingCloudRetry ?? await readPendingRecording(request.sessionId);
 
       if (!retry || retry.sessionId !== request.sessionId) {
         throw new Error("No retryable cloud upload is available for this session.");
@@ -232,9 +248,11 @@ async function handleRequest(
             ? { evidenceId: cloudUploadResult.evidenceId ?? retry.evidenceId }
             : {})
         };
+        await retainPendingRecording(pendingCloudRetry);
         throw new Error(cloudUploadResult.error);
       }
 
+      await deletePendingRecording(request.sessionId);
       pendingCloudRetry = null;
       return {
         ok: true,
@@ -295,6 +313,13 @@ async function performStopAndExport(request: StopAndExportRequest): Promise<Offs
     videoDurationMs
   );
 
+  await retainPendingRecording({
+    sessionId: request.sessionId,
+    archive: finalized.archive,
+    recordingBlob,
+    jsonBlob: finalized.jsonBlob
+  });
+
   const cloudUploadResult = await tryWriteArtifactsToCloud(
     finalized.archive,
     recordingBlob,
@@ -303,7 +328,7 @@ async function performStopAndExport(request: StopAndExportRequest): Promise<Offs
   );
 
   if (request.cloudRequired && !request.cloudAuthToken) {
-    throw new Error("Cloud upload was required, but no extension auth token was available.");
+    throw new Error("Sign in to retry the upload, or save the recording locally.");
   }
 
   if (!cloudUploadResult.saved && (request.cloudAuthToken || request.cloudRequired)) {
@@ -314,7 +339,8 @@ async function performStopAndExport(request: StopAndExportRequest): Promise<Offs
       jsonBlob: finalized.jsonBlob,
       ...(cloudUploadResult.evidenceId ? { evidenceId: cloudUploadResult.evidenceId } : {})
     };
-    throw new Error(cloudUploadResult.error);
+    await retainPendingRecording(pendingCloudRetry);
+    throw new Error(cloudUploadResult.error + " Retry upload or save locally.");
   }
 
   const companionResult = cloudUploadResult.saved
@@ -326,19 +352,11 @@ async function performStopAndExport(request: StopAndExportRequest): Promise<Offs
       );
 
   if (!companionResult.saved) {
-    await Promise.all([
-      downloadBlob(
-        recordingBlob,
-        artifactPath(finalized.archive, "recording.webm"),
-        "video/webm"
-      ),
-      downloadBlob(
-        finalized.jsonBlob,
-        artifactPath(finalized.archive, "session.archive.json"),
-        "application/json"
-      )
-    ]);
+    await saveArtifactsLocally(pendingCloudRetry!);
   }
+
+  await deletePendingRecording(request.sessionId);
+  pendingCloudRetry = null;
 
   return {
     ok: true,
@@ -359,6 +377,10 @@ async function tryWriteArtifactsToCloud(
 ): Promise<CloudWriteResult> {
   if (!authToken) {
     return { saved: false, error: "Cloud upload skipped because no extension auth token was available." };
+  }
+
+  if (recordingBlob.size > 60 * 1024 * 1024 || jsonBlob.size > 100 * 1024 * 1024) {
+    return { saved: false, error: "This recording is too large for cloud upload. Save it locally to keep the video and session archive." };
   }
 
   let startedEvidenceId: string | undefined;
@@ -404,7 +426,7 @@ async function tryWriteArtifactsToCloud(
       return { saved: false, error: await responseErrorSummary(startResponse, "Cloud upload start failed") };
     }
 
-    const payload = (await startResponse.json()) as CloudUploadStartPayload;
+    const payload = cloudUploadStartSchema.parse(await startResponse.json());
     startedEvidenceId = payload.evidenceId;
 
     const uploadErrors = await Promise.all(
@@ -1358,97 +1380,32 @@ function stringifyArchive(archive: SessionArchive): string {
   return `${JSON.stringify(archive, null, 2)}\n`;
 }
 
-async function downloadBlob(blob: Blob, filename: string, mimeType: string): Promise<void> {
-  const typedBlob = blob.type === mimeType ? blob : new Blob([blob], { type: mimeType });
-  const objectUrl = URL.createObjectURL(typedBlob);
-
+async function retainPendingRecording(recording: PendingCloudRetry): Promise<void> {
+  pendingCloudRetry = recording;
   try {
-    if (!canUseChromeDownloadsApi()) {
-      await triggerAnchorDownload(objectUrl, filename);
-      return;
-    }
-
-    const downloadId = await chrome.downloads.download({
-      url: objectUrl,
-      filename,
-      saveAs: true,
-      conflictAction: "uniquify"
-    });
-
-    if (typeof downloadId !== "number") {
-      throw new Error(`Failed to create a browser download for ${filename}.`);
-    }
-
-    await waitForDownload(downloadId);
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+    await storePendingRecording(recording);
+    recoveryStorageWarning = "";
+  } catch (error) {
+    recoveryStorageWarning = " Keep this browser open and save locally now; there was not enough storage to retain a recovery copy.";
+    // Keep the in-memory copy usable even if disk quota is exhausted.
+    console.warn("Could not persist recording recovery data. Keep the browser open until saved.", error);
   }
 }
 
-function canUseChromeDownloadsApi(): boolean {
-  return (
-    typeof chrome !== "undefined" &&
-    typeof chrome.downloads?.download === "function" &&
-    typeof chrome.downloads?.onChanged?.addListener === "function" &&
-    typeof chrome.downloads?.onChanged?.removeListener === "function"
-  );
+async function saveArtifactsLocally(recording: PendingCloudRetry): Promise<void> {
+  // Sequential prompts avoid competing Save As dialogs. Retain both blobs on cancellation.
+  await downloadBlob(recording.recordingBlob, artifactPath(recording.archive, "recording.webm"), "video/webm");
+  await downloadBlob(recording.jsonBlob, artifactPath(recording.archive, "session.archive.json"), "application/json");
 }
 
-async function triggerAnchorDownload(url: string, filename: string): Promise<void> {
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.rel = "noopener";
-  anchor.style.display = "none";
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  await new Promise((resolve) => setTimeout(resolve, 250));
-}
-
-async function waitForDownload(downloadId: number): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const cleanup = (): void => {
-      globalThis.clearTimeout(timeoutId);
-      chrome.downloads.onChanged.removeListener(listener);
-    };
-    const settle = (state: string | undefined): void => {
-      if (settled || (state !== "complete" && state !== "interrupted")) {
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      if (state === "complete") {
-        resolve();
-      } else {
-        reject(new Error("A local recorder download was interrupted."));
-      }
-    };
-    const listener = (delta: chrome.downloads.DownloadDelta): void => {
-      if (delta.id !== downloadId || !delta.state?.current) {
-        return;
-      }
-
-      settle(delta.state.current);
-    };
-    const timeoutId = globalThis.setTimeout(() => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      reject(new Error("Timed out while waiting for a local recorder download."));
-    }, 5 * 60 * 1_000);
-
-    chrome.downloads.onChanged.addListener(listener);
-    void chrome.downloads.search({ id: downloadId }).then(
-      (items) => settle(items[0]?.state),
-      () => undefined
-    );
-  });
+async function downloadBlob(blob: Blob, filename: string, mimeType: string): Promise<void> {
+  const url = URL.createObjectURL(blob.type === mimeType ? blob : new Blob([blob], { type: mimeType }));
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "jl/download-artifact", url, filename });
+    if (!response?.ok) throw new Error(response?.error ?? "Local save was not confirmed. Try Save locally again.");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function errorMessage(error: unknown): string {

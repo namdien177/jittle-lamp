@@ -44,6 +44,16 @@ export const popupRetryUploadRequestSchema = z.object({
   type: z.literal("jl/popup-retry-upload")
 });
 
+export const popupSaveLocalRequestSchema = z.object({
+  type: z.literal("jl/popup-save-local")
+});
+
+export const offscreenDownloadRequestSchema = z.object({
+  type: z.literal("jl/download-artifact"),
+  url: z.string().startsWith("blob:"),
+  filename: z.string().min(1)
+});
+
 export const popupStartCloudSignInRequestSchema = z.object({
   type: z.literal("jl/popup-start-cloud-sign-in")
 });
@@ -69,6 +79,7 @@ export const popupRequestSchema = z.discriminatedUnion("type", [
   popupResumeRecordingRequestSchema,
   popupAbortRecordingRequestSchema,
   popupRetryUploadRequestSchema,
+  popupSaveLocalRequestSchema,
   popupStartCloudSignInRequestSchema,
   popupOpenEvidenceListRequestSchema,
   popupLogoutCloudRequestSchema,
@@ -112,7 +123,8 @@ export const recordingOperationSchema = z.enum([
   "pausing",
   "resuming",
   "aborting",
-  "retrying-upload"
+  "retrying-upload",
+  "saving-local"
 ]);
 
 export const popupStateSchema = z.object({
@@ -233,6 +245,11 @@ export const offscreenRetryCloudUploadRequestSchema = z.object({
   cloudAuthToken: z.string().min(1)
 });
 
+export const offscreenSaveLocalRequestSchema = z.object({
+  type: z.literal("jl/offscreen-save-local"),
+  sessionId: sessionIdSchema
+});
+
 export const offscreenRecordingLimitReachedMessageSchema = z.object({
   type: z.literal("jl/offscreen-recording-limit-reached"),
   sessionId: sessionIdSchema,
@@ -247,7 +264,8 @@ export const offscreenRequestSchema = z.discriminatedUnion("type", [
   offscreenPauseRecordingRequestSchema,
   offscreenResumeRecordingRequestSchema,
   offscreenAbortRecordingRequestSchema,
-  offscreenRetryCloudUploadRequestSchema
+  offscreenRetryCloudUploadRequestSchema,
+  offscreenSaveLocalRequestSchema
 ]);
 
 export const offscreenResponseSchema = z.object({

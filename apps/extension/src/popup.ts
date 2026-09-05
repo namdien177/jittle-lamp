@@ -15,6 +15,9 @@ const networkFallbackPermissions: chrome.permissions.Permissions = {
   origins: ["http://*/*", "https://*/*"]
 };
 
+const retryButton = requireElement<HTMLButtonElement>("[data-role='retry-button']");
+const saveLocalButton = requireElement<HTMLButtonElement>("[data-role='save-local-button']");
+
 const statusBadge = requireElement<HTMLSpanElement>("[data-role='status-badge']");
 const companionStatus = requireElement<HTMLElement>("[data-role='companion-status']");
 const companionRoute = requireElement<HTMLParagraphElement>("[data-role='companion-route']");
@@ -97,11 +100,8 @@ abortButton.addEventListener("click", () => {
   void performAction("jl/popup-abort-recording");
 });
 
-statusBadge.addEventListener("click", () => {
-  if (statusBadge.dataset.phase === "failed") {
-    void performAction("jl/popup-retry-upload");
-  }
-});
+retryButton.addEventListener("click", () => void performAction("jl/popup-retry-upload"));
+saveLocalButton.addEventListener("click", () => void performAction("jl/popup-save-local"));
 
 cloudMenuButton.addEventListener("click", () => {
   if (cloudMenuButton.disabled) {
@@ -155,6 +155,7 @@ async function performAction(
     | "jl/popup-resume-recording"
     | "jl/popup-abort-recording"
     | "jl/popup-retry-upload"
+    | "jl/popup-save-local"
     | "jl/popup-open-evidence-list"
     | "jl/popup-logout-cloud"
 ): Promise<void> {
@@ -253,6 +254,7 @@ async function sendPopupMessage(
     | "jl/popup-resume-recording"
     | "jl/popup-abort-recording"
     | "jl/popup-retry-upload"
+    | "jl/popup-save-local"
     | "jl/popup-open-evidence-list"
     | "jl/popup-logout-cloud"
 ): Promise<PopupResponse> {
@@ -397,6 +399,7 @@ function renderState(state: PopupState, error?: string): void {
     .join("\n") || "—";
   artifactValue.textContent = artifactText;
   artifactValue.title = artifactText;
+  error ??= activeSession?.phase === "failed" ? activeSession.statusText : undefined;
   messageValue.setAttribute("role", error ? "alert" : "status");
 
   if (error) {
@@ -460,6 +463,10 @@ function syncRecordingControls(state: PopupState | null): void {
   syncButton(pauseButton, pauseLabel, controls.pause, forceDisabled);
   syncIconButton(abortButton, controls.abort, forceDisabled);
 
+  for (const button of [retryButton, saveLocalButton]) {
+    button.hidden = state?.activeSession?.phase !== "failed";
+    button.disabled = forceDisabled || controls.busy;
+  }
   soundToggle.disabled = forceDisabled || controls.busy || !state?.canStart;
   for (const targetButton of targetButtons) {
     targetButton.disabled = forceDisabled || controls.busy || !state?.canStart;
@@ -512,6 +519,8 @@ function operationForAction(type: string): RecordingOperation | null {
       return "resuming";
     case "jl/popup-abort-recording":
       return "aborting";
+    case "jl/popup-save-local":
+      return "saving-local";
     case "jl/popup-retry-upload":
       return "retrying-upload";
     default:

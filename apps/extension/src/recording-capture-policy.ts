@@ -27,29 +27,10 @@ export class RecordingByteBudget {
   constructor(private readonly limits: Readonly<{ warningBytes: number; maxBytes: number }>) {}
 
   observeChunk(chunkBytes: number): RecordingByteBudgetResult {
-    if (this.stopped) {
-      return {
-        accept: false,
-        totalBytes: this.totalBytes,
-        warningReached: false,
-        limitReached: false
-      };
-    }
-
-    if (this.totalBytes + chunkBytes > this.limits.maxBytes) {
-      this.stopped = true;
-      return {
-        accept: false,
-        totalBytes: this.totalBytes,
-        warningReached: false,
-        limitReached: true
-      };
-    }
-
     this.totalBytes += chunkBytes;
     const warningReached = !this.warningReported && this.totalBytes >= this.limits.warningBytes;
     this.warningReported ||= warningReached;
-    const limitReached = this.totalBytes >= this.limits.maxBytes;
+    const limitReached = !this.stopped && this.totalBytes >= this.limits.maxBytes;
     this.stopped ||= limitReached;
 
     return {

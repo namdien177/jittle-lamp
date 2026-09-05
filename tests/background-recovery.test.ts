@@ -533,7 +533,38 @@ describe("background recovery", () => {
     expect(chromeHarness.getAlarmInfo(backgroundTest.maxRecordingDurationAlarmName)).toBeDefined();
   });
 
-  test("marks stale processing drafts as failed so recording can restart", async () => {
+  test("retains upload failure details across reads and refuses to replace the session", async () => {
+    chromeHarness.setOffscreenStopResponse({ ok: false, error: "HTTP 413: too large" });
+    await backgroundTest.saveDraft(createRecordingDraft());
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-stop-recording" });
+    const failed = await backgroundTest.readDraft();
+    expect(failed?.phase).toBe("failed");
+    expect(lastLifecycleDetail(failed)).toContain("HTTP 413");
+    const start = await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-start-recording" });
+    expect((start.response as { ok: boolean }).ok).toBeFalse();
+    expect((await backgroundTest.readDraft())?.sessionId).toBe(failed?.sessionId);
+  });
+
+  test("keeps a canceled local save recoverable and marks ready only after confirmed save", async () => {
+    await backgroundTest.saveDraft(transitionDraftPhase(createRecordingDraft(), "failed", "HTTP 413"));
+    chromeHarness.setOffscreenStopResponse({ ok: false, error: "Download canceled" });
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-save-local" });
+    expect((await backgroundTest.readDraft())?.phase).toBe("failed");
+    expect(lastLifecycleDetail(await backgroundTest.readDraft())).toContain("Download canceled");
+    chromeHarness.setOffscreenStopResponse({ ok: true, destination: "downloads" });
+    await chromeHarness.dispatchRuntimeMessage({ type: "jl/popup-save-local" });
+    expect((await backgroundTest.readDraft())?.phase).toBe("ready");
+    expect(lastLifecycleDetail(await backgroundTest.readDraft())).toContain("your machine");
+  });
+
+  test("rejects artifact download requests from content scripts", async () => {
+    const result = await chromeHarness.dispatchRuntimeMessage({
+      type: "jl/download-artifact", url: "blob:chrome-extension://test/blob", filename: "recording.webm"
+    }, { tab: { id: 7 }, url: "https://example.com" } as chrome.runtime.MessageSender);
+    expect((result.response as { ok: boolean }).ok).toBeFalse();
+  });
+
+  test("keeps stale uploads recoverable before allowing another recording", async () => {
     await backgroundTest.saveDraft(
       transitionDraftPhase(
         createRecordingDraft(),
@@ -558,11 +589,11 @@ describe("background recovery", () => {
 
     expect(result.responded).toBeTrue();
     expect(response.state?.activeSession?.phase).toBe("failed");
-    expect(response.state?.canStart).toBeTrue();
+    expect(response.state?.canStart).toBeFalse();
     expect(response.state?.canStop).toBeFalse();
     expect(activeDraft?.phase).toBe("failed");
     expect(lastLifecycleDetail(activeDraft)).toBe(
-      "Previous upload did not complete. Start a new recording or retry upload from the failed status."
+      "Previous upload did not complete. Retry upload or save locally before starting another recording."
     );
   });
 
@@ -1425,7 +1456,7 @@ function createChromeHarness() {
       async sendMessage(message: unknown): Promise<unknown> {
         runtimeMessages.push(message);
 
-        if (hasMessageType(message, "jl/offscreen-stop-and-export")) {
+        if (["jl/offscreen-stop-and-export", "jl/offscreen-save-local", "jl/offscreen-retry-cloud-upload"].some((type) => hasMessageType(message, type))) {
           return offscreenStopResponse;
         }
 

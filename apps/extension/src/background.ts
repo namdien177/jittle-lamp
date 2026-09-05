@@ -1,3 +1,4 @@
+import { downloadRecordingArtifact } from "./local-download";
 import {
   appendDraftEvent,
   captureSessionDraftSchema,
@@ -7,6 +8,7 @@ import {
   createSessionDraft,
   offscreenRecordingLimitReachedMessageSchema,
   offscreenResponseSchema,
+  offscreenDownloadRequestSchema,
   popupRequestSchema,
   renameSessionDraft,
   sanitizeCapturedUrl,
@@ -371,6 +373,20 @@ async function handleIncomingMessage(
   rawMessage: unknown,
   sender: chrome.runtime.MessageSender
 ): Promise<unknown | undefined> {
+  const download = offscreenDownloadRequestSchema.safeParse(rawMessage);
+  if (download.success) {
+    if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL("offscreen.html") ||
+        !download.data.url.startsWith(`blob:chrome-extension://${chrome.runtime.id}/`)) {
+      return { ok: false, error: "Only the recorder can request a local artifact download." };
+    }
+    try {
+      await downloadRecordingArtifact(download.data.url, download.data.filename);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: errorMessage(error) };
+    }
+  }
+
   const popupRequest = popupRequestSchema.safeParse(rawMessage);
 
   if (popupRequest.success) {
@@ -436,6 +452,11 @@ async function handleIncomingMessage(
             await abortRecordingSession();
           }),
           "Recording aborted and discarded."
+        );
+
+      case "jl/popup-save-local":
+        return handleRecordingOperation("saving-local", () =>
+          queueDraftMutation(() => saveFailedRecordingLocally())
         );
 
       case "jl/popup-retry-upload":
@@ -529,6 +550,10 @@ async function startRecordingSession(
   options: { sessionName?: string; captureTarget?: CaptureTarget; playTabAudio?: boolean; requestSiteAccess?: boolean } = {}
 ): Promise<void> {
   const existingDraft = await readDraft();
+
+  if (existingDraft?.phase === "failed") {
+    throw new Error("Retry upload, save locally, or discard the previous recording before starting another.");
+  }
 
   if (existingDraft?.phase === "processing" && isStaleProcessingDraft(existingDraft)) {
     await clearDraft();
@@ -944,7 +969,7 @@ async function abortRecordingSession(): Promise<void> {
     return;
   }
 
-  if (currentDraft.phase !== "armed" && currentDraft.phase !== "recording" && currentDraft.phase !== "paused") {
+  if (currentDraft.phase !== "armed" && currentDraft.phase !== "recording" && currentDraft.phase !== "paused" && currentDraft.phase !== "failed") {
     return;
   }
 
@@ -962,7 +987,8 @@ async function abortRecordingSession(): Promise<void> {
     stoppingTabIds.add(tabId);
     await signalContentCaptureEnded(tabId, currentDraft.sessionId);
     await safeDetachDebugger(tabId);
-    if (currentDraft.phase === "recording" || currentDraft.phase === "paused") {
+    if (currentDraft.phase === "failed") await ensureOffscreenDocument();
+    if (currentDraft.phase === "recording" || currentDraft.phase === "paused" || currentDraft.phase === "failed") {
       await sendOffscreenMessage({
         type: "jl/offscreen-abort-recording",
         sessionId: currentDraft.sessionId
@@ -977,6 +1003,21 @@ async function abortRecordingSession(): Promise<void> {
     recentNetworkEventFingerprintsByTab.delete(tabId);
     await clearDraft();
     await closeOffscreenDocumentIfPresent();
+  }
+}
+
+async function saveFailedRecordingLocally(): Promise<void> {
+  const draft = await readDraft();
+  if (!draft || draft.phase !== "failed") throw new Error("There is no failed recording to save.");
+  try {
+    await ensureOffscreenDocument();
+    const response = await sendOffscreenMessage({ type: "jl/offscreen-save-local", sessionId: draft.sessionId });
+    if (!response.ok) throw new Error(response.error ?? "Local save failed.");
+    await saveDraft(transitionDraftPhase(draft, "ready", "Saved video and session archive to your machine."));
+    await closeOffscreenDocumentIfPresent();
+  } catch (error) {
+    await saveDraft(transitionDraftPhase(draft, "failed", `Local save failed: ${errorMessage(error)} Retry saving locally or retry upload.`));
+    throw error;
   }
 }
 
@@ -3281,7 +3322,7 @@ async function failStaleProcessingDraftIfNeeded(draft: CaptureSessionDraft): Pro
   const staleDraft = transitionDraftPhase(
     draft,
     "failed",
-    "Previous upload did not complete. Start a new recording or retry upload from the failed status."
+    "Previous upload did not complete. Retry upload or save locally before starting another recording."
   );
   await saveDraft(staleDraft);
   return staleDraft;
@@ -3449,7 +3490,7 @@ function toPopupState(
   const canStop =
     recordingOperation === null &&
     (activeSession.phase === "armed" || activeSession.phase === "recording" || activeSession.phase === "paused");
-  const canStart = recordingOperation === null && !isSessionBusy(activeSession);
+  const canStart = recordingOperation === null && !isSessionBusy(activeSession) && activeSession.phase !== "failed";
 
   return {
     activeSession: toPopupSessionSummary(activeSession),
@@ -4561,6 +4602,7 @@ function rawErrorMessage(error: unknown): string {
 
 function isHandledRuntimeMessage(rawMessage: unknown): boolean {
   return (
+    offscreenDownloadRequestSchema.safeParse(rawMessage).success ||
     popupRequestSchema.safeParse(rawMessage).success ||
     contentRuntimeMessageSchema.safeParse(rawMessage).success ||
     offscreenRecordingLimitReachedMessageSchema.safeParse(rawMessage).success
