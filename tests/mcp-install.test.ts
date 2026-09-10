@@ -287,12 +287,31 @@ describe("MCP installer", () => {
 				env: { JL_AI_TOKEN: "invalid-private-value" },
 			});
 			expect(invalidResult.code).not.toBe(0);
-			expect(invalidResult.output).toContain("Invalid AI token format");
+			expect(invalidResult.output).toContain("Invalid token format");
 			expect(invalidResult.output).not.toContain("invalid-private-value");
 			expect(invalid.registrations()).toEqual([]);
 		} finally {
 			rmSync(missing.directory, { recursive: true, force: true });
 			rmSync(invalid.directory, { recursive: true, force: true });
+		}
+	});
+
+	test("registers an existing automation token without exposing it", () => {
+		const f = fixture();
+		const automationToken = "jl_api_install_test_secret_012345678901234567890";
+		try {
+			const result = f.run({
+				env: { JL_AI_TOKEN: automationToken, TEST_MCP_SECRET: automationToken },
+			});
+			expect(result.code).toBe(0);
+			expect(result.output).not.toContain(automationToken);
+			expect(f.registrations()).toHaveLength(2);
+			for (const call of f.registrations()) {
+				expect(call.args).toContain(`JL_AI_TOKEN=${automationToken}`);
+				expect(call.inheritedToken).toBeNull();
+			}
+		} finally {
+			rmSync(f.directory, { recursive: true, force: true });
 		}
 	});
 

@@ -23,7 +23,7 @@ Options:
   --help                    Show this help
 
 Environment:
-  JL_AI_TOKEN               AI token with MCP access; hidden prompt when omitted
+  JL_AI_TOKEN               Jittle Lamp AI or automation token; hidden prompt when omitted
   JITTLE_LAMP_API_ORIGIN     Default: https://jl-api.monthlyparty.com
   JITTLE_LAMP_WEB_ORIGIN     Default: https://jittlelamp.dev
 
@@ -31,6 +31,7 @@ Requires your chosen client CLI and Git when downloading source. Installs Bun
 1.3.11 in the MCP directory if a suitable Bun is unavailable (curl/unzip needed).
 Saves the token in private client configuration. Replaces only the jittlelamp
 entry in Codex and/or Claude's user scope. Restart the client after installation.
+Automation tokens retain their upload-only access; other tools report permission errors.
 USAGE
 }
 
@@ -87,12 +88,12 @@ fi
 
 if [[ -z "$ai_token" ]]; then
   open_tty
-  printf 'AI token with MCP access (Settings > AI tokens): ' >&3
+  printf 'Jittle Lamp token (AI or automation): ' >&3
   IFS= read -rs ai_token <&3 || fail 'Token entry cancelled'
   printf '\n' >&3
 fi
-[[ "$ai_token" =~ ^jl_ai_[A-Za-z0-9_-]{18,}$ ]] ||
-  fail 'Invalid AI token format. Create a token with MCP access in Settings > AI tokens.'
+[[ "$ai_token" =~ ^jl_(ai|api)_[A-Za-z0-9_-]{18,}$ ]] ||
+  fail 'Invalid token format. Use a Jittle Lamp AI (jl_ai_) or automation (jl_api_) token.'
 exec 3>&-
 
 # A script invoked from disk uses its checkout. Piped scripts download source.

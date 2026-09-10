@@ -21,6 +21,7 @@ import {
 	createAiAccessToken,
 	revokeAiAccessToken,
 } from "../../backend/src/services/ai-access-tokens";
+import { createAutomationApiToken } from "../../backend/src/services/automation-api-tokens";
 import { ensureUserAndPersonalOrganization } from "../../backend/src/services/user-provisioning";
 import {
 	applyMigrations,
@@ -44,6 +45,8 @@ type TestData = {
 	uploadId: string;
 	evidenceId: string;
 	status: string | number;
+	error: { code: string; message: string; status: number };
+	tokenGuidance?: string;
 };
 
 describe("local Jittle Lamp MCP", () => {
@@ -51,11 +54,14 @@ describe("local Jittle Lamp MCP", () => {
 	let backend: ReturnType<typeof createApp>;
 	let db: NonNullable<ReturnType<typeof createApp>["db"]>;
 	let client: Client;
+	let automationClient: Client;
 	let transport: StdioClientTransport;
 	let user: { userId: string; organizationId: string };
 	let outsider: { userId: string; organizationId: string };
 	let token: string;
 	let tokenId: string;
+	let automationToken: string;
+	let automationTokenId: string;
 	let apiOrigin: string;
 	let stderr = "";
 
@@ -85,6 +91,14 @@ describe("local Jittle Lamp MCP", () => {
 		});
 		token = issued.token;
 		tokenId = issued.accessToken.id;
+		const automation = await createAutomationApiToken(db, {
+			userId: user.userId,
+			orgId: user.organizationId,
+			label: "MCP automation integration",
+			expiresAt: null,
+		});
+		automationToken = automation.token;
+		automationTokenId = automation.apiToken.id;
 		backend.app.listen({ hostname: "127.0.0.1", port: 0 });
 		apiOrigin = `http://127.0.0.1:${required(backend.app.server).port}`;
 		transport = new StdioClientTransport({
@@ -101,16 +115,41 @@ describe("local Jittle Lamp MCP", () => {
 			version: "1.0.0",
 		});
 		await client.connect(transport);
+		const automationTransport = new StdioClientTransport({
+			command: process.execPath,
+			args: ["run", fileURLToPath(new URL("../src/index.ts", import.meta.url))],
+			env: { JL_AI_TOKEN: automationToken, JITTLE_LAMP_API_ORIGIN: apiOrigin },
+			stderr: "pipe",
+		});
+		automationTransport.stderr?.on("data", (chunk) => {
+			stderr += String(chunk);
+		});
+		automationClient = new Client({
+			name: "jittlelamp-automation-integration-test",
+			version: "1.0.0",
+		});
+		await automationClient.connect(automationTransport);
 	});
 
 	afterAll(async () => {
 		await client?.close();
+		await automationClient?.close();
 		await backend?.app.stop();
 		await rm(directory, { recursive: true, force: true });
 	});
 
 	const call = async (name: string, args: Record<string, unknown> = {}) => {
 		const result = await client.callTool({ name, arguments: args });
+		return {
+			error: result.isError === true,
+			data: result.structuredContent as unknown as TestData,
+		};
+	};
+	const callAutomation = async (
+		name: string,
+		args: Record<string, unknown> = {},
+	) => {
+		const result = await automationClient.callTool({ name, arguments: args });
 		return {
 			error: result.isError === true,
 			data: result.structuredContent as unknown as TestData,
@@ -337,6 +376,57 @@ describe("local Jittle Lamp MCP", () => {
 		).toBe(true);
 	});
 
+	it("uses an automation token's assigned organisation for ZIP uploads and denies a foreign destination", async () => {
+		const zipPath = join(directory, "automation-evidence.zip");
+		await writeFile(zipPath, createAutomationEvidenceZip("jl_mcp_automation"));
+		const uploaded = await callAutomation("upload_evidence_zip", {
+			zipPath,
+			title: "Existing automation token upload",
+		});
+		expect(uploaded.error).toBe(false);
+		expect(uploaded.data.evidence.orgId).toBe(user.organizationId);
+		const saved = await db.query.evidences.findFirst({
+			where: eq(evidences.id, uploaded.data.evidence.id),
+		});
+		expect(saved?.createdBy).toBe(user.userId);
+		const metadata = JSON.parse(required(required(saved).sourceMetadata));
+		expect(metadata.automationTokenId).toBe(automationTokenId);
+		expect(metadata.aiTokenId).toBeUndefined();
+		const before = await db.select({ id: evidences.id }).from(evidences);
+		const denied = await callAutomation("upload_evidence_zip", {
+			zipPath,
+			orgId: outsider.organizationId,
+		});
+		expect(denied.error).toBe(true);
+		expect(denied.data.status).toBe(403);
+		expect(denied.data.error.code).toBe("AUTOMATION_ORG_FORBIDDEN");
+		expect(denied.data.tokenGuidance).toBeUndefined();
+		expect(await db.select({ id: evidences.id }).from(evidences)).toEqual(
+			before,
+		);
+		expect(JSON.stringify(uploaded)).not.toContain(automationToken);
+		expect(stderr).not.toContain(automationToken);
+	});
+
+	it("preserves the backend's rejection of automation user access and explains its token permissions", async () => {
+		const direct = await backend.app.handle(
+			new Request(`${apiOrigin}/protected/me`, {
+				headers: { authorization: `Bearer ${automationToken}` },
+			}),
+		);
+		const backendError = (await direct.json()).error;
+		const result = await callAutomation("get_context");
+		expect([401, 403]).toContain(direct.status);
+		expect(result.error).toBe(true);
+		expect(result.data.status).toBe(direct.status);
+		expect(result.data.error.code).toBe(backendError.code);
+		expect(result.data.error.message).toBe(backendError.message);
+		expect(result.data.tokenGuidance).toMatch(/automation/i);
+		expect(result.data.tokenGuidance).toContain("ZIP");
+		expect(result.data.tokenGuidance).toContain("AI token");
+		expect(JSON.stringify(result)).not.toContain(automationToken);
+	});
+
 	it("copies, moves and deletes evidence using existing user routes", async () => {
 		const evidence = await createEvidence();
 		const [target] = await db
@@ -421,11 +511,20 @@ describe("local Jittle Lamp MCP", () => {
 	});
 });
 
-it("requires explicit AI credentials and rejects insecure configuration", () => {
+it("accepts explicit AI or automation credentials and rejects insecure configuration", () => {
 	expect(() => readConfig({})).toThrow("JL_AI_TOKEN is required");
-	expect(() =>
-		readConfig({ JL_AI_TOKEN: "jl_api_aaaaaaaaaaaaaaaaaaaaaaaa" }),
-	).toThrow();
+	for (const prefix of ["jl_ai_", "jl_api_"]) {
+		const token = `${prefix}aaaaaaaaaaaaaaaaaaaaaaaa`;
+		expect(readConfig({ JL_AI_TOKEN: ` ${token} ` }).token).toBe(token);
+	}
+	for (const token of [
+		"jl_api_short",
+		"jl_ai_short",
+		"secret_token",
+		"jl_api_bad!",
+	]) {
+		expect(() => readConfig({ JL_AI_TOKEN: token })).toThrow();
+	}
 	expect(() =>
 		readConfig({
 			JL_AI_TOKEN: "jl_ai_aaaaaaaaaaaaaaaaaaaaaaaa",

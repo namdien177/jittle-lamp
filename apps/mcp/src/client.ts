@@ -32,9 +32,9 @@ function readOrigin(value: string, name: string, allowPath = false): string {
 
 export function readConfig(env: Record<string, string | undefined>): McpConfig {
 	const token = env.JL_AI_TOKEN?.trim();
-	if (!token || !/^jl_ai_[A-Za-z0-9_-]{18,}$/.test(token)) {
+	if (!token || !/^jl_(ai|api)_[A-Za-z0-9_-]{18,}$/.test(token)) {
 		throw new Error(
-			"JL_AI_TOKEN is required. Create an AI token with MCP access in Jittle Lamp settings.",
+			"JL_AI_TOKEN is required. Configure a Jittle Lamp AI token or automation API token; each tool keeps the token's existing permissions.",
 		);
 	}
 	return {
@@ -106,6 +106,15 @@ export class JittleLampClient {
 				signal: AbortSignal.timeout(binary ? 120_000 : 30_000),
 			});
 			if (response.status === 204) return toolResult({ status: 204 });
+			const permissionGuidance =
+				this.config.token.startsWith("jl_api_") &&
+				path !== "/automation/evidences/zip" &&
+				(response.status === 401 || response.status === 403)
+					? {
+							tokenGuidance:
+								"Jittle Lamp denied this tool. Automation API tokens grant ZIP uploads in their assigned organisation. Other tools require a suitable AI token and account permissions. Invalid, expired, or revoked tokens must be replaced.",
+						}
+					: {};
 			const text = (await response.text()).replaceAll(
 				this.config.token,
 				"[REDACTED]",
@@ -118,6 +127,7 @@ export class JittleLampClient {
 					{
 						error: "Jittle Lamp returned a non-JSON response",
 						status: response.status,
+						...permissionGuidance,
 					},
 					true,
 				);
@@ -127,7 +137,9 @@ export class JittleLampClient {
 					? (data as Record<string, unknown>)
 					: { data };
 			return toolResult(
-				response.ok ? result : { ...result, status: response.status },
+				response.ok
+					? result
+					: { ...result, status: response.status, ...permissionGuidance },
 				!response.ok,
 			);
 		} catch {

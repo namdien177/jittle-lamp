@@ -84,7 +84,7 @@ export function registerJittleLampTools(
 		"get_context",
 		{
 			description:
-				"Get the token owner's profile, active organisation, and member organisations. Permissions remain the owner's current permissions.",
+				"Get the AI token owner's profile, active organisation, and member organisations. Requires an AI token with MCP access; automation API tokens do not grant account access.",
 			inputSchema: emptyInput,
 			annotations: readAnnotations,
 		},
@@ -94,7 +94,7 @@ export function registerJittleLampTools(
 		"list_organizations",
 		{
 			description:
-				"List organisations the token owner belongs to, including role and workspace metadata.",
+				"List organisations the AI token owner belongs to, including role and workspace metadata. Requires an AI token with MCP access.",
 			inputSchema: emptyInput,
 			annotations: readAnnotations,
 		},

@@ -27,7 +27,7 @@ The same command can also replace an existing install with the latest release. F
 
 ## Workspace layout
 
-- `apps/mcp`: local MCP server for Codex and Claude, authenticated with an AI token.
+- `apps/mcp`: local MCP server for Codex and Claude, authenticated with a Jittle Lamp token.
 - `apps/extension` — Chromium MV3 extension recorder for active-tab capture orchestration.
 - `apps/desktop` — Electron desktop companion for capture intake, review, uploads, and app updates.
 - `apps/evidence-web` — browser evidence viewer for shared review links and uploaded evidence.
@@ -65,7 +65,7 @@ bun run release:check-version
 
 ## MCP for Codex and Claude
 
-The local MCP manages evidence with your account's permissions. Organisation settings remain unavailable. It requires an AI token with **MCP** access from **Settings > AI tokens** and a backend deployment that supports MCP tokens.
+The local MCP accepts either an AI token with **MCP** access from **Settings > AI tokens**, or an existing automation API token from **Settings > API tokens**. AI tokens with MCP access manage evidence using your account's permissions. Automation API tokens upload evidence ZIPs to their assigned organisation; account tools return permission errors. Organisation settings remain unavailable.
 
 ### Install from terminal
 
@@ -75,7 +75,7 @@ Install Git and your chosen client, Codex or Claude Code. On macOS or Linux, run
 curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/install-mcp.sh | bash
 ```
 
-Choose `codex`, `claude`, or `both`, then paste an AI token with **MCP** access at the hidden prompt. The installer downloads the public GitHub source mirror, installs Bun 1.3.11 if needed, builds the MCP, and registers it with your chosen clients. Automatic Bun installation requires `curl` and `unzip`.
+Choose `codex`, `claude`, or `both`, then paste your Jittle Lamp token at the hidden prompt. Both `jl_ai_` and `jl_api_` tokens use the same `JL_AI_TOKEN` configuration variable. The installer downloads the public GitHub source mirror, installs Bun 1.3.11 if needed, builds the MCP, and registers it with your chosen clients. Automatic Bun installation requires `curl` and `unzip`.
 
 From an existing checkout containing `apps/mcp`, use this one command instead:
 
@@ -85,7 +85,7 @@ bash scripts/install-mcp.sh
 
 The local command builds your checkout. Both commands save a standalone bundle in `~/.local/share/jittle-lamp/mcp`, or under `$XDG_DATA_HOME` when set. You can move or remove the checkout afterward. Keep the installed bundle and the Bun executable used by the client.
 
-The token is saved in each client's private configuration. Rerunning the installer updates the bundle and the `jittlelamp` entry. Claude uses user scope; an existing project or local entry with that name takes precedence. Restart your client, then ask it to get your Jittle Lamp context to verify authentication.
+The token is saved in each client's private configuration. Rerunning the installer updates the bundle and the `jittlelamp` entry. Claude uses user scope; an existing project or local entry with that name takes precedence. Restart your client and check its MCP connection. With an AI token that has MCP access, ask for your Jittle Lamp context to verify account access.
 
 To select a client in the command itself:
 

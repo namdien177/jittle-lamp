@@ -12,9 +12,11 @@ The token is account-scoped. Evidence debug tokens are read-only and can only ac
 
 ## MCP
 
-Run the local Jittle Lamp MCP command with Bun: bun run /absolute/path/jittle-lamp/apps/mcp/src/index.ts. Settings > AI tokens shows the API origin and Codex and Claude Code configurations. Create a token with MCP access, set JL_AI_TOKEN to the token, and set JITTLE_LAMP_API_ORIGIN to your backend origin in the command's environment.
+Run the local Jittle Lamp MCP command with Bun: bun run /absolute/path/jittle-lamp/apps/mcp/src/index.ts. Set JL_AI_TOKEN to a Jittle Lamp AI token (jl_ai_) or automation token (jl_api_), and set JITTLE_LAMP_API_ORIGIN to your backend origin. Settings > AI tokens provides AI tokens with MCP access and client configurations.
 
 MCP can act on evidence using your current organization permissions. It cannot access organization settings, manage members or roles, or issue tokens. Existing evidence debug tokens do not grant MCP access.
+
+Automation tokens retain upload-only permissions. Use upload_evidence_zip without orgId to upload to the token's assigned organization. Other account tools return permission errors; use an AI token with MCP access for those actions.
 
 ## Primary Endpoint
 
