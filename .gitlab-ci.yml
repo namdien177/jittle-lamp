@@ -25,6 +25,7 @@ verify:
     - bun --cwd apps/backend test --timeout=15000
     - bun run typecheck
     - bun test tests --timeout=15000
+    - bun test apps/mcp/test --timeout=15000
     - bun run build
 
 build_backend_image:

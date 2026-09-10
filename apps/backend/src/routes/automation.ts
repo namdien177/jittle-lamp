@@ -19,6 +19,7 @@ import {
 	createDbUnavailableError,
 } from "../http/api-error";
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
+import { verifyAiUserAccess } from "../services/ai-user-access";
 import {
 	AUTOMATION_API_TOKEN_SCOPE,
 	createAutomationApiToken,
@@ -68,6 +69,7 @@ const automationTokenParamsSchema = t.Object({
 });
 
 const automationUploadQuerySchema = t.Object({
+	orgId: t.Optional(t.String({ minLength: 1 })),
 	title: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
 	sourceExternalId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
 });
@@ -429,16 +431,62 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 						401,
 					);
 				}
-				const apiToken = await verifyAutomationApiToken(db, bearerToken);
-				if (!apiToken?.scopes.includes(AUTOMATION_API_TOKEN_SCOPE)) {
-					set.status = 401;
-					return createApiError(
-						requestId,
-						"AUTOMATION_AUTH_INVALID_TOKEN",
-						"Invalid or expired automation API token",
-						401,
+				let apiToken: { id: string; orgId: string; userId: string };
+				const isAiToken = bearerToken.startsWith("jl_ai_");
+				if (isAiToken) {
+					const access = await verifyAiUserAccess(db, request);
+					if (!access.ok) {
+						set.status = access.status;
+						return createApiError(
+							requestId,
+							access.code,
+							access.message,
+							access.status,
+						);
+					}
+					// MCP uploads name their destination explicitly, independent of the browser's active org.
+					if (!query.orgId) {
+						set.status = 400;
+						return createApiError(
+							requestId,
+							"AI_UPLOAD_ORG_REQUIRED",
+							"orgId is required for AI evidence uploads",
+							400,
+						);
+					}
+					apiToken = {
+						id: access.token.id,
+						userId: access.token.userId,
+						orgId: query.orgId,
+					};
+				} else {
+					const automationToken = await verifyAutomationApiToken(
+						db,
+						bearerToken,
 					);
+					if (!automationToken?.scopes.includes(AUTOMATION_API_TOKEN_SCOPE)) {
+						set.status = 401;
+						return createApiError(
+							requestId,
+							"AUTOMATION_AUTH_INVALID_TOKEN",
+							"Invalid or expired automation API token",
+							401,
+						);
+					}
+					if (query.orgId && query.orgId !== automationToken.orgId) {
+						set.status = 403;
+						return createApiError(
+							requestId,
+							"AUTOMATION_ORG_FORBIDDEN",
+							"Automation token belongs to a different organization",
+							403,
+						);
+					}
+					apiToken = automationToken;
 				}
+				const tokenMetadata = isAiToken
+					? { aiTokenId: apiToken.id }
+					: { automationTokenId: apiToken.id };
 				if (
 					!(await organizationMemberHasPermission(db, {
 						organizationId: apiToken.orgId,
@@ -523,7 +571,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 							sourceType: "automation-test",
 							sourceExternalId,
 							sourceMetadata: JSON.stringify({
-								automationTokenId: apiToken.id,
+								...tokenMetadata,
 								sessionId: validated.archive.sessionId,
 								durationMs: deriveArchiveDurationMs(validated.archive),
 								actionCount:
@@ -553,7 +601,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 							createdBy: apiToken.userId,
 							sourceMetadata: JSON.stringify({
 								source: "automation-api",
-								automationTokenId: apiToken.id,
+								...tokenMetadata,
 							}),
 							updatedAt: now,
 						})
@@ -566,7 +614,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 								evidenceId: evidence.id,
 								sourceMetadata: JSON.stringify({
 									source: "automation-api",
-									automationTokenId: apiToken.id,
+									...tokenMetadata,
 								}),
 								updatedAt: now,
 							},
@@ -659,7 +707,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 					metadata: {
 						sourceType: "automation-test",
 						sessionId: validated.archive.sessionId,
-						automationTokenId: apiToken.id,
+						...tokenMetadata,
 						maxZipBytes: MAX_AUTOMATION_ZIP_BYTES,
 					},
 					ipAddress: getRequestIpAddress(request),

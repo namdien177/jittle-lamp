@@ -16,6 +16,7 @@ import {
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import {
 	AI_ACCESS_TOKEN_SCOPE,
+	AI_MCP_TOKEN_SCOPE,
 	createAiAccessToken,
 	recordAiAccessTokenUsage,
 	revokeAiAccessToken,
@@ -29,6 +30,7 @@ const MAX_AI_TOKEN_EXPIRES_IN_DAYS = 365;
 
 const createAiTokenBodySchema = t.Object({
 	label: t.Optional(t.String({ minLength: 1, maxLength: 80 })),
+	access: t.Optional(t.Union([t.Literal("debug"), t.Literal("mcp")])),
 	permanent: t.Optional(t.Boolean()),
 	expiresInDays: t.Optional(
 		t.Number({ minimum: 1, maximum: MAX_AI_TOKEN_EXPIRES_IN_DAYS }),
@@ -213,7 +215,13 @@ Ask the user for a Jittle Lamp AI access token. It starts with "jl_ai_". Send it
 
 Authorization: Bearer <token>
 
-The token is account-scoped, read-only for AI debugging, and can only access evidence the issuing account can view and download.
+The token is account-scoped. Evidence debug tokens are read-only and can only access evidence the issuing account can view and download. MCP tokens also support evidence actions using the issuing account's current permissions.
+
+## MCP
+
+Run the local Jittle Lamp MCP command with Bun: bun run /absolute/path/jittle-lamp/apps/mcp/src/index.ts. Create an AI token with MCP access in Settings > AI tokens, set JL_AI_TOKEN to the token, and set JITTLE_LAMP_API_ORIGIN to ${baseOrigin} in the command's environment. Settings > AI tokens includes Codex and Claude Code configurations.
+
+MCP can act on evidence using your current organization permissions. It cannot access organization settings, manage members or roles, or issue tokens. Existing evidence debug tokens do not grant MCP access.
 
 ## Primary Endpoint
 
@@ -276,6 +284,16 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 		)
 		.guard({ auth: true }, (app) =>
 			app
+				.onBeforeHandle(({ authContext, requestId, set }) => {
+					if (authContext.tokenType === "clerk") return;
+					set.status = 403;
+					return createApiError(
+						requestId,
+						"AI_TOKEN_HUMAN_SESSION_REQUIRED",
+						"Sign in to Jittle Lamp to manage AI access tokens",
+						403,
+					);
+				})
 				.post(
 					"/ai/access-tokens",
 					async ({ authContext, body, db, requestId, set }) => {
@@ -293,7 +311,10 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
-						const label = body.label?.trim() || "AI evidence debugger";
+						const mcpAccess = body.access === "mcp";
+						const label =
+							body.label?.trim() ||
+							(mcpAccess ? "AI MCP client" : "AI evidence debugger");
 						const days = Math.trunc(
 							body.expiresInDays ?? DEFAULT_AI_TOKEN_EXPIRES_IN_DAYS,
 						);
@@ -304,13 +325,17 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 							userId: authContext.localUserId,
 							label,
 							expiresAt,
+							scopes: mcpAccess
+								? [AI_ACCESS_TOKEN_SCOPE, AI_MCP_TOKEN_SCOPE]
+								: [AI_ACCESS_TOKEN_SCOPE],
 						});
 					},
 					{
 						body: createAiTokenBodySchema,
 						detail: {
 							tags: ["ai"],
-							summary: "Issues a read-only AI access token for this account",
+							summary:
+								"Issues an evidence debug or MCP access token for this account",
 						},
 						response: {
 							200: createAiAccessTokenResponseSchema,

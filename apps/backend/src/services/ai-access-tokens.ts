@@ -9,6 +9,7 @@ import {
 import type { BackendDb } from "./user-provisioning";
 
 export const AI_ACCESS_TOKEN_SCOPE = "evidence:debug";
+export const AI_MCP_TOKEN_SCOPE = "mcp";
 export const AI_ACCESS_TOKEN_USAGE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
 const AI_ACCESS_TOKEN_PREFIX = "jl_ai_";
 export const AI_ACCESS_TOKEN_VERSION_V1 = "v1";

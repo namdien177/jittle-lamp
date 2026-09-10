@@ -8,7 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run build:shared && bun run build:ui && bun run build:viewer-core && bun run build:viewer-react && bun run build:extension && bun run build:desktop && bun run build:web",
+    "build": "bun run build:shared && bun run build:ui && bun run build:viewer-core && bun run build:viewer-react && bun run build:extension && bun run build:desktop && bun run build:web && bun run build:mcp",
+    "build:mcp": "bun run --cwd apps/mcp build",
+    "mcp": "bun run apps/mcp/src/index.ts",
     "build:shared": "bun run --cwd packages/shared build",
     "build:ui": "bun run --cwd packages/ui build",
     "build:extension": "bun run --cwd apps/extension build",
@@ -27,7 +29,7 @@
     "release:collect-desktop": "bun run ./scripts/release/collect-desktop-artifact.ts",
     "typecheck": "bun x tsc --noEmit -p tsconfig.typecheck.json",
     "test": "bun test",
-    "clean": "rm -rf apps/desktop/dist apps/desktop/artifacts apps/extension/dist apps/evidence-web/dist packages/shared/dist release-artifacts",
+    "clean": "rm -rf apps/desktop/dist apps/desktop/artifacts apps/extension/dist apps/evidence-web/dist apps/mcp/dist packages/shared/dist release-artifacts",
     "build:viewer-core": "bun run --cwd packages/viewer-core build",
     "build:viewer-react": "bun run --cwd packages/viewer-react build",
     "hooks:install": "bun run ./scripts/setup-git-hooks.js",

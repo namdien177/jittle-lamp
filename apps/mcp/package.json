@@ -1,0 +1,16 @@
+{
+  "name": "@jittle-lamp/mcp",
+  "version": "1.8.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "build": "bun build --target bun --outfile dist/index.js src/index.ts",
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jittle-lamp/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "zod": "4.3.6"
+  }
+}

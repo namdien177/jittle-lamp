@@ -36,6 +36,7 @@ import { ConfirmDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/misc";
+import { Select } from "../components/ui/select";
 import { apiOrigin } from "../env";
 import { cn } from "../lib/cn";
 import {
@@ -69,6 +70,7 @@ const INSTALL_COMMAND =
 	"curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash";
 
 const DEFAULT_AI_TOKEN_LABEL = "AI evidence debugger";
+const DEFAULT_MCP_TOKEN_LABEL = "AI MCP client";
 const DEFAULT_AI_TOKEN_EXPIRY_DAYS = "90";
 const DEFAULT_API_TOKEN_LABEL = "Automation evidence uploader";
 const DEFAULT_API_TOKEN_EXPIRY_DAYS = "365";
@@ -552,6 +554,7 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 	const [copiedAiToken, setCopiedAiToken] = useState(false);
 	const [copiedAiPrompt, setCopiedAiPrompt] = useState(false);
 	const [aiTokenLabel, setAiTokenLabel] = useState(DEFAULT_AI_TOKEN_LABEL);
+	const [aiTokenAccess, setAiTokenAccess] = useState<"debug" | "mcp">("debug");
 	const [aiTokenExpiryDays, setAiTokenExpiryDays] = useState(
 		DEFAULT_AI_TOKEN_EXPIRY_DAYS,
 	);
@@ -565,6 +568,10 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 	);
 
 	const aiTokens = activeTokens(aiTokensQuery.data?.accessTokens ?? []);
+	const mcpApiOrigin = new URL(apiOrigin, window.location.origin).href.replace(
+		/\/+$/,
+		"",
+	);
 
 	const onCopyAiToken = (): void => {
 		if (!createdAiToken) return;
@@ -614,7 +621,9 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 
 	const onCreateAiToken = (event: React.FormEvent<HTMLFormElement>): void => {
 		event.preventDefault();
-		const trimmedLabel = aiTokenLabel.trim() || DEFAULT_AI_TOKEN_LABEL;
+		const trimmedLabel =
+			aiTokenLabel.trim() ||
+			(aiTokenAccess === "mcp" ? DEFAULT_MCP_TOKEN_LABEL : DEFAULT_AI_TOKEN_LABEL);
 		const parsedDays = Number.parseInt(aiTokenExpiryDays, 10);
 		const expiresInDays = Number.isFinite(parsedDays)
 			? Math.min(365, Math.max(1, parsedDays))
@@ -623,12 +632,14 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 		createAiToken.mutate(
 			{
 				label: trimmedLabel,
+				access: aiTokenAccess,
 				permanent: aiTokenPermanent,
 				...(aiTokenPermanent ? {} : { expiresInDays }),
 			},
 			{
 				onSuccess: (payload) => {
 					setAiTokenLabel(DEFAULT_AI_TOKEN_LABEL);
+					setAiTokenAccess("debug");
 					setAiTokenExpiryDays(DEFAULT_AI_TOKEN_EXPIRY_DAYS);
 					setAiTokenPermanent(false);
 					setCreatedAiToken({
@@ -678,7 +689,7 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 		<>
 			<SettingCard
 				title="AI access tokens"
-				description="Use with LLM evidence debug tools."
+				description="Connect AI evidence debuggers, Codex, or Claude Code."
 			>
 				<div className="flex flex-col gap-5">
 					<TokenWarning>
@@ -690,6 +701,38 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 						className="grid gap-3 md:grid-cols-[minmax(0,1fr)_8rem_auto]"
 						onSubmit={onCreateAiToken}
 					>
+						<Field
+							label="Access"
+							className="md:col-span-3"
+							hint={
+								aiTokenAccess === "mcp"
+									? "MCP can create, change, share, and delete evidence with your current permissions. It cannot access organisation settings or manage members, roles, or tokens."
+									: "Read evidence sessions and captured request data that your account can view and download."
+							}
+						>
+							<Select<"debug" | "mcp">
+								ariaLabel="AI token access"
+								value={aiTokenAccess}
+								options={[
+									{ value: "debug", label: "Evidence debug, read only" },
+									{ value: "mcp", label: "MCP, act as your account" },
+								]}
+								disabled={createAiToken.isPending}
+								onValueChange={(access) => {
+									setAiTokenAccess(access);
+									if (
+										aiTokenLabel === DEFAULT_AI_TOKEN_LABEL ||
+										aiTokenLabel === DEFAULT_MCP_TOKEN_LABEL
+									) {
+										setAiTokenLabel(
+											access === "mcp"
+												? DEFAULT_MCP_TOKEN_LABEL
+												: DEFAULT_AI_TOKEN_LABEL,
+										);
+									}
+								}}
+							/>
+						</Field>
 						<Field label="Label" htmlFor="ai-token-label">
 							<Input
 								id="ai-token-label"
@@ -788,6 +831,9 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 												</p>
 												<TokenStatusBadge token={token} />
 												<Badge variant="outline">{token.tokenVersion}</Badge>
+												<Badge variant="outline">
+													{token.scopes.includes("mcp") ? "MCP" : "Read only"}
+												</Badge>
 											</div>
 											<div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-base text-muted-foreground">
 												<TokenSecret
@@ -801,7 +847,9 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 												<span>Last used {formatDateTime(token.lastUsedAt)}</span>
 											</div>
 											<p className="mt-2 text-base text-muted-foreground">
-												Can fetch evidence sessions for LLM debugging.
+												{token.scopes.includes("mcp")
+													? "Can act on evidence with your permissions. Organisation settings are excluded."
+													: "Can fetch evidence sessions for LLM debugging."}
 											</p>
 										</div>
 										<div className="flex items-center justify-end gap-2">
@@ -820,6 +868,64 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 							</div>
 						)}
 					</div>
+				</div>
+			</SettingCard>
+			<SettingCard
+				title="Connect Codex or Claude Code"
+				description="Create a token with MCP access, then run the local MCP command."
+			>
+				<div className="space-y-4 text-base">
+					<p className="text-muted-foreground">
+						Set <code>JL_AI_TOKEN</code> to your token in the environment that
+						starts your client. Install Bun and the Jittle Lamp repository
+						dependencies, then replace the example path with your checkout's
+						absolute path.
+					</p>
+					<details className="rounded-lg border border-border p-4">
+						<summary className="cursor-pointer font-semibold">
+							Codex configuration
+						</summary>
+						<p className="mt-3 text-muted-foreground">
+							Add to your Codex config.toml.
+						</p>
+						<pre className="mt-2 overflow-x-auto rounded-md bg-secondary p-3 text-sm">
+							<code>{`[mcp_servers.jittlelamp]\ncommand = "bun"\nargs = ["run", "/absolute/path/jittle-lamp/apps/mcp/src/index.ts"]\nenv_vars = ["JL_AI_TOKEN"]\n\n[mcp_servers.jittlelamp.env]\nJITTLE_LAMP_API_ORIGIN = ${JSON.stringify(mcpApiOrigin)}`}</code>
+						</pre>
+					</details>
+					<details className="rounded-lg border border-border p-4">
+						<summary className="cursor-pointer font-semibold">
+							Claude Code configuration
+						</summary>
+						<p className="mt-3 text-muted-foreground">
+							Add to your project's .mcp.json.
+						</p>
+						<pre className="mt-2 overflow-x-auto rounded-md bg-secondary p-3 text-sm">
+							<code>{JSON.stringify({
+								mcpServers: {
+									jittlelamp: {
+										command: "bun",
+										args: [
+											"run",
+											"/absolute/path/jittle-lamp/apps/mcp/src/index.ts",
+										],
+										env: {
+											JL_AI_TOKEN: "${JL_AI_TOKEN}",
+											JITTLE_LAMP_API_ORIGIN: mcpApiOrigin,
+										},
+									},
+								},
+							}, null, 2)}</code>
+						</pre>
+					</details>
+					<a
+						href="https://github.com/namdien177/jittle-lamp/blob/main/docs/mcp.md"
+						target="_blank"
+						rel="noreferrer"
+						className={buttonVariants({ variant: "ghost", size: "sm" })}
+					>
+						MCP setup and tools
+						<ExternalLink aria-hidden />
+					</a>
 				</div>
 			</SettingCard>
 			<ConfirmDialog

@@ -11,6 +11,8 @@
 !apps/evidence-web/package.json
 !apps/extension/
 !apps/extension/package.json
+!apps/mcp/
+!apps/mcp/package.json
 !packages/
 !packages/shared/
 !packages/shared/package.json
@@ -31,6 +33,8 @@ apps/evidence-web/node_modules
 apps/evidence-web/dist
 apps/extension/node_modules
 apps/extension/dist
+apps/mcp/node_modules
+apps/mcp/dist
 packages/shared/node_modules
 packages/shared/dist
 packages/ui/node_modules

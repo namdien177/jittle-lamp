@@ -125,7 +125,7 @@ export const createApp = (
 								type: "http",
 								scheme: "bearer",
 								description:
-									"Jittle Lamp AI access token issued per account for read-only evidence debugging",
+									"Jittle Lamp account AI token for evidence debugging or MCP actions, according to its scopes",
 							},
 							automationApiToken: {
 								type: "http",

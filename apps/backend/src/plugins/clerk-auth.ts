@@ -1,8 +1,16 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { Elysia, status } from "elysia";
 import type { RuntimeConfig } from "../config/runtime";
-import { apiErrorSchema, createApiError } from "../http/api-error";
+import {
+	apiErrorSchema,
+	createApiError,
+	createDbUnavailableError,
+} from "../http/api-error";
 import { resolveActiveOrganizationForClerkUser } from "../services/active-organization";
+import {
+	readAiBearerToken,
+	verifyAiUserAccess,
+} from "../services/ai-user-access";
 import { resolveClerkUserProfile } from "../services/clerk-user-profile";
 import { verifyDesktopAuthSessionToken } from "../services/desktop-auth";
 import {
@@ -11,7 +19,7 @@ import {
 } from "../services/user-provisioning";
 import type { CorePlugin } from "./core";
 
-export type SessionTokenType = "clerk" | "desktop" | "extension";
+export type SessionTokenType = "clerk" | "desktop" | "extension" | "ai";
 
 type ClerkSessionClaims = Record<string, unknown> & {
 	scope?: string;
@@ -36,9 +44,8 @@ export type AuthContext = {
 };
 
 /**
- * Clerk (human) sessions are fully privileged; device tokens (desktop /
- * extension) only carry the scopes their client was granted, so this is how we
- * keep the long-lived extension token away from sensitive operations.
+ * Clerk sessions have full session privileges. Device and AI tokens carry
+ * narrower scopes; AI tokens also pass an explicit route allowlist.
  */
 export const sessionHasScope = (auth: AuthContext, scope: string): boolean =>
 	auth.tokenType === "clerk" || auth.scopes.includes(scope);
@@ -301,7 +308,9 @@ export const createClerkAuthPlugin = (core: CorePlugin) =>
 			},
 			response: {
 				401: apiErrorSchema,
+				403: apiErrorSchema,
 				500: apiErrorSchema,
+				503: apiErrorSchema,
 			},
 			async resolve({ db, request, requestId, requestLogger, runtime }) {
 				if (!readSessionToken(request)) {
@@ -314,6 +323,25 @@ export const createClerkAuthPlugin = (core: CorePlugin) =>
 							401,
 						),
 					);
+				}
+
+				if (readAiBearerToken(request)) {
+					if (!db) {
+						return status(503, createDbUnavailableError(requestId));
+					}
+					const access = await verifyAiUserAccess(db, request);
+					if (!access.ok) {
+						return status(
+							access.status,
+							createApiError(
+								requestId,
+								access.code,
+								access.message,
+								access.status,
+							),
+						);
+					}
+					return { authContext: access.authContext };
 				}
 
 				if (

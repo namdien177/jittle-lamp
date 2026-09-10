@@ -14,6 +14,7 @@ export const versionPackageRelativePaths = [
   "apps/desktop/package.json",
   "apps/evidence-web/package.json",
   "apps/extension/package.json",
+  "apps/mcp/package.json",
   "packages/shared/package.json",
   "packages/viewer-core/package.json",
   "packages/viewer-react/package.json"

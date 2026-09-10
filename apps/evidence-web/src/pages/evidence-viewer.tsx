@@ -6,10 +6,11 @@ import {
   buildTargetEvidenceLlmPrompt,
   cacheAiAccessTokenSecret,
   clearCachedInactiveAiAccessTokenSecrets,
-  readCachedActivePermanentAiAccessTokenSecret
+  readCachedActivePermanentAiAccessTokenSecret,
+  readVisibleActivePermanentAiDebugTokenSecret
 } from "../ai-prompt";
 import { useAuth } from "../auth";
-import { api, type ApiAiAccessToken, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
+import { api, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
@@ -48,21 +49,6 @@ function formatEvidenceDocumentTitle(title: string): string {
       ? `${trimmed.slice(0, evidenceTitleMaxLength - 1).trimEnd()}…`
       : trimmed;
   return `${evidenceTitlePrefix} | ${suffix}`;
-}
-
-function latestActivePermanentAiToken(tokens: ApiAiAccessToken[]): ApiAiAccessToken | null {
-  const now = Date.now();
-  return (
-    tokens
-      .filter((token) => token.revokedAt === null)
-      .filter((token) => token.expiresAt === null || token.expiresAt > now)
-      .filter((token) => token.expiresAt === null)
-      .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null
-  );
-}
-
-function latestVisiblePermanentAiTokenSecret(tokens: ApiAiAccessToken[]): string | null {
-  return latestActivePermanentAiToken(tokens.filter((token) => token.token !== null))?.token ?? null;
 }
 
 function RestrictedShareScreen({ orgName }: { orgName: string }): React.JSX.Element {
@@ -335,12 +321,13 @@ function RemoteEvidenceLoader(props: {
       const accessTokens = tokenResult.data?.accessTokens ?? [];
       clearCachedInactiveAiAccessTokenSecrets(accessTokens);
       let token =
-        latestVisiblePermanentAiTokenSecret(accessTokens) ??
+        readVisibleActivePermanentAiDebugTokenSecret(accessTokens) ??
         readCachedActivePermanentAiAccessTokenSecret(accessTokens);
 
       if (!token) {
         const payload = await createAiToken.mutateAsync({
           label: permanentAiTokenLabel,
+          access: "debug",
           permanent: true
         });
         token = payload.accessToken.token ?? payload.token;

@@ -10,11 +10,25 @@ type AiAccessTokenCacheSummary = {
 	revokedAt: number | null;
 };
 
+type AiDebugTokenSummary = AiAccessTokenCacheSummary & {
+	scopes: readonly string[];
+};
+
 function isActiveAiAccessToken(
 	token: AiAccessTokenCacheSummary,
 	now = Date.now(),
 ): boolean {
 	return token.revokedAt === null && (token.expiresAt === null || token.expiresAt > now);
+}
+
+function isActivePermanentAiDebugToken(
+	token: AiDebugTokenSummary,
+	now: number,
+): boolean {
+	return token.expiresAt === null &&
+		isActiveAiAccessToken(token, now) &&
+		token.scopes.length === 1 &&
+		token.scopes[0] === "evidence:debug";
 }
 
 export function cacheAiAccessTokenSecret(tokenId: string, token: string): void {
@@ -63,11 +77,11 @@ export function clearCachedInactiveAiAccessTokenSecrets(
 }
 
 export function readCachedActivePermanentAiAccessTokenSecret(
-	tokens: AiAccessTokenCacheSummary[],
+	tokens: AiDebugTokenSummary[],
 	now = Date.now(),
 ): string | null {
 	const activePermanentTokens = tokens
-		.filter((token) => token.expiresAt === null && isActiveAiAccessToken(token, now))
+		.filter((token) => isActivePermanentAiDebugToken(token, now))
 		.sort((left, right) => right.createdAt - left.createdAt);
 
 	for (const token of activePermanentTokens) {
@@ -76,6 +90,15 @@ export function readCachedActivePermanentAiAccessTokenSecret(
 	}
 
 	return null;
+}
+
+export function readVisibleActivePermanentAiDebugTokenSecret(
+	tokens: (AiDebugTokenSummary & { token: string | null })[],
+	now = Date.now(),
+): string | null {
+	return tokens
+		.filter((token) => token.token !== null && isActivePermanentAiDebugToken(token, now))
+		.sort((left, right) => right.createdAt - left.createdAt)[0]?.token ?? null;
 }
 
 export function buildAiEvidencePrompt(token: string): string {

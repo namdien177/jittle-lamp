@@ -747,7 +747,12 @@ export const api = {
 
 	createAiAccessToken: (
 		getToken: FetchToken,
-		body: { label?: string; expiresInDays?: number; permanent?: boolean },
+		body: {
+			label?: string;
+			access?: "debug" | "mcp";
+			expiresInDays?: number;
+			permanent?: boolean;
+		},
 	) =>
 		authedFetch<ApiCreateAiAccessTokenResponse>(getToken, "/ai/access-tokens", {
 			method: "POST",

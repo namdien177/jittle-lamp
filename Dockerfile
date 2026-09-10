@@ -10,6 +10,7 @@ COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/desktop/package.json ./apps/desktop/package.json
 COPY apps/evidence-web/package.json ./apps/evidence-web/package.json
 COPY apps/extension/package.json ./apps/extension/package.json
+COPY apps/mcp/package.json ./apps/mcp/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 COPY packages/viewer-core/package.json ./packages/viewer-core/package.json

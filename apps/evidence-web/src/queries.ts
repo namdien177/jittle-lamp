@@ -309,6 +309,7 @@ export function useCreateAiAccessToken() {
 	return useMutation({
 		mutationFn: (input: {
 			label?: string;
+			access?: "debug" | "mcp";
 			expiresInDays?: number;
 			permanent?: boolean;
 		}) => api.createAiAccessToken(getToken, input),
