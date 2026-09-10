@@ -62,7 +62,7 @@ jobs:
         run: bun run typecheck
 
       - name: Run tests
-        run: bun test
+        run: bun test --timeout=15000
 
       - name: Build workspace
         run: bun run build

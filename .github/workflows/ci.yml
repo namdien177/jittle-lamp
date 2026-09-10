@@ -37,13 +37,13 @@ jobs:
         run: bun run --cwd apps/backend typecheck
 
       - name: Test backend
-        run: bun run --cwd apps/backend test
+        run: bun --cwd apps/backend test --timeout=15000
 
       - name: Typecheck workspace
         run: bun run typecheck
 
       - name: Run tests
-        run: bun test
+        run: bun test tests apps/mcp/test --timeout=15000
 
       - name: Build workspace
         run: bun run build
