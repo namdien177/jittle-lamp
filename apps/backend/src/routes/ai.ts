@@ -271,20 +271,20 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 		.use(auth)
 		.get(
 			"/llms.txt",
-			({ request, runtime, set }) => {
-				set.headers["content-type"] = "text/plain; charset=utf-8";
-				return buildLlmsTxt(resolveExternalOrigin(request, runtime.apiOrigin));
-			},
 			{
 				detail: {
 					tags: ["ai"],
 					summary: "Returns instructions for AI agents debugging evidence",
 				},
 			},
+			({ request, runtime, set }) => {
+				set.headers["content-type"] = "text/plain; charset=utf-8";
+				return buildLlmsTxt(resolveExternalOrigin(request, runtime.apiOrigin));
+			},
 		)
 		.guard({ auth: true }, (app) =>
 			app
-				.onBeforeHandle(({ authContext, requestId, set }) => {
+				.beforeHandle(({ authContext, requestId, set }) => {
 					if (authContext.tokenType === "clerk") return;
 					set.status = 403;
 					return createApiError(
@@ -296,6 +296,21 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 				})
 				.post(
 					"/ai/access-tokens",
+					{
+						body: createAiTokenBodySchema,
+						detail: {
+							tags: ["ai"],
+							summary:
+								"Issues an evidence debug or MCP access token for this account",
+						},
+						response: {
+							200: createAiAccessTokenResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, body, db, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -330,24 +345,22 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 								: [AI_ACCESS_TOKEN_SCOPE],
 						});
 					},
+				)
+				.get(
+					"/ai/access-tokens",
 					{
-						body: createAiTokenBodySchema,
 						detail: {
 							tags: ["ai"],
-							summary:
-								"Issues an evidence debug or MCP access token for this account",
+							summary: "Lists AI access tokens for this account",
 						},
 						response: {
-							200: createAiAccessTokenResponseSchema,
+							200: listAiAccessTokensResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/ai/access-tokens",
 					async ({ authContext, db, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -382,22 +395,24 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { accessTokens: rows.map(mapTokenSummary) };
 					},
+				)
+				.delete(
+					"/ai/access-tokens/:id",
 					{
+						params: aiTokenParamsSchema,
 						detail: {
 							tags: ["ai"],
-							summary: "Lists AI access tokens for this account",
+							summary: "Revokes an AI access token for this account",
 						},
 						response: {
-							200: listAiAccessTokensResponseSchema,
+							200: revokeAiAccessTokenResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							404: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.delete(
-					"/ai/access-tokens/:id",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -430,25 +445,27 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { accessToken: { id: params.id, revokedAt } };
 					},
-					{
-						params: aiTokenParamsSchema,
-						detail: {
-							tags: ["ai"],
-							summary: "Revokes an AI access token for this account",
-						},
-						response: {
-							200: revokeAiAccessTokenResponseSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							404: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				),
 		)
 		.get(
 			"/ai/evidences/:id/debug",
+			{
+				params: evidenceDebugParamsSchema,
+				query: evidenceDebugQuerySchema,
+				detail: {
+					tags: ["ai"],
+					summary:
+						"Returns AI-oriented evidence, session, and artifact debug context",
+				},
+				response: {
+					200: aiEvidenceDebugResponseSchema,
+					401: apiErrorSchema,
+					403: apiErrorSchema,
+					404: apiErrorSchema,
+					500: apiErrorSchema,
+					503: apiErrorSchema,
+				},
+			},
 			async ({
 				artifactStorage,
 				db,
@@ -695,22 +712,5 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 						notes,
 					},
 				};
-			},
-			{
-				params: evidenceDebugParamsSchema,
-				query: evidenceDebugQuerySchema,
-				detail: {
-					tags: ["ai"],
-					summary:
-						"Returns AI-oriented evidence, session, and artifact debug context",
-				},
-				response: {
-					200: aiEvidenceDebugResponseSchema,
-					401: apiErrorSchema,
-					403: apiErrorSchema,
-					404: apiErrorSchema,
-					500: apiErrorSchema,
-					503: apiErrorSchema,
-				},
 			},
 		);

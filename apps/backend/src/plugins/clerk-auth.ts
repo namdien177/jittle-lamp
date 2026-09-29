@@ -312,7 +312,7 @@ export const createClerkAuthPlugin = (core: CorePlugin) =>
 				500: apiErrorSchema,
 				503: apiErrorSchema,
 			},
-			async resolve({ db, request, requestId, requestLogger, runtime }) {
+			async derive({ db, request, requestId, requestLogger, runtime }) {
 				if (!readSessionToken(request)) {
 					return status(
 						401,

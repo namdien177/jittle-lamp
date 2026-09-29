@@ -91,6 +91,7 @@ function NotFoundPage(): React.JSX.Element {
 export const router = createBrowserRouter([
   {
     element: <RootLayout />,
+    hydrateFallbackElement: <StatusScreen loading title="Loading workspace" />,
     errorElement: <RouteError />,
     children: [
       // Authenticated workspace (persistent shell across these routes).

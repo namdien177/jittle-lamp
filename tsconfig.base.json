@@ -1,7 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
@@ -17,16 +15,16 @@
     "forceConsistentCasingInFileNames": true,
     "paths": {
       "@jittle-lamp/shared": [
-        "packages/shared/src/index.ts"
+        "./packages/shared/src/index.ts"
       ],
       "@jittle-lamp/ui": [
-        "packages/ui/src/index.ts"
+        "./packages/ui/src/index.ts"
       ],
       "@jittle-lamp/viewer-core": [
-        "packages/viewer-core/src/index.ts"
+        "./packages/viewer-core/src/index.ts"
       ],
       "@jittle-lamp/viewer-react": [
-        "packages/viewer-react/src/index.ts"
+        "./packages/viewer-react/src/index.ts"
       ]
     }
   }

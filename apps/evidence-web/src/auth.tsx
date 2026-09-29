@@ -3,12 +3,11 @@ import {
   ClerkProvider,
   SignIn as ClerkSignIn,
   SignInButton as ClerkSignInButton,
-  SignedIn as ClerkSignedIn,
-  SignedOut as ClerkSignedOut,
+  Show as ClerkShow,
   UserButton as ClerkUserButton,
   useAuth as useClerkAuth,
   useClerk as useClerkSdk,
-} from "@clerk/clerk-react";
+} from "@clerk/react";
 
 import { clerkPublishableKey, devAuth, devAuthEnabled } from "./env";
 import { Button } from "./components/ui/button";
@@ -68,12 +67,12 @@ export function useClerk(): ReturnType<typeof useClerkSdk> {
 
 export function SignedIn(props: { children: React.ReactNode }): React.JSX.Element | null {
   if (devAuthEnabled) return <>{props.children}</>;
-  return <ClerkSignedIn>{props.children}</ClerkSignedIn>;
+  return <ClerkShow when="signed-in">{props.children}</ClerkShow>;
 }
 
 export function SignedOut(props: { children: React.ReactNode }): React.JSX.Element | null {
   if (devAuthEnabled) return null;
-  return <ClerkSignedOut>{props.children}</ClerkSignedOut>;
+  return <ClerkShow when="signed-out">{props.children}</ClerkShow>;
 }
 
 export function SignInButton(props: {

@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@jittle-lamp/shared": "workspace:*",
-    "lucide": "^1.14.0"
+    "lucide": "^1.48.0"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.325"
+    "@types/chrome": "^0.3.4"
   }
 }

@@ -18,26 +18,26 @@
     "cli": "bun run ./src/cli.ts"
   },
   "dependencies": {
-    "@clerk/clerk-react": "^5.61.3",
-    "@hookform/resolvers": "^5.2.2",
+    "@clerk/react": "^6.17.3",
+    "@hookform/resolvers": "^5.9.1",
     "@jittle-lamp/shared": "workspace:*",
     "@jittle-lamp/ui": "workspace:*",
     "@jittle-lamp/viewer-core": "workspace:*",
     "@jittle-lamp/viewer-react": "workspace:*",
-    "@tanstack/react-query": "^5.100.5",
+    "@tanstack/react-query": "^5.104.0",
     "@vercel/analytics": "^2.0.1",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
     "libsql": "0.5.29",
-    "lucide-react": "^1.14.0",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "react-hook-form": "^7.75.0",
-    "react-router": "7.14.2",
-    "zod": "4.3.6"
+    "lucide-react": "^1.48.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-hook-form": "^7.89.0",
+    "react-router": "8.4.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "electron": "41.3.0",
-    "electron-builder": "26.8.1"
+    "electron": "44.5.0",
+    "electron-builder": "26.15.3"
   },
   "build": {
     "appId": "dev.jittlelamp.desktop",

@@ -53,6 +53,17 @@ export const createDesktopAuthRoutes = (auth: ClerkAuthPlugin) =>
 		.use(auth)
 		.post(
 			"/desktop-auth/flows",
+			{
+				detail: {
+					tags: ["desktop-auth"],
+					summary: "Starts a desktop browser authentication flow",
+				},
+				response: {
+					200: desktopAuthStartResponseSchema,
+					500: apiErrorSchema,
+					503: apiErrorSchema,
+				},
+			},
 			async ({ db, requestId, runtime, set }) => {
 				if (!db) {
 					set.status = 503;
@@ -77,20 +88,26 @@ export const createDesktopAuthRoutes = (auth: ClerkAuthPlugin) =>
 					...(await startDesktopAuthFlow(db, runtime)),
 				};
 			},
+		)
+		.get(
+			"/desktop-auth/flows/:deviceCode",
 			{
+				params: t.Object({
+					deviceCode: t.String({ minLength: 1 }),
+				}),
 				detail: {
 					tags: ["desktop-auth"],
-					summary: "Starts a desktop browser authentication flow",
+					summary: "Polls a pending desktop authentication flow",
 				},
 				response: {
-					200: desktopAuthStartResponseSchema,
+					200: t.Union([
+						desktopAuthPendingResponseSchema,
+						desktopAuthApprovedResponseSchema,
+					]),
 					500: apiErrorSchema,
 					503: apiErrorSchema,
 				},
 			},
-		)
-		.get(
-			"/desktop-auth/flows/:deviceCode",
 			async ({ db, params, requestId, runtime, set }) => {
 				if (!db) {
 					set.status = 503;
@@ -112,27 +129,28 @@ export const createDesktopAuthRoutes = (auth: ClerkAuthPlugin) =>
 
 				return pollDesktopAuthFlow(db, runtime, params.deviceCode);
 			},
-			{
-				params: t.Object({
-					deviceCode: t.String({ minLength: 1 }),
-				}),
-				detail: {
-					tags: ["desktop-auth"],
-					summary: "Polls a pending desktop authentication flow",
-				},
-				response: {
-					200: t.Union([
-						desktopAuthPendingResponseSchema,
-						desktopAuthApprovedResponseSchema,
-					]),
-					500: apiErrorSchema,
-					503: apiErrorSchema,
-				},
-			},
 		)
 		.guard({ auth: true }, (app) =>
 			app.post(
 				"/desktop-auth/flows/complete",
+				{
+					body: t.Object({
+						userCode: t.String({ minLength: 1 }),
+					}),
+					detail: {
+						tags: ["desktop-auth"],
+						summary:
+							"Approves a pending desktop authentication flow for the signed-in Clerk user",
+					},
+					response: {
+						200: desktopAuthCompleteResponseSchema,
+						400: apiErrorSchema,
+						401: apiErrorSchema,
+						410: apiErrorSchema,
+						500: apiErrorSchema,
+						503: apiErrorSchema,
+					},
+				},
 				async ({ authContext, body, db, requestId, runtime, set }) => {
 					if (!db) {
 						set.status = 503;
@@ -174,24 +192,6 @@ export const createDesktopAuthRoutes = (auth: ClerkAuthPlugin) =>
 						status: "approved" as const,
 						expiresAt: result.expiresAt,
 					};
-				},
-				{
-					body: t.Object({
-						userCode: t.String({ minLength: 1 }),
-					}),
-					detail: {
-						tags: ["desktop-auth"],
-						summary:
-							"Approves a pending desktop authentication flow for the signed-in Clerk user",
-					},
-					response: {
-						200: desktopAuthCompleteResponseSchema,
-						400: apiErrorSchema,
-						401: apiErrorSchema,
-						410: apiErrorSchema,
-						500: apiErrorSchema,
-						503: apiErrorSchema,
-					},
 				},
 			),
 		);

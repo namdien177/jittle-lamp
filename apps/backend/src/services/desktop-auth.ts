@@ -260,8 +260,7 @@ export const refreshExtensionAuthSession = async (
 	});
 
 	if (
-		!session ||
-		session.client !== "extension" ||
+		session?.client !== "extension" ||
 		session.revokedAt !== null ||
 		session.refreshExpiresAt === null
 	) {

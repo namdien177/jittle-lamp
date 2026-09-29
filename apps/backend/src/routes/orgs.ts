@@ -112,13 +112,13 @@ const invitationCodeSchema = t.Object({
 	createdBy: t.String({ minLength: 1 }),
 });
 
-const createdInvitationCodeSchema = t.Composite([
+const createdInvitationCodeSchema = t.Composite(
 	invitationCodeSchema,
 	t.Object({
 		code: t.String({ minLength: 1 }),
 		organizationId: t.String({ minLength: 1 }),
 	}),
-]);
+);
 
 const createInvitationBodySchema = t.Object({
 	email: t.String({ format: "email", minLength: 3, maxLength: 200 }),
@@ -211,7 +211,7 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 		.use(auth)
 		.guard({ auth: true }, (app) =>
 			app
-				.onBeforeHandle(
+				.beforeHandle(
 					({ authContext, requestId, set }) =>
 						// Organization management is not a device-token capability; only
 						// human (Clerk) sessions and the desktop companion hold org scopes.
@@ -220,6 +220,17 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 				)
 				.get(
 					"/orgs",
+					{
+						response: {
+							200: t.Object({
+								organizations: t.Array(organizationSummarySchema),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -235,20 +246,21 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							organizations: await listOrganizationsForUser(db, localUserId),
 						};
 					},
+				)
+				.post(
+					"/orgs",
 					{
+						body: t.Object({
+							name: t.String({ minLength: 1, maxLength: 100 }),
+						}),
 						response: {
-							200: t.Object({
-								organizations: t.Array(organizationSummarySchema),
-							}),
+							200: t.Object({ organization: organizationSummarySchema }),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/orgs",
 					async ({ authContext, body, db, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -266,21 +278,21 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { organization: created };
 					},
+				)
+				.patch(
+					"/orgs/:orgId",
 					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
 						body: t.Object({
 							name: t.String({ minLength: 1, maxLength: 100 }),
 						}),
 						response: {
-							200: t.Object({ organization: organizationSummarySchema }),
+							200: t.Object({ organizationId: t.String(), name: t.String() }),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
-							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.patch(
-					"/orgs/:orgId",
 					async ({
 						authContext,
 						body,
@@ -329,21 +341,19 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { organizationId: params.orgId, name: body.name };
 					},
+				)
+				.delete(
+					"/orgs/:orgId",
 					{
 						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						body: t.Object({
-							name: t.String({ minLength: 1, maxLength: 100 }),
-						}),
 						response: {
-							200: t.Object({ organizationId: t.String(), name: t.String() }),
+							200: t.Object({ ok: t.Boolean() }),
+							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.delete(
-					"/orgs/:orgId",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -373,19 +383,19 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
-					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						response: {
-							200: t.Object({ ok: t.Boolean() }),
-							400: apiErrorSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.post(
 					"/orgs/:orgId/select-active",
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						response: {
+							200: t.Object({ organizationId: t.String({ minLength: 1 }) }),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -407,19 +417,19 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						}
 						return { organizationId: selected.organizationId };
 					},
-					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						response: {
-							200: t.Object({ organizationId: t.String({ minLength: 1 }) }),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.post(
 					"/orgs/:orgId/leave",
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						response: {
+							200: t.Object({ ok: t.Boolean() }),
+							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -458,19 +468,38 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
-					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						response: {
-							200: t.Object({ ok: t.Boolean() }),
-							400: apiErrorSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.get(
 					"/orgs/:orgId/members",
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						query: t.Object({
+							search: t.Optional(t.String()),
+							role: t.Optional(
+								t.Union([
+									t.Literal("all"),
+									t.Literal("admin"),
+									t.Literal("moderator"),
+									t.Literal("developer"),
+									t.Literal("qa_engineer"),
+								]),
+							),
+							page: t.Optional(t.Number({ minimum: 1 })),
+							limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
+						}),
+						response: {
+							200: t.Object({
+								members: t.Array(memberSummarySchema),
+								total: t.Number({ minimum: 0 }),
+								page: t.Number({ minimum: 1 }),
+								limit: t.Number({ minimum: 1 }),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({
 						authContext,
 						db,
@@ -514,38 +543,22 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							limit: query.limit,
 						});
 					},
-					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						query: t.Object({
-							search: t.Optional(t.String()),
-							role: t.Optional(
-								t.Union([
-									t.Literal("all"),
-									t.Literal("admin"),
-									t.Literal("moderator"),
-									t.Literal("developer"),
-									t.Literal("qa_engineer"),
-								]),
-							),
-							page: t.Optional(t.Number({ minimum: 1 })),
-							limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
-						}),
-						response: {
-							200: t.Object({
-								members: t.Array(memberSummarySchema),
-								total: t.Number({ minimum: 0 }),
-								page: t.Number({ minimum: 1 }),
-								limit: t.Number({ minimum: 1 }),
-							}),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.patch(
 					"/orgs/:orgId/members/:membershipId",
+					{
+						params: t.Object({ orgId: t.String(), membershipId: t.String() }),
+						body: t.Object({
+							role: roleSchema,
+						}),
+						response: {
+							200: t.Object({ ok: t.Boolean() }),
+							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({
 						authContext,
 						body,
@@ -597,11 +610,11 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
+				)
+				.delete(
+					"/orgs/:orgId/members/:membershipId",
 					{
 						params: t.Object({ orgId: t.String(), membershipId: t.String() }),
-						body: t.Object({
-							role: roleSchema,
-						}),
 						response: {
 							200: t.Object({ ok: t.Boolean() }),
 							400: apiErrorSchema,
@@ -610,9 +623,6 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.delete(
-					"/orgs/:orgId/members/:membershipId",
 					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -652,19 +662,24 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
+				)
+				.patch(
+					"/orgs/:orgId/settings",
 					{
-						params: t.Object({ orgId: t.String(), membershipId: t.String() }),
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						body: t.Object({ requireInvitationApproval: t.Boolean() }),
 						response: {
-							200: t.Object({ ok: t.Boolean() }),
-							400: apiErrorSchema,
+							200: t.Object({
+								settings: t.Object({
+									organizationId: t.String({ minLength: 1 }),
+									requireInvitationApproval: t.Boolean(),
+								}),
+							}),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.patch(
-					"/orgs/:orgId/settings",
 					async ({
 						authContext,
 						body,
@@ -713,24 +728,21 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { settings };
 					},
+				)
+				.get(
+					"/orgs/:orgId/roles",
 					{
 						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						body: t.Object({ requireInvitationApproval: t.Boolean() }),
 						response: {
 							200: t.Object({
-								settings: t.Object({
-									organizationId: t.String({ minLength: 1 }),
-									requireInvitationApproval: t.Boolean(),
-								}),
+								permissions: t.Array(rolePermissionSchema),
+								roles: t.Array(organizationRoleSchema),
 							}),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/orgs/:orgId/roles",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -761,21 +773,23 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							roles: await listOrganizationRoles(db, params.orgId),
 						};
 					},
+				)
+				.patch(
+					"/orgs/:orgId/roles/:role",
 					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						params: t.Object({
+							orgId: t.String({ minLength: 1 }),
+							role: roleSchema,
+						}),
+						body: t.Object({ permissions: t.Array(rolePermissionSchema) }),
 						response: {
-							200: t.Object({
-								permissions: t.Array(rolePermissionSchema),
-								roles: t.Array(organizationRoleSchema),
-							}),
+							200: t.Object({ role: organizationRoleSchema }),
+							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.patch(
-					"/orgs/:orgId/roles/:role",
 					async ({
 						authContext,
 						body,
@@ -837,23 +851,18 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
+				)
+				.get(
+					"/orgs/:orgId/join-requests",
 					{
-						params: t.Object({
-							orgId: t.String({ minLength: 1 }),
-							role: roleSchema,
-						}),
-						body: t.Object({ permissions: t.Array(rolePermissionSchema) }),
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
 						response: {
-							200: t.Object({ role: organizationRoleSchema }),
-							400: apiErrorSchema,
+							200: t.Object({ requests: t.Array(joinRequestSchema) }),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/orgs/:orgId/join-requests",
 					async ({ authContext, db, params, requestId, runtime, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -887,18 +896,33 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							}),
 						};
 					},
-					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						response: {
-							200: t.Object({ requests: t.Array(joinRequestSchema) }),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.post(
 					"/orgs/:orgId/join-requests/:joinRequestId/review",
+					{
+						params: t.Object({
+							orgId: t.String({ minLength: 1 }),
+							joinRequestId: t.String({ minLength: 1 }),
+						}),
+						body: t.Object({
+							decision: t.Union([t.Literal("approved"), t.Literal("rejected")]),
+						}),
+						response: {
+							200: t.Object({
+								review: t.Object({
+									requestId: t.String({ minLength: 1 }),
+									status: t.Union([
+										t.Literal("approved"),
+										t.Literal("rejected"),
+									]),
+								}),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({
 						authContext,
 						body,
@@ -950,33 +974,30 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { review };
 					},
-					{
-						params: t.Object({
-							orgId: t.String({ minLength: 1 }),
-							joinRequestId: t.String({ minLength: 1 }),
-						}),
-						body: t.Object({
-							decision: t.Union([t.Literal("approved"), t.Literal("rejected")]),
-						}),
-						response: {
-							200: t.Object({
-								review: t.Object({
-									requestId: t.String({ minLength: 1 }),
-									status: t.Union([
-										t.Literal("approved"),
-										t.Literal("rejected"),
-									]),
-								}),
-							}),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.get(
 					"/orgs/:orgId/activity",
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						query: t.Object({
+							userId: t.Optional(t.String({ minLength: 1 })),
+							action: t.Optional(t.String({ minLength: 1 })),
+							from: t.Optional(t.Number({ minimum: 0 })),
+							to: t.Optional(t.Number({ minimum: 0 })),
+							page: t.Optional(t.Number({ minimum: 1 })),
+							limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
+						}),
+						response: {
+							200: t.Object({
+								logs: t.Array(activityLogSchema),
+								page: t.Number({ minimum: 1 }),
+								limit: t.Number({ minimum: 1 }),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, params, query, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1013,30 +1034,22 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							limit: query.limit,
 						});
 					},
-					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						query: t.Object({
-							userId: t.Optional(t.String({ minLength: 1 })),
-							action: t.Optional(t.String({ minLength: 1 })),
-							from: t.Optional(t.Number({ minimum: 0 })),
-							to: t.Optional(t.Number({ minimum: 0 })),
-							page: t.Optional(t.Number({ minimum: 1 })),
-							limit: t.Optional(t.Number({ minimum: 1, maximum: 100 })),
-						}),
-						response: {
-							200: t.Object({
-								logs: t.Array(activityLogSchema),
-								page: t.Number({ minimum: 1 }),
-								limit: t.Number({ minimum: 1 }),
-							}),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.get(
 					"/orgs/:orgId/invitations",
+					{
+						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						response: {
+							200: t.Object({
+								invitations: t.Array(invitationSummarySchema),
+								codes: t.Array(invitationCodeSchema),
+							}),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1067,12 +1080,18 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							codes: await listOrganizationInvitationCodes(db, params.orgId),
 						};
 					},
+				)
+				.post(
+					"/orgs/:orgId/invitations",
 					{
 						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
+						body: createInvitationBodySchema,
 						response: {
 							200: t.Object({
-								invitations: t.Array(invitationSummarySchema),
-								codes: t.Array(invitationCodeSchema),
+								invitation: t.Composite(
+									invitationSummarySchema,
+									t.Object({ organizationId: t.String(), token: t.String() }),
+								),
 							}),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
@@ -1080,9 +1099,6 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/orgs/:orgId/invitations",
 					async ({
 						authContext,
 						body,
@@ -1134,25 +1150,20 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { invitation };
 					},
-					{
-						params: t.Object({ orgId: t.String({ minLength: 1 }) }),
-						body: createInvitationBodySchema,
-						response: {
-							200: t.Object({
-								invitation: t.Composite([
-									invitationSummarySchema,
-									t.Object({ organizationId: t.String(), token: t.String() }),
-								]),
-							}),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.post(
 					"/orgs/:orgId/invitation-codes",
+					{
+						params: t.Object({ orgId: t.String() }),
+						body: createInvitationCodeBodySchema,
+						response: {
+							200: t.Object({ code: createdInvitationCodeSchema }),
+							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({
 						authContext,
 						body,
@@ -1219,20 +1230,20 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
-					{
-						params: t.Object({ orgId: t.String() }),
-						body: createInvitationCodeBodySchema,
-						response: {
-							200: t.Object({ code: createdInvitationCodeSchema }),
-							400: apiErrorSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.post(
 					"/orgs/:orgId/invitation-codes/:codeId/lock",
+					{
+						params: t.Object({ orgId: t.String(), codeId: t.String() }),
+						body: t.Object({ locked: t.Boolean() }),
+						response: {
+							200: t.Object({ code: invitationCodeSchema }),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({
 						authContext,
 						body,
@@ -1294,20 +1305,18 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { code };
 					},
-					{
-						params: t.Object({ orgId: t.String(), codeId: t.String() }),
-						body: t.Object({ locked: t.Boolean() }),
-						response: {
-							200: t.Object({ code: invitationCodeSchema }),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							404: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.delete(
 					"/orgs/:orgId/invitation-codes/:codeId",
+					{
+						params: t.Object({ orgId: t.String(), codeId: t.String() }),
+						response: {
+							200: t.Object({ ok: t.Boolean() }),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1349,18 +1358,23 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { ok: true };
 					},
-					{
-						params: t.Object({ orgId: t.String(), codeId: t.String() }),
-						response: {
-							200: t.Object({ ok: t.Boolean() }),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.post(
 					"/orgs/:orgId/invitations/:invitationId/revoke",
+					{
+						params: t.Object({
+							orgId: t.String({ minLength: 1 }),
+							invitationId: t.String({ minLength: 1 }),
+						}),
+						response: {
+							200: t.Object({ invitation: invitationSummarySchema }),
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, params, request, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1411,40 +1425,9 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						});
 						return { invitation: revoked };
 					},
-					{
-						params: t.Object({
-							orgId: t.String({ minLength: 1 }),
-							invitationId: t.String({ minLength: 1 }),
-						}),
-						response: {
-							200: t.Object({ invitation: invitationSummarySchema }),
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							404: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				)
 				.post(
 					"/orgs/invitations/lookup",
-					async ({ body, db, requestId, set }) => {
-						if (!db) {
-							set.status = 503;
-							return createDbUnavailableError(requestId);
-						}
-						const code = await lookupInvitationCode(db, body.token);
-						if (!code) {
-							set.status = 404;
-							return createApiError(
-								requestId,
-								"INVITATION_CODE_NOT_FOUND",
-								"Invitation code not found, expired, or locked",
-								404,
-							);
-						}
-						return { code };
-					},
 					{
 						body: t.Object({ token: t.String({ minLength: 1 }) }),
 						response: {
@@ -1462,9 +1445,45 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
+					async ({ body, db, requestId, set }) => {
+						if (!db) {
+							set.status = 503;
+							return createDbUnavailableError(requestId);
+						}
+						const code = await lookupInvitationCode(db, body.token);
+						if (!code) {
+							set.status = 404;
+							return createApiError(
+								requestId,
+								"INVITATION_CODE_NOT_FOUND",
+								"Invitation code not found, expired, or locked",
+								404,
+							);
+						}
+						return { code };
+					},
 				)
 				.post(
 					"/orgs/invitations/accept",
+					{
+						body: acceptInvitationBodySchema,
+						response: {
+							200: t.Object({
+								organizationId: t.String(),
+								role: roleSchema,
+								invitationId: t.String(),
+								status: t.Union([
+									t.Literal("accepted"),
+									t.Literal("pending_approval"),
+								]),
+							}),
+							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({
 						authContext,
 						body,
@@ -1528,25 +1547,6 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 								400,
 							);
 						}
-					},
-					{
-						body: acceptInvitationBodySchema,
-						response: {
-							200: t.Object({
-								organizationId: t.String(),
-								role: roleSchema,
-								invitationId: t.String(),
-								status: t.Union([
-									t.Literal("accepted"),
-									t.Literal("pending_approval"),
-								]),
-							}),
-							400: apiErrorSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
 					},
 				),
 		);

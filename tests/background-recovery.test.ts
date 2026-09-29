@@ -5,7 +5,7 @@ import { createSessionDraft, transitionDraftPhase, updateDraftPage, type Capture
 type BackgroundModule = typeof import("../apps/extension/src/background");
 type StubTab = {
   id: number;
-  status?: string;
+  status?: chrome.tabs.Tab["status"];
   title?: string;
   url?: string;
 };
@@ -1373,8 +1373,8 @@ function createChromeHarness() {
   > = [];
   const debuggerEventListeners: Array<(source: chrome.debugger.Debuggee, method: string, params?: unknown) => void> = [];
   const debuggerDetachListeners: Array<(source: chrome.debugger.Debuggee, reason: string) => void> = [];
-  const tabUpdatedListeners: Array<(tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void> = [];
-  const tabRemovedListeners: Array<(tabId: number, removeInfo: chrome.tabs.TabRemoveInfo) => void> = [];
+  const tabUpdatedListeners: Array<(tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void> = [];
+  const tabRemovedListeners: Array<(tabId: number, removeInfo: chrome.tabs.OnRemovedInfo) => void> = [];
   const alarmListeners: Array<(alarm: chrome.alarms.Alarm) => void> = [];
 
   const sessionStorage = new Map<string, unknown>();
@@ -1473,12 +1473,12 @@ function createChromeHarness() {
     debugger: debuggerApi,
     tabs: {
       onUpdated: {
-        addListener(listener: (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void): void {
+        addListener(listener: (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void): void {
           tabUpdatedListeners.push(listener);
         }
       },
       onRemoved: {
-        addListener(listener: (tabId: number, removeInfo: chrome.tabs.TabRemoveInfo) => void): void {
+        addListener(listener: (tabId: number, removeInfo: chrome.tabs.OnRemovedInfo) => void): void {
           tabRemovedListeners.push(listener);
         }
       },
@@ -1837,6 +1837,7 @@ function createTab(tab: StubTab): chrome.tabs.Tab {
     id: tab.id,
     incognito: false,
     index: 0,
+    lastAccessed: 0,
     pinned: false,
     selected: true,
     status: tab.status,

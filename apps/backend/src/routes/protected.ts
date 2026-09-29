@@ -78,6 +78,17 @@ export const createProtectedRoutes = (auth: ClerkAuthPlugin) =>
 		.guard({ auth: true }, (app) =>
 			app.get(
 				"/protected/me",
+				{
+					detail: {
+						tags: ["auth"],
+						summary: "Returns auth context for current request",
+					},
+					response: {
+						200: protectedMeResponseSchema,
+						401: apiErrorSchema,
+						500: apiErrorSchema,
+					},
+				},
 				async ({ authContext, db, requestLogger, runtime }) => {
 					let user: ClerkUserSummary = {
 						id: authContext.userId,
@@ -187,17 +198,6 @@ export const createProtectedRoutes = (auth: ClerkAuthPlugin) =>
 						user,
 						organizations,
 					};
-				},
-				{
-					detail: {
-						tags: ["auth"],
-						summary: "Returns auth context for current request",
-					},
-					response: {
-						200: protectedMeResponseSchema,
-						401: apiErrorSchema,
-						500: apiErrorSchema,
-					},
 				},
 			),
 		);

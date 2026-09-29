@@ -241,6 +241,22 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 			app
 				.get(
 					"/evidences/:id/comments",
+					{
+						params: t.Object({ id: t.String({ minLength: 1 }) }),
+						query: evidenceOrgQuerySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Lists discussion comments for an evidence record",
+						},
+						response: {
+							200: listEvidenceCommentsResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, db, params, query, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -292,25 +308,27 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							})),
 						};
 					},
+				)
+				.post(
+					"/evidences/:id/comments",
 					{
 						params: t.Object({ id: t.String({ minLength: 1 }) }),
 						query: evidenceOrgQuerySchema,
+						body: createEvidenceCommentBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Lists discussion comments for an evidence record",
+							summary: "Adds a discussion comment to an evidence record",
 						},
 						response: {
-							200: listEvidenceCommentsResponseSchema,
+							200: createEvidenceCommentResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
+							422: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/:id/comments",
 					async ({
 						authContext,
 						body,
@@ -421,27 +439,26 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 						};
 					},
+				)
+				.delete(
+					"/evidences/:id",
 					{
-						params: t.Object({ id: t.String({ minLength: 1 }) }),
-						query: evidenceOrgQuerySchema,
-						body: createEvidenceCommentBodySchema,
+						params: t.Object({
+							id: t.String({ minLength: 1 }),
+						}),
 						detail: {
 							tags: ["evidences"],
-							summary: "Adds a discussion comment to an evidence record",
+							summary: "Moves an evidence record to the bin for 30 days",
 						},
 						response: {
-							200: createEvidenceCommentResponseSchema,
+							200: deleteEvidenceResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
-							422: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.delete(
-					"/evidences/:id",
 					async ({
 						authContext,
 						db,
@@ -591,16 +608,18 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							deleted: { mode: "soft" as const },
 						};
 					},
+				)
+				.post(
+					"/evidences/bulk-delete",
 					{
-						params: t.Object({
-							id: t.String({ minLength: 1 }),
-						}),
+						body: bulkDeleteEvidenceBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Moves an evidence record to the bin for 30 days",
+							summary:
+								"Moves multiple evidence records to the bin in one operation",
 						},
 						response: {
-							200: deleteEvidenceResponseSchema,
+							200: bulkDeleteEvidenceResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
@@ -608,9 +627,6 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/bulk-delete",
 					async ({
 						authContext,
 						body,
@@ -773,25 +789,28 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							deleted: { mode: "soft" as const, count: deleted.length },
 						};
 					},
+				)
+				.post(
+					"/evidences/:id/copy",
 					{
-						body: bulkDeleteEvidenceBodySchema,
+						params: t.Object({
+							id: t.String({ minLength: 1 }),
+						}),
+						body: copyEvidenceBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary:
-								"Moves multiple evidence records to the bin in one operation",
+							summary: "Copies evidence to another organization",
 						},
 						response: {
-							200: bulkDeleteEvidenceResponseSchema,
+							200: copyEvidenceResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
+							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/:id/copy",
 					async ({
 						authContext,
 						body,
@@ -1010,17 +1029,20 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 						};
 					},
+				)
+				.post(
+					"/evidences/:id/move",
 					{
 						params: t.Object({
 							id: t.String({ minLength: 1 }),
 						}),
-						body: copyEvidenceBodySchema,
+						body: moveEvidenceBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Copies evidence to another organization",
+							summary: "Moves evidence to another organization",
 						},
 						response: {
-							200: copyEvidenceResponseSchema,
+							200: moveEvidenceResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
@@ -1029,9 +1051,6 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/:id/move",
 					async ({
 						authContext,
 						body,
@@ -1252,28 +1271,28 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							},
 						};
 					},
+				)
+				.patch(
+					"/evidences/:id",
 					{
 						params: t.Object({
 							id: t.String({ minLength: 1 }),
 						}),
-						body: moveEvidenceBodySchema,
+						body: renameEvidenceBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Moves evidence to another organization",
+							summary: "Renames an evidence record",
 						},
 						response: {
-							200: moveEvidenceResponseSchema,
+							200: renameEvidenceResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
-							409: apiErrorSchema,
+							422: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.patch(
-					"/evidences/:id",
 					async ({
 						authContext,
 						body,
@@ -1414,25 +1433,6 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						});
 
 						return { evidence: updated };
-					},
-					{
-						params: t.Object({
-							id: t.String({ minLength: 1 }),
-						}),
-						body: renameEvidenceBodySchema,
-						detail: {
-							tags: ["evidences"],
-							summary: "Renames an evidence record",
-						},
-						response: {
-							200: renameEvidenceResponseSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							404: apiErrorSchema,
-							422: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
 					},
 				),
 		);

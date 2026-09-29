@@ -113,6 +113,7 @@ export const createMigrationDiscoveryRoutes = (
 		)
 		.post(
 			"/migrations/v1/handshakes",
+			{ body: t.Any() },
 			async ({ body, requestId, set }) => {
 				if (!migration) {
 					set.status = 503;
@@ -131,10 +132,10 @@ export const createMigrationDiscoveryRoutes = (
 					return migrationError(error, requestId, set);
 				}
 			},
-			{ body: t.Any() },
 		)
 		.post(
 			"/migrations/v1/imports/:linkId/runs",
+			{ body: t.Any() },
 			async ({ body, params, request, requestId, set }) => {
 				if (!migration) return createDbUnavailableError(requestId);
 				try {
@@ -147,10 +148,10 @@ export const createMigrationDiscoveryRoutes = (
 					return migrationError(error, requestId, set);
 				}
 			},
-			{ body: t.Any() },
 		)
 		.put(
 			"/migrations/v1/imports/:linkId/runs/:runId/manifest/:page",
+			{ body: t.Any() },
 			async ({ body, params, request, requestId, set }) => {
 				if (!migration) return createDbUnavailableError(requestId);
 				try {
@@ -167,10 +168,10 @@ export const createMigrationDiscoveryRoutes = (
 					return migrationError(error, requestId, set);
 				}
 			},
-			{ body: t.Any() },
 		)
 		.put(
 			"/migrations/v1/imports/:linkId/runs/:runId/records/:page",
+			{ body: t.Any() },
 			async ({ body, params, request, requestId, set }) => {
 				if (!migration) return createDbUnavailableError(requestId);
 				try {
@@ -187,7 +188,6 @@ export const createMigrationDiscoveryRoutes = (
 					return migrationError(error, requestId, set);
 				}
 			},
-			{ body: t.Any() },
 		)
 		.put(
 			"/migrations/v1/imports/:linkId/runs/:runId/artifacts/:artifactId",
@@ -218,6 +218,7 @@ export const createMigrationDiscoveryRoutes = (
 		)
 		.post(
 			"/migrations/v1/imports/:linkId/runs/:runId/commit",
+			{ body: t.Any() },
 			async ({ body, params, request, requestId, set }) => {
 				if (!migration) return createDbUnavailableError(requestId);
 				try {
@@ -231,7 +232,6 @@ export const createMigrationDiscoveryRoutes = (
 					return migrationError(error, requestId, set);
 				}
 			},
-			{ body: t.Any() },
 		)
 		.get(
 			"/migrations/v1/imports/:linkId/runs/:runId",
@@ -250,6 +250,7 @@ export const createMigrationDiscoveryRoutes = (
 		)
 		.post(
 			"/migrations/v1/imports/:linkId/finalize-ack",
+			{ body: t.Any() },
 			async ({ body, params, request, requestId, set }) => {
 				if (!migration) return createDbUnavailableError(requestId);
 				try {
@@ -266,7 +267,6 @@ export const createMigrationDiscoveryRoutes = (
 					return migrationError(error, requestId, set);
 				}
 			},
-			{ body: t.Any() },
 		)
 		.post(
 			"/migrations/v1/imports/:linkId/diverged",
@@ -335,6 +335,9 @@ export const createMigrationManagementRoutes = (
 				})
 				.post(
 					"/orgs/:orgId/migrations/preflight",
+					{
+						body: t.Object({ targetApiOrigin: t.String({ format: "uri" }) }),
+					},
 					async ({ authContext, body, params, requestId, set }) => {
 						if (!migration) return createDbUnavailableError(requestId);
 						const actor = localActor(authContext.localUserId, requestId, set);
@@ -351,12 +354,15 @@ export const createMigrationManagementRoutes = (
 							return migrationError(error, requestId, set);
 						}
 					},
-					{
-						body: t.Object({ targetApiOrigin: t.String({ format: "uri" }) }),
-					},
 				)
 				.post(
 					"/orgs/:orgId/migrations/pair",
+					{
+						body: t.Object({
+							targetApiOrigin: t.String({ format: "uri" }),
+							passphrase: t.String({ minLength: 50 }),
+						}),
+					},
 					async ({ authContext, body, params, requestId, set }) => {
 						if (!migration) return createDbUnavailableError(requestId);
 						const actor = localActor(authContext.localUserId, requestId, set);
@@ -374,12 +380,6 @@ export const createMigrationManagementRoutes = (
 							return migrationError(error, requestId, set);
 						}
 					},
-					{
-						body: t.Object({
-							targetApiOrigin: t.String({ format: "uri" }),
-							passphrase: t.String({ minLength: 50 }),
-						}),
-					},
 				)
 				.get(
 					"/orgs/:orgId/migration",
@@ -396,6 +396,15 @@ export const createMigrationManagementRoutes = (
 				)
 				.post(
 					"/orgs/:orgId/migration/runs",
+					{
+						body: t.Object({
+							kind: t.Union([
+								t.Literal("full"),
+								t.Literal("delta"),
+								t.Literal("final"),
+							]),
+						}),
+					},
 					async ({ authContext, body, db, params, requestId, set }) => {
 						if (!migration || !db) return createDbUnavailableError(requestId);
 						const actor = localActor(authContext.localUserId, requestId, set);
@@ -419,15 +428,6 @@ export const createMigrationManagementRoutes = (
 						} catch (error) {
 							return migrationError(error, requestId, set);
 						}
-					},
-					{
-						body: t.Object({
-							kind: t.Union([
-								t.Literal("full"),
-								t.Literal("delta"),
-								t.Literal("final"),
-							]),
-						}),
 					},
 				)
 				.post(
@@ -510,6 +510,7 @@ export const createMigrationManagementRoutes = (
 				)
 				.post(
 					"/orgs/:orgId/migration/runs/:runId/retry",
+					{ body: t.Object({ override: t.Optional(t.Boolean()) }) },
 					async ({ authContext, body, db, params, requestId, set }) => {
 						if (!migration || !db) return createDbUnavailableError(requestId);
 						const actor = localActor(authContext.localUserId, requestId, set);
@@ -546,7 +547,6 @@ export const createMigrationManagementRoutes = (
 							return migrationError(error, requestId, set);
 						}
 					},
-					{ body: t.Object({ override: t.Optional(t.Boolean()) }) },
 				)
 				.post(
 					"/orgs/:orgId/migration/finalize",

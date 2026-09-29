@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM oven/bun:1.3.13-slim AS build
+FROM oven/bun:1.4.2-slim AS build
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ COPY apps/backend ./apps/backend
 RUN bun run --cwd packages/shared build:js
 RUN bun run --cwd apps/backend build:js
 
-FROM oven/bun:1.3.13-slim AS runtime
+FROM oven/bun:1.4.2-slim AS runtime
 
 WORKDIR /app/apps/backend
 
@@ -35,7 +35,6 @@ RUN apt-get update \
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/packages/shared /app/packages/shared
 COPY --from=build /app/apps/backend/package.json ./package.json
-COPY --from=build /app/apps/backend/bun.lock ./bun.lock
 COPY --from=build /app/apps/backend/dist ./dist
 COPY --from=build /app/apps/backend/drizzle ./drizzle
 

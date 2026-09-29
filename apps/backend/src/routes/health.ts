@@ -19,21 +19,21 @@ const versionResponseSchema = t.Object({
 export const createHealthRoutes = (core: CorePlugin) =>
 	new Elysia({ name: "health-routes" })
 		.use(core)
-		.get("/health", () => ({ status: "ok" as const }), {
-			detail: {
-				tags: ["system"],
-				summary: "Returns service health status",
+		.get(
+			"/health",
+			{
+				detail: {
+					tags: ["system"],
+					summary: "Returns service health status",
+				},
+				response: {
+					200: healthResponseSchema,
+				},
 			},
-			response: {
-				200: healthResponseSchema,
-			},
-		})
+			() => ({ status: "ok" as const }),
+		)
 		.get(
 			"/version",
-			({ runtime }) => ({
-				version: runtime.version,
-				env: runtime.nodeEnv,
-			}),
 			{
 				detail: {
 					tags: ["system"],
@@ -43,4 +43,8 @@ export const createHealthRoutes = (core: CorePlugin) =>
 					200: versionResponseSchema,
 				},
 			},
+			({ runtime }) => ({
+				version: runtime.version,
+				env: runtime.nodeEnv,
+			}),
 		);

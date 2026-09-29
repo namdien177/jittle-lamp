@@ -67,6 +67,17 @@ export const createExtensionAuthRoutes = (auth: ClerkAuthPlugin) =>
 		.use(auth)
 		.post(
 			"/extension-auth/flows",
+			{
+				detail: {
+					tags: ["extension-auth"],
+					summary: "Starts an extension browser authentication flow",
+				},
+				response: {
+					200: extensionAuthStartResponseSchema,
+					500: apiErrorSchema,
+					503: apiErrorSchema,
+				},
+			},
 			async ({ db, requestId, runtime, set }) => {
 				if (!db) {
 					set.status = 503;
@@ -91,20 +102,26 @@ export const createExtensionAuthRoutes = (auth: ClerkAuthPlugin) =>
 					...(await startDesktopAuthFlow(db, runtime, "extension")),
 				};
 			},
+		)
+		.get(
+			"/extension-auth/flows/:deviceCode",
 			{
+				params: t.Object({
+					deviceCode: t.String({ minLength: 1 }),
+				}),
 				detail: {
 					tags: ["extension-auth"],
-					summary: "Starts an extension browser authentication flow",
+					summary: "Polls a pending extension authentication flow",
 				},
 				response: {
-					200: extensionAuthStartResponseSchema,
+					200: t.Union([
+						extensionAuthPendingResponseSchema,
+						extensionAuthApprovedResponseSchema,
+					]),
 					500: apiErrorSchema,
 					503: apiErrorSchema,
 				},
 			},
-		)
-		.get(
-			"/extension-auth/flows/:deviceCode",
 			async ({ db, params, requestId, runtime, set }) => {
 				if (!db) {
 					set.status = 503;
@@ -126,26 +143,24 @@ export const createExtensionAuthRoutes = (auth: ClerkAuthPlugin) =>
 
 				return pollDesktopAuthFlow(db, runtime, params.deviceCode);
 			},
+		)
+		.post(
+			"/extension-auth/sessions/refresh",
 			{
-				params: t.Object({
-					deviceCode: t.String({ minLength: 1 }),
+				body: t.Object({
+					refreshToken: t.String({ minLength: 1 }),
 				}),
 				detail: {
 					tags: ["extension-auth"],
-					summary: "Polls a pending extension authentication flow",
+					summary: "Refreshes an extension access token",
 				},
 				response: {
-					200: t.Union([
-						extensionAuthPendingResponseSchema,
-						extensionAuthApprovedResponseSchema,
-					]),
+					200: extensionAuthRefreshResponseSchema,
+					401: apiErrorSchema,
 					500: apiErrorSchema,
 					503: apiErrorSchema,
 				},
 			},
-		)
-		.post(
-			"/extension-auth/sessions/refresh",
 			async ({ body, db, requestId, runtime, set }) => {
 				if (!db) {
 					set.status = 503;
@@ -185,25 +200,28 @@ export const createExtensionAuthRoutes = (auth: ClerkAuthPlugin) =>
 
 				return result;
 			},
-			{
-				body: t.Object({
-					refreshToken: t.String({ minLength: 1 }),
-				}),
-				detail: {
-					tags: ["extension-auth"],
-					summary: "Refreshes an extension access token",
-				},
-				response: {
-					200: extensionAuthRefreshResponseSchema,
-					401: apiErrorSchema,
-					500: apiErrorSchema,
-					503: apiErrorSchema,
-				},
-			},
 		)
 		.guard({ auth: true }, (app) =>
 			app.post(
 				"/extension-auth/flows/complete",
+				{
+					body: t.Object({
+						userCode: t.String({ minLength: 1 }),
+					}),
+					detail: {
+						tags: ["extension-auth"],
+						summary:
+							"Approves a pending extension authentication flow for the signed-in Clerk user",
+					},
+					response: {
+						200: extensionAuthCompleteResponseSchema,
+						400: apiErrorSchema,
+						401: apiErrorSchema,
+						410: apiErrorSchema,
+						500: apiErrorSchema,
+						503: apiErrorSchema,
+					},
+				},
 				async ({ authContext, body, db, requestId, runtime, set }) => {
 					if (!db) {
 						set.status = 503;
@@ -245,24 +263,6 @@ export const createExtensionAuthRoutes = (auth: ClerkAuthPlugin) =>
 						status: "approved" as const,
 						expiresAt: result.expiresAt,
 					};
-				},
-				{
-					body: t.Object({
-						userCode: t.String({ minLength: 1 }),
-					}),
-					detail: {
-						tags: ["extension-auth"],
-						summary:
-							"Approves a pending extension authentication flow for the signed-in Clerk user",
-					},
-					response: {
-						200: extensionAuthCompleteResponseSchema,
-						400: apiErrorSchema,
-						401: apiErrorSchema,
-						410: apiErrorSchema,
-						500: apiErrorSchema,
-						503: apiErrorSchema,
-					},
 				},
 			),
 		);

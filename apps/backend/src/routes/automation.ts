@@ -251,6 +251,20 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 			app
 				.post(
 					"/automation/api-tokens",
+					{
+						body: createAutomationTokenBodySchema,
+						detail: {
+							tags: ["automation"],
+							summary: "Issues an API token for automation evidence uploads",
+						},
+						response: {
+							200: createAutomationTokenResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, body, db, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -297,23 +311,22 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 							expiresAt,
 						});
 					},
+				)
+				.get(
+					"/automation/api-tokens",
 					{
-						body: createAutomationTokenBodySchema,
 						detail: {
 							tags: ["automation"],
-							summary: "Issues an API token for automation evidence uploads",
+							summary: "Lists automation API tokens for the current account",
 						},
 						response: {
-							200: createAutomationTokenResponseSchema,
+							200: listAutomationTokensResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/automation/api-tokens",
 					async ({ authContext, db, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -348,22 +361,24 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { apiTokens: rows.map(mapAutomationTokenSummary) };
 					},
+				)
+				.delete(
+					"/automation/api-tokens/:id",
 					{
+						params: automationTokenParamsSchema,
 						detail: {
 							tags: ["automation"],
-							summary: "Lists automation API tokens for the current account",
+							summary: "Revokes an automation API token",
 						},
 						response: {
-							200: listAutomationTokensResponseSchema,
+							200: revokeAutomationTokenResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							404: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.delete(
-					"/automation/api-tokens/:id",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -396,25 +411,27 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { apiToken: { id: params.id, revokedAt } };
 					},
-					{
-						params: automationTokenParamsSchema,
-						detail: {
-							tags: ["automation"],
-							summary: "Revokes an automation API token",
-						},
-						response: {
-							200: revokeAutomationTokenResponseSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							404: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
-					},
 				),
 		)
 		.post(
 			"/automation/evidences/zip",
+			{
+				query: automationUploadQuerySchema,
+				detail: {
+					tags: ["automation"],
+					summary: "Uploads a complete automation evidence ZIP",
+				},
+				response: {
+					200: automationUploadResponseSchema,
+					400: apiErrorSchema,
+					401: apiErrorSchema,
+					403: apiErrorSchema,
+					413: apiErrorSchema,
+					415: apiErrorSchema,
+					500: apiErrorSchema,
+					503: apiErrorSchema,
+				},
+			},
 			async ({ artifactStorage, db, query, request, requestId, set }) => {
 				if (!db) {
 					set.status = 503;
@@ -731,22 +748,5 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 						maxZipBytes: MAX_AUTOMATION_ZIP_BYTES,
 					},
 				};
-			},
-			{
-				query: automationUploadQuerySchema,
-				detail: {
-					tags: ["automation"],
-					summary: "Uploads a complete automation evidence ZIP",
-				},
-				response: {
-					200: automationUploadResponseSchema,
-					400: apiErrorSchema,
-					401: apiErrorSchema,
-					403: apiErrorSchema,
-					413: apiErrorSchema,
-					415: apiErrorSchema,
-					500: apiErrorSchema,
-					503: apiErrorSchema,
-				},
 			},
 		);

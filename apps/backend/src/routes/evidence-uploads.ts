@@ -267,10 +267,10 @@ const evidenceCreatorProfileSchema = t.Nullable(
 );
 
 const loadEvidenceResponseSchema = t.Object({
-	evidence: t.Composite([
+	evidence: t.Composite(
 		evidenceSummarySchema,
 		t.Object({ createdByProfile: evidenceCreatorProfileSchema }),
-	]),
+	),
 });
 
 /**
@@ -609,6 +609,22 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 			app
 				.post(
 					"/evidences/desktop-sessions/sync/start",
+					{
+						body: startDesktopSessionSyncBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary:
+								"Starts a desktop recording session sync with separate recording and archive artifacts",
+						},
+						response: {
+							200: startDesktopSessionSyncResponseSchema,
+							400: apiErrorSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({
 						artifactStorage,
 						authContext,
@@ -882,15 +898,17 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 
 						return created;
 					},
+				)
+				.post(
+					"/evidences/uploads/start",
 					{
-						body: startDesktopSessionSyncBodySchema,
+						body: startUploadBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary:
-								"Starts a desktop recording session sync with separate recording and archive artifacts",
+							summary: "Starts a server-scoped evidence upload",
 						},
 						response: {
-							200: startDesktopSessionSyncResponseSchema,
+							200: startUploadResponseSchema,
 							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
@@ -898,9 +916,6 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/uploads/start",
 					async ({
 						authContext,
 						body,
@@ -1072,24 +1087,26 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							},
 						};
 					},
+				)
+				.post(
+					"/evidences/manual-uploads/start",
 					{
-						body: startUploadBodySchema,
+						body: startManualUploadBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Starts a server-scoped evidence upload",
+							summary:
+								"Starts a manual evidence upload with recording and generated archive artifacts",
 						},
 						response: {
-							200: startUploadResponseSchema,
+							200: startDesktopSessionSyncResponseSchema,
 							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							413: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/manual-uploads/start",
 					async ({
 						authContext,
 						body,
@@ -1259,26 +1276,24 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 
 						return created;
 					},
+				)
+				.get(
+					"/evidences",
 					{
-						body: startManualUploadBodySchema,
+						query: listEvidenceQuerySchema,
 						detail: {
 							tags: ["evidences"],
 							summary:
-								"Starts a manual evidence upload with recording and generated archive artifacts",
+								"Lists evidence for active org by default; orgId query is allowed for member orgs",
 						},
 						response: {
-							200: startDesktopSessionSyncResponseSchema,
-							400: apiErrorSchema,
+							200: listEvidencesResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
-							413: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/evidences",
 					async ({ authContext, db, query, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1393,24 +1408,23 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							limit,
 						};
 					},
+				)
+				.get(
+					"/evidences/tags",
 					{
-						query: listEvidenceQuerySchema,
+						query: evidenceQuerySchema,
 						detail: {
 							tags: ["evidences"],
-							summary:
-								"Lists evidence for active org by default; orgId query is allowed for member orgs",
+							summary: "Lists organization-level evidence tags",
 						},
 						response: {
-							200: listEvidencesResponseSchema,
+							200: listEvidenceTagsResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/evidences/tags",
 					async ({ authContext, db, query, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1443,23 +1457,24 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { tags: await listEvidenceTags(db, resolvedOrg.orgId) };
 					},
+				)
+				.post(
+					"/evidences/tags",
 					{
-						query: evidenceQuerySchema,
+						body: evidenceTagBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Lists organization-level evidence tags",
+							summary: "Creates an organization-level evidence tag",
 						},
 						response: {
-							200: listEvidenceTagsResponseSchema,
+							200: evidenceTagResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/tags",
 					async ({ authContext, body, db, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1519,24 +1534,26 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
+				)
+				.patch(
+					"/evidences/tags/:tagId",
 					{
 						body: evidenceTagBodySchema,
+						params: t.Object({ tagId: t.String({ minLength: 1 }) }),
 						detail: {
 							tags: ["evidences"],
-							summary: "Creates an organization-level evidence tag",
+							summary: "Updates an organization-level evidence tag",
 						},
 						response: {
 							200: evidenceTagResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							404: apiErrorSchema,
 							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.patch(
-					"/evidences/tags/:tagId",
 					async ({ authContext, body, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1604,26 +1621,25 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 					},
+				)
+				.delete(
+					"/evidences/tags/:tagId",
 					{
-						body: evidenceTagBodySchema,
+						query: evidenceQuerySchema,
 						params: t.Object({ tagId: t.String({ minLength: 1 }) }),
 						detail: {
 							tags: ["evidences"],
-							summary: "Updates an organization-level evidence tag",
+							summary: "Deletes an organization-level evidence tag",
 						},
 						response: {
-							200: evidenceTagResponseSchema,
+							200: t.Object({ tagId: t.String({ minLength: 1 }) }),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
-							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.delete(
-					"/evidences/tags/:tagId",
 					async ({ authContext, db, params, query, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1675,15 +1691,21 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { tagId: deleted.id };
 					},
+				)
+				.get(
+					"/evidences/:id",
 					{
+						params: t.Object({
+							id: t.String({ minLength: 1 }),
+						}),
 						query: evidenceQuerySchema,
-						params: t.Object({ tagId: t.String({ minLength: 1 }) }),
 						detail: {
 							tags: ["evidences"],
-							summary: "Deletes an organization-level evidence tag",
+							summary:
+								"Loads evidence scoped to active org by default; orgId query is allowed for member orgs",
 						},
 						response: {
-							200: t.Object({ tagId: t.String({ minLength: 1 }) }),
+							200: loadEvidenceResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
@@ -1691,9 +1713,6 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/evidences/:id",
 					async ({
 						authContext,
 						db,
@@ -1788,18 +1807,19 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							},
 						};
 					},
+				)
+				.patch(
+					"/evidences/:id/tags",
 					{
-						params: t.Object({
-							id: t.String({ minLength: 1 }),
-						}),
-						query: evidenceQuerySchema,
+						params: t.Object({ id: t.String({ minLength: 1 }) }),
+						body: updateEvidenceTagsBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary:
-								"Loads evidence scoped to active org by default; orgId query is allowed for member orgs",
+							summary: "Updates evidence tag assignments",
 						},
 						response: {
-							200: loadEvidenceResponseSchema,
+							200: updateEvidenceTagsResponseSchema,
+							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
@@ -1807,9 +1827,6 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.patch(
-					"/evidences/:id/tags",
 					async ({ authContext, body, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -1904,26 +1921,36 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { evidence: { ...evidence, tags } };
 					},
+				)
+				.get(
+					"/evidences/:id/playback",
 					{
 						params: t.Object({ id: t.String({ minLength: 1 }) }),
-						body: updateEvidenceTagsBodySchema,
+						query: evidenceQuerySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Updates evidence tag assignments",
+							summary:
+								"Loads evidence metadata and playback links in one authorized request",
 						},
 						response: {
-							200: updateEvidenceTagsResponseSchema,
-							400: apiErrorSchema,
+							200: t.Object({
+								evidence: loadEvidenceResponseSchema.properties.evidence,
+								artifacts: t.Array(evidenceArtifactSummarySchema),
+								readUrls: t.Array(
+									t.Composite(
+										artifactReadUrlResponseSchema,
+										t.Object({ artifactId: t.String() }),
+									),
+								),
+							}),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
+							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/evidences/:id/playback",
 					async ({
 						artifactStorage,
 						authContext,
@@ -2087,36 +2114,27 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							readUrls,
 						};
 					},
+				)
+				.get(
+					"/evidences/:id/artifacts",
 					{
-						params: t.Object({ id: t.String({ minLength: 1 }) }),
+						params: t.Object({
+							id: t.String({ minLength: 1 }),
+						}),
 						query: evidenceQuerySchema,
 						detail: {
 							tags: ["evidences"],
-							summary:
-								"Loads evidence metadata and playback links in one authorized request",
+							summary: "Lists artifacts for an evidence",
 						},
 						response: {
-							200: t.Object({
-								evidence: loadEvidenceResponseSchema.properties.evidence,
-								artifacts: t.Array(evidenceArtifactSummarySchema),
-								readUrls: t.Array(
-									t.Composite([
-										artifactReadUrlResponseSchema,
-										t.Object({ artifactId: t.String() }),
-									]),
-								),
-							}),
+							200: listEvidenceArtifactsResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
-							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/evidences/:id/artifacts",
 					async ({ authContext, db, params, query, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -2185,27 +2203,26 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 
 						return { artifacts };
 					},
+				)
+				.get(
+					"/evidences/:id/artifacts/:artifactId/read-url",
 					{
-						params: t.Object({
-							id: t.String({ minLength: 1 }),
-						}),
+						params: artifactReadUrlParamsSchema,
 						query: evidenceQuerySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Lists artifacts for an evidence",
+							summary: "Creates a short-lived signed read URL for an artifact",
 						},
 						response: {
-							200: listEvidenceArtifactsResponseSchema,
+							200: artifactReadUrlResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
+							409: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/evidences/:id/artifacts/:artifactId/read-url",
 					async ({
 						artifactStorage,
 						authContext,
@@ -2322,26 +2339,29 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							renewAfterMs: Math.max(30_000, signed.ttlSeconds * 1000 * 0.7),
 						};
 					},
+				)
+				.put(
+					"/evidences/uploads/:uploadId/blob",
 					{
-						params: artifactReadUrlParamsSchema,
-						query: evidenceQuerySchema,
+						params: uploadParamsSchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Creates a short-lived signed read URL for an artifact",
+							summary:
+								"Accepts upload binary for a server-scoped evidence upload",
 						},
 						response: {
-							200: artifactReadUrlResponseSchema,
+							204: t.Void(),
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
 							409: apiErrorSchema,
+							410: apiErrorSchema,
+							413: apiErrorSchema,
+							422: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.put(
-					"/evidences/uploads/:uploadId/blob",
 					async ({
 						artifactStorage,
 						authContext,
@@ -2512,29 +2532,28 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						set.status = 204;
 						return;
 					},
+				)
+				.post(
+					"/evidences/uploads/:uploadId/complete",
 					{
 						params: uploadParamsSchema,
+						body: completeUploadBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary:
-								"Accepts upload binary for a server-scoped evidence upload",
+							summary: "Completes a server-scoped evidence upload",
 						},
 						response: {
-							204: t.Void(),
+							200: completeUploadResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
 							409: apiErrorSchema,
 							410: apiErrorSchema,
-							413: apiErrorSchema,
 							422: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/evidences/uploads/:uploadId/complete",
 					async ({
 						artifactStorage,
 						authContext,
@@ -2728,25 +2747,6 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							evidenceId: artifact.evidenceId,
 							status: "committed",
 						};
-					},
-					{
-						params: uploadParamsSchema,
-						body: completeUploadBodySchema,
-						detail: {
-							tags: ["evidences"],
-							summary: "Completes a server-scoped evidence upload",
-						},
-						response: {
-							200: completeUploadResponseSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							404: apiErrorSchema,
-							409: apiErrorSchema,
-							410: apiErrorSchema,
-							422: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
 					},
 				),
 		);

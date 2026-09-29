@@ -6,7 +6,6 @@
     "emitDeclarationOnly": true,
     "declarationMap": false,
     "outDir": "./dist",
-    "baseUrl": ".",
     "paths": {
       "@jittle-lamp/shared": [
         "../shared/dist/src/index.d.ts"

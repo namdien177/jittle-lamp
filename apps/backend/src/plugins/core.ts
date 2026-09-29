@@ -1,5 +1,5 @@
-import { cors } from "@elysiajs/cors";
-import { Elysia } from "elysia";
+import { cors } from "@elysia/cors";
+import { Elysia, NotFound, ParseError, ValidationError } from "elysia";
 import type { Logger } from "pino";
 
 import type { RuntimeConfig } from "../config/runtime";
@@ -106,7 +106,7 @@ export const createCorePlugin = ({
 				preflight: true,
 			}),
 		)
-		.onRequest(({ request, set }) => {
+		.request(({ request, set }) => {
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
 			set.headers["x-request-id"] = requestId;
 
@@ -118,7 +118,7 @@ export const createCorePlugin = ({
 				"request received",
 			);
 		})
-		.resolve({ as: "global" }, ({ request, set, logger }) => {
+		.derive("global", ({ request, set, logger }) => {
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
 
 			return {
@@ -126,7 +126,15 @@ export const createCorePlugin = ({
 				requestLogger: logger.child({ requestId }),
 			};
 		})
-		.onError({ as: "global" }, ({ code, error, request, set }) => {
+		.error("global", ({ error, request, set }) => {
+			const code =
+				error instanceof ValidationError
+					? "VALIDATION"
+					: error instanceof NotFound
+						? "NOT_FOUND"
+						: error instanceof ParseError
+							? "PARSE"
+							: "UNKNOWN";
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
 			const requestLogger = logger.child({ requestId });
 			const migrationReadOnly = errorChainIncludes(

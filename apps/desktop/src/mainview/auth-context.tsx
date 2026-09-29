@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ClerkProvider, useAuth, useClerk, useSignIn, useUser } from "@clerk/clerk-react";
+import { ClerkProvider, useAuth, useClerk, useUser } from "@clerk/react";
+import { useSignIn } from "@clerk/react/legacy";
 import { useNavigate } from "react-router";
 
 import { api, apiOrigin, type ApiAccountProfile, type FetchToken } from "./api";

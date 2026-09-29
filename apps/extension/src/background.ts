@@ -1495,7 +1495,7 @@ function registerWebRequestFallbackListeners(): void {
   }
 }
 
-async function handleFallbackRequestStarted(details: chrome.webRequest.WebRequestBodyDetails): Promise<void> {
+async function handleFallbackRequestStarted(details: chrome.webRequest.OnBeforeRequestDetails): Promise<void> {
   if (recordingLifecycle.blocksCaptureIntake()) {
     return;
   }
@@ -1519,7 +1519,7 @@ async function handleFallbackRequestStarted(details: chrome.webRequest.WebReques
   getNetworkRequests(details.tabId).set(details.requestId, requestState);
 }
 
-async function handleFallbackRequestHeaders(details: chrome.webRequest.WebRequestHeadersDetails): Promise<void> {
+async function handleFallbackRequestHeaders(details: chrome.webRequest.OnBeforeSendHeadersDetails): Promise<void> {
   if (recordingLifecycle.blocksCaptureIntake()) {
     return;
   }
@@ -1532,7 +1532,7 @@ async function handleFallbackRequestHeaders(details: chrome.webRequest.WebReques
   requestState.requestHeaders = headerEntriesFromWebRequestHeaders(details.requestHeaders);
 }
 
-async function handleFallbackResponseHeaders(details: chrome.webRequest.WebResponseHeadersDetails): Promise<void> {
+async function handleFallbackResponseHeaders(details: chrome.webRequest.OnHeadersReceivedDetails): Promise<void> {
   if (recordingLifecycle.blocksCaptureIntake()) {
     return;
   }
@@ -1544,7 +1544,7 @@ async function handleFallbackResponseHeaders(details: chrome.webRequest.WebRespo
   applyWebRequestResponseMetadata(details);
 }
 
-async function handleFallbackRequestCompleted(details: chrome.webRequest.WebResponseHeadersDetails): Promise<void> {
+async function handleFallbackRequestCompleted(details: chrome.webRequest.OnCompletedDetails): Promise<void> {
   if (recordingLifecycle.blocksCaptureIntake()) {
     return;
   }
@@ -1581,7 +1581,7 @@ async function handleFallbackRequestCompleted(details: chrome.webRequest.WebResp
   );
 }
 
-async function handleFallbackRequestFailed(details: chrome.webRequest.WebResponseErrorDetails): Promise<void> {
+async function handleFallbackRequestFailed(details: chrome.webRequest.OnErrorOccurredDetails): Promise<void> {
   if (recordingLifecycle.blocksCaptureIntake()) {
     return;
   }
@@ -1629,7 +1629,7 @@ async function shouldCaptureFallbackNetwork(tabId: number): Promise<boolean> {
   return Boolean(currentDraft && currentDraft.page.tabId === tabId && currentDraft.phase === "recording");
 }
 
-function applyWebRequestResponseMetadata(details: chrome.webRequest.WebResponseHeadersDetails): NetworkRequestState {
+function applyWebRequestResponseMetadata(details: chrome.webRequest.OnHeadersReceivedDetails): NetworkRequestState {
   const requestState = getOrCreateNetworkRequestState(details.tabId, details.requestId);
 
   if (details.method) {
@@ -1654,7 +1654,7 @@ function applyWebRequestResponseMetadata(details: chrome.webRequest.WebResponseH
   return requestState;
 }
 
-function bodyCaptureFromWebRequestBody(body: chrome.webRequest.WebRequestBody | null): NetworkBodyCapture | undefined {
+function bodyCaptureFromWebRequestBody(body: chrome.webRequest.OnBeforeRequestDetails["requestBody"] | null): NetworkBodyCapture | undefined {
   if (!body) {
     return undefined;
   }
@@ -1707,7 +1707,7 @@ function statusTextFromStatusLine(statusLine: string | undefined): string | unde
   return match?.[1]?.trim() || undefined;
 }
 
-function deriveWebRequestSubtype(resourceType: chrome.webRequest.ResourceType | undefined): NetworkSubtype {
+function deriveWebRequestSubtype(resourceType: chrome.webRequest.WebRequestDetails["type"] | undefined): NetworkSubtype {
   switch (resourceType) {
     case "xmlhttprequest":
       return "xhr";

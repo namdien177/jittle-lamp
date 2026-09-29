@@ -31,6 +31,19 @@ export const createClerkRoutes = (auth: ClerkAuthPlugin) =>
 		app
 			.post(
 				"/clerk/callback",
+				{
+					detail: {
+						tags: ["clerk"],
+						summary:
+							"Ensures the authenticated Clerk user has a local user and personal organization",
+					},
+					response: {
+						200: provisioningResponseSchema,
+						401: apiErrorSchema,
+						500: apiErrorSchema,
+						503: apiErrorSchema,
+					},
+				},
 				async ({ authContext, db, requestId, requestLogger, runtime, set }) => {
 					if (!db) {
 						set.status = 503;
@@ -68,22 +81,26 @@ export const createClerkRoutes = (auth: ClerkAuthPlugin) =>
 						provisioned,
 					};
 				},
+			)
+			.post(
+				"/clerk/callback/retry/:eventId",
 				{
+					params: t.Object({
+						eventId: t.String({ minLength: 1 }),
+					}),
 					detail: {
 						tags: ["clerk"],
 						summary:
-							"Ensures the authenticated Clerk user has a local user and personal organization",
+							"Replays a failed provisioning event for the authenticated Clerk user",
 					},
 					response: {
 						200: provisioningResponseSchema,
+						400: apiErrorSchema,
 						401: apiErrorSchema,
 						500: apiErrorSchema,
 						503: apiErrorSchema,
 					},
 				},
-			)
-			.post(
-				"/clerk/callback/retry/:eventId",
 				async ({ authContext, db, params, requestId, set }) => {
 					if (!db) {
 						set.status = 503;
@@ -110,23 +127,6 @@ export const createClerkRoutes = (auth: ClerkAuthPlugin) =>
 							400,
 						);
 					}
-				},
-				{
-					params: t.Object({
-						eventId: t.String({ minLength: 1 }),
-					}),
-					detail: {
-						tags: ["clerk"],
-						summary:
-							"Replays a failed provisioning event for the authenticated Clerk user",
-					},
-					response: {
-						200: provisioningResponseSchema,
-						400: apiErrorSchema,
-						401: apiErrorSchema,
-						500: apiErrorSchema,
-						503: apiErrorSchema,
-					},
 				},
 			),
 	);

@@ -1,4 +1,4 @@
-import { openapi } from "@elysiajs/openapi";
+import { openapi } from "@elysia/openapi";
 import { Elysia } from "elysia";
 
 import { parseEnv } from "./config/env";

@@ -106,6 +106,22 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 			app
 				.post(
 					"/evidences/:id/share-links",
+					{
+						params: evidenceIdParamsSchema,
+						body: createShareLinkBodySchema,
+						detail: {
+							tags: ["evidences"],
+							summary: "Creates an internal organization-scoped share link",
+						},
+						response: {
+							200: shareLinkResponseSchema,
+							401: apiErrorSchema,
+							403: apiErrorSchema,
+							404: apiErrorSchema,
+							500: apiErrorSchema,
+							503: apiErrorSchema,
+						},
+					},
 					async ({ authContext, body, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -205,15 +221,17 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							},
 						};
 					},
+				)
+				.get(
+					"/evidences/:id/share-links",
 					{
 						params: evidenceIdParamsSchema,
-						body: createShareLinkBodySchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Creates an internal organization-scoped share link",
+							summary: "Lists share links for an evidence",
 						},
 						response: {
-							200: shareLinkResponseSchema,
+							200: listShareLinksResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
@@ -221,9 +239,6 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/evidences/:id/share-links",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -289,14 +304,18 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							})),
 						};
 					},
+				)
+				.get(
+					"/share-links/:locator/resolve",
 					{
-						params: evidenceIdParamsSchema,
+						params: shareLocatorParamsSchema,
 						detail: {
 							tags: ["evidences"],
-							summary: "Lists share links for an evidence",
+							summary:
+								"Resolves internal share links for authenticated org members",
 						},
 						response: {
-							200: listShareLinksResponseSchema,
+							200: resolvedShareLinkResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
@@ -304,9 +323,6 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.get(
-					"/share-links/:locator/resolve",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -393,15 +409,17 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							},
 						};
 					},
+				)
+				.post(
+					"/share-links/:id/revoke",
 					{
-						params: shareLocatorParamsSchema,
+						params: evidenceIdParamsSchema,
 						detail: {
 							tags: ["evidences"],
-							summary:
-								"Resolves internal share links for authenticated org members",
+							summary: "Revokes an internal share link",
 						},
 						response: {
-							200: resolvedShareLinkResponseSchema,
+							200: revokedShareLinkResponseSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							404: apiErrorSchema,
@@ -409,9 +427,6 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 							503: apiErrorSchema,
 						},
 					},
-				)
-				.post(
-					"/share-links/:id/revoke",
 					async ({ authContext, db, params, requestId, set }) => {
 						if (!db) {
 							set.status = 503;
@@ -494,21 +509,6 @@ export const createShareLinkRoutes = (auth: ClerkAuthPlugin) =>
 								revokedAt: updated.revokedAt ?? revokedAt,
 							},
 						};
-					},
-					{
-						params: evidenceIdParamsSchema,
-						detail: {
-							tags: ["evidences"],
-							summary: "Revokes an internal share link",
-						},
-						response: {
-							200: revokedShareLinkResponseSchema,
-							401: apiErrorSchema,
-							403: apiErrorSchema,
-							404: apiErrorSchema,
-							500: apiErrorSchema,
-							503: apiErrorSchema,
-						},
 					},
 				),
 		);
