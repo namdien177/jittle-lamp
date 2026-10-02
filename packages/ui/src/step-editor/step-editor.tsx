@@ -46,6 +46,7 @@ import {
   toggleRowDisabled,
   typeOptions,
   variableOptions,
+  withBuiltinMacros,
   type CredentialOption,
   type EditorCredential,
   type EditorDoc,
@@ -122,14 +123,17 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   const listId = React.useId();
 
   const parsed = React.useMemo(() => testCaseFromDoc(doc), [doc]);
+  // The runner ships a built-in Login macro (packages/e2e-runner/macros); an org macro of that
+  // name overrides it, so [Login: X] is never an unknown macro.
+  const lintMacros = React.useMemo(() => withBuiltinMacros(macros), [macros]);
   const findings = React.useMemo(
     () =>
       lintTestCase(parsed, {
-        ...(props.macrosLoaded ? { macros } : {}),
+        ...(props.macrosLoaded ? { macros: lintMacros } : {}),
         ...(props.environmentVariables ? { environmentVariables } : {}),
         elementNames
       }),
-    [parsed, props.macrosLoaded, macros, props.environmentVariables, environmentVariables, elementNames]
+    [parsed, props.macrosLoaded, lintMacros, props.environmentVariables, environmentVariables, elementNames]
   );
   const rowSteps = React.useMemo(() => mapRowsToSteps(doc, parsed).steps, [doc, parsed]);
   const lint = React.useMemo(() => lintByRow(doc, parsed, findings), [doc, parsed, findings]);

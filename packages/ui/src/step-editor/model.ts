@@ -501,6 +501,14 @@ const builtinDescriptions: Record<(typeof stepTypeCycle)[number], string> = {
 
 export type EditorMacro = { name: string; params: MacroParam[]; transcript?: string; version?: number };
 
+// The runner ships a built-in Login macro (packages/e2e-runner/macros/login.transcript.md); an
+// organisation macro named Login overrides it. Lint must not call [Login: X] an unknown macro.
+export const builtinLoginMacro: EditorMacro = { name: "Login", params: [{ name: "profile", required: true, default: null, kind: "credential" }] };
+
+export function withBuiltinMacros(macros: readonly EditorMacro[]): EditorMacro[] {
+  return macros.some((macro) => macro.name.toLowerCase() === "login") ? [...macros] : [...macros, builtinLoginMacro];
+}
+
 export function typeOptions(query: string, macros: readonly EditorMacro[]): TypeOption[] {
   const needle = query.trim().toLowerCase();
   const loginMacro = macros.find((macro) => macro.name.toLowerCase() === "login");

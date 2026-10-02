@@ -43,6 +43,7 @@ import {
   typeOptions,
   updateMetadata,
   variableOptions,
+  withBuiltinMacros,
   type EditorDoc,
   type StepRow
 } from "../packages/ui/src/step-editor/model";
@@ -404,5 +405,14 @@ describe("keyboard map", () => {
     expect(editorKeyCommand({ key: "ArrowUp" }, field)).toBeNull();
     expect(editorKeyCommand({ key: "ArrowDown" }, field)).toBe("focus-next");
     expect(editorKeyCommand({ key: "Enter", isComposing: true }, field)).toBeNull();
+  });
+});
+
+describe("built-in macros", () => {
+  test("[Login: X] is not an unknown macro when the org has no Login macro; an org Login wins", () => {
+    const parsed = testCaseFromDoc(docFromTranscript("# Case\n\n[Login: ADMIN] sign in\n[Unknown thing] x"));
+    const unknown = lintTestCase(parsed, { macros: withBuiltinMacros([]) }).filter((finding) => finding.ruleId === "unknown-macro");
+    expect(unknown.map((finding) => finding.message)).toEqual(['No macro named "Unknown thing".']);
+    expect(withBuiltinMacros([loginMacro])).toEqual([loginMacro]);
   });
 });
