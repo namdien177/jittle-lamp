@@ -211,6 +211,10 @@ const addDefaultTags = (transcript: string, tags: readonly string[]) => {
 	}
 };
 
+// Jira imports generate one transcript per issue with a model call inside the request
+// (design.md §7 plans a background job; until then the request makes at most this many calls).
+export const JIRA_IMPORT_MAX_ISSUES = 20;
+
 const jiraCandidates = async (
 	db: BackendDb,
 	secrets: TestSecrets,
@@ -272,6 +276,7 @@ const jiraCandidates = async (
 			email,
 			apiToken,
 			jql: request.jql,
+			maxResults: JIRA_IMPORT_MAX_ISSUES,
 			...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
 		});
 	} catch (error) {
@@ -287,7 +292,7 @@ const jiraCandidates = async (
 		reason: "import.jira.generate",
 	});
 	const out: Array<ImportCandidate & { error?: string }> = [];
-	for (const issue of issues) {
+	for (const issue of issues.slice(0, JIRA_IMPORT_MAX_ISSUES)) {
 		const base = {
 			title: issue.summary,
 			externalId: issue.key,

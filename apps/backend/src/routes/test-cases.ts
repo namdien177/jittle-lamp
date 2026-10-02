@@ -542,6 +542,10 @@ export const createTestCaseRoutes = (
 				const who = await actor(ctx, true);
 				await requireTestPermission(db, who, "test_case.create");
 				const body = parseInput(createImportRequestSchema, ctx.body);
+				// A Jira import decrypts the organisation's Jira credential and BYOK model key.
+				if (body.sourceKind === "jira") {
+					await requireTestPermission(db, who, "test_config.use");
+				}
 				const batch = await createImportBatch(
 					db,
 					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
