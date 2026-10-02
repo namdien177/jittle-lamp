@@ -35,6 +35,7 @@ import {
 } from "./services/migration-peer-client";
 import { createOrganizationMigration } from "./services/organization-migration";
 import { createTaskQueue } from "./services/task-queue";
+import { createEnvKeyProvider, type KeyProvider } from "./services/test-config";
 import {
 	normalizeVideoTo720p,
 	type VideoNormalizer,
@@ -48,6 +49,7 @@ export const createApp = (
 		artifactStorage?: ArtifactStorage;
 		migrationPeerClient?: MigrationPeerClient;
 		clerkDirectory?: ClerkDirectory;
+		keyProvider?: KeyProvider;
 	} = {},
 ) => {
 	const env = parseEnv(source);
@@ -80,6 +82,13 @@ export const createApp = (
 					},
 				});
 
+	const keyProvider =
+		dependencies.keyProvider ??
+		createEnvKeyProvider({
+			masterKey: runtime.secretsMasterKey,
+			previousMasterKey: runtime.secretsMasterKeyPrevious,
+		});
+
 	const core = createCorePlugin({
 		runtime,
 		db,
@@ -87,6 +96,7 @@ export const createApp = (
 		artifactStorage,
 		videoNormalizationQueue,
 		videoNormalizer,
+		keyProvider,
 	});
 	const auth = createClerkAuthPlugin(core);
 	const organizationMigration = db

@@ -18,6 +18,10 @@ const optionalUrlString = z.preprocess(
 	z.string().url().optional(),
 );
 
+const isBase64Key = (value: string): boolean =>
+	/^[A-Za-z0-9+/]+={0,2}$/.test(value.trim()) &&
+	Buffer.from(value.trim(), "base64").byteLength === 32;
+
 const envSchema = z
 	.object({
 		NODE_ENV: nodeEnvSchema.default("local"),
@@ -57,8 +61,28 @@ const envSchema = z
 		CLERK_AUTHORIZED_PARTIES: optionalNonEmptyString,
 		WEB_APP_ORIGIN: optionalUrlString,
 		JITTLE_LAMP_API_ORIGIN: optionalUrlString,
+		JITTLE_LAMP_DEV_AUTH_ENABLED: z.string().optional(),
+		// Base64 of 32 random bytes; wraps the per-organisation data keys of test credential
+		// secrets. Optional at startup: only credential reads and writes need it.
+		JL_SECRETS_MASTER_KEY: optionalNonEmptyString,
+		// The previous master key while data keys are re-wrapped after a master key rotation.
+		JL_SECRETS_MASTER_KEY_PREVIOUS: optionalNonEmptyString,
 	})
 	.superRefine((env, ctx) => {
+		for (const key of [
+			"JL_SECRETS_MASTER_KEY",
+			"JL_SECRETS_MASTER_KEY_PREVIOUS",
+		] as const) {
+			const value = env[key];
+			if (value !== undefined && !isBase64Key(value)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: [key],
+					message: `${key} must be base64 of exactly 32 bytes (generate with: openssl rand -base64 32)`,
+				});
+			}
+		}
+
 		if (env.NODE_ENV === "production" && !env.APP_SECRET) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
