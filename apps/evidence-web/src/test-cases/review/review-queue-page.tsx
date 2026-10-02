@@ -13,6 +13,7 @@ import { useToast } from "../../toast";
 import { formatRelativeTime } from "../../utils";
 import { testAdminApi } from "../admin-api";
 import { testAdminKeys, useAdminTestCase, useReviewQueue, useSimilarForCase, useTestAdminMutation, useTestPermissions } from "../admin-queries";
+import { importBatchHref } from "../../notifications/notification-links";
 import { AdminCard, ErrorNote, Kbd, LintBadge, ReadOnlyNotice, TranscriptView, pressable } from "../admin-ui";
 import { caseEditorHref, cleanCaseIds, initialReviewQueueState, reviewKeyCommand, reviewQueueReducer, type ReviewCommand } from "./review-queue-state";
 
@@ -193,13 +194,15 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                     onClick={() => dispatch({ type: "select", id: item.id })}
                     className={cn("flex cursor-pointer items-start justify-between gap-2 rounded-md px-3 py-2", active ? "bg-secondary shadow-soft" : "hover:bg-muted")}
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-foreground">{item.title || "Untitled"}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground" title={item.title}>{item.title || "Untitled"}</span>
                       <span className="block font-mono text-xs text-muted-foreground">
                         {item.key} · {item.source} · {item.stepCount} steps
                       </span>
                     </span>
-                    <LintBadge errors={item.lintErrors} warnings={item.lintWarnings} />
+                    <span className="shrink-0">
+                      <LintBadge errors={item.lintErrors} warnings={item.lintWarnings} />
+                    </span>
                   </div>
                 );
               })}
@@ -279,8 +282,16 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                       <dl className="grid gap-3 text-sm">
                         {detail.data.sourceRef ? (
                           <div>
-                            <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Reference</dt>
-                            <dd className="font-mono text-foreground">{detail.data.sourceRef}</dd>
+                            <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{detail.data.source === "import" ? "Import batch" : "Reference"}</dt>
+                            <dd className="break-all font-mono text-foreground">
+                              {detail.data.source === "import" ? (
+                                <Link to={importBatchHref(detail.data.sourceRef)} className="text-primary hover:underline">
+                                  {detail.data.sourceRef}
+                                </Link>
+                              ) : (
+                                detail.data.sourceRef
+                              )}
+                            </dd>
                           </div>
                         ) : null}
                         {detail.data.externalId ? (

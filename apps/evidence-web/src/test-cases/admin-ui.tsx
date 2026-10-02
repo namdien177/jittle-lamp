@@ -30,7 +30,7 @@ export function AdminCard(props: {
   bodyClassName?: string;
 }): React.JSX.Element {
   return (
-    <Card className={cn("jl-proto-card p-0", props.className)}>
+    <Card className={cn("jl-proto-card min-w-0 p-0", props.className)}>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div className="min-w-0 space-y-0.5">
           <h2 className="font-display text-base font-bold">{props.title}</h2>

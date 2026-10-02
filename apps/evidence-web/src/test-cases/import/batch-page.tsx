@@ -151,7 +151,7 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
           <StatTile label="Updated" value={batch.counts.updated} />
           <StatTile label="Skipped" value={batch.counts.skipped} />
           <StatTile label="Errors" value={batch.counts.errors} tone={batch.counts.errors > 0 ? "danger" : "default"} />
-          <StatTile label="Duplicates" value={overview.exact + overview.near} detail={`${overview.exact} exact · ${overview.near} near`} tone={overview.exact + overview.near > 0 ? "warning" : "default"} />
+          <StatTile label="Similar" value={overview.exact + overview.near} detail={`${overview.exact} exact · ${overview.near} near`} tone={overview.exact + overview.near > 0 ? "warning" : "default"} />
         </div>
 
         <AdminCard
