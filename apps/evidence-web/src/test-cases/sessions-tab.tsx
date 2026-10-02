@@ -5,6 +5,7 @@ import type { TestCaseDetail, TestRunSummary } from "@jittle-lamp/shared";
 import { Badge } from "../components/ui/badge";
 import { RunStatusBadge } from "./bits";
 import { formatCost, formatDuration, formatRelative } from "./list-model";
+import { useAccountProfile } from "../queries";
 import { useTestCaseRuns } from "./queries";
 import { cacheHitRatio, formatQueuePill } from "./run-model";
 
@@ -13,6 +14,8 @@ import { cacheHitRatio, formatQueuePill } from "./run-model";
 export function SessionsTab(props: { detail: TestCaseDetail }): React.JSX.Element {
   const runsQuery = useTestCaseRuns(props.detail.id);
   const runs = runsQuery.data?.items ?? [];
+  const account = useAccountProfile();
+  const me = [account.data?.localUserId, account.data?.userId].filter((value): value is string => typeof value === "string");
 
   if (runsQuery.isPending) return <p className="py-6 text-[13.5px] text-muted-foreground">Loading test sessions…</p>;
   if (runsQuery.isError) return <p className="py-6 text-[13.5px] text-destructive">{runsQuery.error instanceof Error ? runsQuery.error.message : "Unable to load runs."}</p>;
@@ -26,15 +29,12 @@ export function SessionsTab(props: { detail: TestCaseDetail }): React.JSX.Elemen
             <th scope="col" className="py-1.5 pr-3 font-medium">Run</th>
             <th scope="col" className="py-1.5 pr-3 font-medium">Status</th>
             <th scope="col" className="py-1.5 pr-3 font-medium">Trigger · pool</th>
-            <th scope="col" className="py-1.5 pr-3 text-right font-medium">Duration</th>
-            <th scope="col" className="py-1.5 pr-3 text-right font-medium whitespace-nowrap">Cache hit</th>
-            <th scope="col" className="py-1.5 pr-3 text-right font-medium">Cost</th>
-            <th scope="col" className="py-1.5 font-medium">Evidence</th>
+            <th scope="col" className="py-1.5 pr-3 text-right font-medium">Time · cache · cost</th>
           </tr>
         </thead>
         <tbody>
           {runs.map((run) => (
-            <SessionRow key={run.id} run={run} />
+            <SessionRow key={run.id} run={run} me={me} />
           ))}
         </tbody>
       </table>
@@ -42,20 +42,28 @@ export function SessionsTab(props: { detail: TestCaseDetail }): React.JSX.Elemen
   );
 }
 
-function SessionRow(props: { run: TestRunSummary }): React.JSX.Element {
+function SessionRow(props: { run: TestRunSummary; me: readonly string[] }): React.JSX.Element {
   const { run } = props;
   const ratio = cacheHitRatio(run.metrics);
   const pill = formatQueuePill(run);
   const others = run.subscribers.filter((subscriber) => subscriber.userId !== run.createdBy);
+  const requester = run.createdByName ?? (run.createdBy !== null && props.me.includes(run.createdBy) ? "you" : "unknown");
   const duration = run.metrics.durationMs ?? (run.startedAt && run.finishedAt ? run.finishedAt - run.startedAt : null);
   return (
     <tr className="jl-tc-row border-b border-border/60 align-top hover:bg-muted/50">
       <td className="max-w-[180px] py-2 pr-3">
-        <Link to={`/test-runs/${encodeURIComponent(run.id)}`} className="whitespace-nowrap font-medium text-foreground underline-offset-2 hover:underline">
-          {formatRelative(run.queuedAt)} · v{run.transcriptVersion}
-        </Link>
-        <div className="truncate text-[12px] text-muted-foreground" title={`${run.createdByName ?? "Unknown"}${run.environmentName ? ` · ${run.environmentName}` : ""}`}>
-          {run.createdByName ?? "Unknown"}
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          <Link to={`/test-runs/${encodeURIComponent(run.id)}`} className="font-medium text-foreground underline-offset-2 hover:underline">
+            {formatRelative(run.queuedAt)} · v{run.transcriptVersion}
+          </Link>
+          {run.evidenceId ? (
+            <Link to={`/evidence/${encodeURIComponent(run.evidenceId)}`} className="text-[12px] text-primary underline-offset-2 hover:underline" aria-label="Open the run's evidence">
+              evidence
+            </Link>
+          ) : null}
+        </div>
+        <div className="truncate text-[12px] text-muted-foreground" title={`${requester}${run.environmentName ? ` · ${run.environmentName}` : ""}`}>
+          {requester}
           {run.environmentName ? ` · ${run.environmentName}` : ""}
         </div>
       </td>
@@ -82,19 +90,12 @@ function SessionRow(props: { run: TestRunSummary }): React.JSX.Element {
           {run.runnerPool}
         </div>
       </td>
-      <td className="whitespace-nowrap py-2 pr-3 text-right font-mono tabular-nums">{formatDuration(duration)}</td>
-      <td className="py-2 pr-3 text-right font-mono tabular-nums" title={`${run.metrics.stepsReplayed} replayed · ${run.metrics.stepsAgent} agent · ${run.metrics.stepsHandoff} hand-off`}>
-        {ratio === null ? "—" : `${Math.round(ratio * 100)}%`}
-      </td>
-      <td className="whitespace-nowrap py-2 pr-3 text-right font-mono tabular-nums">{formatCost(run.metrics.costUsd)}</td>
-      <td className="py-2">
-        {run.evidenceId ? (
-          <Link to={`/evidence/${encodeURIComponent(run.evidenceId)}`} className="text-primary underline-offset-2 hover:underline">
-            Evidence
-          </Link>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
+      <td className="whitespace-nowrap py-2 pr-3 text-right font-mono text-[12.5px] tabular-nums">
+        <div>{formatDuration(duration)}</div>
+        <div className="text-muted-foreground" title={`${run.metrics.stepsReplayed} replayed · ${run.metrics.stepsAgent} agent · ${run.metrics.stepsHandoff} hand-off`}>
+          {ratio === null ? "—" : `${Math.round(ratio * 100)}% replayed`}
+        </div>
+        <div className="text-muted-foreground">{formatCost(run.metrics.costUsd)}</div>
       </td>
     </tr>
   );

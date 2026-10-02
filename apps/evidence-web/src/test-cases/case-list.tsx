@@ -26,7 +26,7 @@ export const listRowHeight = 44;
 const columnWidth: Record<ListColumnId, string> = {
   key: "84px",
   title: "minmax(180px,1fr)",
-  tags: "minmax(120px,190px)",
+  tags: "minmax(150px,250px)",
   status: "76px",
   lastOutcome: "104px",
   passRate: "76px",
