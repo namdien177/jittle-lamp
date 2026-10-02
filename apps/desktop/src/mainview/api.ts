@@ -122,6 +122,12 @@ export type ApiEvidenceArtifactSummary = {
   updatedAt: number;
 };
 
+export type ApiEvidencePlayback = {
+  evidence: ApiEvidenceSummary;
+  artifacts: ApiEvidenceArtifactSummary[];
+  readUrls: Array<{ artifactId: string; url: string; expiresAt: number; renewAfterMs: number }>;
+};
+
 export type ApiShareLinkSummary = {
   id: string;
   slug: string;
@@ -349,6 +355,9 @@ export const api = {
       getToken,
       `/evidences/${encodeURIComponent(evidenceId)}/artifacts${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
     ),
+
+  fetchEvidencePlayback: (getToken: FetchToken, evidenceId: string) =>
+    authedFetch<ApiEvidencePlayback>(getToken, `/evidences/${encodeURIComponent(evidenceId)}/playback`),
 
   listShareLinks: (getToken: FetchToken, evidenceId: string) =>
     authedFetch<{ shareLinks: ApiShareLinkSummary[] }>(

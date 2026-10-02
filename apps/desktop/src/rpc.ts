@@ -2,6 +2,10 @@ import type { ArchiveAnnotation, SessionArchive } from "@jittle-lamp/shared";
 
 import type { ResolvedCompanionConfig } from "./companion/config";
 import type { CompanionArtifactWrite, CompanionRuntimeState } from "./companion/server";
+import type { DeepLinkTarget } from "./deep-link";
+import type { RemoteEvidenceRequest } from "./session/remote-evidence";
+
+export type { DeepLinkTarget } from "./deep-link";
 
 export type { SessionArtifact, SessionRecord } from "./companion/sessions-db";
 
@@ -30,13 +34,19 @@ export type ContextMenuItem =
  *   always empty and read-only.
  * - `"local"`   — ad-hoc session loaded directly from an arbitrary folder
  *   on the local machine; never persisted into SQLite; notes are read-only.
+ * - `"cloud"`   — uploaded evidence (for example a test run) downloaded from
+ *   signed artifact URLs into a temp session; notes are read-only and
+ *   `tempId` must be cleared like a ZIP import.
  */
 export type ViewerPayload = {
-  source: "library" | "zip" | "local";
+  source: "library" | "zip" | "local" | "cloud";
   archive: SessionArchive;
   videoPath: string;
   notes: string;
   tempId?: string;
+  // Cloud evidence: the backend evidence ID and the recording's MIME type (mp4 or webm).
+  evidenceId?: string;
+  videoMimeType?: string;
 };
 
 export type DesktopCompanionConfigSnapshot = Pick<
@@ -205,6 +215,15 @@ export type DesktopRequestMap = {
       ok: true;
     };
   };
+  openRemoteEvidence: {
+    params: RemoteEvidenceRequest;
+    response: ViewerPayload;
+  };
+  // Returns and clears the deep link that launched or re-focused the app, if any.
+  consumeDeepLink: {
+    params: undefined;
+    response: { target: DeepLinkTarget | null };
+  };
   openExternalUrl: {
     params: {
       url: string;
@@ -269,4 +288,6 @@ export type DesktopRendererMessageMap = {
     action: string;
     data?: unknown;
   };
+  // A `jittle-lamp://` link arrived; the renderer calls consumeDeepLink to read it.
+  deepLinkReceived: Record<string, never>;
 };
