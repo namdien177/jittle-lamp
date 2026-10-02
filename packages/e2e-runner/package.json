@@ -15,7 +15,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "bun build --target node --outdir dist --entry-naming [name].js --external e2e --external @e2e-dev/web --external playwright --external playwright-core --external ai-sdk-provider-claude-code src/cli.ts && bun run scripts/add-shebang.ts",
+    "build": "bun build --target node --outdir dist --entry-naming [name].js --external e2e --external @e2e-dev/web --external playwright --external playwright-core --external ai-sdk-provider-claude-code src/cli.ts src/daemon.ts && bun run scripts/add-shebang.ts",
     "jl-e2e": "bun run src/cli.ts",
     "typecheck": "bun x tsc --noEmit -p ../../tsconfig.typecheck.json"
   },

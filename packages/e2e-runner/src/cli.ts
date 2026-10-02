@@ -10,7 +10,7 @@ import { runTranscript } from "./run";
 
 export type ParsedArgs = { command: string; positionals: string[]; flags: Map<string, string[]> };
 
-const booleanFlags = new Set(["code", "headed", "upload", "wait", "help", "json", "with-secrets", "allow-claude-code", "force"]);
+const booleanFlags = new Set(["once", "code", "headed", "upload", "wait", "help", "json", "with-secrets", "allow-claude-code", "force"]);
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [command = "help", ...rest] = argv;
@@ -50,6 +50,12 @@ const usage = `jl-e2e: run transcript test cases with an AI agent in a real brow
   jl-e2e config [--env-file .env.e2e]          resolved names, secrets masked, with sources
   jl-e2e cache ls [--code] | cache clear [--step <stepId>]
 
+With JL_API_ORIGIN and JL_API_TOKEN (automation token):
+  jl-e2e run --suite <id> | --case <id> [--env <id>] [--wait] [--junit out.xml] [--force]
+  jl-e2e env pull <environment> [--with-secrets] [--out .env.e2e]
+  jl-e2e export --case <id|key> [--case …] [dir]
+  jl-e2e push <file.transcript.md>          creates or updates by Key, then by title
+
 Model ids select the provider: anthropic/…, openai/…, openrouter/<vendor>/<model>,
 openai-compatible/<model>, gateway/…, claude-code/… (development only, --allow-claude-code),
 mock:<fixture.json> (recorded turns, no network).`;
@@ -77,6 +83,51 @@ export async function main(argv: readonly string[]): Promise<number> {
       if (flag(args, "code") === "true" || args.flags.has("code")) console.log(`${entry.renderedCode.replace(/^/gm, "    ")}`);
     }
     return 0;
+  }
+
+  if (args.command === "env" || args.command === "export" || args.command === "push" || (args.command === "run" && (args.flags.has("suite") || args.flags.has("case")))) {
+    const remote = await import("./remote/commands");
+    const env = { ...process.env, ...Object.fromEntries(loadEnvFiles(cwd, flagList(args, "env-file")).flatMap((file) => Object.entries(file.values))), ...process.env };
+    const context = remote.remoteContext(env, (line) => console.error(`[jl-e2e] ${line}`));
+    if (args.command === "env") {
+      const name = args.positionals[1];
+      if (args.positionals[0] !== "pull" || !name) {
+        console.error("usage: jl-e2e env pull <environment> [--with-secrets] [--out .env.e2e]");
+        return 2;
+      }
+      const out = resolve(cwd, flag(args, "out") ?? ".env.e2e");
+      await remote.envPull(context, { environment: name, withSecrets: flag(args, "with-secrets") === "true", out });
+      console.log(`wrote ${out}`);
+      return 0;
+    }
+    if (args.command === "export") {
+      const dir = resolve(cwd, args.positionals[0] ?? "e2e/cases");
+      const written = await remote.exportCases(context, { ids: flagList(args, "case"), dir });
+      for (const path of written) console.log(path);
+      return 0;
+    }
+    if (args.command === "push") {
+      const file = args.positionals[0];
+      if (!file) {
+        console.error("usage: jl-e2e push <file.transcript.md>");
+        return 2;
+      }
+      for (const result of await remote.pushCases(context, { file: resolve(cwd, file) })) console.log(`${result.action} ${result.id} ${result.title}`);
+      return 0;
+    }
+    const result = await remote.runRemote(context, {
+      ...(flag(args, "suite") ? { suiteId: flag(args, "suite") as string } : {}),
+      ...(flag(args, "case") ? { caseId: flag(args, "case") as string } : {}),
+      ...(flag(args, "env") ? { environmentId: flag(args, "env") as string } : {}),
+      params: parseVars(flagList(args, "var")),
+      force: flag(args, "force") === "true",
+      wait: flag(args, "wait") === "true" || args.flags.has("junit"),
+      ...(flag(args, "junit") ? { junit: resolve(cwd, flag(args, "junit") as string) } : {}),
+      ...(env.JL_WEB_ORIGIN ? { webOrigin: env.JL_WEB_ORIGIN } : {}),
+      ...(flag(args, "cache") ? { cacheMode: flag(args, "cache") as "read-write" | "read-only" | "off" | "strict" } : {})
+    });
+    for (const runId of result.runIds) console.log(runId);
+    return result.exitCode;
   }
 
   if (args.command === "run") {

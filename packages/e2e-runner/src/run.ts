@@ -8,7 +8,9 @@ import {
   priceRunReport,
   sha256Hex,
   type BlockedReason,
-  type ModelPrice, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
+  type MacroDefinition,
+  type ModelPrice,
+  type TranscriptStep, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
 
 import { loadEnvFiles, type EnvFile } from "./config/env-files";
 import { collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
@@ -46,6 +48,13 @@ export type RunTranscriptOptions = {
   signal?: AbortSignal;
   onStepEvent?: (event: StepLogEvent) => void;
   prices?: readonly ModelPrice[];
+  // Organisation macros (runner daemon); local runs read macro files instead.
+  macros?: readonly MacroDefinition[];
+  // Steps as the backend stored them, so step ids match the server's.
+  previousSteps?: readonly Pick<TranscriptStep, "stepId" | "instructionKey">[];
+  // Backend cache store and progress screenshots for daemon runs.
+  backend?: { apiUrl: string; runId: string; runToken: string };
+  progressScreenshots?: boolean;
   priceTableVersion?: string;
   log?: (line: string) => void;
 };
@@ -162,8 +171,16 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   mkdirSync(runDir, { recursive: true });
 
   const transcriptDir = options.transcriptPath ? dirname(resolve(options.cwd, options.transcriptPath)) : options.cwd;
-  const macros = loadMacros([...(options.macroDirs ?? []), join(transcriptDir, "../macros"), join(options.cwd, "e2e/macros")]);
-  const plan = buildRunPlan({ transcript: options.transcript, config, macros, params: options.params ?? {} });
+  const macros = options.macros
+    ? [...loadMacros([]).filter((macro) => !options.macros?.some((org) => org.name.toLowerCase() === macro.name.toLowerCase())), ...options.macros]
+    : loadMacros([...(options.macroDirs ?? []), join(transcriptDir, "../macros"), join(options.cwd, "e2e/macros")]);
+  const plan = buildRunPlan({
+    transcript: options.transcript,
+    config,
+    macros,
+    params: options.params ?? {},
+    ...(options.previousSteps ? { previousSteps: options.previousSteps } : {})
+  });
   const allowClaudeCode = options.allowClaudeCode ?? env.JL_ALLOW_CLAUDE_CODE === "1";
   // claude-code/ models (development only) spawn the `claude` CLI, which authenticates with the
   // host's ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN; only those pass through, redacted.
@@ -174,7 +191,11 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       if (value) claudeCodeEnv[name] = value;
     }
   }
-  const redact = createRedactor([...collectSecretValues(config), ...Object.values(claudeCodeEnv).filter((value) => !/^https?:/.test(value))]);
+  const redact = createRedactor([
+    ...collectSecretValues(config),
+    ...Object.values(claudeCodeEnv).filter((value) => !/^https?:/.test(value)),
+    ...(options.backend ? [options.backend.runToken] : [])
+  ]);
   const log = (line: string) => options.log?.(redact(line));
 
   const viewport = options.viewport ?? defaultViewport;
@@ -304,6 +325,8 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       JL_PROGRESS_LOG: progressPath,
       JL_SCREENSHOT_DIR: screenshotDir,
       JL_CACHE_INDEX: cacheIndexPath,
+      ...(options.backend ? { JL_CACHE_API_URL: options.backend.apiUrl, JL_RUN_ID: options.backend.runId, JL_RUN_TOKEN: options.backend.runToken } : {}),
+      ...(options.progressScreenshots ? { JL_PROGRESS_SCREENSHOTS: "1" } : {}),
       ...(allowClaudeCode ? { JL_ALLOW_CLAUDE_CODE: "1" } : {}),
       ...(options.recordModelFixture ? { JL_RECORD_MODEL_FIXTURE: resolve(options.cwd, options.recordModelFixture) } : {})
     }

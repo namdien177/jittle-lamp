@@ -112,7 +112,19 @@ const blockingCodes = new Set([
   "STEP_BUDGET_EXHAUSTED",
   "CONTEXT_OVERFLOW",
   "MISSING_VARIABLE",
-  "MISSING_CREDENTIAL"
+  "MISSING_CREDENTIAL",
+  // e2e's setup and environment codes (the app or its data, not the behaviour under test)
+  "APP_UNREACHABLE",
+  "APP_NOT_OPEN",
+  "ENVIRONMENT_UNAVAILABLE",
+  "AUTH_CREDENTIAL_UNAVAILABLE",
+  "AUTH_CREDENTIAL_INVALID",
+  "SECRET_UNAVAILABLE",
+  "SEED_DATA_MISSING",
+  "TEST_SETUP_FAILED",
+  "POLICY_DENIED",
+  "AUTOMATION_UNSUPPORTED",
+  "STEP_TIMEOUT"
 ]);
 
 function errorInfo(error: unknown): { code: string; message: string; blocked: boolean; observed: string | null } {
@@ -121,6 +133,23 @@ function errorInfo(error: unknown): { code: string; message: string; blocked: bo
   const message = typeof record.message === "string" ? record.message : String(error);
   const explanation = typeof record.explanation === "string" ? record.explanation : null;
   return { code, message, blocked: record.blocked === true || blockingCodes.has(code), observed: explanation };
+}
+
+// A reduced screenshot per finished step for live progress (design.md §5.4); people see it, the
+// model never does.
+async function progressScreenshot(stepId: string): Promise<string | null> {
+  const dir = process.env.JL_SCREENSHOT_DIR;
+  if (process.env.JL_PROGRESS_SCREENSHOTS !== "1" || !dir) return null;
+  const page = currentPage();
+  if (!page) return null;
+  try {
+    mkdirSync(join(dir, "progress"), { recursive: true });
+    const path = join(dir, "progress", `${stepId}.jpg`);
+    await page.screenshot({ path, type: "jpeg", quality: 45, scale: "css", timeout: 3000 });
+    return path;
+  } catch {
+    return null;
+  }
 }
 
 export async function step(meta: StepMeta, body: () => Promise<unknown>): Promise<void> {
@@ -133,7 +162,7 @@ export async function step(meta: StepMeta, body: () => Promise<unknown>): Promis
       stepId: meta.stepId,
       status: "passed",
       error: null,
-      screenshot: null,
+      screenshot: meta.kind === "macro" || meta.kind === "login" ? null : await progressScreenshot(meta.stepId),
       observed: result && typeof result.summary === "string" ? result.summary : null
     });
   } catch (error) {
