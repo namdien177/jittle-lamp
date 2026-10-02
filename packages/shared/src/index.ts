@@ -4,3 +4,5 @@ export * from "./timeline";
 export * from "./migration";
 
 export * from "./session-io";
+export * from "./test-case";
+export { sha256Hex } from "./sha256";
