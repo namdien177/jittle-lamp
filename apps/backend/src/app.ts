@@ -26,6 +26,7 @@ import { createRunnerPoolRoutes } from "./routes/runner-pools";
 import { createShareLinkRoutes } from "./routes/share-links";
 import { createTestCaseRoutes } from "./routes/test-cases";
 import { createTestConfigRoutes } from "./routes/test-config";
+import { createTestLiveRoutes } from "./routes/test-live";
 import { createTestRunRoutes } from "./routes/test-runs";
 import {
 	type ArtifactStorage,
@@ -44,6 +45,7 @@ import { createOrganizationMigration } from "./services/organization-migration";
 import { createTaskQueue } from "./services/task-queue";
 import { createEnvKeyProvider, type KeyProvider } from "./services/test-config";
 import type { TextGenerator } from "./services/test-imports";
+import { createLiveHub, type LiveHub } from "./services/test-live";
 import {
 	normalizeVideoTo720p,
 	type VideoNormalizer,
@@ -60,6 +62,7 @@ export const createApp = (
 		keyProvider?: KeyProvider;
 		generateText?: TextGenerator;
 		fetch?: typeof fetch;
+		liveHub?: LiveHub;
 	} = {},
 ) => {
 	const env = parseEnv(source);
@@ -98,6 +101,9 @@ export const createApp = (
 			masterKey: runtime.secretsMasterKey,
 			previousMasterKey: runtime.secretsMasterKeyPrevious,
 		});
+
+	// Live view state of running runs (one backend instance; see services/test-live.ts).
+	const liveHub = dependencies.liveHub ?? createLiveHub();
 
 	const core = createCorePlugin({
 		runtime,
@@ -181,7 +187,8 @@ export const createApp = (
 				...(dependencies.fetch ? { fetchImpl: dependencies.fetch } : {}),
 			}),
 		)
-		.use(createTestRunRoutes(auth))
+		.use(createTestRunRoutes(auth, liveHub))
+		.use(createTestLiveRoutes(auth, liveHub))
 		.use(createTestConfigRoutes(auth))
 		.use(createRunnerPoolRoutes(auth))
 		.use(createNotificationRoutes(auth))
@@ -194,7 +201,16 @@ export const createApp = (
 		app.use(createDevArtifactRoutes(core));
 	}
 
-	return { app, runtime, logger, db, artifactStorage, organizationMigration };
+	return {
+		app,
+		runtime,
+		logger,
+		db,
+		artifactStorage,
+		organizationMigration,
+		keyProvider,
+		liveHub,
+	};
 };
 
 export type App = ReturnType<typeof createApp>["app"];

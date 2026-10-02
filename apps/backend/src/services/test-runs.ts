@@ -48,6 +48,7 @@ import { HttpError, notFound } from "../http/test-http";
 import type { ArtifactStorage } from "./artifact-storage";
 import { emitNotification, emitRunOutcome } from "./notifications";
 import { caseSteps, parseJsonColumn, type TestCaseRow } from "./test-cases";
+import type { LiveHub } from "./test-live";
 import {
 	createOpaqueToken,
 	hashToken,
@@ -1118,6 +1119,7 @@ export const toRunDetail = async (
 	artifactStorage: ArtifactStorage,
 	run: TestRunRow,
 	now = Date.now(),
+	liveHub?: LiveHub,
 ): Promise<TestRunDetail> => {
 	const summary = await toRunSummary(db, run, { now });
 	const version = await runTranscriptVersion(db, run);
@@ -1237,17 +1239,38 @@ export const toRunDetail = async (
 		steps,
 		transcript: version?.transcript ?? "",
 		currentStepId: run.currentStepId,
-		live: run.liveAvailable
-			? {
-					available: true,
-					takeoverBy: run.liveTakeoverBy,
-					paused: run.livePaused,
-					frameUrl: run.liveFrameKey
-						? await readUrl(artifactStorage, run.liveFrameKey, "image/jpeg")
-						: null,
-					frameAt: run.liveFrameAt,
-				}
-			: null,
+		live: await liveDetail(run, liveHub),
+	};
+};
+
+// Live view while the run executes and its runner polls the live control (design.md §5.4).
+const liveDetail = async (
+	run: TestRunRow,
+	liveHub: LiveHub | undefined,
+): Promise<TestRunDetail["live"]> => {
+	if (
+		!run.liveAvailable ||
+		!(ACTIVE_RUN_STATUSES as readonly string[]).includes(run.status)
+	) {
+		return null;
+	}
+	const snapshot = liveHub?.snapshot(run.id);
+	const runnerViewport = parseJsonColumn(
+		run.runnerInfoJson,
+		runnerInfoSchema.nullable(),
+		null,
+	)?.viewport;
+	const frameAt = snapshot?.frameAt ?? null;
+	return {
+		available: true,
+		takeoverBy: run.liveTakeoverBy,
+		paused: run.status === "paused" || run.livePaused,
+		frameUrl:
+			frameAt !== null
+				? `/test-runs/${encodeURIComponent(run.id)}/live/frame?at=${frameAt}`
+				: null,
+		frameAt,
+		viewport: snapshot?.viewport ?? runnerViewport ?? null,
 	};
 };
 
@@ -1632,6 +1655,8 @@ export const recordProgress = async (
 					}
 				: {}),
 			blockedReason: null,
+			// The runner reports "paused" while a person holds the take-over.
+			livePaused: status === "paused",
 			...extendLease(now),
 		})
 		.where(eq(testRuns.id, run.id));

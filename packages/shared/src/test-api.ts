@@ -407,8 +407,11 @@ export const testRunDetailSchema = testRunSummarySchema.extend({
       available: z.boolean(),
       takeoverBy: id.nullable(),
       paused: z.boolean(),
+      // API path of the latest JPEG (GET /test-runs/:id/live/frame); fetch it with the session.
       frameUrl: z.string().nullable(),
-      frameAt: epochMs.nullable()
+      frameAt: epochMs.nullable(),
+      // CSS pixels of the run's browser viewport; input coordinates use this space.
+      viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).nullable().default(null)
     })
     .nullable()
 });

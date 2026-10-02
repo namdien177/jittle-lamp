@@ -34,6 +34,7 @@ import { getRequestIpAddress } from "../services/organization-activity";
 import { verifyWorkerToken } from "../services/runner-pools";
 import { testCasePolicy } from "../services/test-case-policy";
 import { createTestSecrets, type KeyProvider } from "../services/test-config";
+import type { LiveHub } from "../services/test-live";
 import {
 	MAX_RUN_EVIDENCE_ZIP_BYTES,
 	storeRunEvidence,
@@ -77,7 +78,7 @@ const runFromToken = async (ctx: Ctx & { params: unknown }) => {
 	return { db, run };
 };
 
-export const createTestRunRoutes = (auth: ClerkAuthPlugin) =>
+export const createTestRunRoutes = (auth: ClerkAuthPlugin, liveHub?: LiveHub) =>
 	new Elysia({ name: "test-run-routes" })
 		.use(auth)
 		.get("/test-runs", (ctx) =>
@@ -172,7 +173,7 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin) =>
 				const run = await getRunRow(db, who.orgId, id);
 				return respond(
 					testRunDetailSchema,
-					await toRunDetail(db, ctx.artifactStorage, run),
+					await toRunDetail(db, ctx.artifactStorage, run, Date.now(), liveHub),
 				);
 			}),
 		)
@@ -251,6 +252,7 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin) =>
 				const { db, run } = await runFromToken(ctx);
 				const body = parseInput(finalizeTestRunRequestSchema, ctx.body);
 				const result = await finalizeRun(db, { run, request: body });
+				liveHub?.clear(run.id);
 				return respond(
 					testRunDetailSchema,
 					await toRunDetail(db, ctx.artifactStorage, result.run),
