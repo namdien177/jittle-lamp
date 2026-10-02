@@ -5,6 +5,7 @@ import {
   Building2,
   ChevronRight,
   ExternalLink,
+  FlaskConical,
   Menu,
   Moon,
   PanelLeftClose,
@@ -44,6 +45,9 @@ function useNavGroups(): NavGroup[] {
     { heading: "Evidence", items: [
       { to: "/evidence", label: "Recordings", icon: Video },
       { to: "/quick-view", label: "Open local file", icon: Archive }
+    ] },
+    { heading: "Testing", items: [
+      { to: "/test-cases", label: "Test cases", icon: FlaskConical }
     ] },
     { heading: "Workspace", items: [
       { to: "/organisations", label: "Organisations", icon: Building2 },
@@ -204,6 +208,7 @@ function breadcrumbFor(pathname: string): string {
   if (pathname.startsWith("/organisations")) return "Organisations";
   if (pathname.startsWith("/settings")) return "Settings";
   if (pathname.startsWith("/test-cases")) return "Test cases";
+  if (pathname.startsWith("/test-runs")) return "Test run";
   if (pathname.startsWith("/documents")) return "Documents";
   return "Workspace";
 }
@@ -249,6 +254,7 @@ export function WorkspaceShell({
 
   const crumb = breadcrumbFor(location.pathname);
   const isEvidenceDetail = /^\/evidence\/[^/]+/.test(location.pathname);
+  const isFillPage = /^\/(test-cases|test-runs)(\/|$)/.test(location.pathname);
   const toggleSidebarCollapsed = () => {
     setSidebarCollapsed((value) => {
       const next = !value;
@@ -363,7 +369,7 @@ export function WorkspaceShell({
             ) : null}
           </div>
         ) : null}
-        <main className="jl-main jl-scroll" data-flush={isEvidenceDetail ? "true" : "false"}>
+        <main className="jl-main jl-scroll" data-flush={isEvidenceDetail ? "true" : "false"} data-fill={isFillPage ? "true" : "false"}>
           {children}
         </main>
     </div>

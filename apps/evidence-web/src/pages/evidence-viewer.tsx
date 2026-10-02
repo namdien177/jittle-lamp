@@ -613,3 +613,81 @@ export function CloudEvidencePage(): React.JSX.Element {
     />
   );
 }
+
+/**
+ * The shared viewer on one cloud evidence, embedded in another page (the test run detail). The
+ * host controls the step filter; video URLs are renewed like on the evidence page.
+ */
+export function EmbeddedEvidenceViewer(props: {
+  evidenceId: string;
+  activeStepId: string | null;
+  onActiveStepIdChange: (stepId: string | null) => void;
+  stepOffsetsMs?: Readonly<Record<string, number>>;
+  onClose: () => void;
+}): React.JSX.Element {
+  const auth = useAuth();
+  const query = useRemoteEvidence({ remoteEvidenceId: props.evidenceId });
+  const stableGetToken: FetchToken = useRef(() => auth.getToken()).current;
+  const latestUrlsRef = useRef<{ videoReadUrl: ArtifactReadUrl; archiveReadUrl: ArtifactReadUrl } | null>(null);
+  const loaded: RemoteEvidenceData | null = query.data?.kind === "loaded" ? query.data.data : null;
+  if (loaded && !latestUrlsRef.current) latestUrlsRef.current = { videoReadUrl: loaded.videoReadUrl, archiveReadUrl: loaded.archiveReadUrl };
+
+  useRenewArtifactUrls({
+    enabled: Boolean(loaded && auth.isSignedIn),
+    loaded,
+    getToken: stableGetToken,
+    onRenewed: (urls) => {
+      latestUrlsRef.current = urls;
+    }
+  });
+
+  if (query.isPending) return <StatusScreen loading title="Loading evidence" detail="Fetching the run recording…" />;
+  if (query.isError) {
+    return <StatusScreen tone="error" title="Unable to load evidence" detail={query.error instanceof Error ? query.error.message : "Unknown error"} />;
+  }
+  if (query.data?.kind === "restricted") return <RestrictedShareScreen orgName={query.data.orgName} />;
+  if (!loaded) return <StatusScreen loading title="Loading evidence" />;
+
+  const fetchVideoBytes = async (): Promise<Uint8Array | null> => {
+    try {
+      const url = loaded.recordingArtifact.id === loaded.videoArtifact.id
+        ? latestUrlsRef.current?.videoReadUrl.url ?? loaded.videoReadUrl.url
+        : (await api.createArtifactReadUrl(stableGetToken, loaded.evidenceId, loaded.recordingArtifact.id, loaded.orgId)).url;
+      const response = await fetch(url);
+      return response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleVideoError = (videoEl: HTMLVideoElement): void => {
+    const latest = latestUrlsRef.current;
+    if (!latest || videoEl.src === latest.videoReadUrl.url) return;
+    const currentTime = videoEl.currentTime;
+    videoEl.src = latest.videoReadUrl.url;
+    videoEl.load();
+    videoEl.currentTime = currentTime;
+  };
+
+  return (
+    <EvidenceViewerContent
+      key={loaded.evidenceId}
+      loadedArchive={loaded.session.archive}
+      loadedTimeline={loaded.session.timeline}
+      loadedMergeGroups={loaded.session.mergeGroups}
+      videoSrc={loaded.session.videoUrl}
+      recordingBytesInitial={loaded.session.recordingBytes}
+      source="cloud"
+      isOwner
+      shareLinkUrl={null}
+      fetchVideoBytes={fetchVideoBytes}
+      onVideoError={handleVideoError}
+      onClose={props.onClose}
+      viewerMode="page"
+      recordedBy={loaded.evidence.createdByProfile ?? null}
+      activeStepId={props.activeStepId}
+      onActiveStepIdChange={props.onActiveStepIdChange}
+      {...(props.stepOffsetsMs ? { stepOffsetsMs: props.stepOffsetsMs } : {})}
+    />
+  );
+}

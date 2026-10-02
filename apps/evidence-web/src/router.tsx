@@ -101,7 +101,8 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/evidence" replace /> },
           { path: "evidence", lazy: async () => ({ Component: (await import("./pages/evidence-library")).EvidenceLibraryPage }) },
           { path: "evidence/:evidenceId", element: <CloudEvidencePage /> },
-          { path: "test-cases", element: <ComingSoonPage variant="test-cases" /> },
+          { path: "test-cases", lazy: async () => ({ Component: (await import("./pages/test-cases")).TestCasesPage }) },
+          { path: "test-runs/:runId", lazy: async () => ({ Component: (await import("./pages/test-run")).TestRunPage }) },
           { path: "documents", element: <ComingSoonPage variant="documents" /> },
           { path: "organisations", lazy: async () => ({ Component: (await import("./pages/organisations")).OrganisationsListPage }) },
           {

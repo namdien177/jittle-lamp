@@ -14,12 +14,13 @@
   ],
   "scripts": {
     "build": "bun run build:js && bun run build:types",
-    "build:js": "bun build ./src/index.ts --outdir ./dist --target browser --format esm",
+    "build:js": "bun build ./src/index.ts --outdir ./dist --target browser --format esm --packages external",
     "build:types": "bun x tsc -p tsconfig.build.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
-    "lucide-react": "^1.48.0"
+    "lucide-react": "^1.48.0",
+    "@jittle-lamp/shared": "workspace:*"
   },
   "peerDependencies": {
     "react": "19.3.0"

@@ -167,7 +167,7 @@ function remoteEvidenceMatchesId(evidenceId: string) {
 	};
 }
 
-function useAuthToken(): FetchToken {
+export function useAuthToken(): FetchToken {
 	const auth = useAuth();
 	// Keep a referentially-stable token getter that always reads the latest auth,
 	// so it is safe to use in query/effect dependency arrays without churn.

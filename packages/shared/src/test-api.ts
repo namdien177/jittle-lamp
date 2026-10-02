@@ -386,7 +386,7 @@ export const testRunSummarySchema = z.object({
   batchId: id.nullable(),
   // 0-based place in the pool's queue (0 = claimed next); null once the run left the queue.
   queuePosition: z.number().int().nonnegative().nullable(),
-  // Runs queued in the same pool.
+  // Runs queued in the run's pool, for the "queued · #2 of 3" pill (design.md §10.4).
   queueDepth: z.number().int().nonnegative().nullable().optional(),
   estimatedStartAt: epochMs.nullable(),
   subscribers: z.array(z.object({ userId: id, name: z.string().nullable() })),
