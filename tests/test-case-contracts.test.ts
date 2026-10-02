@@ -550,3 +550,13 @@ describe("review regressions", () => {
     expect(performance.now() - started).toBeLessThan(200);
   });
 });
+
+describe("credential profile aliases", () => {
+  test("an exact profile wins; otherwise the only NAME_ profile; ambiguity resolves to nothing", async () => {
+    const { resolveCredentialAlias } = await import("@jittle-lamp/shared");
+    expect(resolveCredentialAlias("PCF", ["PCF", "PCF_HQ_ADMIN"])).toBe("PCF");
+    expect(resolveCredentialAlias("PCF", ["PCF_HQ_ADMIN", "ILHAM_A"])).toBe("PCF_HQ_ADMIN");
+    expect(resolveCredentialAlias("ILHAM", ["ILHAM_A", "ILHAM_B"])).toBeNull();
+    expect(resolveCredentialAlias("PC", ["PCF_HQ_ADMIN"])).toBeNull();
+  });
+});

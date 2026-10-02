@@ -9,6 +9,7 @@ import {
 	type ParsedTestCase,
 	parseTestCaseTranscript,
 	parseTranscriptDocument,
+	resolveCredentialAlias,
 	type SimilarTestCase,
 	type StepScript,
 	serializeTestCase,
@@ -722,13 +723,12 @@ export const computeRequiredConfig = async (
 		? await db.query.testCredentials.findMany({
 				where: and(
 					eq(testCredentials.orgId, row.orgId),
-					inArray(testCredentials.profile, credentials),
 					isNull(testCredentials.deletedAt),
 				),
 				columns: { profile: true, environmentId: true },
 			})
 		: [];
-	const available = new Set(
+	const usable = new Set(
 		stored
 			.filter(
 				(credential) =>
@@ -736,6 +736,11 @@ export const computeRequiredConfig = async (
 					credential.environmentId === environmentId,
 			)
 			.map((credential) => credential.profile),
+	);
+	const available = new Set(
+		credentials.filter(
+			(profile) => resolveCredentialAlias(profile, usable) !== null,
+		),
 	);
 	return {
 		variables,

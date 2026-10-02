@@ -1,4 +1,4 @@
-import type { CacheMode } from "@jittle-lamp/shared";
+import { resolveCredentialAlias, type CacheMode } from "@jittle-lamp/shared";
 
 import type { EnvFile } from "./env-files";
 
@@ -207,10 +207,8 @@ export function resolveCredentialProfile(
   config: Pick<ResolvedRunConfig, "credentials">,
   name: string
 ): { profile: string; aliased: boolean } | null {
-  if (config.credentials.has(name)) return { profile: name, aliased: false };
-  const prefix = `${name}_`;
-  const matches = [...config.credentials.keys()].filter((profile) => profile.startsWith(prefix));
-  return matches.length === 1 && matches[0] ? { profile: matches[0], aliased: true } : null;
+  const profile = resolveCredentialAlias(name, config.credentials.keys());
+  return profile ? { profile, aliased: profile !== name } : null;
 }
 
 // Every secret value the run knows about, longest first, for redaction.
