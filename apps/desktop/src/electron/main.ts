@@ -21,6 +21,7 @@ import {
 } from "electron";
 
 import { loadResolvedCompanionConfig, saveCompanionConfig } from "../companion/config";
+import { deepLinkScheme, findDeepLinkInArgv, parseDeepLink, type DeepLinkTarget } from "../deep-link";
 import {
   deleteSession,
   getCompanionConfigState,
@@ -50,7 +51,13 @@ import {
   type DesktopRendererMessageMap,
   type DesktopRequestMap
 } from "../rpc";
-import { buildSessionZip, clearTempSession, importZipBundle, loadLocalSession } from "../session/zip-import";
+import {
+  buildSessionZip,
+  clearTempSession,
+  importZipBundle,
+  loadLocalSession,
+  openRemoteEvidence
+} from "../session/zip-import";
 
 type DesktopHandler<K extends keyof DesktopRequestMap> = (
   params: DesktopRequestMap[K]["params"]
@@ -80,6 +87,9 @@ const latestReleaseApiUrl = "https://api.github.com/repos/namdien177/jittle-lamp
 
 let mainWindow: BrowserWindow | null = null;
 let desktopUpdateState: DesktopUpdateState = createInitialDesktopUpdateState();
+// The latest `jittle-lamp://` target, held until the renderer consumes it (it may still be loading
+// or waiting for sign-in when the link arrives).
+let pendingDeepLink: DeepLinkTarget | null = null;
 
 const handlers: DesktopHandlerMap = {
   addSessionTag: async ({ sessionId, tag }) => {
@@ -95,6 +105,11 @@ const handlers: DesktopHandlerMap = {
     return {
       selectedPath: result.canceled ? null : result.filePaths[0] ?? null
     };
+  },
+  consumeDeepLink: () => {
+    const target = pendingDeepLink;
+    pendingDeepLink = null;
+    return { target };
   },
   clearTempSession: async ({ tempId }) => {
     await clearTempSession(tempId);
@@ -259,6 +274,7 @@ const handlers: DesktopHandlerMap = {
       ok: true as const
     };
   },
+  openRemoteEvidence: async (request) => openRemoteEvidence(request),
   openExternalUrl: async ({ url }) => {
     const parsedUrl = new URL(url);
     if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
@@ -315,27 +331,80 @@ const handlers: DesktopHandlerMap = {
 };
 
 app.setName("Jittle Lamp");
-registerIpcHandlers();
 
-void app.whenReady().then(async () => {
-  await startCompanionServer().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
+// One instance owns the companion port and the protocol handler. A second launch (for example a
+// `jittle-lamp://run?runId=…` link on Windows or Linux) hands its argv to this instance and quits.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  registerDeepLinkProtocol();
+  registerIpcHandlers();
+  startDesktopApp();
+}
+
+function registerDeepLinkProtocol(): void {
+  if (process.defaultApp && process.argv.length >= 2 && process.argv[1]) {
+    // Development (`electron .`): register the Electron binary with the app path as its argument.
+    app.setAsDefaultProtocolClient(deepLinkScheme, process.execPath, [resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient(deepLinkScheme);
+  }
+
+  // macOS delivers links through open-url, also before the app is ready.
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
   });
 
-  createMainWindow();
+  app.on("second-instance", (_event, argv) => {
+    handleDeepLink(findDeepLinkInArgv(argv));
+    focusMainWindow();
+  });
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+  // Windows and Linux pass the link that launched the first instance in argv.
+  handleDeepLink(findDeepLinkInArgv(process.argv));
+}
+
+function handleDeepLink(raw: string | null): void {
+  if (!raw) return;
+  const target = parseDeepLink(raw);
+  if (!target) {
+    console.warn("[jittle-lamp] ignored an unsupported deep link");
+    return;
+  }
+  pendingDeepLink = target;
+  sendRendererMessage("deepLinkReceived", {});
+  focusMainWindow();
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+function startDesktopApp(): void {
+  void app.whenReady().then(async () => {
+    await startCompanionServer().catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+    });
+
+    createMainWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
+      }
+    });
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
+      app.quit();
     }
   });
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+}
 
 function registerIpcHandlers(): void {
   ipcMain.handle(desktopIpcRequestChannel, async (_event, payload: DesktopRequestPayload) => {

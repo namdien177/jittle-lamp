@@ -57,6 +57,14 @@
       "dist/**/*",
       "package.json"
     ],
+    "protocols": [
+      {
+        "name": "Jittle Lamp",
+        "schemes": [
+          "jittle-lamp"
+        ]
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
