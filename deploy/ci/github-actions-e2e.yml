@@ -5,7 +5,8 @@
 # deployment as JL_RUNNER_IMAGE), which contains `jl-e2e` and Chromium.
 #
 #   queue mode (default): the suite runs on your Jittle Lamp runner pool; this job waits, writes
-#                         JUnit and fails on failed cases (blocked cases are reported as skipped).
+#                         JUnit and fails on failed cases (blocked cases are reported as skipped;
+#                         add --fail-on-blocked to fail on them too).
 #   local mode:           the job runs the committed transcripts itself with the committed
 #                         .e2e/cache in strict mode (a stale script fails instead of calling the model).
 #

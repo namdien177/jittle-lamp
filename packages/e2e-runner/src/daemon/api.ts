@@ -55,7 +55,14 @@ export class BackendClient {
       headers["content-type"] = "application/json";
       payload = JSON.stringify(body);
     }
-    const response = await this.fetchImpl(new URL(path, this.options.origin), { method, headers, ...(payload === undefined ? {} : { body: payload }) });
+    // A hung request must not hold the lease keep-alive chain; uploads get longer.
+    const timeoutMs = body instanceof Uint8Array ? 300_000 : 30_000;
+    const response = await this.fetchImpl(new URL(path, this.options.origin), {
+      method,
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+      ...(payload === undefined ? {} : { body: payload })
+    });
     const text = await response.text();
     let json: unknown = null;
     try {
@@ -99,8 +106,9 @@ export class BackendClient {
     return result.evidenceId;
   }
 
-  finalize(runId: string, runToken: string, body: FinalizeTestRunRequest) {
-    return this.request("POST", `/test-runs/${encodeURIComponent(runId)}/finalize`, runToken, testRunDetailSchema, body);
+  // The reply (the finalised run) is informational for the runner; only the status matters.
+  async finalize(runId: string, runToken: string, body: FinalizeTestRunRequest): Promise<void> {
+    await this.request("POST", `/test-runs/${encodeURIComponent(runId)}/finalize`, runToken, null, body);
   }
 
   cacheRead(runId: string, runToken: string, keyHash: string) {

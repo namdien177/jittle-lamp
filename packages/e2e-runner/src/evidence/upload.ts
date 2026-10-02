@@ -48,7 +48,7 @@ function takeoverEvents(runDir: string): TakeoverEvent[] {
       try {
         const event = JSON.parse(line) as { type?: string; at: string; stepId: string | null; action?: "start" | "end"; kind?: string; detail?: string };
         if (event.type === "takeover") return [{ at: event.at, stepId: event.stepId, kind: event.action ?? "start", detail: "" }];
-        if (event.type === "takeover-input") return [{ at: event.at, stepId: event.stepId, kind: "input", detail: event.detail ?? event.kind ?? "" }];
+        if (event.type === "takeover-input") return [{ at: event.at, stepId: event.stepId, kind: "input", inputKind: event.kind ?? "click", detail: event.detail ?? "" }];
         return [];
       } catch {
         return [];

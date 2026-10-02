@@ -22,7 +22,7 @@ If no worker of the pool has sent a heartbeat recently, a run stays `queued` wit
 
 Go to Settings → Runner pools → New pool. Pick a name and a concurrency (runs at a time across the pool). The registration token appears **once**, so copy it.
 
-A worker uses the token on its first start only. It then gets its own worker credential and stores it in `~/.config/jittle-lamp/runner/<api host>.json` with mode 600. After that, starting the worker needs only the API origin. To revoke a host, delete the worker from the pool page.
+A worker uses the token only when it has no stored credential. It then gets its own worker credential and stores it with mode 600 in `~/.config/jittle-lamp/runner/<api host>-<host name>.json`, or in the path given with `--state`. Later starts reuse the stored credential, and the token can stay configured. To revoke a host, delete the worker from the pool page. A revoked worker stops claiming and finishes its current run.
 
 ## 2. Install a runner
 
@@ -34,7 +34,7 @@ cp deploy/runner/runner.env.sample deploy/runner/runner.env   # set JL_API_ORIGI
 docker compose -f deploy/runner/compose.yaml up -d --scale runner=2
 ```
 
-The image is Playwright's `v1.63.0-noble` image with Node and Chromium; it runs as `pwuser`. Each container keeps its worker credential in its own `runner-state` volume and its run directories in `runner-work`. `shm_size: 1gb` is required: Chromium crashes with Docker's 64 MB default.
+The image is Playwright's `v1.63.0-noble` image with Node and Chromium; it runs as `pwuser`. The replicas share the `runner-state` volume, and each keeps its credential in a file named after its container host name. `shm_size: 1gb` is required: Chromium crashes with Docker's 64 MB default. `stop_grace_period: 20m` lets a running case finish on `docker compose down`.
 
 ### systemd (self-hosted devbox)
 
@@ -61,9 +61,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now jl-e2e-runner
 journalctl -u jl-e2e-runner -f
 ```
 
-After the first successful start, remove `JL_RUNNER_TOKEN` from `/etc/jl-e2e-runner.env`.
-
-On SIGTERM the daemon stops claiming new runs and lets the current run finish (`TimeoutStopSec=20min`).
+The unit keeps the worker credential in `/var/lib/jl-e2e-runner/state.json` (`--state`, inside `StateDirectory`). On stop, systemd sends SIGTERM to the daemon only (`KillMode=mixed`). The daemon stops claiming and lets the current case finish. The browser is killed only when `TimeoutStopSec=20min` runs out.
 
 ### Foreground (trying it out)
 
@@ -72,7 +70,7 @@ bun run --cwd packages/e2e-runner build
 node packages/e2e-runner/dist/daemon.js start --api https://api.jittlelamp.example --token <registration token> --once
 ```
 
-`--once` exits after one run. `--concurrency n` runs n cases in parallel on this host. `--work-dir` moves the run directories (default `~/.cache/jl-e2e-runner`).
+`--once` exits after one run. `--concurrency n` runs n cases in parallel on this host (1 to 50). `--work-dir` moves the run directories (default `~/.cache/jl-e2e-runner`). A run directory is deleted once its evidence is uploaded and the run is finalised; set `JL_RUNNER_KEEP_RUNS=1` to keep them for debugging.
 
 ## 3. What a runner receives and keeps
 
@@ -90,7 +88,7 @@ Progress (current step, step results and a small screenshot per step) streams to
 | Symptom | Meaning | Action |
 | --- | --- | --- |
 | Run `queued`, `NO_RUNNER` | No live worker in the environment's pool | Start or fix the worker. `journalctl -u jl-e2e-runner` |
-| Run `failed`, `RUNNER_LOST` | The lease expired three times (host died, network cut) | Check the host. The queue retried the run twice before giving up |
+| Run `failed`, `RUNNER_LOST` | The lease expired three times (host died, network cut) | Check the host. The queue retried the run twice before giving up. A worker that loses its lease stops the case at once and finalises nothing; the retry starts clean |
 | Outcome `blocked`, `APP_UNREACHABLE` | The browser could not open the base URL from this host | VPN or DNS on the runner host; check that the environment is bound to the right pool |
 | Outcome `blocked`, `MISSING_CREDENTIAL` / `MISSING_VARIABLE` | The transcript names something the environment lacks (only names are listed) | Settings → Credentials / Environments |
 | Outcome `blocked`, `MODEL_KEY_MISSING` / `MODEL_UNAVAILABLE` | No organisation model key, or the provider rejected the model id | Settings → AI model |

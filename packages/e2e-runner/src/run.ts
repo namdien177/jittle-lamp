@@ -348,7 +348,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     let seen = 0;
     const poll = setInterval(() => {
       const events = readStepLog(stepLogPath);
-      for (const event of events.slice(seen)) options.onStepEvent?.(event);
+      for (const event of events.slice(seen)) options.onStepEvent?.(redactJson(event, redact));
       seen = events.length;
     }, 300);
     // Watchdog above e2e's own attempt deadline: a hung engine must not hold a runner slot.
@@ -361,11 +361,13 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     child.stderr.on("data", (data: Buffer) => chunks.push(data.toString()));
     const abort = () => child.kill("SIGTERM");
     options.signal?.addEventListener("abort", abort, { once: true });
+    // A cancel that arrived before the child existed.
+    if (options.signal?.aborted) abort();
     const done = (code: number | null) => {
       clearInterval(poll);
       clearTimeout(watchdog);
       const events = readStepLog(stepLogPath);
-      for (const event of events.slice(seen)) options.onStepEvent?.(event);
+      for (const event of events.slice(seen)) options.onStepEvent?.(redactJson(event, redact));
       options.signal?.removeEventListener("abort", abort);
       // Redact the whole log at once: a secret can straddle two chunks.
       writeFileSync(outputLog, redact(chunks.join("")));

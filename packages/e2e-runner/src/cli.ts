@@ -10,7 +10,7 @@ import { runTranscript } from "./run";
 
 export type ParsedArgs = { command: string; positionals: string[]; flags: Map<string, string[]> };
 
-const booleanFlags = new Set(["once", "code", "headed", "upload", "wait", "help", "json", "with-secrets", "allow-claude-code", "force"]);
+const booleanFlags = new Set(["fail-on-blocked", "once", "code", "headed", "upload", "wait", "help", "json", "with-secrets", "allow-claude-code", "force"]);
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [command = "help", ...rest] = argv;
@@ -121,6 +121,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       ...(flag(args, "env") ? { environmentId: flag(args, "env") as string } : {}),
       params: parseVars(flagList(args, "var")),
       force: flag(args, "force") === "true",
+      failOnBlocked: flag(args, "fail-on-blocked") === "true",
       wait: flag(args, "wait") === "true" || args.flags.has("junit"),
       ...(flag(args, "junit") ? { junit: resolve(cwd, flag(args, "junit") as string) } : {}),
       ...(env.JL_WEB_ORIGIN ? { webOrigin: env.JL_WEB_ORIGIN } : {}),

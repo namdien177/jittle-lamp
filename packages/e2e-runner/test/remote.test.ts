@@ -45,7 +45,7 @@ function run(id: string, outcome: "passed" | "failed" | "blocked"): TestRunDetai
 describe("remote CLI commands", () => {
   test("JUnit: failures fail, blocked runs are skipped with the reason, evidence links included", () => {
     const xml = toJUnit([run("1", "passed"), run("2", "failed"), run("3", "blocked")], "suite smoke", "https://web.test");
-    expect(xml).toContain('tests="3" failures="1" skipped="1"');
+    expect(xml).toContain('tests="3" failures="1" errors="0" skipped="1"');
     expect(xml).toContain('<failure message="ASSERTION_FAILED">step 2 the saved banner is visible: no banner');
     expect(xml).toContain('<skipped message="APP_UNREACHABLE">');
     expect(xml).toContain("https://web.test/evidence/ev_2");
@@ -94,5 +94,33 @@ describe("remote CLI commands", () => {
     expect(calls[1]?.path).toBe("/test-environments/e1/env-file?withSecrets=false");
     expect(readFileSync(out, "utf8")).toBe("JL_ENV_NAME=pcf-uat\nJL_CRED_PCF_HQ_ADMIN_PASSWORD=\n");
     expect(statSync(out).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("remote CLI review regressions", () => {
+  test("a run without an outcome is a JUnit error and fails the job; blocked runs do not unless asked", async () => {
+    const lost = { ...run("4", "passed"), status: "failed" as const, outcome: null, blockedReason: "RUNNER_LOST" as const };
+    expect(toJUnit([lost], "s")).toContain('<error message="RUNNER_LOST">');
+    const respond = (outcome: "blocked" | "passed") =>
+      fakeBackend((call) =>
+        call.method === "POST"
+          ? { runId: "r1", attached: false, status: "queued", queuePosition: 0, requestedBy: [], batchId: null, runIds: [] }
+          : run("r1", outcome)
+      ).context;
+    expect((await runRemote(respond("blocked"), { caseId: "c", wait: true, pollMs: 1 })).exitCode).toBe(0);
+    expect((await runRemote(respond("blocked"), { caseId: "c", wait: true, pollMs: 1, failOnBlocked: true })).exitCode).toBe(3);
+  });
+
+  test("push never falls back to a title match when the document names a Key", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jl-push-key-"));
+    const file = join(dir, "c.transcript.md");
+    writeFileSync(file, "# Same title\nKey: TC-0099\n\n[Open] /x\n## Checkpoint: c\n[Assert] the page is visible\n");
+    const { calls, context } = fakeBackend((call) =>
+      call.method === "GET"
+        ? { items: [], total: 0, nextCursor: null, tagCounts: {} }
+        : new Response(JSON.stringify({ code: "STOP" }), { status: 418 })
+    );
+    await expect(pushCases(context, { file })).rejects.toThrow("418");
+    expect(calls.map((call) => call.method)).toEqual(["GET", "POST"]);
   });
 });

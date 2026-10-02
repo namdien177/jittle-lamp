@@ -81,7 +81,7 @@ The case page shows the averages of the last ten runs: pass rate, flaky rate, du
 - **Duplicate** (`d`): copy a case with find and replace, for example `HQ_ADMIN` → `BRANCH_ADMIN`. Unchanged steps keep their saved scripts, so the copy replays on its first run.
 - **Datasets**: one case, many rows of parameters. Each row is a variant run.
 - **Tags** with namespaces (`team:qa-pcf`, `module:enrolment`, `prio:p1`) group the library in the sidebar. **Saved views** keep your filters.
-- **Suites** group cases for a CI pipeline. A pipeline runs a suite with `jl-e2e run --suite <id> --wait --junit out.xml` (see `deploy/ci/`).
+- **Suites** group cases for a CI pipeline. A pipeline runs a suite with `jl-e2e run --suite <id> --wait --junit out.xml` (see `deploy/ci/`). Failed cases fail the job, and blocked cases show as skipped. Add `--fail-on-blocked` to fail on those too.
 
 ## 6. Working on your machine
 

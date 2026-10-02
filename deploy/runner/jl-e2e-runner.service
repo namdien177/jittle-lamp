@@ -17,10 +17,12 @@ Environment=E2E_TELEMETRY_DISABLED=1
 Environment=JL_RUNNER_WORK_DIR=/var/lib/jl-e2e-runner
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/jl-e2e-runner/ms-playwright
 WorkingDirectory=/opt/jl-e2e-runner
-ExecStart=/usr/bin/node /opt/jl-e2e-runner/packages/e2e-runner/dist/daemon.js start
+ExecStart=/usr/bin/node /opt/jl-e2e-runner/packages/e2e-runner/dist/daemon.js start --state /var/lib/jl-e2e-runner/state.json
 Restart=on-failure
 RestartSec=10
-# Let a running case finish before stopping (the daemon stops claiming on SIGTERM).
+# SIGTERM goes to the daemon only (KillMode=mixed): it stops claiming and lets the current case
+# finish; the browser processes are killed only when TimeoutStopSec runs out.
+KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=20min
 
@@ -29,7 +31,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/var/lib/jl-e2e-runner /home/jl-runner/.config/jittle-lamp
+# State (worker credential) and work dirs both live under StateDirectory.
+ReadWritePaths=/var/lib/jl-e2e-runner
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
