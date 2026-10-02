@@ -102,4 +102,44 @@ export {
 	shareLinkScopeTypeSchema,
 	shareLinks,
 } from "./tables/share-links";
+export {
+	testCaseDatasets,
+	testCaseEvidences,
+	testCases,
+	testCaseVersions,
+	testStepScripts,
+	testSuiteMembers,
+	testSuites,
+} from "./tables/test-cases";
+export {
+	organizationAgentNotes,
+	organizationDataKeys,
+	organizationModelSettings,
+	organizationTestCounters,
+	organizationTestTags,
+	testCredentials,
+	testEnvironments,
+	testMacros,
+	testRateBuckets,
+	testRunSettings,
+} from "./tables/test-config";
+export { testImportBatches, testImportItems } from "./tables/test-imports";
+export {
+	notificationChannels,
+	notificationDeliveries,
+	notificationEvents,
+	notificationReads,
+	notificationSubscriptions,
+	webhookDeliveries,
+	webhookEndpoints,
+} from "./tables/test-notifications";
+export {
+	runnerPools,
+	runnerWorkers,
+	testModelPrices,
+	testRunBatches,
+	testRunSteps,
+	testRunSubscribers,
+	testRuns,
+} from "./tables/test-runs";
 export { createUserInputSchema, users } from "./tables/users";
