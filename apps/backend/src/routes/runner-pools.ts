@@ -32,6 +32,7 @@ import {
 	registerWorker,
 	rotateRegistrationToken,
 	toRunnerPool,
+	touchWorker,
 	verifyWorkerToken,
 } from "../services/runner-pools";
 import {
@@ -120,10 +121,7 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 					db,
 					readBearer(ctx.request),
 				);
-				await recordHeartbeat(db, {
-					worker,
-					request: { runId: worker.currentRunId, load: worker.load },
-				});
+				await touchWorker(db, worker);
 				// Expired leases go back to the queue before this worker picks.
 				await sweepRunQueue(db);
 				const claimed = await claimNextRun(db, { pool, workerId: worker.id });
