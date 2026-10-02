@@ -64,6 +64,7 @@ import {
 	migrationProgressPercent,
 } from "../migration-ui-state";
 import { useToast } from "../toast";
+import { TestCaseSettingsNav } from "./settings-test-cases/nav";
 import { copyToClipboard } from "../utils";
 
 const INSTALL_COMMAND =
@@ -413,6 +414,7 @@ export function SettingsPage(): React.JSX.Element {
 				<div className="grid gap-5 lg:grid-cols-[14rem_minmax(0,1fr)]">
 					<aside className="lg:sticky lg:top-6 lg:self-start">
 						<SettingsSectionNav />
+						<TestCaseSettingsNav />
 					</aside>
 					<div className="min-w-0">
 						<Outlet />
