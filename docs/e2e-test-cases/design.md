@@ -558,3 +558,28 @@ Answered on 2026-10-03 (recorded in ADR 0002, decisions 3, 11, 14 to 17):
 5. **Seed.** Start empty; `.feature` import is supported from phase 1.
 6. **Notifications.** In-app only in the beta on a channel-based bus; Slack is a later adapter (§10b).
 7. **CI triggers.** Webhooks from GitLab and GitHub are designed in §10c and delivered in phase 2; the CLI covers pipelines in the beta.
+
+### Phase 0 outcome (2026-10-03)
+
+Spike: `docs/e2e-test-cases/examples/pcf-logout-clears-email.spike.transcript.md` against `pcf-uat` from this machine, act and judge model `claude-code/sonnet` (owner's subscription through `ai-sdk-provider-claude-code`, development only), evidence uploaded to the local dev-auth backend. Run reports: `docs/e2e-test-cases/evidence/0.6-spike-run1-agent.run-report.json` and `0.6-spike-run2-replay.run-report.json`; viewer screenshot `docs/e2e-test-cases/evidence/0.6-spike-replay-viewer-2.png` and `-3.png`.
+
+| Run | Outcome | Acts | Act model calls | Judge calls | Cost (seed price table) | Duration |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 (cache empty) | passed | 4 agent | 10 | 5 | $0.29 act + $0.15 judge | 60 s |
+| 2 | passed | 4 replayed | 0 | 6 | $0.06 judge | 39 s |
+
+| # | Assumption | Result |
+| --- | --- | --- |
+| 1 | `e2e` works as the execution core through a generated test file | **Holds.** `case.e2e.ts` + `e2e.config.ts` express every transcript feature used (open, act, assert, wait, extract, screenshot, note, macros, params via `unique()`, credentials and secrets via e2e handles). Cache keys stay stable across run directories because the test path, title and app identity (`jl-env:<environment>`) are constant. |
+| 2 | Per-step token usage from `ai-trace.json` | **Holds.** Usage per agent step (input, cached input, output, reasoning) is read from `ai-trace.json` and matched to transcript steps by time window; the mock-model browser test asserts exact per-step numbers. `report.json` alone lacks reasoning tokens. |
+| 3 | Playwright trace → archive v4 | **Holds.** The trace carries network with headers and bodies (e2e masks secrets as `<secret:name>`), console and input actions; targets come from e2e's engine events. No CDP listener fallback was needed. Bodies are kept for text types up to 64 KiB. |
+| 4 | `Input.setIgnoreInputEvents` blocks Playwright input too | **Holds (as expected).** Playwright's clicks and typing are dropped while it is set (`packages/e2e-runner/browser/interaction-lock.browser.test.ts`), so `--headed` uses the injected shield: aria-hidden, lowered only around engine actions, user input pauses the run until Resume. |
+| 5 | Trace redaction drops screencast frames; the video is enough | **Holds.** The trace has no screencast frames; Playwright's context video (`recording.webm`) is recorded separately and drives the viewer. |
+
+**Gate decision: keep Tester Army `e2e` as the core** (ADR 0002 decision 10). Assumptions 1 to 3 pass; no `e2e` release changed the contract during the spike.
+
+Findings from the spike that shaped the runner:
+
+- The example transcript's first assert ("dashboard shows the school name") is inconclusive for an HQ admin, whose landing page shows "All Access" and no school name, and `/dashboard` does not exist on PCF (`/not-found`). The spike copy asserts the page title and navigation and opens `/enrolment-dashboard`; the original example is unchanged.
+- An inconclusive judgment on a page that is still loading is judged once more after 3 s (`JL_SETTLE_MS`) before the step is blocked.
+- `ai-sdk-provider-claude-code` ignores AI SDK function tools, so `claude-code/` models go through a prompted tool-calling bridge (`packages/e2e-runner/src/model/prompted-tools.ts`). The CLI then runs with no tools, an empty working directory and only its own login in its environment. Its own system prompt adds about 28k cached input tokens per call, which shows in the metrics. The beta BYOK path uses the provider packages directly and is tested with `mock:` fixtures.

@@ -173,3 +173,79 @@ export function addModelUsage(a: ModelUsage, b: ModelUsage): ModelUsage {
     costUsd: a.costUsd === null && b.costUsd === null ? null : (a.costUsd ?? 0) + (b.costUsd ?? 0)
   };
 }
+
+// Global default prices (USD per million tokens), seeded into test_model_prices with org_id null.
+// Source: Anthropic first-party API rates, Claude API reference cached 2026-09-25. Haiku 4.5's
+// cache-read rate is not listed there; 0.1× input is the documented cache-read multiplier.
+// claude-code/ aliases are priced at the API rate of the model they run, as an API-equivalent
+// estimate: that path is a subscription and is billed per seat, not per token.
+export const modelPriceSchema = z.object({
+  modelId: z.string().min(1),
+  inputUsdPerMtok: z.number().nonnegative(),
+  cachedInputUsdPerMtok: z.number().nonnegative(),
+  outputUsdPerMtok: z.number().nonnegative()
+});
+export type ModelPrice = z.infer<typeof modelPriceSchema>;
+
+export const defaultPriceTableVersion = "seed-2026-09-25";
+
+const anthropicPrices: Array<[string, number, number, number]> = [
+  ["claude-opus-5-5", 4, 0.2, 20],
+  ["claude-sonnet-5-5", 2, 0.2, 10],
+  ["claude-haiku-4-5", 1, 0.1, 5]
+];
+
+export const defaultModelPrices: ModelPrice[] = anthropicPrices.flatMap(([model, input, cached, output]) => {
+  const alias = model.includes("opus") ? "opus" : model.includes("sonnet") ? "sonnet" : "haiku";
+  return [`anthropic/${model}`, `gateway/anthropic/${model}`, `claude-code/${alias}`, `claude-code/${model}`].map((modelId) => ({
+    modelId,
+    inputUsdPerMtok: input,
+    cachedInputUsdPerMtok: cached,
+    outputUsdPerMtok: output
+  }));
+});
+
+// Model ids in usage records may carry a provider prefix ("claude-code:sonnet"); match either form.
+export function findModelPrice(prices: readonly ModelPrice[], modelId: string | null): ModelPrice | null {
+  if (!modelId) return null;
+  const normalized = modelId.replace(/^([a-z-]+):/, "$1/");
+  return prices.find((price) => price.modelId === modelId || price.modelId === normalized) ?? null;
+}
+
+// Reasoning tokens bill as output tokens.
+export function computeCostUsd(usage: Pick<ModelUsage, "inputTokens" | "cachedInputTokens" | "outputTokens" | "reasoningTokens">, price: ModelPrice): number {
+  const cost =
+    (usage.inputTokens * price.inputUsdPerMtok +
+      usage.cachedInputTokens * price.cachedInputUsdPerMtok +
+      (usage.outputTokens + usage.reasoningTokens) * price.outputUsdPerMtok) /
+    1_000_000;
+  return Math.round(cost * 1_000_000) / 1_000_000;
+}
+
+// Fills in cost where the provider reported none; returns the table version used, if any.
+export function priceRunReport(report: RunReport, prices: readonly ModelPrice[], version: string, fallbackModelId: { act: string | null; judge: string | null }): RunReport {
+  let priced = false;
+  const price = (usage: ModelUsage, fallback: string | null): ModelUsage => {
+    if (usage.costUsd !== null || usage.modelCalls === 0) return usage;
+    const found = findModelPrice(prices, usage.modelId) ?? findModelPrice(prices, fallback);
+    if (!found) return usage;
+    priced = true;
+    return { ...usage, costUsd: computeCostUsd(usage, found) };
+  };
+  const steps = report.steps.map((step) => ({
+    ...step,
+    usage: price(step.usage, step.type === "act" ? fallbackModelId.act : fallbackModelId.judge)
+  }));
+  const sum = (types: readonly string[], modelId: string | null) =>
+    steps.filter((step) => types.includes(step.type)).reduce((total, step) => addModelUsage(total, step.usage), emptyModelUsage(modelId));
+  return {
+    ...report,
+    steps,
+    totals: {
+      ...report.totals,
+      usage: sum(["act"], report.totals.usage.modelId),
+      judgeUsage: sum(["assert", "wait", "extract"], report.totals.judgeUsage.modelId)
+    },
+    priceTableVersion: priced ? version : report.priceTableVersion
+  };
+}

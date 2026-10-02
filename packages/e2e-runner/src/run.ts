@@ -2,7 +2,13 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import { sha256Hex, type BlockedReason, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
+import {
+  defaultModelPrices,
+  defaultPriceTableVersion,
+  priceRunReport,
+  sha256Hex,
+  type BlockedReason,
+  type ModelPrice, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
 
 import { loadEnvFiles, type EnvFile } from "./config/env-files";
 import { collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
@@ -39,6 +45,8 @@ export type RunTranscriptOptions = {
   allowClaudeCode?: boolean;
   signal?: AbortSignal;
   onStepEvent?: (event: StepLogEvent) => void;
+  prices?: readonly ModelPrice[];
+  priceTableVersion?: string;
   log?: (line: string) => void;
 };
 
@@ -188,6 +196,10 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     provider: config.actModel ? (config.actModel.value.startsWith("mock:") ? "mock" : (config.actModel.value.split("/")[0] ?? null)) : null
   };
   const reportPath = join(runDir, "run-report.json");
+  // Local runs price tokens with the seeded default table; the backend reprices from the org's
+  // test_model_prices at finalisation (design.md §3.1).
+  const priceReport = (report: RunReport) =>
+    priceRunReport(report, options.prices ?? defaultModelPrices, options.priceTableVersion ?? defaultPriceTableVersion, model);
 
   const finish = (input: {
     blocked?: { reason: BlockedReason; message: string } | null;
@@ -202,7 +214,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     tracePath?: string | null;
   }): RunTranscriptResult => {
     const report = redactJson(
-      buildRunReport({
+      priceReport(buildRunReport({
         plan,
         runId,
         testCaseId: options.testCaseId ?? null,
@@ -219,7 +231,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
         artifacts: input.artifacts ?? [],
         blocked: input.blocked ?? null,
         cancelled: input.cancelled ?? false
-      }),
+      })),
       redact
     );
     writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
