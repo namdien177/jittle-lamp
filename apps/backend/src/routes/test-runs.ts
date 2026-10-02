@@ -10,7 +10,7 @@ import {
 	testRunProgressResponseSchema,
 	testRunStatusSchema,
 } from "@jittle-lamp/shared";
-import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Elysia } from "elysia";
 import type { Logger } from "pino";
 import { z } from "zod/v4";
@@ -66,6 +66,16 @@ type Ctx = {
 };
 
 const runParams = z.object({ id: z.string().min(1) });
+
+// A step script belongs to the environment it was recorded in (design.md §9.5); scripts with no
+// environment apply everywhere. Another environment's script is never replayed or staled.
+const scriptEnvironmentScope = (environmentId: string | null) =>
+	environmentId
+		? or(
+				eq(testStepScripts.environmentId, environmentId),
+				isNull(testStepScripts.environmentId),
+			)
+		: isNull(testStepScripts.environmentId);
 
 const runFromToken = async (ctx: Ctx & { params: unknown }) => {
 	const db = requireDb(ctx.db);
@@ -315,13 +325,13 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin) =>
 						eq(testStepScripts.testCaseId, run.testCaseId),
 						eq(testStepScripts.keyHash, keyHash),
 						eq(testStepScripts.status, "active"),
+						scriptEnvironmentScope(run.environmentId),
 					),
 					orderBy: desc(testStepScripts.version),
 				});
 				const script =
 					scripts.find((entry) => entry.environmentId === run.environmentId) ??
-					scripts.find((entry) => entry.environmentId === null) ??
-					scripts[0];
+					scripts.find((entry) => entry.environmentId === null);
 				if (!script) {
 					return respond(cacheEntryReadResponseSchema, { status: "miss" });
 				}
@@ -363,6 +373,7 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin) =>
 							eq(testStepScripts.testCaseId, run.testCaseId),
 							eq(testStepScripts.keyHash, keyHash),
 							eq(testStepScripts.status, "active"),
+							scriptEnvironmentScope(run.environmentId),
 						),
 					);
 				const entry = body.entry as { payload?: { actions?: unknown } } | null;
