@@ -366,15 +366,17 @@ export const updateTestCase = async (
 			{ currentVersion: row.transcriptVersion },
 		);
 	}
+	// Any way out of the review queue (active, draft, archived) is an approval decision.
 	if (
-		request.status === "active" &&
 		row.status === "review" &&
+		request.status !== undefined &&
+		request.status !== "review" &&
 		!input.canApprove
 	) {
 		throw new HttpError(
 			403,
 			"TEST_PERMISSION_DENIED",
-			"Approving a case from the review queue needs test_case.approve",
+			"Moving a case out of the review queue needs test_case.approve",
 			{ permission: "test_case.approve" },
 		);
 	}

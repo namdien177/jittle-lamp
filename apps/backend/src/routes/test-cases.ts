@@ -389,6 +389,13 @@ export const createTestCaseRoutes = (
 				}> = [];
 				let updated = 0;
 				let document: string | null = null;
+				const canApprove =
+					body.action === "archive"
+						? await testCasePolicy.canApproveTestCases(db, {
+								organizationId: who.orgId,
+								userId: who.userId,
+							})
+						: true;
 				const now = Date.now();
 				switch (body.action) {
 					case "export":
@@ -431,6 +438,15 @@ export const createTestCaseRoutes = (
 								});
 								continue;
 							}
+							// Archiving a case in review rejects it: same gate as reject.
+							if (row.status === "review" && !canApprove) {
+								errors.push({
+									id: row.id,
+									message:
+										"Moving a case out of the review queue needs test_case.approve",
+								});
+								continue;
+							}
 							await db
 								.update(testCases)
 								.set({
@@ -443,7 +459,11 @@ export const createTestCaseRoutes = (
 								.where(eq(testCases.id, row.id));
 							updated += 1;
 						}
-						if (body.action !== "archive" && updated > 0) {
+						if (
+							updated > 0 &&
+							(body.action !== "archive" ||
+								rows.some((row) => row.status === "review"))
+						) {
 							await emitReviewPendingCount(db, who.orgId, who.userId);
 						}
 						break;
@@ -769,7 +789,8 @@ export const createTestCaseRoutes = (
 					orgId: who.orgId,
 					userId: who.userId,
 					transcript: `${serializeTestCase(parsed)}\n`,
-					status: "draft",
+					// A copy of an unapproved case is just as unapproved.
+					status: source.status === "review" ? "review" : "draft",
 					environmentId: body.copy.environment ? source.environmentId : null,
 					source: "duplicate",
 					sourceRef: source.id,
@@ -780,6 +801,9 @@ export const createTestCaseRoutes = (
 				const inheritedScripts = body.inheritScripts
 					? await inheritStepScripts(db, { source, target: created })
 					: 0;
+				if (created.status === "review") {
+					await emitReviewPendingCount(db, who.orgId, who.userId);
+				}
 				ctx.set.status = 201;
 				return respond(duplicateTestCaseResponseSchema, {
 					testCase: await toCaseDetail(db, created),
