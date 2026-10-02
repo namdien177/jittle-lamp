@@ -1108,6 +1108,40 @@ export const inheritStepScripts = async (
 	let inherited = 0;
 	const now = Date.now();
 	for (const script of scripts) {
+		// Steps a macro call expanded into ("<parent>.<n>") follow their parent: an unchanged
+		// call expands to the same steps, so their scripts carry over under the target's parent id.
+		const dot = script.stepId.indexOf(".");
+		if (dot > 0) {
+			const parentKey = sourceSteps.get(script.stepId.slice(0, dot));
+			const targetParents = parentKey
+				? byInstruction.get(parentKey)
+				: undefined;
+			if (!targetParents?.length) continue;
+			const suffix = script.stepId.slice(dot);
+			const stepIds = targetParents.map((parent) => `${parent}${suffix}`);
+			await db.insert(testStepScripts).values({
+				orgId: input.target.orgId,
+				testCaseId: input.target.id,
+				stepId: stepIds[0] ?? script.stepId,
+				stepIdsJson: JSON.stringify(stepIds),
+				instructionKey: script.instructionKey,
+				environmentId: script.environmentId,
+				keyHash: script.keyHash,
+				entryJson: script.entryJson,
+				version: 1,
+				actionsJson: script.actionsJson,
+				endStateJson: script.endStateJson,
+				renderedCode: script.renderedCode,
+				recordedFromRunId: script.recordedFromRunId,
+				inheritedFromScriptId: script.id,
+				status: "active",
+				verifiedCount: 0,
+				createdAt: now,
+				updatedAt: now,
+			});
+			inherited += 1;
+			continue;
+		}
 		const instructionKey =
 			script.instructionKey ?? sourceSteps.get(script.stepId) ?? null;
 		const stepIds = instructionKey
