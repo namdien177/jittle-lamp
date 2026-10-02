@@ -185,17 +185,19 @@ export const testAdminApi = {
   // Run settings, model, spend ----------------------------------------------------------------
   getRunSettings: (getToken: FetchToken) => request(getToken, "/test-run-settings", oneOf(testRunSettingsSchema, "settings")),
   updateRunSettings: (getToken: FetchToken, body: z.infer<typeof testRunSettingsSchema>) =>
-    request(getToken, "/test-run-settings", oneOf(testRunSettingsSchema, "settings"), json("PATCH", body)),
-  getModelSettings: (getToken: FetchToken) => request(getToken, "/model-settings", oneOf(modelSettingsSchema, "settings")),
+    request(getToken, "/test-run-settings", oneOf(testRunSettingsSchema, "settings"), json("PUT", body)),
+  getModelSettings: (getToken: FetchToken) => request(getToken, "/test-model-settings", oneOf(modelSettingsSchema, "settings")),
   updateModelSettings: (getToken: FetchToken, body: { actModel: string; judgeModel: string; apiKey?: string | null }) =>
-    request(getToken, "/model-settings", oneOf(modelSettingsSchema, "settings"), json("PUT", body)),
+    request(getToken, "/test-model-settings", oneOf(modelSettingsSchema, "settings"), json("PUT", body)),
   getModelCosts: (getToken: FetchToken, range: { from: number; to: number }) =>
-    request(getToken, `/model-costs?from=${range.from}&to=${range.to}`, oneOf(modelCostReportSchema, "report")),
+    request(getToken, `/test-model-costs?from=${range.from}&to=${range.to}`, oneOf(modelCostReportSchema, "report")),
 
   // Runner pools ------------------------------------------------------------------------------
   listRunnerPools: (getToken: FetchToken) => request(getToken, "/runner-pools", listOf(runnerPoolSchema, "pools")),
   createRunnerPool: (getToken: FetchToken, body: { name: string; maxConcurrentRuns: number }) =>
     request(getToken, "/runner-pools", createRunnerPoolResponseSchema, json("POST", body)),
+  issueRegistrationToken: (getToken: FetchToken, poolId: string) =>
+    request(getToken, `/runner-pools/${id(poolId)}/registration-token`, createRunnerPoolResponseSchema, json("POST", {})),
   deleteRunnerWorker: (getToken: FetchToken, poolId: string, workerId: string) =>
     request(getToken, `/runner-pools/${id(poolId)}/workers/${id(workerId)}`, okSchema, { method: "DELETE" }),
 

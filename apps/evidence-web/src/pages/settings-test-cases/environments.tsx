@@ -29,7 +29,7 @@ import {
 
 export function runnerPoolLabel(value: string, pools: readonly RunnerPool[]): string {
   if (value === "cloud") return "cloud";
-  const pool = pools.find((item) => runnerPoolValue(item) === value || `self-hosted:${item.name}` === value);
+  const pool = pools.find((item) => runnerPoolValue(item) === value || `self-hosted:${item.id}` === value);
   return pool ? `self-hosted · ${pool.name}` : value;
 }
 

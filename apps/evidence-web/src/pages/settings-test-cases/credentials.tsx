@@ -357,8 +357,10 @@ function RotateDialog(props: { credential: TestCredential; onClose: () => void }
     [testAdminKeys.credentials]
   );
   const filled = Object.fromEntries(Object.entries(values).filter(([, value]) => value.length > 0));
+  // Rotation replaces every secret field, so each one needs its new value.
+  const complete = props.credential.secretFieldNames.every((field) => (values[field] ?? "").length > 0);
   const submit = async () => {
-    if (Object.keys(filled).length === 0) return;
+    if (!complete) return;
     await rotate.mutateAsync(filled);
     setValues({});
     props.onClose();
@@ -366,7 +368,7 @@ function RotateDialog(props: { credential: TestCredential; onClose: () => void }
   return (
     <Dialog
       title={`Rotate ${props.credential.profile}`}
-      description="Enter the new values. The credential is re-encrypted with the current key version; fields left empty keep their value."
+      description="Enter a new value for every secret field. The old values are discarded and the credential is re-encrypted with the current key."
       onClose={props.onClose}
       size="md"
       footer={
@@ -374,7 +376,7 @@ function RotateDialog(props: { credential: TestCredential; onClose: () => void }
           <Button size="sm" variant="ghost" onClick={props.onClose} disabled={rotate.isPending}>
             Cancel
           </Button>
-          <Button size="sm" className={pressable} disabled={rotate.isPending || Object.keys(filled).length === 0} onClick={() => void submit()}>
+          <Button size="sm" className={pressable} disabled={rotate.isPending || !complete} onClick={() => void submit()}>
             {rotate.isPending ? "Rotating…" : "Rotate"}
           </Button>
         </>

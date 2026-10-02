@@ -120,9 +120,10 @@ export function runnerCommands(input: { apiOrigin: string; token: string }): Run
   };
 }
 
-// Environments bind to "cloud" or to a self-hosted pool ("self-hosted:<pool>").
+// Environments bind to "cloud" or to a self-hosted pool by name ("self-hosted:devbox"); the backend
+// resolves the reference by pool id or name.
 export function runnerPoolValue(pool: { kind: "cloud" | "self-hosted"; id: string; name: string }): string {
-  return pool.kind === "cloud" ? "cloud" : `self-hosted:${pool.id}`;
+  return pool.kind === "cloud" ? "cloud" : `self-hosted:${pool.name}`;
 }
 
 // ---------------------------------------------------------------------------------------------

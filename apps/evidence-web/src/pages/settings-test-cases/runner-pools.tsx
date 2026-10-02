@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router";
-import { AlertTriangle, Plus, Server, ShieldCheck, Trash2 } from "lucide-react";
+import { AlertTriangle, KeyRound, Plus, Server, ShieldCheck, Trash2 } from "lucide-react";
 import type { RunnerPool } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
@@ -32,6 +32,8 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
   const canManage = permissions.can("test_config.manage");
   const pools = useRunnerPools();
   const [creating, setCreating] = useState(false);
+  const [issued, setIssued] = useState<{ poolName: string; token: string } | null>(null);
+  const issueToken = useTestAdminMutation((getToken, poolId: string) => testAdminApi.issueRegistrationToken(getToken, poolId), [testAdminKeys.runnerPools]);
   const [removing, setRemoving] = useState<{ pool: RunnerPool; workerId: string; hostname: string } | null>(null);
   const removeWorker = useTestAdminMutation(
     (getToken, input: { poolId: string; workerId: string }) => testAdminApi.deleteRunnerWorker(getToken, input.poolId, input.workerId),
@@ -53,7 +55,7 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
           ) : null
         }
       >
-        <ErrorNote error={pools.error ?? removeWorker.error} />
+        <ErrorNote error={pools.error ?? removeWorker.error ?? issueToken.error} />
         {pools.isPending ? (
           <Skeleton className="h-40" />
         ) : (pools.data ?? []).length === 0 ? (
@@ -71,9 +73,21 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                     <span className="text-sm text-muted-foreground">
                       {online} of {pool.workers.length} online · up to {pool.maxConcurrentRuns} at a time
                     </span>
-                    <span className="ml-auto flex gap-2 text-sm">
+                    <span className="ml-auto flex items-center gap-2 text-sm">
                       <Badge variant="outline">{pool.running} running</Badge>
                       <Badge variant={pool.queued > 0 && online === 0 ? "warning" : "outline"}>{pool.queued} queued</Badge>
+                      {canManage && pool.kind === "self-hosted" ? (
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          disabled={issueToken.isPending}
+                          aria-label={`New registration token for ${pool.name}`}
+                          onClick={() => void issueToken.mutateAsync(pool.id).then((response) => setIssued({ poolName: pool.name, token: response.registrationToken }))}
+                        >
+                          <KeyRound aria-hidden />
+                          New token
+                        </Button>
+                      ) : null}
                     </span>
                   </header>
                   {pool.queued > 0 && online === 0 ? (
@@ -138,6 +152,7 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
         )}
       </AdminCard>
       {creating ? <CreatePoolDialog onClose={() => setCreating(false)} /> : null}
+      {issued ? <TokenIssuedDialog title={`New registration token for ${issued.poolName}`} token={issued.token} onClose={() => setIssued(null)} /> : null}
       <ConfirmDialog
         open={removing !== null}
         destructive
@@ -168,33 +183,7 @@ function CreatePoolDialog(props: { onClose: () => void }): React.JSX.Element {
     setCreated({ pool: response.pool, token: response.registrationToken });
   };
 
-  if (created) {
-    const commands = runnerCommands({ apiOrigin: resolvedApiOrigin(), token: created.token });
-    return (
-      <Dialog
-        title={`Pool ${created.pool.name} created`}
-        onClose={props.onClose}
-        size="lg"
-        closeOnOverlay={false}
-        footer={
-          <Button size="sm" onClick={props.onClose}>
-            I have copied the token
-          </Button>
-        }
-      >
-        <div className="flex gap-3 rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-foreground">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-          <p>This registration token is shown once. A worker uses it on its first start, then keeps its own credential. Anyone with the token can add a worker to this pool until it is used.</p>
-        </div>
-        <CopyBlock label="Registration token" value={created.token} secret />
-        <CopyBlock label="Start a runner" value={commands.start} multiline />
-        <CopyBlock label="Docker compose" value={commands.docker} multiline />
-        <p className="text-sm text-muted-foreground">
-          systemd and the full setup are in <code className="font-mono text-xs">docs/e2e-test-cases/runner-setup.md</code>. Bind an environment to this pool in Environments.
-        </p>
-      </Dialog>
-    );
-  }
+  if (created) return <TokenIssuedDialog title={`Pool ${created.pool.name} created`} token={created.token} onClose={props.onClose} />;
 
   return (
     <Dialog
@@ -228,6 +217,34 @@ function CreatePoolDialog(props: { onClose: () => void }): React.JSX.Element {
         </Field>
         <ErrorNote error={create.error} />
       </form>
+    </Dialog>
+  );
+}
+
+function TokenIssuedDialog(props: { title: string; token: string; onClose: () => void }): React.JSX.Element {
+  const commands = runnerCommands({ apiOrigin: resolvedApiOrigin(), token: props.token });
+  return (
+    <Dialog
+      title={props.title}
+      onClose={props.onClose}
+      size="lg"
+      closeOnOverlay={false}
+      footer={
+        <Button size="sm" onClick={props.onClose}>
+          I have copied the token
+        </Button>
+      }
+    >
+      <div className="flex gap-3 rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-foreground">
+        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+        <p>This registration token is shown once. A worker uses it on its first start, then keeps its own credential. Anyone with the token can add a worker to this pool, so treat it like a password.</p>
+      </div>
+      <CopyBlock label="Registration token" value={props.token} />
+      <CopyBlock label="Start a runner" value={commands.start} multiline />
+      <CopyBlock label="Docker compose" value={commands.docker} multiline />
+      <p className="text-sm text-muted-foreground">
+        systemd and the full setup are in <code className="font-mono text-xs">docs/e2e-test-cases/runner-setup.md</code>. Bind an environment to this pool in Environments.
+      </p>
     </Dialog>
   );
 }
