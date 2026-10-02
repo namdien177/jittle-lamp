@@ -1409,7 +1409,17 @@ export const verifyRunToken = async (
 			eq(testRuns.runTokenHash, hashToken(input.token)),
 		),
 	});
-	if (!run || (run.runTokenExpiresAt ?? 0) <= now) {
+	// The token is only as good as the lease behind it: a revoked worker loses its runs.
+	const leaseOwner = run?.workerLeaseOwner
+		? await db.query.runnerWorkers.findFirst({
+				where: and(
+					eq(runnerWorkers.id, run.workerLeaseOwner),
+					isNull(runnerWorkers.revokedAt),
+				),
+				columns: { id: true },
+			})
+		: undefined;
+	if (!run || (run.runTokenExpiresAt ?? 0) <= now || !leaseOwner) {
 		throw new HttpError(
 			401,
 			"RUN_TOKEN_INVALID",

@@ -286,6 +286,50 @@ export const sweepRunQueue = async (
 	return result;
 };
 
+// Revoking a worker (design.md §10.1) ends its leases at once: the run tokens stop working and
+// the runs it held go through the lost-lease path (requeued with attempts + 1, RUNNER_LOST on
+// the last attempt) instead of waiting for a lease the revoked worker could keep extending.
+export const revokeRunnerWorker = async (
+	db: BackendDb,
+	input: { poolId: string; workerId: string; now?: number },
+): Promise<{ revoked: boolean; sweep: QueueSweepResult | null }> => {
+	const now = input.now ?? Date.now();
+	const revoked = await withBusyRetry(() =>
+		db
+			.update(runnerWorkers)
+			.set({ revokedAt: now, currentRunId: null, updatedAt: now })
+			.where(
+				and(
+					eq(runnerWorkers.id, input.workerId),
+					eq(runnerWorkers.poolId, input.poolId),
+				),
+			)
+			.returning({ id: runnerWorkers.id }),
+	);
+	if (revoked.length === 0) return { revoked: false, sweep: null };
+	const held = await withBusyRetry(() =>
+		db
+			.update(testRuns)
+			.set({
+				runTokenHash: null,
+				runTokenExpiresAt: null,
+				workerLeaseExpiresAt: now - 1,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(testRuns.workerLeaseOwner, input.workerId),
+					inArray(testRuns.status, [...ACTIVE_RUN_STATUSES]),
+				),
+			)
+			.returning({ id: testRuns.id }),
+	);
+	return {
+		revoked: true,
+		sweep: held.length > 0 ? await sweepRunQueue(db, now) : null,
+	};
+};
+
 // A worker is reported offline after two missed lease windows.
 export const RUNNER_OFFLINE_MS = 2 * RUN_LEASE_MS;
 

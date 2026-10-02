@@ -7,11 +7,11 @@ import {
 	runnerHeartbeatRequestSchema,
 	runnerPoolSchema,
 } from "@jittle-lamp/shared";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { z } from "zod/v4";
 
-import { runnerPools, runnerWorkers } from "../db/schema";
+import { runnerPools } from "../db/schema";
 import {
 	handleTestRoute,
 	parseInput,
@@ -34,7 +34,11 @@ import {
 	toRunnerPool,
 	verifyWorkerToken,
 } from "../services/runner-pools";
-import { claimNextRun, sweepRunQueue } from "../services/test-run-queue";
+import {
+	claimNextRun,
+	revokeRunnerWorker,
+	sweepRunQueue,
+} from "../services/test-run-queue";
 import { buildClaimedRun } from "../services/test-runs";
 
 const poolParams = z.object({ id: z.string().min(1) });
@@ -190,16 +194,10 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 					ctx.params,
 				);
 				const pool = await getRunnerPoolRow(db, who.orgId, id);
-				const revoked = await db
-					.update(runnerWorkers)
-					.set({ revokedAt: Date.now(), updatedAt: Date.now() })
-					.where(
-						and(
-							eq(runnerWorkers.id, workerId),
-							eq(runnerWorkers.poolId, pool.id),
-						),
-					)
-					.returning({ id: runnerWorkers.id });
-				return { revoked: revoked.length > 0 };
+				const result = await revokeRunnerWorker(db, {
+					poolId: pool.id,
+					workerId,
+				});
+				return { revoked: result.revoked };
 			}),
 		);
