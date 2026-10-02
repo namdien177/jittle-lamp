@@ -1,0 +1,11 @@
+*
+!package.json
+!bun.lock
+!tsconfig.base.json
+!apps/*/package.json
+!packages/*/package.json
+!packages/shared/
+!packages/e2e-runner/
+packages/*/node_modules
+packages/*/dist
+packages/e2e-runner/.e2e

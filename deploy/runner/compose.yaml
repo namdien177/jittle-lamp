@@ -1,0 +1,29 @@
+# Cloud runner pool: N identical workers for one pool (design.md §5.4, §10.1).
+#   cp runner.env.sample runner.env   # set JL_API_ORIGIN and JL_RUNNER_TOKEN
+#   docker compose -f deploy/runner/compose.yaml up -d --scale runner=2
+# Each container registers once and keeps its worker credential in its own volume.
+services:
+  runner:
+    image: jittle-lamp/e2e-runner:${JL_RUNNER_IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: deploy/runner/Dockerfile
+    env_file: runner.env
+    environment:
+      JL_RUNNER_CONCURRENCY: ${JL_RUNNER_CONCURRENCY:-1}
+    # Chromium needs more shared memory than Docker's 64 MB default.
+    shm_size: 1gb
+    init: true
+    restart: unless-stopped
+    volumes:
+      - runner-state:/home/pwuser/.config/jittle-lamp/runner
+      - runner-work:/var/lib/jl-e2e-runner
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    stop_grace_period: 2m
+
+volumes:
+  runner-state:
+  runner-work:
