@@ -1,0 +1,77 @@
+# Jittle Lamp test cases in GitHub Actions (design.md §9.4 "CI", §10c pipeline-side alternative).
+# Copy to .github/workflows/jittle-lamp-e2e.yml in the repository whose app you test.
+#
+# The job uses the runner image (deploy/runner/Dockerfile, published by your Jittle Lamp
+# deployment as JL_RUNNER_IMAGE), which contains `jl-e2e` and Chromium.
+#
+#   queue mode (default): the suite runs on your Jittle Lamp runner pool; this job waits, writes
+#                         JUnit and fails on failed cases (blocked cases are reported as skipped).
+#   local mode:           the job runs the committed transcripts itself with the committed
+#                         .e2e/cache in strict mode (a stale script fails instead of calling the model).
+#
+# Variables: JL_RUNNER_IMAGE, JL_API_ORIGIN, JL_WEB_ORIGIN, JL_SUITE_ID, JL_ENVIRONMENT_ID, JL_MODE.
+# Secrets: JL_API_TOKEN (automation token); local mode also the JL_CRED_* values and the model key.
+name: Jittle Lamp E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Suite id (defaults to vars.JL_SUITE_ID)
+        required: false
+
+jobs:
+  e2e-queue:
+    if: ${{ vars.JL_MODE != 'local' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: ${{ vars.JL_RUNNER_IMAGE }}
+      options: --user root --shm-size=1g
+    env:
+      JL_API_ORIGIN: ${{ vars.JL_API_ORIGIN }}
+      JL_WEB_ORIGIN: ${{ vars.JL_WEB_ORIGIN }}
+      JL_API_TOKEN: ${{ secrets.JL_API_TOKEN }}
+    steps:
+      - name: Run the suite on the runner pool and wait
+        run: >
+          jl-e2e run --suite "${{ inputs.suite || vars.JL_SUITE_ID }}"
+          --env "${{ vars.JL_ENVIRONMENT_ID }}"
+          --var "commit=${{ github.sha }}"
+          --cache strict --wait --junit jl-e2e-junit.xml
+      - name: Keep the JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jl-e2e-junit
+          path: jl-e2e-junit.xml
+
+  e2e-local:
+    if: ${{ vars.JL_MODE == 'local' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: ${{ vars.JL_RUNNER_IMAGE }}
+      options: --user root --shm-size=1g
+    env:
+      JL_CACHE_MODE: strict
+      JL_ENV_NAME: ${{ vars.JL_ENV_NAME }}
+      JL_ENV_BASE_URL: ${{ vars.JL_ENV_BASE_URL }}
+      JL_MODEL: ${{ vars.JL_MODEL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      JL_API_ORIGIN: ${{ vars.JL_API_ORIGIN }}
+      JL_WEB_ORIGIN: ${{ vars.JL_WEB_ORIGIN }}
+      JL_API_TOKEN: ${{ secrets.JL_API_TOKEN }}
+      # One line per credential field the cases use, for example:
+      JL_CRED_QA_ADMIN_USERNAME: ${{ vars.JL_CRED_QA_ADMIN_USERNAME }}
+      JL_CRED_QA_ADMIN_PASSWORD: ${{ secrets.JL_CRED_QA_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run every committed case, upload evidence
+        run: |
+          status=0
+          for file in e2e/cases/*.transcript.md; do
+            jl-e2e run "$file" --upload || status=$?
+          done
+          exit $status
