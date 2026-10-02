@@ -402,10 +402,12 @@ export const createTestConfigRoutes = (auth: ClerkAuthPlugin) =>
 				const who = await resolveTestActor(ctx);
 				await requireTestPermission(db, who, "test_config.manage");
 				const body = parseInput(upsertTestMacroRequestSchema, ctx.body);
+				// An agent's macro is a proposal: it stays draft until a person approves it, even when
+				// the request asks for active (design.md §13).
 				const row = await saveMacro(db, {
 					orgId: who.orgId,
 					userId: who.userId,
-					request: body,
+					request: who.kind === "ai" ? { ...body, status: "draft" } : body,
 					defaultStatus: who.kind === "ai" ? "draft" : "active",
 				});
 				ctx.set.status = 201;

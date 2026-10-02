@@ -112,7 +112,7 @@ export class JittleLampClient {
 				(response.status === 401 || response.status === 403)
 					? {
 							tokenGuidance:
-								"Jittle Lamp denied this tool. Automation API tokens grant ZIP uploads in their assigned organisation. Other tools require a suitable AI token and account permissions. Invalid, expired, or revoked tokens must be replaced.",
+								"Jittle Lamp denied this tool. Automation API tokens grant ZIP uploads and the test-case routes for listing, reading, updating, importing and running cases and reading or cancelling runs, in their assigned organisation and within the token owner's role. Other tools, including test configuration, credentials and macros, require a suitable AI token and account permissions. Invalid, expired, or revoked tokens must be replaced.",
 						}
 					: {};
 			const text = (await response.text()).replaceAll(

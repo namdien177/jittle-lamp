@@ -111,18 +111,15 @@ describe("AI user access", () => {
 			["POST", "/test-cases"],
 			["GET", "/test-cases/similar"],
 			["GET", "/test-cases/export"],
-			["POST", "/test-cases/bulk"],
 			["POST", "/test-cases/import"],
 			["GET", "/test-cases/import/batch-1"],
 			["PATCH", "/test-cases/import/batch-1"],
 			["GET", "/test-cases/case-1"],
 			["PATCH", "/test-cases/case-1"],
-			["DELETE", "/test-cases/case-1"],
 			["GET", "/test-cases/case-1/versions"],
 			["GET", "/test-cases/case-1/scripts"],
 			["DELETE", "/test-cases/case-1/scripts/st_1"],
 			["POST", "/test-cases/case-1/duplicate"],
-			["POST", "/test-cases/case-1/approve"],
 			["POST", "/test-cases/case-1/runs"],
 			["GET", "/test-cases/case-1/runs"],
 			["GET", "/test-suites"],
@@ -134,6 +131,7 @@ describe("AI user access", () => {
 			["GET", "/test-environments"],
 			["GET", "/test-credentials"],
 			["GET", "/test-macros"],
+			["POST", "/test-macros"],
 			["GET", "/test-tags"],
 			["GET", "/notifications"],
 			["POST", "/notifications/read"],
@@ -150,8 +148,14 @@ describe("AI user access", () => {
 			["PATCH", "/test-credentials/cred-1"],
 			["POST", "/test-credentials/cred-1/rotate"],
 			["POST", "/test-credentials/rotate-key"],
-			["POST", "/test-macros"],
+			["PATCH", "/test-macros/macro-1"],
+			["DELETE", "/test-macros/macro-1"],
 			["POST", "/test-tags"],
+			// Approval, bulk edits and deletion need a person (ADR 0002 decision 13).
+			["POST", "/test-cases/bulk"],
+			["POST", "/test-cases/case-1/approve"],
+			["POST", "/test-cases/case-1/reject"],
+			["DELETE", "/test-cases/case-1"],
 			["PUT", "/test-run-settings"],
 			["GET", "/test-model-settings"],
 			["PUT", "/test-model-settings"],
@@ -197,6 +201,43 @@ describe("AI user access", () => {
 			["/test-credentials", "POST", { profile: "X" }],
 			["/runner-pools", "GET", undefined],
 			["/test-model-settings", "GET", undefined],
+		] as const) {
+			const denied = await app.handle(request(path, method, body));
+			expect(denied.status).toBe(403);
+			expect(await denied.json()).toMatchObject({
+				error: { code: "AI_ACTION_FORBIDDEN" },
+			});
+		}
+	});
+
+	it("stores MCP-proposed macros as draft and keeps approval and deletion for people", async () => {
+		const { app, request } = await fixture();
+		const macro = await app.handle(
+			request("/test-macros", "POST", {
+				name: "OpenDashboard",
+				transcript: "[Open] /dashboard",
+				status: "active",
+			}),
+		);
+		expect(macro.status).toBe(201);
+		expect(await macro.json()).toMatchObject({
+			name: "OpenDashboard",
+			status: "draft",
+		});
+		const created = await app.handle(
+			request("/test-cases", "POST", {
+				transcript: "# MCP review case\n\n[Open] /login",
+				status: "review",
+				source: "ai",
+			}),
+		);
+		const testCase = (await created.json()) as { id: string; status: string };
+		expect(testCase.status).toBe("review");
+		for (const [path, method, body] of [
+			[`/test-cases/${testCase.id}/approve`, "POST", {}],
+			[`/test-cases/${testCase.id}/reject`, "POST", { reason: "x" }],
+			[`/test-cases/${testCase.id}`, "DELETE", undefined],
+			["/test-cases/bulk", "POST", { action: "approve", ids: [testCase.id] }],
 		] as const) {
 			const denied = await app.handle(request(path, method, body));
 			expect(denied.status).toBe(403);

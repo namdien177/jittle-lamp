@@ -32,6 +32,7 @@ import { AccountPage } from "./pages/account-page";
 import { SettingsPage } from "./pages/settings-page";
 import { TestCasesPage } from "./pages/test-cases-page";
 import { TestRunPage, TestRunsPage } from "./pages/test-runs-page";
+import { webOrigin } from "./api";
 import { createTestApi } from "./test-runs/test-api";
 import { TestApiProvider } from "./test-runs/test-api-context";
 import { NotificationBell } from "./ui/notification-bell";
@@ -332,10 +333,17 @@ function DesktopAppLayout(): React.JSX.Element {
   const auth = useDesktopAuth();
   const desktop = useDesktopController({ authStatus: auth.state.status, getAuthToken: auth.getToken });
   const testApi = useMemo(() => createTestApi({ getToken: auth.getToken }), [auth.getToken]);
+  const bridge = desktop.bridge;
+  const openExternal = useCallback(
+    (url: string) => {
+      if (bridge) void bridge.rpc.request.openExternalUrl({ url }).catch(() => undefined);
+    },
+    [bridge]
+  );
 
   return (
     <DesktopControllerContext.Provider value={desktop}>
-      <TestApiProvider api={testApi}>
+      <TestApiProvider api={testApi} webOrigin={webOrigin} openExternal={openExternal}>
         <DeepLinkListener />
         <div className="app-shell">
           <Sidebar />

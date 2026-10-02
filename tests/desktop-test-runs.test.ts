@@ -3,13 +3,16 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { testCaseLinkSchema, webhookRuleSchema } from "@jittle-lamp/shared";
+
 import {
   buildRunDeepLink,
   deepLinkTargetPath,
   findDeepLinkInArgv,
+  isExternalHttpUrl,
+  isSameFileUrl,
   parseDeepLink
 } from "../apps/desktop/src/deep-link";
-import { selectPlaybackArtifacts } from "../apps/desktop/src/mainview/cloud-evidence";
 import {
   describeRunState,
   didRunSettle,
@@ -17,13 +20,15 @@ import {
   nextRunPollDelay,
   notificationTarget,
   reduceLiveRun,
+  runListRefreshInterval,
   runPollIntervalMs,
   runPollMaxBackoffMs,
   type LiveRunState
 } from "../apps/desktop/src/mainview/test-runs/live-run";
 import { createTestApi, extractListItems, TestApiError } from "../apps/desktop/src/mainview/test-runs/test-api";
+import { webPaths, webUrl } from "../apps/desktop/src/mainview/test-runs/web-links";
 import { getViewerReadOnlyNotice, shouldClearViewerTempSession } from "../apps/desktop/src/mainview/viewer-source";
-import { isAllowedArtifactUrl, loadRemoteEvidence } from "../apps/desktop/src/session/remote-evidence";
+import { isAllowedArtifactUrl, loadRemoteEvidence, selectPlaybackArtifacts } from "../apps/desktop/src/session/remote-evidence";
 import { canonicalArchiveBundles } from "./fixtures/canonical-fixtures";
 import {
   fixtureEnvironment,
@@ -139,6 +144,12 @@ describe("live run polling state machine", () => {
     expect(next.revision).toBe(state.revision + 1);
   });
 
+  test("run lists refresh only while a listed run is active", () => {
+    expect(runListRefreshInterval([fixtureRunSummary({ status: "completed" }), fixtureRunSummary({ status: "queued" })])).toBe(5_000);
+    expect(runListRefreshInterval([fixtureRunSummary({ status: "completed" })])).toBe(false);
+    expect(runListRefreshInterval(undefined)).toBe(false);
+  });
+
   test("labels queue, attachment-free and outcome states", () => {
     expect(describeRunState(fixtureRunSummary({ status: "queued", queuePosition: 2 }))).toEqual({ tone: "neutral", text: "Queued · 2 ahead" });
     expect(describeRunState(fixtureRunSummary({ status: "queued", queuePosition: 0 })).text).toBe("Queued · next");
@@ -150,18 +161,67 @@ describe("live run polling state machine", () => {
 });
 
 describe("notifications", () => {
+  const web = "https://web.example.test";
+
   test("open run notifications on the run page and ignore unsafe targets", () => {
-    expect(notificationTarget(fixtureNotification())).toEqual({ kind: "run", runId });
-    expect(notificationTarget(fixtureNotification({ subjectType: "import_batch", subjectId: "batch-1", url: `/test-runs/${runId}` }))).toEqual({
+    expect(notificationTarget(fixtureNotification(), web)).toEqual({ kind: "run", runId });
+    expect(notificationTarget(fixtureNotification({ subjectType: "import_batch", subjectId: "batch-1", url: `/test-runs/${runId}` }), web)).toEqual({
       kind: "run",
       runId
     });
     expect(
-      notificationTarget(fixtureNotification({ subjectType: "import_batch", subjectId: "b", url: `jittle-lamp://run?runId=${runId}` }))
+      notificationTarget(fixtureNotification({ subjectType: "import_batch", subjectId: "b", url: `jittle-lamp://run?runId=${runId}` }), web)
     ).toEqual({ kind: "run", runId });
-    expect(notificationTarget(fixtureNotification({ subjectType: "test_run", subjectId: "../x", url: null }))).toBeNull();
-    expect(notificationTarget(fixtureNotification({ subjectType: "import_batch", subjectId: "b", url: "/test-runs/..%2Fx" }))).toBeNull();
-    expect(notificationTarget(fixtureNotification({ kind: "import.finished", subjectType: "import_batch", subjectId: "b", url: null }))).toBeNull();
+    expect(notificationTarget(fixtureNotification({ subjectType: "test_run", subjectId: "../x", url: null }), web)).toBeNull();
+    expect(notificationTarget(fixtureNotification({ subjectType: "import_batch", subjectId: "b", url: "/test-runs/..%2Fx" }), web)).toBeNull();
+    expect(notificationTarget(fixtureNotification({ kind: "import.finished", subjectType: "test_import_batch", subjectId: "b", url: null }), web)).toBeNull();
+  });
+
+  test("batch, import, review and runner notifications open the web app on its own origin", () => {
+    const cases = [
+      [{ kind: "import.finished", subjectType: "test_import_batch", url: "/test-cases/import/batch-1" }, `${web}/test-cases/import/batch-1`],
+      [{ kind: "review.pending_count", subjectType: "organization", url: "/test-cases?status=review" }, `${web}/test-cases?status=review`],
+      [{ kind: "batch.finished", subjectType: "test_run_batch", url: "/test-run-batches/b1" }, `${web}/test-run-batches/b1`],
+      [{ kind: "runner.offline", subjectType: "runner_worker", url: "/settings/runner-pools" }, `${web}/settings/runner-pools`]
+    ] as const;
+    for (const [overrides, url] of cases) {
+      expect(notificationTarget(fixtureNotification({ ...overrides, subjectId: "x" }), web)).toEqual({ kind: "web", url });
+    }
+    for (const url of ["//evil.example.test/x", "https://evil.example.test/x", "javascript:alert(1)", "\\evil"]) {
+      expect(notificationTarget(fixtureNotification({ kind: "import.finished", subjectType: "test_import_batch", subjectId: "x", url }), web)).toBeNull();
+    }
+  });
+});
+
+describe("web links and external URLs", () => {
+  test("build web-app links only on the configured origin", () => {
+    expect(webUrl("https://web.example.test", webPaths.reviewQueue())).toBe("https://web.example.test/test-cases/review");
+    expect(webUrl("https://web.example.test/", webPaths.caseEditor("case-0412") ?? "")).toBe("https://web.example.test/test-cases?case=case-0412&tab=steps");
+    expect(webPaths.caseEditor("../x")).toBeNull();
+    expect(webPaths.importBatch("b/1")).toBeNull();
+    expect(webUrl("https://web.example.test", "//evil.example.test")).toBeNull();
+    expect(webUrl("file:///x", "/test-cases")).toBeNull();
+  });
+
+  test("only http(s) URLs leave the app and only the bundled view counts as the main view", () => {
+    expect(isExternalHttpUrl("https://jira.example.test/browse/PCF-1")).toBe(true);
+    for (const url of ["file:///etc/passwd", "javascript:alert(1)", "data:text/html,x", "jittle-lamp://run?runId=x", "https://u:p@x.test", 7]) {
+      expect(isExternalHttpUrl(url)).toBe(false);
+    }
+    const view = "file:///Applications/Jittle%20Lamp.app/dist/views/mainview/index.html";
+    expect(isSameFileUrl(`${view}#x`, view)).toBe(true);
+    expect(isSameFileUrl("file:///etc/passwd", view)).toBe(false);
+    expect(isSameFileUrl("https://example.test/dist/views/mainview/index.html", view)).toBe(false);
+  });
+
+  test("test case links and webhook callbacks accept only http(s)", () => {
+    expect(testCaseLinkSchema.safeParse({ url: "https://jira.example.test/browse/PCF-1" }).success).toBe(true);
+    for (const url of ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,x"]) {
+      expect(testCaseLinkSchema.safeParse({ url }).success).toBe(false);
+    }
+    const rule = { when: { events: ["push"] }, run: { suiteId: "s" }, environment: { id: "e" } };
+    expect(webhookRuleSchema.safeParse({ ...rule, report: { callbackUrl: "file:///x" } }).success).toBe(false);
+    expect(webhookRuleSchema.safeParse({ ...rule, report: { callbackUrl: "https://ci.example.test/hook" } }).success).toBe(true);
   });
 });
 
@@ -246,84 +306,115 @@ describe("cloud evidence in the desktop viewer", () => {
     await Promise.all(directories.map((directory) => rm(directory, { recursive: true, force: true })));
   });
 
+  const apiOrigin = "https://api.example.test";
+  const artifact = (id: string, kind: string, mimeType: string) => ({ id, kind, mimeType });
+  const playback = (urls: { archive: string; recording: string }, mimeType = "video/webm") => ({
+    evidence: { id: "evidence-run-1" },
+    artifacts: [artifact("a", "network-log", "application/json"), artifact("v", "recording", mimeType)],
+    readUrls: [
+      { artifactId: "v", url: urls.recording, expiresAt: 1, renewAfterMs: 1 },
+      { artifactId: "a", url: urls.archive, expiresAt: 1, renewAfterMs: 1 }
+    ]
+  });
+
   test("picks the archive and a playable recording from playback links", () => {
-    const artifact = (id: string, kind: string, mimeType: string) => ({
-      id,
-      evidenceId: "e",
-      kind,
-      mimeType,
-      bytes: 1,
-      checksum: "c",
-      uploadStatus: "uploaded",
-      createdAt: 1,
-      updatedAt: 1
+    expect(selectPlaybackArtifacts(playback({ archive: "https://s3.example.test/a", recording: "https://s3.example.test/v" }, "video/mp4"))).toEqual({
+      archiveUrl: "https://s3.example.test/a",
+      recordingUrl: "https://s3.example.test/v",
+      recordingMimeType: "video/mp4"
     });
-    expect(
-      selectPlaybackArtifacts({
-        artifacts: [artifact("a", "network-log", "application/json"), artifact("v", "recording", "video/mp4")],
-        readUrls: [
-          { artifactId: "v", url: "https://s3.example.test/v", expiresAt: 1, renewAfterMs: 1 },
-          { artifactId: "a", url: "https://s3.example.test/a", expiresAt: 1, renewAfterMs: 1 }
-        ]
-      })
-    ).toEqual({ archiveUrl: "https://s3.example.test/a", recordingUrl: "https://s3.example.test/v", recordingMimeType: "video/mp4" });
-    expect(
-      selectPlaybackArtifacts({
-        artifacts: [artifact("a", "network-log", "application/json"), artifact("v", "recording", "application/x-mpegURL")],
-        readUrls: [
-          { artifactId: "v", url: "https://s3.example.test/v", expiresAt: 1, renewAfterMs: 1 },
-          { artifactId: "a", url: "https://s3.example.test/a", expiresAt: 1, renewAfterMs: 1 }
-        ]
-      })
-    ).toBeNull();
+    expect(selectPlaybackArtifacts(playback({ archive: "https://s3.example.test/a", recording: "https://s3.example.test/v" }, "application/x-mpegURL"))).toBeNull();
   });
 
-  test("allows HTTPS and loopback HTTP artifact URLs only", () => {
-    expect(isAllowedArtifactUrl("https://bucket.s3.example.test/key?sig=1")).toBe(true);
-    expect(isAllowedArtifactUrl("http://127.0.0.1:3301/blob")).toBe(true);
-    expect(isAllowedArtifactUrl("http://evil.example.test/blob")).toBe(false);
-    expect(isAllowedArtifactUrl("file:///etc/passwd")).toBe(false);
-    expect(isAllowedArtifactUrl("https://user:pw@example.test/x")).toBe(false);
+  test("allows HTTPS artifact hosts and the API origin, never other loopback services", () => {
+    expect(isAllowedArtifactUrl("https://bucket.s3.example.test/key?sig=1", apiOrigin)).toBe(true);
+    expect(isAllowedArtifactUrl("http://127.0.0.1:3301/dev-artifacts/t", "http://127.0.0.1:3301")).toBe(true);
+    for (const url of [
+      "http://127.0.0.1:48115/api/sessions",
+      "https://127.0.0.1:48115/api/sessions",
+      "https://localhost/x",
+      "https://[::1]/x",
+      "http://evil.example.test/blob",
+      "file:///etc/passwd",
+      "https://user:pw@example.test/x"
+    ]) {
+      expect(isAllowedArtifactUrl(url, "http://127.0.0.1:3301")).toBe(false);
+    }
   });
 
-  test("downloads signed artifacts into a temp cloud session without sending credentials", async () => {
+  type Seen = { url: string; init: RequestInit };
+  const backend = (
+    respond: (url: string) => Response,
+    seen: Seen[]
+  ): typeof fetch =>
+    (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      seen.push({ url, init: init ?? {} });
+      return respond(url);
+    }) as typeof fetch;
+
+  test("resolves playback from the evidence ID, validates the archive, then streams the recording", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "jl-remote-evidence-"));
     directories.push(tempRoot);
     const registry = new Map<string, { videoPath: string }>();
-    const inits: RequestInit[] = [];
-    const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
-      inits.push(init ?? {});
-      return String(input).endsWith("/archive")
-        ? new Response(JSON.stringify(canonicalArchiveBundles.small))
-        : new Response(new Uint8Array([1, 2, 3]));
-    }) as typeof fetch;
-    const payload = await loadRemoteEvidence(
-      { evidenceId: "evidence-run-1", archiveUrl: "https://s3.example.test/archive", recordingUrl: "https://s3.example.test/rec", recordingMimeType: "video/webm" },
-      registry,
-      { fetcher, tempRoot }
-    );
-    expect(payload.source).toBe("cloud");
-    expect(payload.evidenceId).toBe("evidence-run-1");
-    expect(payload.videoMimeType).toBe("video/webm");
+    const seen: Seen[] = [];
+    const fetcher = backend((url) => {
+      if (url === `${apiOrigin}/evidences/evidence-run-1/playback`) {
+        return Response.json(playback({ archive: "https://s3.example.test/archive", recording: "https://s3.example.test/rec" }));
+      }
+      return url.endsWith("/archive") ? new Response(JSON.stringify(canonicalArchiveBundles.small)) : new Response(new Uint8Array([1, 2, 3]));
+    }, seen);
+    const payload = await loadRemoteEvidence({ evidenceId: "evidence-run-1", authToken: "session-token" }, registry, { apiOrigin, fetcher, tempRoot });
+    expect(seen.map((entry) => entry.url)).toEqual([
+      `${apiOrigin}/evidences/evidence-run-1/playback`,
+      "https://s3.example.test/archive",
+      "https://s3.example.test/rec"
+    ]);
+    expect(new Headers(seen[0]?.init.headers).get("authorization")).toBe("Bearer session-token");
+    for (const entry of seen.slice(1)) {
+      expect(entry.init.credentials).toBe("omit");
+      expect(entry.init.redirect).toBe("error");
+      expect(new Headers(entry.init.headers).has("authorization")).toBe(false);
+    }
+    expect(payload).toMatchObject({ source: "cloud", evidenceId: "evidence-run-1", videoMimeType: "video/webm" });
     expect(payload.videoPath.endsWith(".webm")).toBe(true);
     expect([...(await readFile(payload.videoPath))]).toEqual([1, 2, 3]);
     expect(payload.tempId && registry.has(payload.tempId)).toBe(true);
     expect(shouldClearViewerTempSession(payload)).toBe(true);
     expect(getViewerReadOnlyNotice("cloud")).toMatch(/read-only/);
-    for (const init of inits) {
-      expect(init.credentials).toBe("omit");
-      expect(new Headers(init.headers).has("authorization")).toBe(false);
-    }
   });
 
-  test("rejects unsafe evidence IDs, URLs and invalid archives", async () => {
+  test("refuses loopback artifact URLs and never downloads the recording for an invalid archive", async () => {
     const registry = new Map<string, { videoPath: string }>();
-    const base = { evidenceId: "e1", archiveUrl: "https://s3.example.test/a", recordingUrl: "https://s3.example.test/r", recordingMimeType: "video/webm" };
-    await expect(loadRemoteEvidence({ ...base, evidenceId: "../e" }, registry)).rejects.toThrow(/evidence ID/);
-    await expect(loadRemoteEvidence({ ...base, recordingUrl: "http://evil.example.test/r" }, registry)).rejects.toThrow(/HTTPS/);
-    await expect(loadRemoteEvidence({ ...base, recordingMimeType: "text/html" }, registry)).rejects.toThrow(/Unsupported/);
-    const fetcher = (async () => new Response("{}")) as unknown as typeof fetch;
-    await expect(loadRemoteEvidence(base, registry, { fetcher })).rejects.toThrow(/Invalid session archive/);
+    const seen: Seen[] = [];
+    const loopback = backend(
+      () => Response.json(playback({ archive: "http://127.0.0.1:48115/api/archive", recording: "https://s3.example.test/rec" })),
+      seen
+    );
+    await expect(loadRemoteEvidence({ evidenceId: "e1", authToken: "t" }, registry, { apiOrigin, fetcher: loopback })).rejects.toThrow(/HTTPS/);
+    expect(seen).toHaveLength(1);
+
+    const invalidSeen: Seen[] = [];
+    const invalid = backend(
+      (url) =>
+        url.includes("/playback")
+          ? Response.json(playback({ archive: "https://s3.example.test/archive", recording: "https://s3.example.test/rec" }))
+          : new Response("{}"),
+      invalidSeen
+    );
+    await expect(loadRemoteEvidence({ evidenceId: "e1", authToken: "t" }, registry, { apiOrigin, fetcher: invalid })).rejects.toThrow(/Invalid session archive/);
+    expect(invalidSeen.map((entry) => entry.url)).not.toContain("https://s3.example.test/rec");
     expect(registry.size).toBe(0);
+  });
+
+  test("rejects unsafe evidence IDs, missing tokens and backend errors before any artifact download", async () => {
+    const registry = new Map<string, { videoPath: string }>();
+    const seen: Seen[] = [];
+    const denied = backend(() => Response.json({ error: { message: "nope" } }, { status: 403 }), seen);
+    await expect(loadRemoteEvidence({ evidenceId: "../e", authToken: "t" }, registry, { apiOrigin, fetcher: denied })).rejects.toThrow(/evidence ID/);
+    await expect(loadRemoteEvidence({ evidenceId: "e1", authToken: "" }, registry, { apiOrigin, fetcher: denied })).rejects.toThrow(/Sign in/);
+    expect(seen).toHaveLength(0);
+    await expect(loadRemoteEvidence({ evidenceId: "e1", authToken: "t" }, registry, { apiOrigin, fetcher: denied })).rejects.toThrow(/403/);
+    expect(seen).toHaveLength(1);
   });
 });
