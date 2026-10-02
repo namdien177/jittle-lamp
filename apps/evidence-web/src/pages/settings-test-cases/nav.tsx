@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router";
-import { Bell, Bot, Gauge, Globe, KeyRound, Puzzle, Server, Tags } from "lucide-react";
+import { Bell, Bot, CircleDollarSign, Gauge, Globe, KeyRound, Puzzle, Server, Tags } from "lucide-react";
 
 import { cn } from "../../lib/cn";
 
@@ -12,6 +12,7 @@ export const testCaseSettingsTabs = [
   { to: "/settings/test-cases/macros", label: "Macros", icon: Puzzle },
   { to: "/settings/test-cases/tags", label: "Tags", icon: Tags },
   { to: "/settings/test-cases/ai-model", label: "AI model", icon: Bot },
+  { to: "/settings/test-cases/model-spend", label: "Model spend", icon: CircleDollarSign },
   { to: "/settings/test-cases/runner-pools", label: "Runner pools", icon: Server },
   { to: "/settings/test-cases/test-runs", label: "Test runs", icon: Gauge },
   { to: "/settings/test-cases/notifications", label: "Notifications", icon: Bell }

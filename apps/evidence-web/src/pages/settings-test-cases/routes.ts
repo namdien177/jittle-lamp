@@ -8,6 +8,7 @@ export const testCaseSettingsRoutes: RouteObject[] = [
   { path: "test-cases/macros", lazy: async () => ({ Component: (await import("./macros")).SettingsTestMacrosPage }) },
   { path: "test-cases/tags", lazy: async () => ({ Component: (await import("./tags")).SettingsTestTagsPage }) },
   { path: "test-cases/ai-model", lazy: async () => ({ Component: (await import("./ai-model")).SettingsTestAiModelPage }) },
+  { path: "test-cases/model-spend", lazy: async () => ({ Component: (await import("./model-spend")).SettingsTestModelSpendPage }) },
   { path: "test-cases/runner-pools", lazy: async () => ({ Component: (await import("./runner-pools")).SettingsTestRunnerPoolsPage }) },
   { path: "test-cases/test-runs", lazy: async () => ({ Component: (await import("./test-runs")).SettingsTestRunsPage }) },
   { path: "test-cases/notifications", lazy: async () => ({ Component: (await import("./notifications")).SettingsTestNotificationsPage }) }
