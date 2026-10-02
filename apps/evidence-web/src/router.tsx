@@ -21,6 +21,7 @@ import { JoinPage } from "./pages/join";
 import { LandingPage } from "./pages/landing";
 import { PrivacyPage } from "./pages/privacy";
 import { RouteError } from "./pages/route-error";
+import { testCaseAdminRoutes } from "./test-cases/admin-routes";
 
 /** Thin progress bar shown during route transitions. */
 function GlobalPendingBar(): React.JSX.Element | null {
@@ -102,6 +103,7 @@ export const router = createBrowserRouter([
           { path: "evidence", lazy: async () => ({ Component: (await import("./pages/evidence-library")).EvidenceLibraryPage }) },
           { path: "evidence/:evidenceId", element: <CloudEvidencePage /> },
           { path: "test-cases", element: <ComingSoonPage variant="test-cases" /> },
+          ...testCaseAdminRoutes,
           { path: "documents", element: <ComingSoonPage variant="documents" /> },
           { path: "organisations", lazy: async () => ({ Component: (await import("./pages/organisations")).OrganisationsListPage }) },
           {
