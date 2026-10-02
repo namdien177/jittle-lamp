@@ -48,6 +48,7 @@ import {
 	type TestActor,
 } from "../http/test-http";
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
+import { emitReviewPendingCount } from "../services/notifications";
 import { recordOrganizationActivity } from "../services/organization-activity";
 import { testCasePolicy } from "../services/test-case-policy";
 import {
@@ -272,6 +273,9 @@ export const createTestCaseRoutes = (
 					message: `Created test case ${row.key}`,
 					metadata: { key: row.key, source: row.source },
 				});
+				if (row.status === "review") {
+					await emitReviewPendingCount(db, who.orgId, who.userId);
+				}
 				ctx.set.status = 201;
 				return respond(testCaseDetailSchema, await toCaseDetail(db, row));
 			}),
@@ -435,6 +439,9 @@ export const createTestCaseRoutes = (
 								})
 								.where(eq(testCases.id, row.id));
 							updated += 1;
+						}
+						if (body.action !== "archive" && updated > 0) {
+							await emitReviewPendingCount(db, who.orgId, who.userId);
 						}
 						break;
 					}
@@ -642,6 +649,7 @@ export const createTestCaseRoutes = (
 					})
 					.where(eq(testCases.id, row.id))
 					.returning();
+				await emitReviewPendingCount(db, who.orgId, who.userId);
 				return respond(
 					testCaseDetailSchema,
 					await toCaseDetail(db, updated ?? row),
@@ -676,6 +684,7 @@ export const createTestCaseRoutes = (
 					})
 					.where(eq(testCases.id, row.id))
 					.returning();
+				await emitReviewPendingCount(db, who.orgId, who.userId);
 				return respond(
 					testCaseDetailSchema,
 					await toCaseDetail(db, updated ?? row),
