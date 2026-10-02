@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import Database from "libsql";
 
 import {
+  replaceMergeGroups,
   archiveActionSchema,
   archiveAnnotationSchema,
   archiveConsoleEntrySchema,
@@ -524,7 +525,7 @@ export async function saveLibrarySessionReviewState(input: {
     ...result.data,
     updatedAt: new Date().toISOString(),
     notes: notesArrayFromText(input.notes),
-    annotations: input.annotations
+    annotations: replaceMergeGroups(result.data.annotations, input.annotations)
   });
 
   await writeFile(archivePath, stringifyArchive(nextArchive), "utf8");

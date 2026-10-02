@@ -4,6 +4,7 @@ import {
   buildSectionTimeline,
   findActiveIndex,
   formatOffset,
+  getStepAnnotations,
   type SessionArchive,
   type TimelineItem,
   type TimelineSection,
@@ -11,6 +12,7 @@ import {
 } from "@jittle-lamp/shared";
 import {
   createMergeGroup,
+  filterTimelineByStep,
   getContiguousMergeableSelection,
   selectActionRange,
   selectSingleAction,
@@ -21,6 +23,7 @@ import {
   ViewerModal,
   seekVideo,
   buildCurl,
+  buildViewerStepChips,
   getResponseBodyString,
   type ViewerContextMenuState,
   type ViewerEvidenceTag,
@@ -168,6 +171,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [recordingBytes, setRecordingBytes] = useState<Uint8Array | null>(recordingBytesInitial);
+  const [activeStepId, setActiveStepId] = useState<string | null>(null);
 
   const archive = useMemo(
     () => buildReviewedArchive({ archive: loadedArchive, mergeGroups }),
@@ -183,8 +187,13 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     [loadedArchive, loadedTimeline]
   );
 
+  const stepAnnotations = useMemo(() => getStepAnnotations(archive), [archive]);
+  const stepChips = useMemo(() => buildViewerStepChips(archive), [archive]);
+
   const sectionItems = useMemo<SectionItem[]>(() => {
-    const baseItems = buildSectionTimeline(archive, activeSection, networkSubtypeFilter, networkSearchQuery);
+    const sectionTimeline = buildSectionTimeline(archive, activeSection, networkSubtypeFilter, networkSearchQuery);
+    const baseItems =
+      activeStepId === null ? sectionTimeline : filterTimelineByStep(sectionTimeline, stepAnnotations, activeStepId);
     if (activeSection !== "actions") return baseItems;
 
     const itemsById = new Map(baseItems.map((item) => [item.id, item]));
@@ -219,7 +228,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== undefined);
-  }, [archive, activeSection, networkSubtypeFilter, networkSearchQuery, mergeGroups]);
+  }, [archive, activeSection, networkSubtypeFilter, networkSearchQuery, mergeGroups, activeStepId, stepAnnotations]);
 
   const showFeedback = (text: string, tone: FeedbackTone): void => setFeedback({ text, tone });
   const dismissFeedback = (): void => setFeedback(null);
@@ -508,6 +517,16 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
         setNetworkDetailIndex(null);
       }}
       rows={rows}
+      steps={stepChips}
+      activeStepId={activeStepId}
+      onStepSelect={(stepId) => {
+        setActiveStepId(stepId);
+        setActiveIndex(-1);
+        setNetworkDetailIndex(null);
+        const step = stepId === null ? undefined : stepAnnotations.find((candidate) => candidate.stepId === stepId);
+        const video = videoRef.current;
+        if (step && video) void seekVideo(video, step.videoOffsetMs / 1000).catch(() => onVideoError(video));
+      }}
       activeItemId={activeItemId}
       autoFollow={autoFollow}
       onItemClick={(row, event) => {

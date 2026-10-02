@@ -1,6 +1,9 @@
 import { z } from "zod/v4";
 
-export const sessionSchemaVersion = 3;
+// Version 4 (ADR 0002 decision 8) adds `recorder.kind` and `step` annotations. Version 3 archives,
+// still written by released extensions, are upgraded in memory on parse.
+export const sessionSchemaVersion = 4;
+export const extensionArchiveSchemaVersion = 3;
 
 export const isoTimestampSchema = z.string().datetime({ offset: true });
 export const sessionIdSchema = z.string().min(8).max(128);
@@ -46,9 +49,43 @@ export const extensionRecorderInfoSchema = z.object({
   manifestVersion: z.number().int().positive().optional()
 });
 
-export const archiveRecorderInfoSchema = z.object({
+export const archiveRecorderInfoV3Schema = z.object({
   extension: extensionRecorderInfoSchema
 });
+
+export const e2eRunnerRecorderInfoSchema = z.object({
+  name: z.string().min(1),
+  version: z.string().min(1),
+  engine: z.object({ name: z.string().min(1), version: z.string().min(1) }).optional(),
+  browser: z
+    .object({
+      name: z.string().min(1),
+      version: z.string().min(1).optional(),
+      headless: z.boolean().optional()
+    })
+    .optional(),
+  viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).optional()
+});
+
+export const archiveTestRunRefSchema = z.object({
+  runId: z.string().min(1).optional(),
+  testCaseId: z.string().min(1).optional(),
+  testCaseKey: z.string().min(1).optional(),
+  transcriptVersion: z.number().int().positive().optional(),
+  environment: z.string().min(1).optional()
+});
+
+export const archiveRecorderInfoSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("browser-extension"),
+    extension: extensionRecorderInfoSchema
+  }),
+  z.object({
+    kind: z.literal("e2e-runner"),
+    runner: e2eRunnerRecorderInfoSchema,
+    testRun: archiveTestRunRefSchema.optional()
+  })
+]);
 
 export const archiveSummarySchema = z.object({
   videoDurationMs: z.number().nonnegative().nullable().default(null),
@@ -57,6 +94,7 @@ export const archiveSummarySchema = z.object({
 });
 
 export const defaultArchiveRecorderInfo = {
+  kind: "browser-extension",
   extension: {
     kind: "browser-extension",
     name: "jittle-lamp",
@@ -329,6 +367,7 @@ export const archiveConsoleEntrySchema = z.object({
   seq: z.number().int().nonnegative(),
   at: isoTimestampSchema,
   tab: tabContextSchema.optional(),
+  tags: z.array(z.string().min(1)).optional(),
   payload: consoleEventSchema
 });
 
@@ -337,6 +376,7 @@ export const archiveNetworkEntrySchema = z.object({
   seq: z.number().int().nonnegative(),
   at: isoTimestampSchema,
   tab: tabContextSchema.optional(),
+  tags: z.array(z.string().min(1)).optional(),
   subtype: networkSubtypeSchema,
   payload: networkEventSchema
 });
@@ -350,9 +390,63 @@ export const actionMergeGroupSchema = z.object({
   createdAt: isoTimestampSchema
 });
 
-export const archiveAnnotationSchema = z.discriminatedUnion("kind", [actionMergeGroupSchema]);
+export const archiveStepStatusSchema = z.enum(["running", "passed", "failed", "blocked", "skipped"]);
+export const archiveStepModeSchema = z.enum(["agent", "replayed", "handoff", "deterministic"]);
 
-export const sessionArchiveSchema = z.object({
+// One executed test-case step. Entries recorded while the step ran carry the tag `step:<stepId>`.
+export const stepAnnotationSchema = z.object({
+  id: archiveEntryIdSchema,
+  kind: z.literal("step"),
+  stepId: z.string().min(1),
+  ordinal: z.number().int().positive(),
+  type: z.string().min(1),
+  label: z.string().min(1),
+  checkpointId: z.string().min(1).nullable().default(null),
+  checkpointLabel: z.string().min(1).nullable().default(null),
+  parentStepId: z.string().min(1).nullable().default(null),
+  status: archiveStepStatusSchema,
+  mode: archiveStepModeSchema.nullable().default(null),
+  startedAt: isoTimestampSchema,
+  endedAt: isoTimestampSchema.nullable().default(null),
+  videoOffsetMs: z.number().nonnegative(),
+  videoEndOffsetMs: z.number().nonnegative().nullable().default(null),
+  detail: z.string().nullable().default(null),
+  tags: z.array(z.string().min(1)).default([])
+});
+
+export const archiveAnnotationSchema = z.discriminatedUnion("kind", [actionMergeGroupSchema, stepAnnotationSchema]);
+
+export const stepTag = (stepId: string): string => `step:${stepId}`;
+export const checkpointTag = (checkpointId: string): string => `checkpoint:${checkpointId}`;
+
+const archiveSummaryDefault = {
+  videoDurationMs: null,
+  actionCount: null,
+  requestCount: null
+};
+
+// The wire format released extensions write. Kept so v3 files can be validated and upgraded.
+export const sessionArchiveV3Schema = z.object({
+  schemaVersion: z.literal(extensionArchiveSchemaVersion),
+  sessionId: sessionIdSchema,
+  name: z.string().min(1),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+  phase: capturePhaseSchema,
+  page: pageContextSchema,
+  recorder: archiveRecorderInfoV3Schema.default({ extension: defaultArchiveRecorderInfo.extension }),
+  summary: archiveSummarySchema.default(archiveSummaryDefault),
+  artifacts: z.array(sessionArtifactSchema),
+  sections: z.object({
+    actions: z.array(archiveActionSchema).default([]),
+    console: z.array(archiveConsoleEntrySchema).default([]),
+    network: z.array(archiveNetworkEntrySchema).default([])
+  }),
+  annotations: z.array(actionMergeGroupSchema).default([]),
+  notes: z.array(z.string()).default([])
+});
+
+export const sessionArchiveV4Schema = z.object({
   schemaVersion: z.literal(sessionSchemaVersion),
   sessionId: sessionIdSchema,
   name: z.string().min(1),
@@ -376,6 +470,21 @@ export const sessionArchiveSchema = z.object({
   notes: z.array(z.string()).default([])
 });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Lift a raw v3 archive to the v4 shape. Anything else passes through for v4 validation.
+export function upgradeSessionArchiveInput(raw: unknown): unknown {
+  if (!isRecord(raw) || raw.schemaVersion !== extensionArchiveSchemaVersion) return raw;
+  const recorder =
+    isRecord(raw.recorder) && !("kind" in raw.recorder) ? { kind: "browser-extension", ...raw.recorder } : raw.recorder;
+  return { ...raw, schemaVersion: sessionSchemaVersion, ...(recorder === undefined ? {} : { recorder }) };
+}
+
+// Parses v3 and v4 archives; the result is always v4.
+export const sessionArchiveSchema = z.preprocess(upgradeSessionArchiveInput, sessionArchiveV4Schema);
+
 export const captureSessionDraftSchema = z.object({
   sessionId: sessionIdSchema,
   name: z.string().min(1),
@@ -392,16 +501,23 @@ export const captureSessionDraftSchema = z.object({
 export type NetworkSubtype = z.infer<typeof networkSubtypeSchema>;
 export type CapturePhase = z.infer<typeof capturePhaseSchema>;
 export type SessionArtifact = z.infer<typeof sessionArtifactSchema>;
-export type ArchiveRecorderInfo = z.infer<typeof archiveRecorderInfoSchema>;
+// The extension's recorder info (v3 shape); createSessionArchive accepts it and adds `kind`.
+export type ArchiveRecorderInfo = z.infer<typeof archiveRecorderInfoV3Schema>;
+export type ArchiveRecorder = z.infer<typeof archiveRecorderInfoSchema>;
+export type E2eRunnerRecorderInfo = z.infer<typeof e2eRunnerRecorderInfoSchema>;
 export type ArchiveSummary = z.infer<typeof archiveSummarySchema>;
 export type TabContext = z.infer<typeof tabContextSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
-export type SessionArchive = z.infer<typeof sessionArchiveSchema>;
+export type SessionArchive = z.infer<typeof sessionArchiveV4Schema>;
+export type SessionArchiveV3 = z.infer<typeof sessionArchiveV3Schema>;
 export type ArchiveAction = z.infer<typeof archiveActionSchema>;
 export type ArchiveConsoleEntry = z.infer<typeof archiveConsoleEntrySchema>;
 export type ArchiveNetworkEntry = z.infer<typeof archiveNetworkEntrySchema>;
 export type ArchiveAnnotation = z.infer<typeof archiveAnnotationSchema>;
 export type ActionMergeGroup = z.infer<typeof actionMergeGroupSchema>;
+export type StepAnnotation = z.infer<typeof stepAnnotationSchema>;
+export type ArchiveStepStatus = z.infer<typeof archiveStepStatusSchema>;
+export type ArchiveStepMode = z.infer<typeof archiveStepModeSchema>;
 export type CaptureSessionDraft = z.infer<typeof captureSessionDraftSchema>;
 
 export function sanitizeCapturedUrl(input: string): string {
@@ -586,7 +702,7 @@ export function generateArchiveEntryId(
 export function createSessionArchive(
   draft: CaptureSessionDraft,
   options: {
-    recorder?: z.input<typeof archiveRecorderInfoSchema>;
+    recorder?: z.input<typeof archiveRecorderInfoSchema> | z.input<typeof archiveRecorderInfoV3Schema>;
     videoDurationMs?: number | null;
   } = {}
 ): SessionArchive {
@@ -652,6 +768,8 @@ export function createSessionArchive(
     }
   }
 
+  const recorder = options.recorder ?? defaultArchiveRecorderInfo;
+
   return sessionArchiveSchema.parse({
     schemaVersion: sessionSchemaVersion,
     sessionId: draft.sessionId,
@@ -660,7 +778,7 @@ export function createSessionArchive(
     updatedAt: draft.updatedAt,
     phase: draft.phase,
     page: draft.page,
-    recorder: options.recorder ?? defaultArchiveRecorderInfo,
+    recorder: "kind" in recorder ? recorder : { kind: "browser-extension", ...recorder },
     summary: {
       videoDurationMs: options.videoDurationMs ?? null,
       actionCount: interactionCount,
@@ -675,4 +793,36 @@ export function createSessionArchive(
     annotations: [],
     notes: draft.notes
   });
+}
+
+// Released extensions write v3 until their next release (ADR 0002 decision 8). Only extension
+// recordings without step annotations can be written in that format.
+export function toExtensionWireArchive(archive: SessionArchive): SessionArchiveV3 {
+  if (archive.recorder.kind !== "browser-extension") {
+    throw new Error("Only browser-extension archives can be written as schema version 3.");
+  }
+  const { kind: _kind, ...recorder } = archive.recorder;
+  return sessionArchiveV3Schema.parse({
+    ...archive,
+    schemaVersion: extensionArchiveSchemaVersion,
+    recorder,
+    annotations: archive.annotations.filter((annotation) => annotation.kind === "merge-group")
+  });
+}
+
+export function getStepAnnotations(archive: Pick<SessionArchive, "annotations">): StepAnnotation[] {
+  return archive.annotations
+    .filter((annotation): annotation is StepAnnotation => annotation.kind === "step")
+    .sort((a, b) => a.videoOffsetMs - b.videoOffsetMs || a.ordinal - b.ordinal);
+}
+
+// Review edits replace merge groups only; step annotations written by the runner are kept.
+export function replaceMergeGroups(
+  annotations: ReadonlyArray<ArchiveAnnotation>,
+  mergeGroups: ReadonlyArray<ArchiveAnnotation>
+): ArchiveAnnotation[] {
+  return [
+    ...annotations.filter((annotation) => annotation.kind !== "merge-group"),
+    ...mergeGroups.filter((annotation) => annotation.kind === "merge-group")
+  ];
 }

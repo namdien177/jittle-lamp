@@ -90,7 +90,7 @@ type NetworkSubtype =
   | "other";
 
 export interface SessionArchiveJson {
-  schemaVersion: 3;
+  schemaVersion: 3 | 4; // 3: browser extension, 4: adds recorder.kind and step annotations
   sessionId: string; // 8-128 chars
   name: string;
   createdAt: IsoTimestamp;
@@ -1210,7 +1210,7 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 									session.archive.json standard
 								</div>
 								<p className="text-base text-muted-foreground">
-									Validated as schemaVersion 3. Include this file with
+									Validated as schemaVersion 3 or 4. Include this file with
 									recording.webm in the upload ZIP.
 								</p>
 							</div>

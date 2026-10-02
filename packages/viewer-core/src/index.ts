@@ -1,6 +1,8 @@
 export type { StorageAdapter, PlaybackAdapter, ShareAdapter, NotesAdapter, ViewerAdapters } from "./adapters";
 
 import {
+  getStepAnnotations,
+  stepTag,
   buildSectionTimeline,
   buildTimeline,
   buildVisibleActionRangeSelection,
@@ -8,7 +10,7 @@ import {
   type TimelineItem,
   type TimelineSection
 } from "@jittle-lamp/shared";
-import type { ActionMergeGroup, NetworkSubtype, SessionArchive } from "@jittle-lamp/shared";
+import type { ActionMergeGroup, NetworkSubtype, SessionArchive, StepAnnotation } from "@jittle-lamp/shared";
 
 export type FeedbackTone = "neutral" | "success" | "error";
 export type AppPhase = "idle" | "loading" | "error" | "viewing";
@@ -28,6 +30,9 @@ export type ViewerCoreState = {
   selectedActionIds: Set<string>;
   anchorActionId: string | null;
   mergeGroups: ActionMergeGroup[];
+  // Test-run step annotations (archive v4) and the step the timeline is filtered to.
+  steps: StepAnnotation[];
+  stepFilter: string | null;
 };
 
 export type SelectionCommand = {
@@ -59,7 +64,9 @@ export function createViewerCoreState(): ViewerCoreState {
     autoFollow: true,
     selectedActionIds: new Set(),
     anchorActionId: null,
-    mergeGroups: []
+    mergeGroups: [],
+    steps: [],
+    stepFilter: null
   };
 }
 
@@ -87,6 +94,7 @@ export function applyArchiveToViewerCore(state: ViewerCoreState, archive: Sessio
   resetViewerCoreState(state);
   state.timeline = deriveTimeline(archive);
   state.mergeGroups = getArchiveMergeGroups(archive);
+  state.steps = getStepAnnotations(archive);
 }
 
 export function deriveTimeline(archive: SessionArchive): TimelineItem[] {
@@ -97,9 +105,47 @@ export function deriveSectionTimeline(
   archive: SessionArchive,
   section: TimelineSection,
   subtypeFilter: NetworkSubtype | "all" = "all",
-  networkSearchQuery = ""
+  networkSearchQuery = "",
+  stepFilter: string | null = null
 ): TimelineItem[] {
-  return buildSectionTimeline(archive, section, subtypeFilter, networkSearchQuery);
+  const items = buildSectionTimeline(archive, section, subtypeFilter, networkSearchQuery);
+  return stepFilter === null ? items : filterTimelineByStep(items, getStepAnnotations(archive), stepFilter);
+}
+
+const hasStepTag = (item: TimelineItem): boolean => (item.tags ?? []).some((tag) => tag.startsWith("step:"));
+
+// Entries tagged `step:<id>` belong to the step. Entries that carry no step tag at all (for example
+// network traffic captured without a step scope) belong to it when they fall inside its time window.
+export function filterTimelineByStep(
+  items: ReadonlyArray<TimelineItem>,
+  steps: ReadonlyArray<StepAnnotation>,
+  stepId: string
+): TimelineItem[] {
+  const tag = stepTag(stepId);
+  const step = steps.find((candidate) => candidate.stepId === stepId);
+  const startMs = step ? Date.parse(step.startedAt) : Number.NaN;
+  const endMs = step?.endedAt ? Date.parse(step.endedAt) : Number.POSITIVE_INFINITY;
+
+  return items.filter((item) => {
+    if (item.tags?.includes(tag)) return true;
+    if (hasStepTag(item) || Number.isNaN(startMs)) return false;
+    const at = Date.parse(item.at);
+    return at >= startMs && at <= endMs;
+  });
+}
+
+export function setStepFilter(state: ViewerCoreState, stepId: string | null): void {
+  state.stepFilter = stepId !== null && state.steps.some((step) => step.stepId === stepId) ? stepId : null;
+  state.activeIndex = -1;
+  state.networkDetailIndex = null;
+  state.selectedActionIds = new Set();
+  state.anchorActionId = null;
+}
+
+// Video position of a step, in seconds, for seeking the shared player.
+export function getStepSeekSeconds(steps: ReadonlyArray<StepAnnotation>, stepId: string): number | null {
+  const step = steps.find((candidate) => candidate.stepId === stepId);
+  return step ? step.videoOffsetMs / 1000 : null;
 }
 
 export function deriveVisibleActionRange(

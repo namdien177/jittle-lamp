@@ -130,7 +130,7 @@ describe("loadLibrarySession", () => {
 
     expect(payload.source).toBe("library");
     expect(payload.archive.sessionId).toBe(SESSION_ID);
-    expect(payload.archive.schemaVersion).toBe(3);
+    expect(payload.archive.schemaVersion).toBe(4);
     expect(payload.videoPath).toEndWith("recording.webm");
     expect(payload.notes).toBe("");
     expect(payload.tempId).toBeUndefined();
@@ -279,7 +279,7 @@ describe("importZipBundle", () => {
 
     expect(payload.source).toBe("zip");
     expect(payload.archive.sessionId).toBe(SESSION_ID);
-    expect(payload.archive.schemaVersion).toBe(3);
+    expect(payload.archive.schemaVersion).toBe(4);
     expect(payload.videoPath).toContain("jittle-lamp-temp");
     expect(payload.videoPath).toEndWith(".webm");
     expect(payload.notes).toBe("");
@@ -455,7 +455,7 @@ describe("loadLocalSession", () => {
 
     expect(payload.source).toBe("local");
     expect(payload.archive.sessionId).toBe(SESSION_ID);
-    expect(payload.archive.schemaVersion).toBe(3);
+    expect(payload.archive.schemaVersion).toBe(4);
     expect(payload.videoPath).toEndWith("recording.webm");
     expect(payload.notes).toBe("");
     expect(payload.tempId).toBeUndefined();
@@ -556,7 +556,7 @@ describe("buildSessionZip / export round-trip", () => {
 
     expect(payload.source).toBe("zip");
     expect(payload.archive.sessionId).toBe(SESSION_ID);
-    expect(payload.archive.schemaVersion).toBe(3);
+    expect(payload.archive.schemaVersion).toBe(4);
     expect(payload.archive.createdAt).toBe(NOW);
 
     const videoStat = await stat(payload.videoPath);

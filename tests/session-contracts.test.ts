@@ -4,11 +4,20 @@ import {
   appendDraftEvent,
   createSessionArchive,
   createSessionDraft,
+  getStepAnnotations,
+  parseSessionArchiveJson,
+  replaceMergeGroups,
+  safeParseSessionArchiveJson,
   sanitizeCapturedUrl,
   sessionArchiveSchema,
+  sessionArchiveV3Schema,
   sessionSchemaVersion,
+  stepTag,
+  toExtensionWireArchive,
   transitionDraftPhase
 } from "@jittle-lamp/shared";
+
+import { makeRunnerArchive, runnerSteps } from "./fixtures/e2e/runner-archive";
 
 describe("session contracts", () => {
   test("creates a draft with local artifact paths", () => {
@@ -60,7 +69,7 @@ describe("session contracts", () => {
     expect(archive.sections.actions).toHaveLength(3);
     expect(archive.sections.console).toHaveLength(0);
     expect(archive.sections.network).toHaveLength(0);
-    expect(archive.recorder.extension.version).toBe("unknown");
+    expect(archive.recorder).toMatchObject({ kind: "browser-extension", extension: { version: "unknown" } });
     expect(archive.summary).toEqual({
       videoDurationMs: null,
       actionCount: 1,
@@ -90,12 +99,15 @@ describe("session contracts", () => {
       }
     });
 
-    expect(archive.recorder.extension).toEqual({
+    expect(archive.recorder).toEqual({
       kind: "browser-extension",
-      name: "jittle-lamp",
-      version: "1.7.2",
-      extensionId: "abcdefghijklmnop",
-      manifestVersion: 3
+      extension: {
+        kind: "browser-extension",
+        name: "jittle-lamp",
+        version: "1.7.2",
+        extensionId: "abcdefghijklmnop",
+        manifestVersion: 3
+      }
     });
   });
 
@@ -126,8 +138,7 @@ describe("session contracts", () => {
 
     const parsed = sessionArchiveSchema.parse(legacyArchive);
 
-    expect(parsed.recorder.extension.name).toBe("jittle-lamp");
-    expect(parsed.recorder.extension.version).toBe("unknown");
+    expect(parsed.recorder).toMatchObject({ kind: "browser-extension", extension: { name: "jittle-lamp", version: "unknown" } });
     expect(parsed.summary).toEqual({
       videoDurationMs: null,
       actionCount: null,
@@ -332,5 +343,54 @@ describe("session contracts", () => {
     });
 
     expect(draft.page.url).toBe("https://example.com/path");
+  });
+});
+
+describe("session archive v4", () => {
+  const v3Json = () => {
+    const draft = createSessionDraft({ page: { title: "Example", url: "https://example.com" }, now: new Date("2026-01-01T00:00:00.000Z") });
+    const v4 = createSessionArchive(draft, {
+      recorder: { extension: { kind: "browser-extension", name: "jittle-lamp", version: "1.8.2" } }
+    });
+    return JSON.stringify({ ...v4, schemaVersion: 3, recorder: { extension: v4.recorder.kind === "browser-extension" ? v4.recorder.extension : null } });
+  };
+
+  test("parseSessionArchiveJson upgrades v3 archives in memory", () => {
+    const archive = parseSessionArchiveJson(v3Json());
+    expect(archive.schemaVersion).toBe(4);
+    expect(archive.recorder).toEqual({
+      kind: "browser-extension",
+      extension: { kind: "browser-extension", name: "jittle-lamp", version: "1.8.2" }
+    });
+    expect(sessionArchiveV3Schema.safeParse(JSON.parse(v3Json())).success).toBe(true);
+  });
+
+  test("extensions keep writing v3: the wire format round-trips through the upgrade", () => {
+    const archive = parseSessionArchiveJson(v3Json());
+    const wire = toExtensionWireArchive(archive);
+    expect(wire.schemaVersion).toBe(3);
+    expect(wire.recorder).toEqual({ extension: { kind: "browser-extension", name: "jittle-lamp", version: "1.8.2" } });
+    expect(parseSessionArchiveJson(JSON.stringify(wire))).toEqual(archive);
+  });
+
+  test("runner archives carry recorder kind, step annotations and step-tagged network entries", () => {
+    const archive = parseSessionArchiveJson(JSON.stringify(makeRunnerArchive()));
+    expect(archive.recorder.kind).toBe("e2e-runner");
+    expect(getStepAnnotations(archive).map((step) => step.stepId)).toEqual([runnerSteps.open, runnerSteps.logout]);
+    expect(archive.sections.network[1]?.tags).toEqual([stepTag(runnerSteps.logout)]);
+    expect(() => toExtensionWireArchive(archive)).toThrow("Only browser-extension archives");
+  });
+
+  test("rejects unknown schema versions and malformed step annotations", () => {
+    const runner = makeRunnerArchive();
+    expect(safeParseSessionArchiveJson(JSON.stringify({ ...runner, schemaVersion: 5 })).success).toBe(false);
+    const badStep = { ...runner, annotations: [{ kind: "step", id: "x", stepId: "st", ordinal: 0, type: "act", label: "x", status: "done" }] };
+    expect(safeParseSessionArchiveJson(JSON.stringify(badStep)).success).toBe(false);
+  });
+
+  test("review edits replace merge groups and keep step annotations", () => {
+    const archive = makeRunnerArchive();
+    const next = replaceMergeGroups(archive.annotations, []);
+    expect(next.map((annotation) => annotation.kind)).toEqual(["step", "step"]);
   });
 });

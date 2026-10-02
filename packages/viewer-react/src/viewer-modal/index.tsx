@@ -122,7 +122,9 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
 }
 
 export { buildCurl, getResponseBodyString } from "./curl";
+export { buildViewerStepChips } from "./step-chips";
 export type {
+  ViewerStepChip,
   ViewerModalProps,
   ViewerModalRow,
   ViewerSource,

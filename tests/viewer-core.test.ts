@@ -2,13 +2,18 @@ import { describe, expect, test } from "bun:test";
 
 import { createSessionArchive, createSessionDraft, sessionArchiveSchema, type SessionArchive, type SessionEvent } from "@jittle-lamp/shared";
 import { CANONICAL_NOW, canonicalArchiveBundles } from "./fixtures/canonical-fixtures";
+import { makeRunnerArchive, runnerSteps } from "./fixtures/e2e/runner-archive";
 import {
   applyArchiveToViewerCore,
   closeMergeDialog,
   createMergeGroup,
   createViewerCoreState,
   deriveSectionTimeline,
+  deriveTimeline,
+  filterTimelineByStep,
   getContiguousMergeableSelection,
+  getStepSeekSeconds,
+  setStepFilter,
   openMergeDialog,
   resetViewerCoreState,
   selectActionRange,
@@ -243,5 +248,45 @@ describe("viewer core command helpers", () => {
     expect(getContiguousMergeableSelection(archive, [], [actionIds[0]!, actionIds[3]!])).toEqual([]);
     expect(getContiguousMergeableSelection(archive, [merged], [actionIds[0]!, actionIds[3]!])).toEqual([]);
     expect(getContiguousMergeableSelection(archive, [merged], ["merge-middle", actionIds[3]!])).toEqual([]);
+  });
+});
+
+describe("viewer-core step filter (archive v4)", () => {
+  test("hydrates steps and filters each section by step tag", () => {
+    const archive = makeRunnerArchive();
+    const state = createViewerCoreState();
+    applyArchiveToViewerCore(state, archive);
+    expect(state.steps.map((step) => step.stepId)).toEqual([runnerSteps.open, runnerSteps.logout]);
+
+    const actionIds = deriveSectionTimeline(archive, "actions", "all", "", runnerSteps.logout).map((item) => item.id);
+    expect(actionIds).toEqual([`${archive.sessionId}:actions:000002`]);
+    const networkLabels = deriveSectionTimeline(archive, "network", "all", "", runnerSteps.open).map((item) => item.label);
+    expect(networkLabels).toEqual(["GET https://uat.example.test/login"]);
+    // Untagged console output inside the step's time window belongs to the step.
+    expect(deriveSectionTimeline(archive, "console", "all", "", runnerSteps.logout)).toHaveLength(1);
+    expect(deriveSectionTimeline(archive, "console", "all", "", runnerSteps.open)).toHaveLength(0);
+    expect(deriveSectionTimeline(archive, "actions", "all", "", null)).toHaveLength(2);
+  });
+
+  test("setStepFilter ignores unknown steps and resets selection; seek offsets come from the annotation", () => {
+    const archive = makeRunnerArchive();
+    const state = createViewerCoreState();
+    applyArchiveToViewerCore(state, archive);
+    state.selectedActionIds = new Set(["x"]);
+    setStepFilter(state, runnerSteps.logout);
+    expect(state.stepFilter).toBe(runnerSteps.logout);
+    expect(state.selectedActionIds.size).toBe(0);
+    setStepFilter(state, "st_missing");
+    expect(state.stepFilter).toBeNull();
+    expect(getStepSeekSeconds(state.steps, runnerSteps.logout)).toBe(3);
+    expect(filterTimelineByStep(deriveTimeline(archive), state.steps, "st_missing")).toEqual([]);
+  });
+
+  test("extension archives without steps keep the unfiltered timeline", () => {
+    const archive = makeMergeArchive();
+    const state = createViewerCoreState();
+    applyArchiveToViewerCore(state, archive);
+    expect(state.steps).toEqual([]);
+    expect(deriveSectionTimeline(archive, "actions")).toEqual(deriveSectionTimeline(archive, "actions", "all", "", null));
   });
 });

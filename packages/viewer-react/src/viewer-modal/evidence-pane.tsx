@@ -43,7 +43,7 @@ function getCountValue(tab: EvidenceTab, count: number): string {
 }
 
 function getCountLabel(tab: EvidenceTab, count: number): string {
-  if (tab === "about") return "Extension details";
+  if (tab === "about") return "Recorder details";
   if (count === 1) return "1 entry";
   return `${count} entries`;
 }
@@ -52,7 +52,7 @@ function getCountTitle(tab: EvidenceTab): string {
   if (tab === "actions") return "Number of actions";
   if (tab === "console") return "Number of logs";
   if (tab === "network") return "Number of network entries";
-  return "Extension details";
+  return "Recorder details";
 }
 
 export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
@@ -224,6 +224,32 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
             />
           )}
         </div>
+        {activeTab !== "about" && props.steps && props.steps.length > 0 ? (
+          <div className="jl-vm-filters" role="group" aria-label="Filter by test step">
+            <button
+              type="button"
+              className="jl-vm-chip"
+              data-active={props.activeStepId ? "false" : "true"}
+              onClick={() => props.onStepSelect?.(null)}
+            >
+              All steps
+            </button>
+            {props.steps.map((step) => (
+              <button
+                key={step.stepId}
+                type="button"
+                className="jl-vm-chip jl-vm-step-chip"
+                data-status={step.status}
+                data-step-id={step.stepId}
+                data-active={step.stepId === props.activeStepId ? "true" : "false"}
+                title={`${step.label} · ${step.status}${step.mode ? ` · ${step.mode}` : ""}`}
+                onClick={() => props.onStepSelect?.(step.stepId === props.activeStepId ? null : step.stepId)}
+              >
+                {step.ordinal}. {step.label.length > 32 ? `${step.label.slice(0, 31)}…` : step.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {activeTab === "network" ? (
           <div className="jl-vm-filters">
             {NETWORK_SUBTYPE_OPTIONS.map((opt) => (
@@ -310,15 +336,32 @@ function AboutEvidencePanel(props: {
   about: ViewerModalProps["aboutEvidence"];
   recordedBy: NonNullable<ViewerModalProps["recordedBy"]> | null;
 }): React.JSX.Element {
-  const extension = props.about.extension;
   const recordedBy = props.recordedBy;
-  const extensionRows = [
-    ["Extension", extension.name],
-    ["Extension version", extension.version],
-    ["Extension ID", extension.extensionId ?? "Not saved"],
-    ["Manifest [extension config]", extension.manifestVersion ? `MV${extension.manifestVersion}` : "Not saved"],
-    ["Recorder type", "Chrome extension"]
-  ];
+  const about = props.about;
+  const recorderTitle = about.kind === "e2e-runner" ? "Runner used" : "Extension used";
+  const recorderName = about.kind === "e2e-runner" ? about.runner.name : about.extension.name;
+  const recorderRows =
+    about.kind === "e2e-runner"
+      ? [
+          ["Runner", about.runner.name],
+          ["Runner version", about.runner.version],
+          ["Engine", about.runner.engine ? `${about.runner.engine.name} ${about.runner.engine.version}` : "Not saved"],
+          [
+            "Browser",
+            about.runner.browser
+              ? `${about.runner.browser.name}${about.runner.browser.version ? ` ${about.runner.browser.version}` : ""}${about.runner.browser.headless ? " (headless)" : ""}`
+              : "Not saved"
+          ],
+          ["Test case", about.testRun?.testCaseKey ?? about.testRun?.testCaseId ?? "Not saved"],
+          ["Recorder type", "E2E runner"]
+        ]
+      : [
+          ["Extension", about.extension.name],
+          ["Extension version", about.extension.version],
+          ["Extension ID", about.extension.extensionId ?? "Not saved"],
+          ["Manifest [extension config]", about.extension.manifestVersion ? `MV${about.extension.manifestVersion}` : "Not saved"],
+          ["Recorder type", "Chrome extension"]
+        ];
 
   return (
     <div className="jl-vm-about">
@@ -339,10 +382,10 @@ function AboutEvidencePanel(props: {
         </div>
       ) : null}
       <div className="jl-vm-about-card">
-        <span className="jl-vm-eyebrow">Extension used</span>
-        <strong>{extension.name}</strong>
+        <span className="jl-vm-eyebrow">{recorderTitle}</span>
+        <strong>{recorderName}</strong>
         <dl className="jl-vm-about-list">
-          {extensionRows.map(([label, value]) => (
+          {recorderRows.map(([label, value]) => (
             <div key={label} className="jl-vm-about-row">
               <dt>{label}</dt>
               <dd>{value}</dd>

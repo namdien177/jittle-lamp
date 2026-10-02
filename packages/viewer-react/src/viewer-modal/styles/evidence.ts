@@ -279,6 +279,21 @@ export const evidenceStyles = `
   background: rgba(34, 197, 94, 0.1);
 }
 
+.jl-vm-step-chip::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 999px;
+  vertical-align: middle;
+  background: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
+}
+
+.jl-vm-step-chip[data-status="passed"]::before { background: #22c55e; }
+.jl-vm-step-chip[data-status="failed"]::before { background: #ef4444; }
+.jl-vm-step-chip[data-status="blocked"]::before { background: #f59e0b; }
+
 .jl-vm-list-wrap {
   flex: 1;
   min-height: 0;

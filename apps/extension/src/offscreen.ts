@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 import { storePendingRecording, readPendingRecording, deletePendingRecording } from "./pending-recording";
 import {
   offscreenRequestSchema,
+  toExtensionWireArchive,
   type OffscreenRequest,
   type OffscreenResponse,
   type SessionArchive
@@ -1376,8 +1377,9 @@ function artifactPath(
   return `${archive.sessionId}/${kind}`;
 }
 
+// The extension keeps writing schema version 3 until its next release (ADR 0002 decision 8).
 function stringifyArchive(archive: SessionArchive): string {
-  return `${JSON.stringify(archive, null, 2)}\n`;
+  return `${JSON.stringify(toExtensionWireArchive(archive), null, 2)}\n`;
 }
 
 async function retainPendingRecording(recording: PendingCloudRetry): Promise<void> {

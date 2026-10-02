@@ -10,6 +10,7 @@ Use this single checklist for both manual QA verification and automated coverage
 | PARITY-TL-01 | Timeline rendering and active-item progression | `tests/timeline.test.ts` → `buildTimeline` (offset/sort/labels) + `findActiveIndex` (most recent visible item tracking) |
 | PARITY-MERGE-01 | Merge/unmerge visibility and contiguous selection rules | `tests/timeline.test.ts` → `buildVisibleActionRows`, `buildVisibleActionRangeSelection`, `getContiguousMergeableActionIds`; `tests/viewer-core.test.ts` → `applyArchiveToViewerCore` hydrates merge groups |
 | PARITY-NET-01 | Network filtering/search behavior (plain text + regex) | `tests/timeline.test.ts` → `buildSectionTimeline network search` |
+| PARITY-STEP-01 | Test-run evidence (archive v4): step chips, step-filtered timeline, step seek, review saves keep steps | `tests/review-e2e-parity.test.ts` → `test-run evidence (archive v4)`; `tests/viewer-core.test.ts` → `viewer-core step filter`; `tests/session-contracts.test.ts` → `session archive v4` |
 | PARITY-EXPORT-01 | Export updated ZIP behavior + schema fidelity | `tests/evidence-viewer.test.ts` → `buildReviewedArchive` + `buildReviewedSessionZip`; `tests/session-contracts.test.ts` → schema version + network payload fidelity checks |
 
 ## QA parity checklist
@@ -38,3 +39,9 @@ Use this single checklist for both manual QA verification and automated coverage
 
 - [ ] **Desktop app**: saving review state writes notes/annotations back to `session.archive.json` with valid schema fields. (Task: `PARITY-EXPORT-01`)
 - [ ] **Evidence web app**: reviewed ZIP export preserves `recording.webm`, updates `updatedAt`, and round-trips merge annotations. (Task: `PARITY-EXPORT-01`)
+
+### 6) Test-run evidence (archive v4)
+
+- [ ] **Desktop app**: a run's evidence shows one chip per step with its status; selecting a step filters actions, requests and logs to `step:<id>` and seeks the video to the step start. (Task: `PARITY-STEP-01`)
+- [ ] **Evidence web app**: the same evidence shows the same chips and filtered rows; exporting a reviewed ZIP keeps the step annotations. (Task: `PARITY-STEP-01`)
+- [ ] **Both**: the Info tab shows "Runner used" with runner, engine and browser versions for runner evidence and "Extension used" for recordings. (Task: `PARITY-STEP-01`)
