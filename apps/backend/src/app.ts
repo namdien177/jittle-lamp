@@ -10,6 +10,7 @@ import { createAiRoutes } from "./routes/ai";
 import { createAutomationRoutes } from "./routes/automation";
 import { createClerkRoutes } from "./routes/clerk";
 import { createDesktopAuthRoutes } from "./routes/desktop-auth";
+import { createDevArtifactRoutes } from "./routes/dev-artifacts";
 import { createEvidenceUploadRoutes } from "./routes/evidence-uploads";
 import { createEvidenceRoutes } from "./routes/evidences";
 import { createExtensionAuthRoutes } from "./routes/extension-auth";
@@ -20,10 +21,15 @@ import {
 } from "./routes/migrations";
 import { createOrganizationRoutes } from "./routes/orgs";
 import { createProtectedRoutes } from "./routes/protected";
+import { createRunnerPoolRoutes } from "./routes/runner-pools";
 import { createShareLinkRoutes } from "./routes/share-links";
+import { createTestCaseRoutes } from "./routes/test-cases";
+import { createTestConfigRoutes } from "./routes/test-config";
+import { createTestRunRoutes } from "./routes/test-runs";
 import {
 	type ArtifactStorage,
 	createArtifactStorage,
+	devArtifactReadEnabled,
 } from "./services/artifact-storage";
 import {
 	type ClerkDirectory,
@@ -36,6 +42,7 @@ import {
 import { createOrganizationMigration } from "./services/organization-migration";
 import { createTaskQueue } from "./services/task-queue";
 import { createEnvKeyProvider, type KeyProvider } from "./services/test-config";
+import type { TextGenerator } from "./services/test-imports";
 import {
 	normalizeVideoTo720p,
 	type VideoNormalizer,
@@ -50,6 +57,8 @@ export const createApp = (
 		migrationPeerClient?: MigrationPeerClient;
 		clerkDirectory?: ClerkDirectory;
 		keyProvider?: KeyProvider;
+		generateText?: TextGenerator;
+		fetch?: typeof fetch;
 	} = {},
 ) => {
 	const env = parseEnv(source);
@@ -163,7 +172,25 @@ export const createApp = (
 		.use(createShareLinkRoutes(auth))
 		.use(createOrganizationRoutes(auth))
 		.use(createMigrationManagementRoutes(auth, organizationMigration))
+		.use(
+			createTestCaseRoutes(auth, {
+				...(dependencies.generateText
+					? { generateText: dependencies.generateText }
+					: {}),
+				...(dependencies.fetch ? { fetchImpl: dependencies.fetch } : {}),
+			}),
+		)
+		.use(createTestRunRoutes(auth))
+		.use(createTestConfigRoutes(auth))
+		.use(createRunnerPoolRoutes(auth))
 		.use(createProtectedRoutes(auth));
+
+	if (artifactStorage.mode === "memory" && devArtifactReadEnabled(runtime)) {
+		logger.warn(
+			"DEV ONLY: serving in-memory artifacts through signed /dev/artifacts URLs",
+		);
+		app.use(createDevArtifactRoutes(core));
+	}
 
 	return { app, runtime, logger, db, artifactStorage, organizationMigration };
 };

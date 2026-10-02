@@ -61,6 +61,49 @@ const aiUserRoutes: ReadonlyArray<{
 		methods: ["POST"],
 		path: /^\/evidences\/uploads\/[^/%?#]+\/complete\/?$/,
 	},
+	// Test cases and runs (design.md §8 MCP tools). Configuration writes, secrets, env files,
+	// runner pools and model keys stay out.
+	{ methods: ["GET", "POST"], path: /^\/test-cases\/?$/ },
+	{
+		methods: ["GET", "POST"],
+		path: /^\/test-cases\/(?:similar|export|bulk)\/?$/,
+	},
+	{ methods: ["POST"], path: /^\/test-cases\/import\/?$/ },
+	{
+		methods: ["GET", "PATCH"],
+		path: /^\/test-cases\/import\/[^/%?#]+\/?$/,
+	},
+	{ methods: ["GET", "PATCH", "DELETE"], path: /^\/test-cases\/[^/%?#]+\/?$/ },
+	{
+		methods: ["GET"],
+		path: /^\/test-cases\/[^/%?#]+\/(?:versions|required-config|scripts)\/?$/,
+	},
+	{
+		methods: ["POST"],
+		path: /^\/test-cases\/[^/%?#]+\/(?:duplicate|approve|reject)\/?$/,
+	},
+	{
+		methods: ["DELETE"],
+		path: /^\/test-cases\/[^/%?#]+\/scripts(?:\/[^/%?#]+)?\/?$/,
+	},
+	{ methods: ["GET", "POST"], path: /^\/test-cases\/[^/%?#]+\/runs\/?$/ },
+	{ methods: ["GET", "POST"], path: /^\/test-suites\/?$/ },
+	{
+		methods: ["GET", "PATCH", "DELETE"],
+		path: /^\/test-suites\/[^/%?#]+\/?$/,
+	},
+	{ methods: ["POST"], path: /^\/test-suites\/[^/%?#]+\/runs\/?$/ },
+	{ methods: ["GET"], path: /^\/test-runs\/?$/ },
+	{ methods: ["GET"], path: /^\/test-runs\/[^/%?#]+\/?$/ },
+	{ methods: ["POST"], path: /^\/test-runs\/[^/%?#]+\/cancel\/?$/ },
+	{ methods: ["GET"], path: /^\/test-run-batches\/[^/%?#]+\/?$/ },
+	// Names only: environments, credential profiles, macros, tags.
+	{
+		methods: ["GET"],
+		path: /^\/test-(?:environments|credentials|macros|tags)\/?$/,
+	},
+	{ methods: ["GET"], path: /^\/notifications\/?$/ },
+	{ methods: ["POST"], path: /^\/notifications\/read\/?$/ },
 ];
 
 export const isAiUserRouteAllowed = (method: string, path: string): boolean => {

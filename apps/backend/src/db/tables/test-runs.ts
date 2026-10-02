@@ -122,6 +122,8 @@ export const testRunBatches = sqliteTable(
 		failed: integer("failed").notNull().default(0),
 		blocked: integer("blocked").notNull().default(0),
 		pending: integer("pending").notNull().default(0),
+		// Requested runs in order; members that attached to an existing run are listed too.
+		runIdsJson: text("run_ids_json").notNull().default("[]"),
 		createdBy: text("created_by").references(() => users.id, {
 			onDelete: "set null",
 		}),

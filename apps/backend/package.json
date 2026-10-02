@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "bun run build:js",
-    "build:js": "bun build --target bun --minify-whitespace --minify-syntax --outfile dist/index.js src/index.ts",
-    "build:bin": "bun build --compile --minify-whitespace --minify-syntax --target bun --outfile server src/index.ts",
+    "build:js": "bun build --target bun --minify-whitespace --minify-syntax --external @jittle-lamp/e2e-runner --outfile dist/index.js src/index.ts",
+    "build:bin": "bun build --compile --minify-whitespace --minify-syntax --target bun --external @jittle-lamp/e2e-runner --outfile server src/index.ts",
     "dev": "bun --watch src/index.ts",
     "start": "bun run src/index.ts",
     "start:js": "NODE_ENV=production bun ./dist/index.js",

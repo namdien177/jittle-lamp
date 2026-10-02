@@ -472,7 +472,12 @@ export const createTestSecrets = (input: {
 		return rewrapped;
 	};
 
-	return { encrypt, decrypt, rotateDataKey, rewrapDataKeys };
+	// Throws SecretsUnavailableError before any row is written when no master key is set.
+	const assertAvailable = () => {
+		keyProvider.currentKeyId();
+	};
+
+	return { encrypt, decrypt, rotateDataKey, rewrapDataKeys, assertAvailable };
 };
 
 export type TestSecrets = ReturnType<typeof createTestSecrets>;
