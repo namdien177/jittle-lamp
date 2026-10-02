@@ -4,19 +4,23 @@ import type { NotificationChannel, NotificationKind } from "@jittle-lamp/shared"
 
 import { Badge } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/misc";
-import { useNotificationChannels } from "../../test-cases/admin-queries";
-import { AdminCard } from "../../test-cases/admin-ui";
+import { useToast } from "../../toast";
+import { testAdminApi } from "../../test-cases/admin-api";
+import { testAdminKeys, useNotificationChannels, useNotificationSubscriptions, useTestAdminMutation, useTestPermissions } from "../../test-cases/admin-queries";
+import { AdminCard, ErrorNote, Toggle } from "../../test-cases/admin-ui";
+import { isSubscribed, notificationKinds, toggleSubscription, type NotificationSubscriptions } from "../../notifications/subscriptions";
 
-// Settings → Notifications (design.md §10b): the beta ships the in-app channel only. Slack and
-// webhook channels are listed when the backend has them and marked phase 2 otherwise.
+// Settings → Notifications (design.md §10b): your in-app subscriptions per event, and the
+// organisation's channels. The beta ships the in-app channel only; Slack and webhook channels are
+// listed when the backend has them and marked phase 2 otherwise.
 
-const eventDescriptions: Record<NotificationKind, string> = {
-  "run.finished": "A run you requested or attached to finished",
-  "run.blocked": "A run is blocked (missing credential, no runner, budget)",
-  "batch.finished": "A dataset or suite batch finished",
-  "import.finished": "An import batch is ready or committed",
-  "review.pending_count": "Cases are waiting in the review queue",
-  "runner.offline": "A runner pool has no live worker"
+const eventLabels: Record<NotificationKind, { title: string; description: string }> = {
+  "run.finished": { title: "Runs finished", description: "Yours always arrive. On: also runs other people requested." },
+  "run.blocked": { title: "Runs blocked", description: "Missing credential, no runner, budget. Yours always arrive." },
+  "batch.finished": { title: "Batches finished", description: "Dataset and suite runs. Yours always arrive." },
+  "import.finished": { title: "Imports finished", description: "Yours always arrive. On: also imports by others." },
+  "review.pending_count": { title: "Review queue", description: "Cases waiting for approval. On by default if you can approve." },
+  "runner.offline": { title: "Runner offline", description: "A pool lost its workers. On by default if you manage test settings." }
 };
 
 function ChannelRow(props: { icon: React.ReactNode; title: string; detail: string; status: React.ReactNode }): React.JSX.Element {
@@ -72,16 +76,42 @@ export function SettingsTestNotificationsPage(): React.JSX.Element {
           </ul>
         )}
       </AdminCard>
-      <AdminCard title="Events" description="Delivered in-app during the beta.">
-        <ul className="grid gap-2 text-sm">
-          {(Object.keys(eventDescriptions) as NotificationKind[]).map((kind) => (
-            <li key={kind} className="flex flex-wrap items-baseline gap-x-3">
-              <code className="w-44 shrink-0 font-mono text-xs text-foreground">{kind}</code>
-              <span className="text-muted-foreground">{eventDescriptions[kind]}</span>
-            </li>
-          ))}
-        </ul>
-      </AdminCard>
+      <SubscriptionsCard />
     </div>
+  );
+}
+
+function SubscriptionsCard(): React.JSX.Element {
+  const toast = useToast();
+  const permissions = useTestPermissions();
+  const subscriptions = useNotificationSubscriptions();
+  const save = useTestAdminMutation((getToken, body: NotificationSubscriptions) => testAdminApi.putNotificationSubscriptions(getToken, body), [testAdminKeys.notificationSubscriptions]);
+  const flags = { canApprove: permissions.can("test_case.approve"), canManageConfig: permissions.can("test_config.manage") };
+  const current: NotificationSubscriptions = { subscribed: subscriptions.data?.subscribed ?? [], unsubscribed: subscriptions.data?.unsubscribed ?? [] };
+
+  const onToggle = (kind: NotificationKind, on: boolean) => {
+    void save.mutateAsync(toggleSubscription(current, kind, on)).catch(() => toast.error("Could not save the notification setting."));
+  };
+
+  return (
+    <AdminCard title="My notifications" description="Delivered to the bell in the web and desktop apps. These settings are yours, per organisation.">
+      <ErrorNote error={subscriptions.error ?? save.error} />
+      {subscriptions.isPending ? (
+        <Skeleton className="h-40" />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {notificationKinds.map((kind) => (
+            <Toggle
+              key={kind}
+              label={eventLabels[kind].title}
+              description={eventLabels[kind].description}
+              checked={isSubscribed(kind, current, flags)}
+              disabled={save.isPending}
+              onChange={(on) => onToggle(kind, on)}
+            />
+          ))}
+        </div>
+      )}
+    </AdminCard>
   );
 }
