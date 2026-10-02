@@ -43,7 +43,7 @@ Existing code to reuse, with the files that matter:
 | Web app route placeholder | `apps/evidence-web/src/router.tsx` (`test-cases` → `ComingSoonPage`), `components/workspace/workspace-shell.tsx` |
 | Desktop RPC | `apps/desktop/src/rpc.ts` + `electron/main.ts` (add handler and type together) |
 
-The manual workflow this feature replaces lives outside the repo in the owner's Claude skill `~/.claude/skills/littlelives-test-with-evidence/` (`scripts/record-flow.mjs`, `scripts/jl-evidence.mjs`, `references/runner-contract.md`). Read `record-flow.mjs` once: its `checks`/`verify` model and the `behaviorStatus`/`evidenceStatus` split are the origin of the two-level verdict. `references/uat-access.md` in that skill explains how UAT credentials are obtained; you need them for the phase 0 spike.
+The manual workflow this feature replaces lives outside the repo in the owner's Claude skill `~/.claude/skills/littlelives-test-with-evidence/` (`scripts/record-flow.mjs`, `scripts/jl-evidence.mjs`, `references/runner-contract.md`). Read `record-flow.mjs` once: its `checks`/`verify` model and the `behaviorStatus`/`evidenceStatus` split are the origin of the two-level verdict. Credentials for the spike are already provisioned; see §4b.
 
 ## 3. External dependencies, pinned at handover (2026-10-03)
 
@@ -68,6 +68,14 @@ These were researched, not tested. Each has a fallback already decided.
 5. **Trace redaction** drops screencast frames; confirm the separate `video` recording is enough for evidence.
 
 Write the outcome of each into design.md §14 at the end of phase 0.
+
+## 4b. Test environments and accounts (provisioned 2026-10-03)
+
+- `docs/e2e-test-cases/examples/uat-environments.seed.json`: five UAT environments (`qa-preschool-sg-uat` is the default for browser E2E, then `pcf-uat`, `ilham-uat`, `happyschool-uat`, `newlife-uat`) with base URLs, parent-portal URLs as variables, six credential profiles with usernames, agent instructions, and `runnerPool: self-hosted:devbox`. Use it to seed `test_environments`, `test_credentials` and the first macro `Login`. No secret is in the file.
+- Secrets are on the owner's machine in `~/.config/jittle-lamp/e2e/<env>.env` (chmod 600), one file per environment, in the `JL_ENV_*` / `JL_VAR_*` / `JL_CRED_*` names from design.md §9.2. Run the spike with `--env-file ~/.config/jittle-lamp/e2e/pcf-uat.env`. The owner provides these files or the backend credentials; do not look for the source they were generated from.
+- `docs/e2e-test-cases/examples/.env.e2e.sample` lists every variable the runner reads, including the model key and automation token. `.env.e2e` and `.e2e/` are gitignored.
+- OTP inputs on all UAT tenants accept one fixed test code, stored as `JL_VAR_OTP_CODE` and registered for redaction like a secret. Parent portals log in with the primary applicant email. ILHAM card-payment guidance lives in the owner's skill and applies only to that tenant.
+- Reachability of `*.uat.sv.littlelives.com` from the cloud pool is unverified; the seed binds every environment to a self-hosted pool until a cloud runner proves it can reach them.
 
 ## 5. Build order
 
@@ -136,4 +144,4 @@ Phase 2 and 3 are in design.md §12; do not start them during the beta.
 2. PR 0.1 (parser) with the example transcript and a multi-case fixture; include the lint rules as pure functions with tests.
 3. PR 0.2 (archive v4) with viewer-core support and parity test.
 4. PR 0.3 to 0.5 (runner CLI) as one branch, three commits.
-5. Obtain UAT credentials through the skill's `uat-access.md`, run the spike (0.6), write the findings into design.md §14, decide the gate with the owner.
+5. Run the spike (0.6) with `~/.config/jittle-lamp/e2e/pcf-uat.env` or the qa-preschool-sg file, write the findings into design.md §14, decide the gate with the owner.
