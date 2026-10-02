@@ -41,6 +41,7 @@ import {
 import { useAuth } from "./auth";
 import { type LoadedSession, loadRemoteSessionArtifacts } from "./loader";
 import { migrationPollingInterval } from "./migration-ui-state";
+import { testKeys } from "./test-cases/query-keys";
 
 export function createQueryClient(): QueryClient {
 	return new QueryClient({
@@ -668,6 +669,8 @@ export function useSelectActiveOrganization() {
 			);
 			queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
+			// Test cases, runs and configuration are per organisation; refetch them for the new one.
+			queryClient.invalidateQueries({ queryKey: testKeys.all() });
 		},
 	});
 }

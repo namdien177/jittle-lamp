@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { safeExternalHref } from "@jittle-lamp/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router";
 import { FlaskConical, Play, Search } from "lucide-react";
@@ -201,11 +202,18 @@ export function TestCaseDetailPanel(props: { testCaseId: string }): React.JSX.El
               {tag}
             </span>
           ))}
-          {detail.links.map((link) => (
-            <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="tc-link">
-              {link.label ?? link.url}
-            </a>
-          ))}
+          {detail.links.map((link) => {
+            const href = safeExternalHref(link.url);
+            return href ? (
+              <a key={link.url} href={href} target="_blank" rel="noreferrer" className="tc-link">
+                {link.label ?? link.url}
+              </a>
+            ) : (
+              <span key={link.url} className="tc-link" title={link.url}>
+                {link.label ?? link.url}
+              </span>
+            );
+          })}
         </div>
       </header>
 
