@@ -6,7 +6,7 @@ import type { Notification } from "@jittle-lamp/shared";
 export const notificationPollMs = 30_000;
 
 export function testRunHref(runId: string): string {
-  return `/test-cases/runs/${encodeURIComponent(runId)}`;
+  return `/test-runs/${encodeURIComponent(runId)}`;
 }
 
 export function importBatchHref(batchId: string): string {

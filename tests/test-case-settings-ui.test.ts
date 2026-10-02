@@ -81,13 +81,13 @@ describe("settings helpers", () => {
 describe("notification links", () => {
   it("prefers a same-origin URL and falls back to the subject", () => {
     const base = { url: null, subjectType: "test_run", subjectId: "run_1" } as const;
-    expect(notificationHref({ ...base, kind: "run.finished" })).toBe("/test-cases/runs/run_1");
+    expect(notificationHref({ ...base, kind: "run.finished" })).toBe("/test-runs/run_1");
     expect(notificationHref({ ...base, kind: "import.finished", subjectType: "import_batch", subjectId: "b1" })).toBe("/test-cases/import/b1");
     expect(notificationHref({ ...base, kind: "review.pending_count" })).toBe("/test-cases/review");
     expect(notificationHref({ ...base, kind: "runner.offline" })).toBe("/settings/test-cases/runner-pools");
     expect(notificationHref({ ...base, kind: "run.finished", url: "/test-cases?case=x" })).toBe("/test-cases?case=x");
     expect(notificationHref({ ...base, kind: "run.finished", url: "https://app.example/test-cases/review?x=1" }, "https://app.example")).toBe("/test-cases/review?x=1");
-    expect(notificationHref({ ...base, kind: "run.finished", url: "https://evil.example/x" }, "https://app.example")).toBe("/test-cases/runs/run_1");
+    expect(notificationHref({ ...base, kind: "run.finished", url: "https://evil.example/x" }, "https://app.example")).toBe("/test-runs/run_1");
   });
 
   it("caps the badge and names the bell for screen readers", () => {

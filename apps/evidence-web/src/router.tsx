@@ -104,8 +104,8 @@ export const router = createBrowserRouter([
           { path: "evidence", lazy: async () => ({ Component: (await import("./pages/evidence-library")).EvidenceLibraryPage }) },
           { path: "evidence/:evidenceId", element: <CloudEvidencePage /> },
           { path: "test-cases", element: <ComingSoonPage variant="test-cases" /> },
-          ...testCaseAdminRoutes,
           { path: "documents", element: <ComingSoonPage variant="documents" /> },
+          ...testCaseAdminRoutes,
           { path: "organisations", lazy: async () => ({ Component: (await import("./pages/organisations")).OrganisationsListPage }) },
           {
             path: "organisations/:orgId",
