@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client";
 import { Analytics } from "@vercel/analytics/react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { formatOffset, getStepAnnotations, type TimelineItem, type TimelineSection } from "@jittle-lamp/shared";
+import { formatOffset, type TimelineItem, type TimelineSection } from "@jittle-lamp/shared";
 import { deriveSectionTimeline } from "@jittle-lamp/viewer-core";
 import { BookOpen, Building2, ChevronDown, Cloud, LogOut, Settings, User } from "lucide-react";
 import { MemoryRouter, Navigate, NavLink, Outlet, useLocation, useNavigate, useRoutes } from "react-router";
@@ -11,7 +11,6 @@ import {
   buildCurl,
   buildViewerStepChips,
   getResponseBodyString,
-  seekVideo,
   type JittleRouteObject,
   type ViewerContextMenuState,
   type ViewerModalFeedback,
@@ -379,10 +378,8 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
 
   const viewerState = desktop.viewerState;
   const { activeSection, mergeGroups, selectedActionIds, networkSubtypeFilter, networkSearchQuery } = viewerState;
-  const [activeStepId, setActiveStepId] = useState<string | null>(null);
-  const stepAnnotations = useMemo(() => (payload ? getStepAnnotations(payload.archive) : []), [payload]);
+  const activeStepId = viewerState.stepFilter;
   const stepChips = useMemo(() => (payload ? buildViewerStepChips(payload.archive) : []), [payload]);
-  useEffect(() => setActiveStepId(null), [payload]);
 
   // `sectionItems` and `rows` are rebuilt only when the viewer-state slices that
   // actually feed them change, instead of on every render of this overlay.
@@ -494,12 +491,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
       rows={rows}
       steps={stepChips}
       activeStepId={activeStepId}
-      onStepSelect={(stepId) => {
-        setActiveStepId(stepId);
-        const step = stepId === null ? undefined : stepAnnotations.find((candidate) => candidate.stepId === stepId);
-        const video = desktop.viewerVideoRef.current;
-        if (step && video) void seekVideo(video, step.videoOffsetMs / 1000).catch(() => desktop.handleViewerVideoError());
-      }}
+      onStepSelect={desktop.setViewerStepFilter}
       activeItemId={activeItemId}
       autoFollow={desktop.viewerState.autoFollow}
       onItemClick={(row, event) => {

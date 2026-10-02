@@ -219,7 +219,7 @@ export function persistSessionArchive(archive: SessionArchive): void {
     }
 
     for (const entry of input.sections.console) {
-      insertEvent.run(input.sessionId, entry.id, "console", entry.at, entry.seq, null, "[]", JSON.stringify(entry.payload));
+      insertEvent.run(input.sessionId, entry.id, "console", entry.at, entry.seq, null, JSON.stringify(entry.tags ?? []), JSON.stringify(entry.payload));
     }
 
     for (const entry of input.sections.network) {
@@ -230,7 +230,7 @@ export function persistSessionArchive(archive: SessionArchive): void {
         entry.at,
         entry.seq,
         entry.subtype,
-        "[]",
+        JSON.stringify(entry.tags ?? []),
         JSON.stringify(entry.payload)
       );
     }
@@ -287,6 +287,7 @@ function buildArchiveFromDb(sessionId: string, seed: SessionArchive): SessionArc
           id: row.id,
           seq: row.seq,
           at: row.at,
+          ...storedEntryTags(row.tags_json),
           payload: JSON.parse(row.payload_json)
         })
       );
@@ -298,6 +299,7 @@ function buildArchiveFromDb(sessionId: string, seed: SessionArchive): SessionArc
         id: row.id,
         seq: row.seq,
         at: row.at,
+        ...storedEntryTags(row.tags_json),
         subtype: row.subtype ?? "other",
         payload: JSON.parse(row.payload_json)
       })
@@ -503,6 +505,13 @@ export function setSessionNotes(sessionId: string, notes: string): void {
      VALUES (?, ?)
      ON CONFLICT(session_id) DO UPDATE SET notes = excluded.notes`
   ).run(sessionId, notes);
+}
+
+// Console and network entries only carry tags in runner archives (step:<id>); keep extension
+// entries tag-free so they round-trip unchanged.
+function storedEntryTags(tagsJson: string | null): { tags?: string[] } {
+  const tags = tagsJson ? (JSON.parse(tagsJson) as string[]) : [];
+  return tags.length > 0 ? { tags } : {};
 }
 
 export async function saveLibrarySessionReviewState(input: {

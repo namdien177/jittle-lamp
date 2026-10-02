@@ -195,6 +195,7 @@ function createEmptyArchive(input: {
       url: `https://manual-upload.jittle-lamp.local/${encodeURIComponent(input.sessionId)}`,
     },
     recorder: {
+      kind: "browser-extension",
       extension: {
         kind: "browser-extension",
         name: "manual-upload",

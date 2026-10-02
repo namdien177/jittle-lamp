@@ -290,3 +290,35 @@ describe("viewer-core step filter (archive v4)", () => {
     expect(deriveSectionTimeline(archive, "actions")).toEqual(deriveSectionTimeline(archive, "actions", "all", "", null));
   });
 });
+
+describe("viewer-core step filter: macro steps and stale filters", () => {
+  test("a macro step owns the entries of its expanded child steps", () => {
+    const archive = makeRunnerArchive();
+    const child = {
+      ...archive.annotations[1],
+      id: "step-2.1",
+      stepId: "st_logout0000000002.1",
+      parentStepId: runnerSteps.logout,
+      startedAt: "2026-10-03T08:00:05.000Z",
+      endedAt: "2026-10-03T08:00:05.500Z"
+    };
+    const withChild = sessionArchiveSchema.parse({
+      ...archive,
+      sections: {
+        ...archive.sections,
+        actions: archive.sections.actions.map((entry, index) =>
+          index === 2 ? { ...entry, tags: ["step:st_logout0000000002.1"] } : entry
+        )
+      },
+      annotations: [...archive.annotations, child]
+    });
+    expect(deriveSectionTimeline(withChild, "actions", "all", "", runnerSteps.logout).map((item) => item.id)).toEqual([
+      `${archive.sessionId}:actions:000002`
+    ]);
+  });
+
+  test("an unknown step filter leaves the section unfiltered", () => {
+    const archive = makeRunnerArchive();
+    expect(deriveSectionTimeline(archive, "actions", "all", "", "st_other_archive")).toEqual(deriveSectionTimeline(archive, "actions"));
+  });
+});

@@ -109,7 +109,10 @@ export function deriveSectionTimeline(
   stepFilter: string | null = null
 ): TimelineItem[] {
   const items = buildSectionTimeline(archive, section, subtypeFilter, networkSearchQuery);
-  return stepFilter === null ? items : filterTimelineByStep(items, getStepAnnotations(archive), stepFilter);
+  if (stepFilter === null) return items;
+  const steps = getStepAnnotations(archive);
+  // A filter left over from another archive does not empty the list.
+  return steps.some((step) => step.stepId === stepFilter) ? filterTimelineByStep(items, steps, stepFilter) : items;
 }
 
 const hasStepTag = (item: TimelineItem): boolean => (item.tags ?? []).some((tag) => tag.startsWith("step:"));
@@ -121,13 +124,24 @@ export function filterTimelineByStep(
   steps: ReadonlyArray<StepAnnotation>,
   stepId: string
 ): TimelineItem[] {
-  const tag = stepTag(stepId);
+  // A macro step owns the entries of the steps it expanded into.
+  const owned = new Set([stepId]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const candidate of steps) {
+      if (candidate.parentStepId !== null && owned.has(candidate.parentStepId) && !owned.has(candidate.stepId)) {
+        owned.add(candidate.stepId);
+        grew = true;
+      }
+    }
+  }
+  const tags = new Set([...owned].map(stepTag));
   const step = steps.find((candidate) => candidate.stepId === stepId);
   const startMs = step ? Date.parse(step.startedAt) : Number.NaN;
   const endMs = step?.endedAt ? Date.parse(step.endedAt) : Number.POSITIVE_INFINITY;
 
   return items.filter((item) => {
-    if (item.tags?.includes(tag)) return true;
+    if (item.tags?.some((itemTag) => tags.has(itemTag))) return true;
     if (hasStepTag(item) || Number.isNaN(startMs)) return false;
     const at = Date.parse(item.at);
     return at >= startMs && at <= endMs;

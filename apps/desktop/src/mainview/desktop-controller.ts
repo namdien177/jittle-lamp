@@ -35,6 +35,7 @@ import {
   getArchiveMergeGroups,
   getContiguousMergeableSelection,
   openMergeDialog as openMergeDialogState,
+  setStepFilter,
   selectActionRange,
   selectSingleAction,
   toggleActionSelection,
@@ -111,6 +112,7 @@ export type DesktopController = {
   copyViewerValue: (value: string, label: string) => Promise<void>;
   setViewerSection: (section: TimelineSection) => void;
   setViewerSubtype: (value: ViewerState["networkSubtypeFilter"]) => void;
+  setViewerStepFilter: (stepId: string | null) => void;
   setViewerSearch: (value: string) => void;
   clickTimelineItem: (itemId: string, offsetMs: number, event: React.MouseEvent<HTMLButtonElement>) => void;
   openTimelineContext: (itemId: string, event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -846,6 +848,15 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
         next.networkDetailIndex = null;
       });
     },
+    setViewerStepFilter: (stepId) => {
+      updateViewer((next) => {
+        setStepFilter(next, stepId);
+      });
+      const current = viewerStateRef.current;
+      const step = stepId === null ? undefined : current.steps.find((candidate) => candidate.stepId === stepId);
+      const video = viewerVideoRef.current;
+      if (step && video) void seekVideo(video, step.videoOffsetMs / 1000).catch(() => undefined);
+    },
     setViewerSearch: (value) => {
       updateViewer((next) => {
         next.networkSearchQuery = value;
@@ -937,7 +948,13 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
       const payload = current.payload;
       const video = viewerVideoRef.current;
       if (!payload || !video) return;
-      const items = deriveSectionTimeline(payload.archive, current.activeSection, current.networkSubtypeFilter, current.networkSearchQuery);
+      const items = deriveSectionTimeline(
+        payload.archive,
+        current.activeSection,
+        current.networkSubtypeFilter,
+        current.networkSearchQuery,
+        current.stepFilter
+      );
       const activeIndex = findActiveIndex(items, video.currentTime * 1000);
       updateViewer((next) => {
         next.activeIndex = activeIndex;

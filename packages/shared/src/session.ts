@@ -439,8 +439,8 @@ export const sessionArchiveV3Schema = z.object({
   artifacts: z.array(sessionArtifactSchema),
   sections: z.object({
     actions: z.array(archiveActionSchema).default([]),
-    console: z.array(archiveConsoleEntrySchema).default([]),
-    network: z.array(archiveNetworkEntrySchema).default([])
+    console: z.array(archiveConsoleEntrySchema.omit({ tags: true })).default([]),
+    network: z.array(archiveNetworkEntrySchema.omit({ tags: true })).default([])
   }),
   annotations: z.array(actionMergeGroupSchema).default([]),
   notes: z.array(z.string()).default([])

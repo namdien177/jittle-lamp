@@ -17,7 +17,7 @@ import { buildViewerStepChips } from "@jittle-lamp/viewer-react";
 import { makeRunnerArchive } from "./fixtures/e2e/runner-archive";
 
 import { importZipBundle, buildSessionZip } from "../apps/desktop/src/session/zip-import";
-import { saveLibrarySessionReviewState, _testOverrideDb } from "../apps/desktop/src/companion/sessions-db";
+import { loadLibrarySession, saveLibrarySessionReviewState, _testOverrideDb } from "../apps/desktop/src/companion/sessions-db";
 import { loadSessionZip } from "../apps/evidence-web/src/loader";
 import { buildReviewedSessionZip } from "../apps/evidence-web/src/archive-export";
 
@@ -215,6 +215,11 @@ describe("review E2E parity: test-run evidence (archive v4)", () => {
       annotations: []
     });
     expect(stepView(saved)).toEqual(stepView(web.archive));
+
+    // Desktop library sessions are rebuilt from the catalog database; step tags must survive it.
+    const library = await loadLibrarySession(desktop.archive.sessionId, outputDir);
+    expect(stepView(library.archive)).toEqual(stepView(web.archive));
+    expect(library.archive.sections.network.map((entry) => entry.tags)).toEqual(web.archive.sections.network.map((entry) => entry.tags));
     await rm(outputDir, { recursive: true, force: true });
   });
 });

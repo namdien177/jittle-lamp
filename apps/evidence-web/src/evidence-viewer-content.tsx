@@ -523,6 +523,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
         setActiveStepId(stepId);
         setActiveIndex(-1);
         setNetworkDetailIndex(null);
+        setSelectedActionIds(new Set());
+        setAnchorActionId(null);
         const step = stepId === null ? undefined : stepAnnotations.find((candidate) => candidate.stepId === stepId);
         const video = videoRef.current;
         if (step && video) void seekVideo(video, step.videoOffsetMs / 1000).catch(() => onVideoError(video));
