@@ -3,19 +3,46 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { TestRunDetail } from "@jittle-lamp/shared";
 
-import { initialLiveRunState, nextRunPollDelay, reduceLiveRun, type LiveRunState } from "./live-run";
+import { initialLiveRunState, nextRunPollDelay, reduceLiveRun, runListRefreshInterval, type LiveRunState } from "./live-run";
+import { webUrl } from "./web-links";
 import type { TestApi, TestCaseListFilter } from "./test-api";
 
-const TestApiContext = createContext<TestApi | null>(null);
+type TestApiContextValue = {
+  api: TestApi;
+  webOrigin: string;
+  // Opens an http(s) URL in the system browser (desktop openExternalUrl).
+  openExternal: (url: string) => void;
+};
 
-export function TestApiProvider(props: { api: TestApi; children: React.ReactNode }): React.JSX.Element {
-  return <TestApiContext.Provider value={props.api}>{props.children}</TestApiContext.Provider>;
+const TestApiContext = createContext<TestApiContextValue | null>(null);
+
+export function TestApiProvider(props: TestApiContextValue & { children: React.ReactNode }): React.JSX.Element {
+  const { api, webOrigin, openExternal } = props;
+  const value = React.useMemo(() => ({ api, webOrigin, openExternal }), [api, webOrigin, openExternal]);
+  return <TestApiContext.Provider value={value}>{props.children}</TestApiContext.Provider>;
+}
+
+function useTestContext(): TestApiContextValue {
+  const value = useContext(TestApiContext);
+  if (!value) throw new Error("Test API is unavailable outside the signed-in workspace.");
+  return value;
 }
 
 export function useTestApi(): TestApi {
-  const api = useContext(TestApiContext);
-  if (!api) throw new Error("Test API is unavailable outside the signed-in workspace.");
-  return api;
+  return useTestContext().api;
+}
+
+/** Opens a web-app path (`/test-cases/review`) on the configured web origin; null paths are ignored. */
+export function useOpenInWeb(): { webOrigin: string; openPath: (path: string | null) => void; openUrl: (url: string) => void } {
+  const { webOrigin, openExternal } = useTestContext();
+  return {
+    webOrigin,
+    openUrl: openExternal,
+    openPath: (path) => {
+      const url = path ? webUrl(webOrigin, path) : null;
+      if (url) openExternal(url);
+    }
+  };
 }
 
 export const testQueryKeys = {
@@ -49,13 +76,20 @@ export function useCaseRuns(testCaseId: string | null) {
     queryKey: testQueryKeys.caseRuns(testCaseId ?? "none"),
     queryFn: () => api.listCaseRuns(testCaseId ?? "", { limit: 10 }),
     enabled: Boolean(testCaseId),
-    staleTime: 5_000
+    staleTime: 5_000,
+    refetchInterval: (query) => runListRefreshInterval(query.state.data?.items)
   });
 }
 
 export function useTestRuns() {
   const api = useTestApi();
-  return useQuery({ queryKey: testQueryKeys.runs(), queryFn: () => api.listRuns({ limit: 50 }), staleTime: 5_000 });
+  return useQuery({
+    queryKey: testQueryKeys.runs(),
+    queryFn: () => api.listRuns({ limit: 50 }),
+    staleTime: 5_000,
+    // Keeps queued and running rows current without opening each run.
+    refetchInterval: (query) => runListRefreshInterval(query.state.data?.items)
+  });
 }
 
 export function useTestEnvironments() {
