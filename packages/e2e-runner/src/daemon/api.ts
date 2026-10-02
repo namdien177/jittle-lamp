@@ -1,6 +1,8 @@
 import {
   cacheEntryReadResponseSchema,
   claimRunResponseSchema,
+  liveControlResponseSchema,
+  type LiveControlResponse,
   createTestRunResponseSchema,
   registerRunnerResponseSchema,
   testRunConfigSchema,
@@ -53,7 +55,14 @@ export class BackendClient {
       headers["content-type"] = "application/json";
       payload = JSON.stringify(body);
     }
-    const response = await this.fetchImpl(new URL(path, this.options.origin), { method, headers, ...(payload === undefined ? {} : { body: payload }) });
+    // A hung request must not hold the lease keep-alive chain; uploads get longer.
+    const timeoutMs = body instanceof Uint8Array ? 300_000 : 30_000;
+    const response = await this.fetchImpl(new URL(path, this.options.origin), {
+      method,
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+      ...(payload === undefined ? {} : { body: payload })
+    });
     const text = await response.text();
     let json: unknown = null;
     try {
@@ -97,8 +106,9 @@ export class BackendClient {
     return result.evidenceId;
   }
 
-  finalize(runId: string, runToken: string, body: FinalizeTestRunRequest) {
-    return this.request("POST", `/test-runs/${encodeURIComponent(runId)}/finalize`, runToken, testRunDetailSchema, body);
+  // The reply (the finalised run) is informational for the runner; only the status matters.
+  async finalize(runId: string, runToken: string, body: FinalizeTestRunRequest): Promise<void> {
+    await this.request("POST", `/test-runs/${encodeURIComponent(runId)}/finalize`, runToken, null, body);
   }
 
   cacheRead(runId: string, runToken: string, keyHash: string) {
@@ -107,6 +117,20 @@ export class BackendClient {
 
   cacheWrite(runId: string, runToken: string, keyHash: string, body: { entry: unknown; stepIds: string[]; instructionKey: string | null; renderedCode: string }) {
     return this.request("PUT", `/test-runs/${encodeURIComponent(runId)}/cache/${encodeURIComponent(keyHash)}`, runToken, null, body);
+  }
+
+  async liveControl(runId: string, runToken: string, after: number): Promise<LiveControlResponse | null> {
+    try {
+      return await this.request("GET", `/test-runs/${encodeURIComponent(runId)}/live/control?after=${after}`, runToken, liveControlResponseSchema);
+    } catch (error) {
+      // A backend without live view answers 404; the run goes on without it.
+      if (error instanceof BackendError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  liveFrame(runId: string, runToken: string, jpeg: Uint8Array) {
+    return this.request("PUT", `/test-runs/${encodeURIComponent(runId)}/live/frame`, runToken, null, jpeg, "image/jpeg");
   }
 
   createRun(testCaseId: string, token: string, body: Partial<CreateTestRunRequest>) {

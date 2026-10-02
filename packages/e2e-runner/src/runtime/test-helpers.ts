@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { credentials, secrets, unique } from "e2e";
 
 import { currentPage } from "./engine";
+import { waitWhileTakenOver } from "./live";
 import { writeStepLog } from "./step-log";
 
 // Imported by the generated case.e2e.ts. Values are read from the JL_* environment at run time,
@@ -153,7 +154,18 @@ async function progressScreenshot(stepId: string): Promise<string | null> {
 }
 
 export async function step(meta: StepMeta, body: () => Promise<unknown>): Promise<void> {
+  const parentStepId = globalThis.__jlCurrentStepId ?? null;
+  globalThis.__jlCurrentStepId = meta.stepId;
+  await waitWhileTakenOver(currentPage);
   writeStepLog({ type: "step-started", at: new Date().toISOString(), ...meta });
+  try {
+    await runStep(meta, body);
+  } finally {
+    globalThis.__jlCurrentStepId = parentStepId;
+  }
+}
+
+async function runStep(meta: StepMeta, body: () => Promise<unknown>): Promise<void> {
   try {
     const result = (await body()) as { summary?: unknown } | undefined;
     writeStepLog({

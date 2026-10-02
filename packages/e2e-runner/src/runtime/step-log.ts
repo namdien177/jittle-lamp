@@ -22,7 +22,9 @@ export type StepLogEvent =
       screenshot: string | null;
       observed: string | null;
     }
-  | { type: "screenshot"; at: string; stepId: string; path: string; label: string };
+  | { type: "screenshot"; at: string; stepId: string; path: string; label: string }
+  | { type: "takeover"; at: string; action: "start" | "end"; stepId: string | null }
+  | { type: "takeover-input"; at: string; stepId: string | null; kind: string; detail: string };
 
 export function writeStepLog(event: StepLogEvent): void {
   const path = process.env.JL_STEP_LOG;

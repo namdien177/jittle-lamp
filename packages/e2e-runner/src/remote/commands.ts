@@ -92,9 +92,11 @@ export async function pushCases(context: RemoteContext, input: { file: string })
     const transcript = serializeTestCase(testCase);
     const query = testCase.metadata.key ?? testCase.title;
     const list = await context.client.request("GET", `/test-cases?q=${encodeURIComponent(query)}&limit=50`, context.token, testCaseListResponseSchema);
+    // A Key is authoritative: a document naming one never falls back to a title match.
     const existing =
-      list.items.find((item) => testCase.metadata.key !== null && item.key === testCase.metadata.key) ??
-      list.items.find((item) => item.title.trim() === testCase.title.trim());
+      testCase.metadata.key !== null
+        ? list.items.find((item) => item.key === testCase.metadata.key)
+        : list.items.find((item) => item.title.trim() === testCase.title.trim());
     if (existing) {
       const updated = await context.client.request("PATCH", `/test-cases/${encodeURIComponent(existing.id)}`, context.token, testCaseDetailSchema, { transcript });
       results.push({ title: testCase.title, id: updated.id, action: "updated" });
@@ -118,7 +120,14 @@ export async function waitForRuns(
   while (done.size < runIds.length) {
     for (const runId of runIds) {
       if (done.has(runId)) continue;
-      const run = await context.client.getRun(runId, context.token);
+      let run: TestRunDetail;
+      try {
+        run = await context.client.getRun(runId, context.token);
+      } catch (error) {
+        // One failed poll is not the end of the wait; the deadline is.
+        context.log(`poll ${runId} failed: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
       if (finished(run)) {
         done.set(runId, run);
         options.onUpdate?.(run);
@@ -136,8 +145,13 @@ const xml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;"
 // JUnit for CI (design.md §12 phase 2 "JUnit export"; handover §6). Blocked runs are <skipped>
 // with the reason, so pipelines do not count setup problems as test failures.
 export function toJUnit(runs: readonly TestRunDetail[], suiteName: string, webOrigin?: string): string {
-  const failures = runs.filter((run) => run.outcome === "failed").length;
-  const skipped = runs.filter((run) => run.outcome === "blocked" || run.status === "cancelled").length;
+  const failed = (run: TestRunDetail) => run.outcome === "failed";
+  // A run that never produced an outcome (RUNNER_LOST, a crashed runner) is an error, not a pass.
+  const errored = (run: TestRunDetail) => run.outcome === null && run.status === "failed";
+  const isSkipped = (run: TestRunDetail) => run.outcome === "blocked" || run.status === "cancelled";
+  const failures = runs.filter(failed).length;
+  const errors = runs.filter(errored).length;
+  const skipped = runs.filter(isSkipped).length;
   const time = runs.reduce((sum, run) => sum + (run.metrics.durationMs ?? 0), 0) / 1000;
   const cases = runs.map((run) => {
     const seconds = ((run.metrics.durationMs ?? 0) / 1000).toFixed(3);
@@ -150,18 +164,19 @@ export function toJUnit(runs: readonly TestRunDetail[], suiteName: string, webOr
         .join("\n")
     );
     const props = `<properties><property name="runId" value="${xml(run.id)}"/><property name="costUsd" value="${run.metrics.costUsd ?? ""}"/><property name="stepsReplayed" value="${run.metrics.stepsReplayed}"/>${link ? `<property name="evidence" value="${xml(link)}"/>` : ""}</properties>`;
-    const body =
-      run.outcome === "failed"
-        ? `<failure message="${xml(failedStep?.error?.code ?? "FAILED")}">${detail}</failure>`
-        : run.outcome === "blocked" || run.status === "cancelled"
+    const body = failed(run)
+      ? `<failure message="${xml(failedStep?.error?.code ?? "FAILED")}">${detail}</failure>`
+      : errored(run)
+        ? `<error message="${xml(run.blockedReason ?? "RUN_FAILED")}">${detail || xml(run.error ?? "")}</error>`
+        : isSkipped(run)
           ? `<skipped message="${xml(run.blockedReason ?? run.status)}">${detail}</skipped>`
           : "";
     return `    <testcase classname="${xml(suiteName)}" name="${name}" time="${seconds}">${props}${body}</testcase>`;
   });
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<testsuites tests="${runs.length}" failures="${failures}" skipped="${skipped}" time="${time.toFixed(3)}">`,
-    `  <testsuite name="${xml(suiteName)}" tests="${runs.length}" failures="${failures}" skipped="${skipped}" time="${time.toFixed(3)}">`,
+    `<testsuites tests="${runs.length}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${time.toFixed(3)}">`,
+    `  <testsuite name="${xml(suiteName)}" tests="${runs.length}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${time.toFixed(3)}">`,
     ...cases,
     "  </testsuite>",
     "</testsuites>",
@@ -172,7 +187,7 @@ export function toJUnit(runs: readonly TestRunDetail[], suiteName: string, webOr
 // jl-e2e run --suite <id> | --case <id> [--env <id>] [--wait] [--junit out.xml]
 export async function runRemote(
   context: RemoteContext,
-  input: { suiteId?: string; caseId?: string; environmentId?: string; params?: Record<string, string>; force?: boolean; wait: boolean; junit?: string; webOrigin?: string; cacheMode?: "read-write" | "read-only" | "off" | "strict"; pollMs?: number }
+  input: { suiteId?: string; caseId?: string; environmentId?: string; params?: Record<string, string>; force?: boolean; wait: boolean; junit?: string; webOrigin?: string; cacheMode?: "read-write" | "read-only" | "off" | "strict"; pollMs?: number; failOnBlocked?: boolean }
 ): Promise<{ runIds: string[]; runs: TestRunDetail[]; exitCode: number }> {
   const body = {
     ...(input.environmentId ? { environmentId: input.environmentId } : {}),
@@ -192,6 +207,14 @@ export async function runRemote(
     onUpdate: (run) => context.log(`${run.outcome ?? run.status} ${run.testCaseKey} ${run.testCaseTitle}`)
   });
   if (input.junit) writeFileSync(input.junit, toJUnit(runs, input.suiteId ? `suite ${input.suiteId}` : `case ${input.caseId}`, input.webOrigin));
-  const exitCode = runs.some((run) => run.outcome === "failed") ? 1 : runs.some((run) => run.outcome !== "passed") ? 3 : 0;
+  // Failed cases and runs without an outcome fail the job; blocked cases don't (ADR 0002 decision 6)
+  // unless --fail-on-blocked.
+  const blocked = runs.filter((run) => run.outcome === "blocked" || run.status === "cancelled");
+  if (blocked.length > 0) context.log(`${blocked.length} run(s) blocked: ${blocked.map((run) => `${run.testCaseKey} ${run.blockedReason ?? run.status}`).join(", ")}`);
+  const exitCode = runs.some((run) => run.outcome === "failed" || (run.outcome === null && run.status === "failed"))
+    ? 1
+    : input.failOnBlocked && blocked.length > 0
+      ? 3
+      : 0;
   return { runIds, runs, exitCode };
 }
