@@ -69,6 +69,7 @@ export function formatQueuePill(
   const position = run.queuePosition === null ? "queued" : `queued · #${run.queuePosition}${run.queueDepth ? ` of ${run.queueDepth}` : ""}`;
   if (run.estimatedStartAt === null) return position;
   const seconds = Math.max(0, Math.round((run.estimatedStartAt - now) / 1000));
+  if (seconds <= 5) return `${position} · starts soon`;
   const eta = seconds < 60 ? `${seconds}s` : `${Math.round(seconds / 60)} min`;
   return `${position} · starts in ~${eta}`;
 }
@@ -76,6 +77,13 @@ export function formatQueuePill(
 export function cacheHitRatio(metrics: Pick<TestRunMetrics, "stepsTotal" | "stepsReplayed">): number | null {
   if (metrics.stepsTotal === 0) return null;
   return metrics.stepsReplayed / metrics.stepsTotal;
+}
+
+// Mock model ids carry a fixture path; show the file name only.
+export function formatModelId(modelId: string | null): string {
+  if (modelId === null) return "—";
+  if (modelId.startsWith("mock:")) return `mock:${modelId.slice(5).split(/[\\/]/).pop() ?? ""}`;
+  return modelId;
 }
 
 export function formatTokens(count: number): string {

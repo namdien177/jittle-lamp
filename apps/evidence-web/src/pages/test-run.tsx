@@ -18,6 +18,7 @@ import {
   canCancelRun,
   explainBlockedReason,
   failedAsserts,
+  formatModelId,
   formatQueuePill,
   formatTokens,
   isRunActive,
@@ -97,12 +98,12 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
           {run.status === "completed" || run.status === "failed" || run.status === "cancelled" ? <Badge variant="muted" className="px-1.5 py-0 text-[11px]">{run.status}</Badge> : null}
           {run.flaky ? <Badge variant="warning" className="px-1.5 py-0 text-[11px]">flaky</Badge> : null}
           <span className="text-[12.5px] text-muted-foreground">
-            {run.trigger} · {run.createdByName ?? "unknown"} · {run.environmentName ?? "no environment"} · pool {run.runnerPool} · cache {run.cacheMode}
+            {run.trigger} · {run.createdByName ?? (run.createdBy !== null && currentUserIds.includes(run.createdBy) ? "you" : "unknown")} · {run.environmentName ?? "no environment"} · pool {run.runnerPool} · cache {run.cacheMode}
           </span>
         </div>
         <div className="flex flex-wrap gap-x-7 gap-y-2" aria-label="Run metrics">
-          <Stat label="Act model" value={metrics.modelId ?? "—"} />
-          <Stat label="Judge model" value={metrics.judgeModelId ?? "—"} />
+          <Stat label="Act model" value={formatModelId(metrics.modelId)} {...(metrics.modelId ? { hint: metrics.modelId } : {})} />
+          <Stat label="Judge model" value={formatModelId(metrics.judgeModelId)} {...(metrics.judgeModelId ? { hint: metrics.judgeModelId } : {})} />
           <Stat
             label="Tokens"
             value={`${formatTokens(metrics.inputTokens)} in · ${formatTokens(metrics.outputTokens)} out`}
@@ -174,7 +175,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
               </label>
             ) : null}
           </div>
-          <RunStepList steps={listSteps} activeStepId={activeStepId} expandMacros={expandMacros} onSelect={(step) => setActiveStepId((current) => (current === step.stepId ? null : step.stepId))} />
+          <RunStepList steps={listSteps} activeStepId={activeStepId} expandMacros={expandMacros} screenshots={run.evidenceId ? "active" : "all"} onSelect={(step) => setActiveStepId((current) => (current === step.stepId ? null : step.stepId))} />
 
           {selected ? <SelectedStep step={selected} /> : null}
         </aside>

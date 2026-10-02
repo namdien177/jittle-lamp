@@ -7,6 +7,7 @@ import {
   cacheHitRatio,
   explainBlockedReason,
   failedAsserts,
+  formatModelId,
   formatQueuePill,
   isRunActive,
   liveScreenshot,
@@ -104,6 +105,7 @@ describe("run detail model", () => {
     const now = 1_000_000;
     expect(formatQueuePill({ status: "queued", queuePosition: 2, queueDepth: 3, estimatedStartAt: now + 90_000 }, now)).toBe("queued · #2 of 3 · starts in ~2 min");
     expect(formatQueuePill({ status: "queued", queuePosition: 1, estimatedStartAt: now + 20_000 }, now)).toBe("queued · #1 · starts in ~20s");
+    expect(formatQueuePill({ status: "queued", queuePosition: 1, estimatedStartAt: now - 4_000 }, now)).toBe("queued · #1 · starts soon");
     expect(formatQueuePill({ status: "queued", queuePosition: null, estimatedStartAt: null }, now)).toBe("queued");
     expect(formatQueuePill({ status: "running", queuePosition: null, estimatedStartAt: null }, now)).toBeNull();
   });
@@ -150,5 +152,11 @@ describe("run detail model", () => {
     expect(canCancelRun({ status: "completed", createdBy: "user_1" }, "user_1")).toBe(false);
     expect(cacheHitRatio({ stepsTotal: 4, stepsReplayed: 3 })).toBe(0.75);
     expect(cacheHitRatio({ stepsTotal: 0, stepsReplayed: 0 })).toBeNull();
+  });
+
+  test("mock model ids show the fixture file name, real ids stay as they are", () => {
+    expect(formatModelId("mock:/home/qa/fixtures/fixture-logout.mock.json")).toBe("mock:fixture-logout.mock.json");
+    expect(formatModelId("anthropic/claude-opus-5-5")).toBe("anthropic/claude-opus-5-5");
+    expect(formatModelId(null)).toBe("—");
   });
 });

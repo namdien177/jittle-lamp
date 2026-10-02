@@ -28,6 +28,9 @@ export type RunStepListProps = {
   onSelect?: (step: RunStepListStep) => void;
   // Expand macro calls (Login, …) to show their expanded steps.
   expandMacros?: boolean;
+  // Per-step screenshots: every step (live progress, default), only the active step (when a
+  // recording is next to the list), or none.
+  screenshots?: "all" | "active" | "none";
   className?: string;
 };
 
@@ -136,7 +139,7 @@ export function RunStepList(props: RunStepListProps): React.JSX.Element {
                   {detail}
                 </span>
               ) : null}
-              {step.screenshotUrl ? <img className="jl-run-step-shot" src={step.screenshotUrl} alt={`Screen after step ${step.ordinal}`} loading="lazy" /> : null}
+              {step.screenshotUrl && (props.screenshots ?? "all") !== "none" && ((props.screenshots ?? "all") === "all" || props.activeStepId === step.stepId) ? <img className="jl-run-step-shot" src={step.screenshotUrl} alt={`Screen after step ${step.ordinal}`} loading="lazy" /> : null}
             </button>
           </li>
         );
