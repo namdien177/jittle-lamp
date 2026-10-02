@@ -1286,3 +1286,23 @@
 .jl-library-header h1 { font-family: var(--font-body); font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
 .jl-library-count { margin-left: 8px; font-size: 13px; font-weight: 400; color: var(--muted-foreground); }
 .jl-app[data-evidence-focus="true"] .jl-vm-root { height: 100%; }
+
+/* Test cases workspace and run detail: full-bleed panes that scroll on their own. */
+.jl-main[data-fill="true"] { padding: 0; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.jl-main[data-fill="true"] > * { flex: 1; min-height: 0; }
+.jl-tc-press { transition: transform 150ms cubic-bezier(.23, 1, .32, 1), background-color 150ms cubic-bezier(.23, 1, .32, 1), color 150ms cubic-bezier(.23, 1, .32, 1), border-color 150ms cubic-bezier(.23, 1, .32, 1); }
+.jl-tc-press:active { transform: scale(0.97); }
+.jl-tc-row { transition: background-color 120ms cubic-bezier(.23, 1, .32, 1); }
+.jl-tc-enter { animation: jl-tc-enter 200ms cubic-bezier(.23, 1, .32, 1); }
+.jl-tc-pulse { animation: jl-tc-pulse 1.2s ease-in-out infinite; }
+@keyframes jl-tc-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes jl-tc-pulse { 50% { opacity: .35; } }
+.jl-tc-run-pane .jl-vm-root { height: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .jl-tc-press, .jl-tc-row { transition: none; }
+  .jl-tc-press:active { transform: none; }
+  .jl-tc-enter, .jl-tc-pulse { animation: none; }
+}
+/* Native form controls follow the app theme (legacy.css pins :root to dark). */
+.jl-tc-scope { color-scheme: light; }
+.dark .jl-tc-scope { color-scheme: dark; }

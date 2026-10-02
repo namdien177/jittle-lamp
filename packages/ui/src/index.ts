@@ -8,6 +8,8 @@ export { UiSelect } from "./select";
 export type { SelectOption } from "./select";
 export { RunStepList, formatCostUsd, formatStepDuration } from "./run-step-list";
 export type { RunStepListProps, RunStepListStep } from "./run-step-list";
+export { computeVirtualWindow, scrollTopForIndex, useVirtualWindow } from "./virtual-window";
+export type { VirtualWindow } from "./virtual-window";
 export * from "./step-editor/model";
 export { editorKeyCommand, isMacPlatform } from "./step-editor/keyboard";
 export type { EditorCommand, EditorKey, EditorKeyContext } from "./step-editor/keyboard";

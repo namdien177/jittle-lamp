@@ -317,6 +317,7 @@ export const createTestRunResponseSchema = z.object({
   attached: z.boolean(),
   status: testRunStatusSchema,
   queuePosition: z.number().int().nonnegative().nullable(),
+  queueDepth: z.number().int().nonnegative().nullable().optional(),
   requestedBy: z.array(z.object({ userId: id, name: z.string().nullable() })),
   batchId: id.nullable().default(null),
   runIds: z.array(id).default([])
@@ -382,6 +383,8 @@ export const testRunSummarySchema = z.object({
   evidenceId: id.nullable(),
   batchId: id.nullable(),
   queuePosition: z.number().int().nonnegative().nullable(),
+  // Runs queued in the run's pool, for the "queued · #2 of 3" pill (design.md §10.4). Optional.
+  queueDepth: z.number().int().nonnegative().nullable().optional(),
   estimatedStartAt: epochMs.nullable(),
   subscribers: z.array(z.object({ userId: id, name: z.string().nullable() })),
   metrics: testRunMetricsSchema

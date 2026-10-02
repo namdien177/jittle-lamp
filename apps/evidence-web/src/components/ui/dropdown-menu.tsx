@@ -44,10 +44,13 @@ export function DropdownMenuItem(props: {
   onClick?: () => void;
   disabled?: boolean;
   destructive?: boolean;
+  // Keep the menu open, e.g. for multi-select filter checkboxes.
+  closeOnClick?: boolean;
 }): React.JSX.Element {
   return (
     <Menu.Item
       disabled={props.disabled ?? false}
+      closeOnClick={props.closeOnClick ?? true}
       onClick={props.onClick ?? (() => undefined)}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-base outline-none [&_svg]:size-4",
