@@ -24,6 +24,7 @@ import {
   formatStepChip,
   groupTagsByNamespace,
   insertElementName,
+  insertHeadingAfter,
   insertReference,
   insertRowAfter,
   lintByRow,
@@ -414,5 +415,61 @@ describe("built-in macros", () => {
     const unknown = lintTestCase(parsed, { macros: withBuiltinMacros([]) }).filter((finding) => finding.ruleId === "unknown-macro");
     expect(unknown.map((finding) => finding.message)).toEqual(['No macro named "Unknown thing".']);
     expect(withBuiltinMacros([loginMacro])).toEqual([loginMacro]);
+  });
+});
+
+describe("bare rows that look like other syntax survive a save", () => {
+  const prefixes = ["# not a title", "## not a checkpoint", "// not disabled", "[x] done reviewing", "| a | b |", "#hashtag first", "//"];
+
+  for (const text of prefixes) {
+    test(`a bare row "${text}" stays one Act step with its text`, () => {
+      const base = docFromTranscript("# Case\n\n[Open] /login\n\n## Checkpoint: Done\n[Assert] the page is visible");
+      const open = stepRows(base)[0];
+      if (!open) throw new Error("fixture");
+      const inserted = insertRowAfter(base, open.rowId, { tag: null, text });
+      const parsed = testCaseFromDoc(inserted.doc);
+      expect(parsed.steps).toHaveLength(3);
+      const step = parsed.steps[1];
+      expect(step?.type).toBe("act");
+      expect(step?.text).toBe(text);
+      expect(step?.checkpointId).toBeNull();
+      expect(step?.disabled).toBe(false);
+      expect(parsed.checkpoints).toHaveLength(1);
+      // Saving again is stable.
+      const again = docFromTranscript(serializeEditorDoc(inserted.doc));
+      expect(serializeEditorDoc(again)).toBe(serializeEditorDoc(inserted.doc));
+    });
+  }
+
+  test("a disabled bare row with such text stays disabled and keeps its text", () => {
+    const base = docFromTranscript("# Case\n\n[Open] /login");
+    const open = stepRows(base)[0];
+    if (!open) throw new Error("fixture");
+    const inserted = insertRowAfter(base, open.rowId, { tag: null, text: "[x] skip me", disabled: true });
+    const step = testCaseFromDoc(inserted.doc).steps[1];
+    expect([step?.type, step?.text, step?.disabled]).toEqual(["act", "[x] skip me", true]);
+  });
+
+  test("the explicit [Act] keeps the instruction key of the bare text", () => {
+    const bare = testCaseFromDoc(docFromTranscript("# Case\n\nopen the menu")).steps[0];
+    const doc = docFromTranscript("# Case\n\nopen the menu");
+    const row = stepRows(doc)[0];
+    if (!row) throw new Error("fixture");
+    const tagged = testCaseFromDoc(setRowText(doc, row.rowId, "open the menu")).steps[0];
+    expect(tagged?.instructionKey).toBe(bare?.instructionKey ?? "missing");
+  });
+
+  test("plain headings titled like a checkpoint or dataset keep their title", () => {
+    const base = docFromTranscript("# Case\n\n[Open] /login");
+    const open = stepRows(base)[0];
+    if (!open) throw new Error("fixture");
+    for (const title of ["Dataset", "Checkpoint: inner"]) {
+      const withHeading = insertHeadingAfter(base, open.rowId, title);
+      const heading = withHeading.doc.rows.find((row) => row.rowId === withHeading.focusRowId);
+      const plain = { ...withHeading.doc, rows: withHeading.doc.rows.map((row) => (row === heading && row.kind === "heading" ? { ...row, prefixed: false } : row)) };
+      const parsed = testCaseFromDoc(plain);
+      expect(parsed.checkpoints.map((checkpoint) => checkpoint.title)).toEqual([title]);
+      expect(parsed.dataset).toBeNull();
+    }
   });
 });
