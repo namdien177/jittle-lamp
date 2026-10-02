@@ -46,6 +46,7 @@ import {
 } from "./test-import-parsers";
 import { resolveModelKeys } from "./test-settings";
 import type { BackendDb } from "./user-provisioning";
+import { ZipTooLargeError } from "./zip-limits";
 
 // Import pipeline (design.md §7): parse → per-item lint, exact and near-duplicate matches and a
 // default decision → commit creates cases in `review`. Re-importing the same file is idempotent
@@ -381,6 +382,9 @@ export const createImportBatch = async (
 		}
 	} catch (error) {
 		if (error instanceof HttpError) throw error;
+		if (error instanceof ZipTooLargeError) {
+			throw new HttpError(413, "IMPORT_TOO_LARGE", `.xlsx ${error.message}`);
+		}
 		throw new HttpError(
 			422,
 			"IMPORT_PARSE_FAILED",

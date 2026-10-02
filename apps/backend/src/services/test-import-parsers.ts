@@ -1,7 +1,13 @@
 import { Buffer } from "node:buffer";
 import type { importMappingSchema } from "@jittle-lamp/shared";
-import { strFromU8, unzipSync } from "fflate";
+import { strFromU8 } from "fflate";
 import type { z } from "zod/v4";
+
+import {
+	MAX_XLSX_UNCOMPRESSED_BYTES,
+	unzipBounded,
+	ZipTooLargeError,
+} from "./zip-limits";
 
 // Source formats that become transcript documents (design.md §7 "Entry points"). Every parser
 // returns one transcript document per item so lint and similarity run once for all paths.
@@ -311,8 +317,14 @@ const columnIndex = (ref: string): number => {
 export const parseXlsx = (base64: string): string[][] => {
 	let files: Record<string, Uint8Array>;
 	try {
-		files = unzipSync(new Uint8Array(Buffer.from(base64, "base64")));
-	} catch {
+		files = unzipBounded(new Uint8Array(Buffer.from(base64, "base64")), {
+			maxUncompressedBytes: MAX_XLSX_UNCOMPRESSED_BYTES,
+			include: (name) =>
+				name === "xl/sharedStrings.xml" ||
+				/^xl\/worksheets\/sheet\d+\.xml$/.test(name),
+		}).files;
+	} catch (error) {
+		if (error instanceof ZipTooLargeError) throw error;
 		throw new Error(
 			"content is not a readable .xlsx file (base64 ZIP expected)",
 		);

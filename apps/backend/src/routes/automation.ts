@@ -6,7 +6,6 @@ import {
 } from "@jittle-lamp/shared";
 import { and, desc, eq } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-import { unzipSync } from "fflate";
 import {
 	automationApiTokens,
 	desktopRecordingSessions,
@@ -32,6 +31,11 @@ import {
 	recordOrganizationActivity,
 } from "../services/organization-activity";
 import { organizationMemberHasPermission } from "../services/organization-permissions";
+import {
+	MAX_EVIDENCE_ZIP_UNCOMPRESSED_BYTES,
+	unzipBounded,
+	ZipTooLargeError,
+} from "../services/zip-limits";
 
 const DEFAULT_AUTOMATION_TOKEN_EXPIRES_IN_DAYS = 365;
 const MAX_AUTOMATION_TOKEN_EXPIRES_IN_DAYS = 3650;
@@ -179,16 +183,30 @@ const sha256HexToBase64 = (hex: string): string => {
 
 const validateAutomationZip = (zipBytes: Uint8Array) => {
 	let files: Record<string, Uint8Array>;
+	let fileNames: string[];
 	try {
-		files = unzipSync(zipBytes);
-	} catch {
+		const unzipped = unzipBounded(zipBytes, {
+			maxUncompressedBytes: MAX_EVIDENCE_ZIP_UNCOMPRESSED_BYTES,
+			include: (name) =>
+				name === recordingFileName || name === sessionArchiveFileName,
+		});
+		files = unzipped.files;
+		fileNames = [...unzipped.names].sort();
+	} catch (error) {
+		if (error instanceof ZipTooLargeError) {
+			return {
+				ok: false as const,
+				status: 413 as const,
+				code: "AUTOMATION_UPLOAD_TOO_LARGE",
+				message: `Automation evidence ${error.message}`,
+			};
+		}
 		return {
 			ok: false as const,
 			message: "Upload body must be a readable ZIP archive",
 		};
 	}
 
-	const fileNames = Object.keys(files).sort();
 	const expected = [recordingFileName, sessionArchiveFileName].sort();
 	if (
 		fileNames.length !== expected.length ||
@@ -561,12 +579,15 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 
 				const validated = validateAutomationZip(zipBytes);
 				if (!validated.ok) {
-					set.status = 400;
+					const status = "status" in validated ? validated.status : 400;
+					set.status = status;
 					return createApiError(
 						requestId,
-						"AUTOMATION_UPLOAD_ZIP_INVALID",
+						"code" in validated
+							? validated.code
+							: "AUTOMATION_UPLOAD_ZIP_INVALID",
 						validated.message,
-						400,
+						status,
 					);
 				}
 
