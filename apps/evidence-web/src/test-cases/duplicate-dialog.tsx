@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocation, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { useQueries } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import type { DuplicateTestCaseRequest, TestCaseDetail } from "@jittle-lamp/shared";
@@ -140,9 +140,9 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
           {ok.map((result) => (
             <li key={result.newId} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
               <span className="min-w-0">
-                <a href={caseEditorHref(result.newId)} className="font-mono text-xs text-primary hover:underline">
+                <Link to={caseEditorHref(result.newId)} onClick={props.onClose} className="font-mono text-xs text-primary hover:underline">
                   {result.newKey}
-                </a>{" "}
+                </Link>{" "}
                 <span className="text-foreground">{result.title}</span>
                 <span className="block text-xs text-muted-foreground">from {result.sourceKey}</span>
               </span>

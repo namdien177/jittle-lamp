@@ -180,7 +180,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
               aria-label="Cases waiting for review"
               aria-activedescendant={state.selectedId ? `review-${state.selectedId}` : undefined}
               tabIndex={0}
-              className="jl-scroll grid max-h-[calc(100vh-14rem)] content-start gap-1 overflow-y-auto rounded-md border border-border bg-card p-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/55"
+              className="jl-scroll grid max-h-[calc(100vh-14rem)] grid-cols-[minmax(0,1fr)] content-start gap-1 overflow-y-auto rounded-md border border-border bg-card p-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/55"
             >
               {items.map((item) => {
                 const active = item.id === state.selectedId;
