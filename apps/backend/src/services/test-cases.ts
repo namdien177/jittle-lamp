@@ -74,6 +74,16 @@ export const parseJsonColumn = <T>(
 	}
 };
 
+// Each stored link is checked on its own: a row written before links were limited to http(s)
+// loses only its bad entries, not the whole list.
+export const parseLinksColumn = (
+	value: string | null | undefined,
+): Array<z.output<typeof testCaseLinkSchema>> =>
+	parseJsonColumn(value, z.array(z.unknown()), []).flatMap((entry) => {
+		const link = testCaseLinkSchema.safeParse(entry);
+		return link.success ? [link.data] : [];
+	});
+
 const stringArray = z.array(z.string());
 const stringRecord = z.record(z.string(), z.string());
 const stepsArray = z.array(transcriptStepSchema);
@@ -764,7 +774,7 @@ export const toCaseDetail = async (
 	return {
 		...toCaseSummary(row, resolvedStats),
 		description: row.description,
-		links: parseJsonColumn(row.linksJson, z.array(testCaseLinkSchema), []),
+		links: parseLinksColumn(row.linksJson),
 		transcript: row.transcript,
 		steps: caseSteps(row),
 		params: parseJsonColumn(
