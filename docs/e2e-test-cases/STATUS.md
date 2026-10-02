@@ -6,8 +6,8 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 
 | Unit | Scope | Status | Commit | Notes |
 | --- | --- | --- | --- | --- |
-| 0.1 | Transcript schema and parser (`packages/shared/src/test-case.ts`) | todo | | |
-| 0.2 | Archive v4 + viewer-core step filter | todo | | |
+| 0.1 | Transcript schema and parser (`packages/shared/src/test-case.ts`) | done | 77f9a77 | `tests/test-case-contracts.test.ts` (33 tests): grammar, multi-case + dataset, stable ids, lossless round trip, 13 lint rules as data with fixes, macro expansion with version in key. Review pass: 12 findings fixed in 77f9a77. |
+| 0.2 | Archive v4 + viewer-core step filter | done | 02684b3 | v3 upgraded on parse, extension writes v3 via `toExtensionWireArchive`; step chips + filter + seek in desktop and web; `PARITY-STEP-01` in parity checklist and `tests/review-e2e-parity.test.ts`. Review pass: 8 findings fixed in 02684b3. UI screenshot recorded with real runner evidence in 0.5. |
 | 0.3 | Runner package skeleton, config chain, `mock:` provider | todo | | |
 | 0.4 | Cache store and reporter | todo | | |
 | 0.5 | Trace → archive v4 and upload | todo | | |
@@ -49,4 +49,6 @@ None yet.
 
 ## Log
 
+- 2026-10-03: 0.1 done. Parser, serializer, lint and macros in `packages/shared/src/test-case.ts`; independent review found Vietnamese word-boundary, secret-scan and round-trip gaps, all fixed with regression tests.
+- 2026-10-03: 0.2 done. Archive v4 (`recorder.kind`, `step` annotations, step tags on console/network). Review found a broken manual-upload path, lost step tags in the desktop catalog and a desktop highlight bug; fixed with tests.
 - 2026-10-03: branch `feat/e2e-test-cases` created from `origin/feat/e2e-test-cases-design` (5214921). Baseline: typecheck, root tests (248), backend tests (85), MCP tests (27), backend lint and version check green. Dev-auth backend env generated with `bun run dev:test-auth:setup`.
