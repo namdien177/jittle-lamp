@@ -55,6 +55,8 @@ export type RunTranscriptOptions = {
   // Backend cache store and progress screenshots for daemon runs.
   backend?: { apiUrl: string; runId: string; runToken: string };
   progressScreenshots?: boolean;
+  // Live view: directory the daemon relays control and input through (design.md §5.4).
+  liveDir?: string;
   priceTableVersion?: string;
   log?: (line: string) => void;
 };
@@ -327,6 +329,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       JL_CACHE_INDEX: cacheIndexPath,
       ...(options.backend ? { JL_CACHE_API_URL: options.backend.apiUrl, JL_RUN_ID: options.backend.runId, JL_RUN_TOKEN: options.backend.runToken } : {}),
       ...(options.progressScreenshots ? { JL_PROGRESS_SCREENSHOTS: "1" } : {}),
+      ...(options.liveDir ? { JL_LIVE_DIR: options.liveDir } : {}),
       ...(allowClaudeCode ? { JL_ALLOW_CLAUDE_CODE: "1" } : {}),
       ...(options.recordModelFixture ? { JL_RECORD_MODEL_FIXTURE: resolve(options.cwd, options.recordModelFixture) } : {})
     }

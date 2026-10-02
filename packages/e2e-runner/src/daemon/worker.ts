@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { hostname as osHostname, homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -137,6 +137,45 @@ export async function executeClaimedRun(input: {
     if (Date.now() - lastSentAt > 8_000) send({ steps: [] });
   }, 2_000);
 
+  // Live view relay: backend control and input → JL_LIVE_DIR → e2e worker; frames back.
+  const liveDir = join(input.workDir, ".live", claimed.runId);
+  mkdirSync(liveDir, { recursive: true });
+  writeFileSync(join(liveDir, "control.json"), JSON.stringify({ live: false, takeover: false }));
+  let liveSeq = -1;
+  let liveEnabled = true;
+  let lastFrameMtime = 0;
+  let liveBusy = false;
+  const liveLoop = setInterval(() => {
+    if (!liveEnabled || liveBusy) return;
+    liveBusy = true;
+    void (async () => {
+      const control = await client.liveControl(claimed.runId, claimed.runToken, liveSeq);
+      if (!control) {
+        liveEnabled = false;
+        return;
+      }
+      if (control.cancelRequested) controller.abort();
+      writeFileSync(join(liveDir, "control.json"), JSON.stringify({ live: control.live || control.takeover, takeover: control.takeover }));
+      const fresh = control.inputs.filter((event) => event.seq > liveSeq).sort((a, b) => a.seq - b.seq);
+      if (fresh.length > 0) {
+        appendFileSync(join(liveDir, "inputs.jsonl"), fresh.map((event) => `${JSON.stringify(event)}\n`).join(""));
+        liveSeq = fresh.at(-1)?.seq ?? liveSeq;
+      }
+      const framePath = join(liveDir, "frame.jpg");
+      if ((control.live || control.takeover) && existsSync(framePath)) {
+        const mtime = statSync(framePath).mtimeMs;
+        if (mtime !== lastFrameMtime) {
+          lastFrameMtime = mtime;
+          await client.liveFrame(claimed.runId, claimed.runToken, new Uint8Array(readFileSync(framePath)));
+        }
+      }
+    })()
+      .catch((error: unknown) => log(`live relay for ${claimed.runId}: ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => {
+        liveBusy = false;
+      });
+  }, Number(process.env.JL_LIVE_POLL_MS ?? 1_000));
+
   let result: RunTranscriptResult | null = null;
   try {
     result = await runTranscript({
@@ -159,6 +198,7 @@ export async function executeClaimedRun(input: {
       ...(config.priceTableVersion ? { priceTableVersion: config.priceTableVersion } : {}),
       backend: { apiUrl: input.apiOrigin, runId: claimed.runId, runToken: claimed.runToken },
       progressScreenshots: true,
+      liveDir,
       signal: controller.signal,
       log: (line) => log(`[${claimed.runId}] ${line}`),
       onStepEvent: (event) => {
@@ -176,6 +216,7 @@ export async function executeClaimedRun(input: {
     });
   } finally {
     clearInterval(keepAlive);
+    clearInterval(liveLoop);
     await pending;
   }
 

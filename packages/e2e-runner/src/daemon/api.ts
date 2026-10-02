@@ -1,6 +1,8 @@
 import {
   cacheEntryReadResponseSchema,
   claimRunResponseSchema,
+  liveControlResponseSchema,
+  type LiveControlResponse,
   createTestRunResponseSchema,
   registerRunnerResponseSchema,
   testRunConfigSchema,
@@ -107,6 +109,20 @@ export class BackendClient {
 
   cacheWrite(runId: string, runToken: string, keyHash: string, body: { entry: unknown; stepIds: string[]; instructionKey: string | null; renderedCode: string }) {
     return this.request("PUT", `/test-runs/${encodeURIComponent(runId)}/cache/${encodeURIComponent(keyHash)}`, runToken, null, body);
+  }
+
+  async liveControl(runId: string, runToken: string, after: number): Promise<LiveControlResponse | null> {
+    try {
+      return await this.request("GET", `/test-runs/${encodeURIComponent(runId)}/live/control?after=${after}`, runToken, liveControlResponseSchema);
+    } catch (error) {
+      // A backend without live view answers 404; the run goes on without it.
+      if (error instanceof BackendError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  liveFrame(runId: string, runToken: string, jpeg: Uint8Array) {
+    return this.request("PUT", `/test-runs/${encodeURIComponent(runId)}/live/frame`, runToken, null, jpeg, "image/jpeg");
   }
 
   createRun(testCaseId: string, token: string, body: Partial<CreateTestRunRequest>) {
