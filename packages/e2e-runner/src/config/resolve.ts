@@ -164,19 +164,26 @@ export function resolveRunConfig(input: {
     throw new Error(`JL_CACHE_MODE must be read-write, read-only, off or strict; got "${cacheModeValue}".`);
   }
 
+  const actModel = resolved(
+    "JL_MODEL",
+    org?.model?.act && orgEnv ? { value: org.model.act, source: orgEnv.source } : { value: defaultActModel, source: "env" }
+  );
+
   return {
     environmentName: resolved("JL_ENV_NAME", org && orgEnv ? { value: org.environment.name, source: orgEnv.source } : null),
     baseUrl: resolved("JL_ENV_BASE_URL", org && orgEnv ? { value: org.environment.baseUrl, source: orgEnv.source } : null),
     agentInstructions: lookup(layers, "JL_AGENT_INSTRUCTIONS")?.value ?? org?.environment.agentInstructions ?? null,
     vars,
     credentials,
-    actModel: resolved(
-      "JL_MODEL",
-      org?.model?.act && orgEnv ? { value: org.model.act, source: orgEnv.source } : { value: defaultActModel, source: "env" }
-    ),
+    actModel,
+    // Without an explicit judge the act model judges too, as e2e does; the org default pairs both.
     judgeModel: resolved(
       "JL_JUDGE_MODEL",
-      org?.model?.judge && orgEnv ? { value: org.model.judge, source: orgEnv.source } : { value: defaultJudgeModel, source: "env" }
+      org?.model?.judge && orgEnv
+        ? { value: org.model.judge, source: orgEnv.source }
+        : actModel && actModel.value !== defaultActModel
+          ? { value: actModel.value, source: actModel.source }
+          : { value: defaultJudgeModel, source: "env" }
     ),
     providerKeys,
     cacheMode: cacheModeValue as CacheMode,

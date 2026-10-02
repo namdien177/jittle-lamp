@@ -1,6 +1,7 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 
 import { MockReplayModel, recordingModel } from "./mock";
+import { promptedToolCalling } from "./prompted-tools";
 
 // The organisation's act and judge models are AI SDK ids; the prefix picks the provider package
 // (design.md §5.1, ADR 0002 decisions 5 and 14).
@@ -100,7 +101,11 @@ async function instantiate(id: string, options: ModelResolveOptions): Promise<La
       }
       try {
         const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
-        return createClaudeCode()(modelId) as unknown as LanguageModelV4;
+        // No CLI tools, no project settings, prompts sent verbatim: the CLI is only a model here.
+        const provider = createClaudeCode({
+          defaultSettings: { allowedTools: [], settingSources: [], permissionPrompts: "none", verbatimPrompts: true }
+        } as Parameters<typeof createClaudeCode>[0]);
+        return promptedToolCalling(provider(modelId) as unknown as LanguageModelV4);
       } catch (error) {
         throw new ModelResolutionError(
           "MODEL_UNAVAILABLE",

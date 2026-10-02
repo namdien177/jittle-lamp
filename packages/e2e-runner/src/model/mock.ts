@@ -21,6 +21,8 @@ export const mockTurnSchema = z.object({
   match: z
     .object({
       tools: z.array(z.string().min(1)).optional(),
+      // Only calls that offer no tools (judge calls for assert, waitFor and extract).
+      noTools: z.boolean().optional(),
       promptIncludes: z.array(z.string().min(1)).optional()
     })
     .optional(),
@@ -68,8 +70,9 @@ function offeredTools(options: LanguageModelV4CallOptions): string[] {
 }
 
 // `{ "$refFor": { "role": "button", "name": "Save" } }` inside a tool input is replaced by the
-// element ref the current snapshot gives that control, e.g. `e12`, so fixtures do not depend on
-// ref numbering. The snapshot line format is `- role "name" [ref=e12]` (playwright-mcp style).
+// element id the current screen gives that control, so fixtures do not depend on id numbering.
+// e2e lists the screen as `#n6 button "Save"`; playwright-mcp style `- button "Save" [ref=e12]`
+// is accepted too.
 export function resolveRefPlaceholders(input: unknown, prompt: string): unknown {
   if (Array.isArray(input)) return input.map((item) => resolveRefPlaceholders(item, prompt));
   if (input === null || typeof input !== "object") return input;
@@ -80,14 +83,16 @@ export function resolveRefPlaceholders(input: unknown, prompt: string): unknown 
     const text = prompt.replace(/\\n/g, "\n").replace(/\\"/g, '"');
     const lines = text.split("\n");
     const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(
-      `${role ? escaped(role) : "[\\w-]+"}\\s+"${name ? escaped(name) : "[^\"]*"}"[^\\n]*?\\[ref=([\\w-]+)\\]`
-    );
+    const rolePart = role ? escaped(role) : "[\\w-]+";
+    const namePart = name ? escaped(name) : '[^"]*';
+    const e2eStyle = new RegExp(`#([\\w-]+)\\s+${rolePart}\\s+"${namePart}"`);
+    const mcpStyle = new RegExp(`${rolePart}\\s+"${namePart}"[^\\n]*?\\[ref=([\\w-]+)\\]`);
     for (let index = lines.length - 1; index >= 0; index -= 1) {
-      const match = pattern.exec(lines[index] ?? "");
+      const line = lines[index] ?? "";
+      const match = e2eStyle.exec(line) ?? mcpStyle.exec(line);
       if (match?.[1]) return match[1];
     }
-    throw new Error(`mock model: no element ${role ?? "*"} "${name ?? "*"}" in the current snapshot.`);
+    throw new Error(`mock model: no element ${role ?? "*"} "${name ?? "*"}" in the current screen.`);
   }
   return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, resolveRefPlaceholders(value, prompt)]));
 }
@@ -133,6 +138,7 @@ export class MockReplayModel implements LanguageModelV4 {
       if (this.used.has(index)) continue;
       const match = turn.match;
       if (match?.tools && !match.tools.every((tool) => tools.includes(tool))) continue;
+      if (match?.noTools && tools.length > 0) continue;
       if (match?.promptIncludes && !match.promptIncludes.every((text) => prompt.includes(text))) continue;
       if (!turn.repeat) this.used.add(index);
       this.calls.push({ turnIndex: index, tools });

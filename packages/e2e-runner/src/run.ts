@@ -1,0 +1,337 @@
+import { spawn } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+
+import { sha256Hex, type BlockedReason, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
+
+import { loadEnvFiles, type EnvFile } from "./config/env-files";
+import { collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
+import { generateProject, type GeneratedProject } from "./generate/project";
+import { ModelResolutionError, resolveModel } from "./model/providers";
+import { buildRunPlan, loadMacros, type RunPlan } from "./plan";
+import { createRedactor, redactJson } from "./redact";
+import { buildRunReport, type AiTrace, type E2eReport } from "./report/build";
+import type { StepLogEvent } from "./runtime/step-log";
+
+const require = createRequire(import.meta.url);
+
+export const runnerVersion: string = (JSON.parse(readFileSync(require.resolve("../package.json"), "utf8")) as { version: string }).version;
+export const engineVersion: string = (JSON.parse(readFileSync(require.resolve("e2e/package.json"), "utf8")) as { version: string }).version;
+
+export type RunTranscriptOptions = {
+  transcript: string;
+  transcriptPath?: string;
+  cwd: string;
+  envFiles?: readonly string[];
+  env?: Readonly<Record<string, string | undefined>>;
+  org?: OrgRunConfig | null;
+  params?: Readonly<Record<string, string>>;
+  macroDirs?: readonly string[];
+  headed?: boolean;
+  cacheMode?: CacheMode;
+  cacheDir?: string;
+  runId?: string;
+  testCaseId?: string | null;
+  transcriptVersion?: number | null;
+  environmentId?: string | null;
+  host?: RunnerInfo["host"];
+  viewport?: { width: number; height: number };
+  timeoutMs?: number;
+  recordModelFixture?: string;
+  allowClaudeCode?: boolean;
+  signal?: AbortSignal;
+  onStepEvent?: (event: StepLogEvent) => void;
+  log?: (line: string) => void;
+};
+
+export type RunTranscriptResult = {
+  report: RunReport;
+  plan: RunPlan;
+  runDir: string;
+  reportPath: string;
+  recordingPath: string | null;
+  tracePath: string | null;
+  screenshotDir: string;
+  project: GeneratedProject | null;
+  redact: (text: string) => string;
+  config: ResolvedRunConfig;
+};
+
+const defaultViewport = { width: 1440, height: 900 };
+
+function newRunId(): string {
+  return `run_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function findFiles(root: string, name: string): string[] {
+  if (!existsSync(root)) return [];
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (entry === name) out.push(path);
+    }
+  };
+  walk(root);
+  return out.sort();
+}
+
+function readJson<T>(path: string): T | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+function readStepLog(path: string): StepLogEvent[] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as StepLogEvent];
+      } catch {
+        return [];
+      }
+    });
+}
+
+// The e2e process sees only what it needs: a minimal host environment plus the resolved JL_*
+// names. Nothing else from the caller's environment leaks into the browser run.
+export function buildChildEnv(input: {
+  config: ResolvedRunConfig;
+  plan: RunPlan;
+  host: Readonly<Record<string, string | undefined>>;
+  extra: Record<string, string>;
+}): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SystemRoot", "PLAYWRIGHT_BROWSERS_PATH", "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY"]) {
+    const value = input.host[name];
+    if (value !== undefined) env[name] = value;
+  }
+  if (input.config.environmentName) env.JL_ENV_NAME = input.config.environmentName.value;
+  if (input.plan.baseUrl) env.JL_ENV_BASE_URL = input.plan.baseUrl;
+  for (const [name, value] of input.config.vars) env[`JL_VAR_${name}`] = value.value;
+  for (const [name, value] of Object.entries(input.plan.params)) env[`JL_VAR_${name}`] = value;
+  for (const [profile, fields] of input.config.credentials) {
+    for (const [field, value] of fields) env[`JL_CRED_${profile}_${field.toUpperCase()}`] = value.value;
+  }
+  for (const [name, value] of input.config.providerKeys) env[name] = value.value;
+  if (input.config.actModel) env.JL_MODEL = input.config.actModel.value;
+  if (input.config.judgeModel) env.JL_JUDGE_MODEL = input.config.judgeModel.value;
+  if (input.plan.agentInstructions) env.JL_AGENT_INSTRUCTIONS = input.plan.agentInstructions;
+  env.E2E_TELEMETRY_DISABLED = "1";
+  return { ...env, ...input.extra };
+}
+
+// sha256 of the instruction e2e sees, as e2e digests it (cache/identity.js normalizeInstruction).
+export function e2eInstructionDigest(template: string): string {
+  return sha256Hex(template.replace(/\r\n?/g, "\n").normalize("NFC").trim());
+}
+
+export async function runTranscript(options: RunTranscriptOptions): Promise<RunTranscriptResult> {
+  const startedAt = new Date().toISOString();
+  const env = options.env ?? process.env;
+  const envFiles: EnvFile[] = loadEnvFiles(options.cwd, options.envFiles ?? []);
+  const config = resolveRunConfig({ params: options.params ?? {}, env, envFiles, org: options.org ?? null });
+  const cacheMode = options.cacheMode ?? config.cacheMode;
+  const runId = options.runId ?? newRunId();
+  const e2eRoot = resolve(options.cwd, ".e2e");
+  const runDir = join(e2eRoot, "runs", runId);
+  const screenshotDir = join(runDir, "screenshots");
+  mkdirSync(runDir, { recursive: true });
+
+  const transcriptDir = options.transcriptPath ? dirname(resolve(options.cwd, options.transcriptPath)) : options.cwd;
+  const macros = loadMacros([...(options.macroDirs ?? []), join(transcriptDir, "../macros"), join(options.cwd, "e2e/macros")]);
+  const plan = buildRunPlan({ transcript: options.transcript, config, macros, params: options.params ?? {} });
+  const redact = createRedactor(collectSecretValues(config));
+  const log = (line: string) => options.log?.(redact(line));
+
+  const viewport = options.viewport ?? defaultViewport;
+  const runner: RunnerInfo = {
+    runner: "jl-e2e",
+    runnerVersion,
+    engine: "e2e",
+    engineVersion,
+    browser: "chromium",
+    browserVersion: null,
+    headless: !options.headed,
+    viewport,
+    cacheMode,
+    host: options.host ?? "cli"
+  };
+  const model = {
+    act: config.actModel?.value ?? null,
+    judge: config.judgeModel?.value ?? null,
+    provider: config.actModel ? (config.actModel.value.startsWith("mock:") ? "mock" : (config.actModel.value.split("/")[0] ?? null)) : null
+  };
+  const reportPath = join(runDir, "run-report.json");
+
+  const finish = (input: {
+    blocked?: { reason: BlockedReason; message: string } | null;
+    e2eReport?: E2eReport | null;
+    aiTrace?: AiTrace | null;
+    stepLog?: StepLogEvent[];
+    exitCode?: number | null;
+    artifacts?: RunArtifact[];
+    project?: GeneratedProject | null;
+    recordingPath?: string | null;
+    tracePath?: string | null;
+  }): RunTranscriptResult => {
+    const report = redactJson(
+      buildRunReport({
+        plan,
+        runId,
+        testCaseId: options.testCaseId ?? null,
+        transcriptVersion: options.transcriptVersion ?? null,
+        environmentId: options.environmentId ?? null,
+        runner,
+        model,
+        e2eReport: input.e2eReport ?? null,
+        aiTrace: input.aiTrace ?? null,
+        stepLog: input.stepLog ?? [],
+        exitCode: input.exitCode ?? null,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        artifacts: input.artifacts ?? [],
+        blocked: input.blocked ?? null
+      }),
+      redact
+    );
+    writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    mkdirSync(e2eRoot, { recursive: true });
+    writeFileSync(join(e2eRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+    return {
+      report,
+      plan,
+      runDir,
+      reportPath,
+      recordingPath: input.recordingPath ?? null,
+      tracePath: input.tracePath ?? null,
+      screenshotDir,
+      project: input.project ?? null,
+      redact,
+      config
+    };
+  };
+
+  if (plan.blockedReason) {
+    log(`blocked: ${plan.blockedReason} ${plan.blockedMessage ?? ""}`);
+    return finish({ blocked: { reason: plan.blockedReason, message: plan.blockedMessage ?? plan.blockedReason } });
+  }
+
+  const needsModel = plan.steps.some((step) => step.executes && ["act", "assert", "wait", "extract"].includes(step.type));
+  if (needsModel) {
+    const keys = Object.fromEntries([...config.providerKeys].map(([name, value]) => [name, value.value]));
+    try {
+      for (const id of new Set([model.act, model.judge].filter((value): value is string => value !== null))) {
+        await resolveModel(id, { keys, allowClaudeCode: options.allowClaudeCode ?? env.JL_ALLOW_CLAUDE_CODE === "1" });
+      }
+    } catch (error) {
+      if (error instanceof ModelResolutionError) return finish({ blocked: { reason: error.code, message: error.message } });
+      throw error;
+    }
+  }
+
+  const cacheDir = resolve(options.cwd, options.cacheDir ?? config.cacheDir ?? join(".e2e", "cache"));
+  const project = generateProject({
+    dir: join(runDir, "project"),
+    plan,
+    config,
+    cacheMode,
+    cacheStoreDir: cacheDir,
+    headed: options.headed ?? false,
+    viewport,
+    timeoutMs: options.timeoutMs ?? 15 * 60_000
+  });
+
+  // instructionDigest → transcript step, so cache files say which step they belong to.
+  const cacheIndex: Record<string, { stepId: string; instructionKey: string }> = {};
+  for (const item of project.compiled) {
+    if (item.call === "act") cacheIndex[e2eInstructionDigest(item.template)] = { stepId: item.step.stepId, instructionKey: item.step.instructionKey };
+  }
+  const cacheIndexPath = join(runDir, "cache-index.json");
+  writeFileSync(cacheIndexPath, JSON.stringify(cacheIndex, null, 2));
+
+  const stepLogPath = join(runDir, "steps.jsonl");
+  const progressPath = join(runDir, "progress.jsonl");
+  const childEnv = buildChildEnv({
+    config,
+    plan,
+    host: env,
+    extra: {
+      JL_STEP_LOG: stepLogPath,
+      JL_PROGRESS_LOG: progressPath,
+      JL_SCREENSHOT_DIR: screenshotDir,
+      JL_CACHE_INDEX: cacheIndexPath,
+      ...(options.allowClaudeCode || env.JL_ALLOW_CLAUDE_CODE === "1" ? { JL_ALLOW_CLAUDE_CODE: "1" } : {}),
+      ...(options.recordModelFixture ? { JL_RECORD_MODEL_FIXTURE: resolve(options.cwd, options.recordModelFixture) } : {})
+    }
+  });
+
+  const e2eBin = join(dirname(require.resolve("e2e/package.json")), "dist/cli/bin.js");
+  const args = [e2eBin, "run", "--config", project.configPath, "--ai-trace", ...(options.headed ? ["--headed"] : [])];
+  log(`e2e run (${plan.steps.filter((step) => step.executes).length} steps, cache ${cacheMode})`);
+
+  const outputLog = join(runDir, "e2e-output.log");
+  const exitCode = await new Promise<number | null>((resolvePromise) => {
+    const child = spawn(env.JL_NODE ?? "node", args, { cwd: project.dir, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+    let seen = 0;
+    const poll = setInterval(() => {
+      const events = readStepLog(stepLogPath);
+      for (const event of events.slice(seen)) options.onStepEvent?.(event);
+      seen = events.length;
+    }, 300);
+    const chunks: string[] = [];
+    child.stdout.on("data", (data: Buffer) => chunks.push(redact(data.toString())));
+    child.stderr.on("data", (data: Buffer) => chunks.push(redact(data.toString())));
+    const abort = () => child.kill("SIGTERM");
+    options.signal?.addEventListener("abort", abort, { once: true });
+    child.on("close", (code) => {
+      clearInterval(poll);
+      const events = readStepLog(stepLogPath);
+      for (const event of events.slice(seen)) options.onStepEvent?.(event);
+      options.signal?.removeEventListener("abort", abort);
+      writeFileSync(outputLog, chunks.join(""));
+      resolvePromise(code);
+    });
+  });
+
+  const e2eReport = readJson<E2eReport>(join(project.outputDir, "report.json"));
+  const aiTrace = readJson<AiTrace>(join(project.outputDir, "ai-trace.json"));
+  const stepLog = readStepLog(stepLogPath);
+
+  const artifacts: RunArtifact[] = [];
+  const artifactDir = join(runDir, "artifacts");
+  mkdirSync(artifactDir, { recursive: true });
+  const video = findFiles(join(project.outputDir, "artifacts"), "video.webm").at(-1);
+  const trace = findFiles(join(project.outputDir, "artifacts"), "trace.zip").at(-1);
+  let recordingPath: string | null = null;
+  let tracePath: string | null = null;
+  if (video) {
+    recordingPath = join(artifactDir, "recording.webm");
+    copyFileSync(video, recordingPath);
+    artifacts.push({ kind: "recording", path: "recording.webm", mimeType: "video/webm", bytes: statSync(recordingPath).size });
+  }
+  if (trace) {
+    tracePath = join(artifactDir, "trace.zip");
+    copyFileSync(trace, tracePath);
+    artifacts.push({ kind: "trace", path: "trace.zip", mimeType: "application/zip", bytes: statSync(tracePath).size });
+  }
+  for (const event of stepLog) {
+    if (event.type === "screenshot" && existsSync(event.path)) {
+      artifacts.push({ kind: "screenshot", path: `screenshots/${event.stepId}.png`, mimeType: "image/png", bytes: statSync(event.path).size });
+    }
+  }
+
+  log(`e2e exited with ${exitCode}`);
+  if (exitCode === null && options.signal?.aborted) {
+    return finish({ blocked: { reason: "CANCELLED", message: "Run cancelled." }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
+  }
+  return finish({ e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
+}

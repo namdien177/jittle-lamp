@@ -43,7 +43,15 @@ jobs:
         run: bun run typecheck
 
       - name: Run tests
-        run: bun test tests apps/mcp/test --timeout=15000
+        run: bun test tests apps/mcp/test packages/e2e-runner/test --timeout=15000
+
+      - name: Install Chromium for the runner browser test
+        run: bunx playwright install --with-deps chromium
+
+      - name: Runner browser test (mock model)
+        run: bun test packages/e2e-runner/browser --timeout=300000
+        env:
+          E2E_TELEMETRY_DISABLED: "1"
 
       - name: Build workspace
         run: bun run build
