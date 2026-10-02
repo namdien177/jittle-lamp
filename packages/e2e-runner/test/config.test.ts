@@ -96,3 +96,25 @@ describe("config resolution chain (design.md §9.2)", () => {
     expect(() => resolveRunConfig({ env: { JL_CACHE_MODE: "sometimes" } })).toThrow("JL_CACHE_MODE");
   });
 });
+
+describe("review regressions: secrecy and redaction", () => {
+  test("secret names are matched by whole segments", async () => {
+    const { isSecretVariable } = await import("../src/config/resolve");
+    expect(["OTP_CODE", "API_KEY", "ADMIN_PASSWORD", "pin", "accessToken"].map(isSecretVariable)).toEqual([true, true, true, true, true]);
+    expect(["SCHOOL_CODE", "SHIPPING", "MAPPING", "PARENT_URL", "role"].map(isSecretVariable)).toEqual([false, false, false, false, false]);
+    resolveRunConfig({ env: { JL_SECRET_NAMES: "SCHOOL_CODE" } });
+    expect(isSecretVariable("SCHOOL_CODE")).toBe(true);
+    resolveRunConfig({ env: {} });
+    expect(isSecretVariable("SCHOOL_CODE")).toBe(false);
+  });
+
+  test("redaction touches string leaves only and ignores values shorter than e2e's minimum", async () => {
+    const { createRedactor, redactJson } = await import("../src/redact");
+    const redact = createRedactor(["100", FIXTURE_PASSWORD]);
+    const report = { durationMs: 100, at: "2026-10-03T08:00:00.100Z", note: `pw=${encodeURIComponent(FIXTURE_PASSWORD)} b64=${Buffer.from(FIXTURE_PASSWORD).toString("base64")}` };
+    const out = redactJson(report, redact);
+    expect(out.durationMs).toBe(100);
+    expect(out.at).toBe(report.at);
+    expect(out.note).toBe("pw=[redacted] b64=[redacted]");
+  });
+});

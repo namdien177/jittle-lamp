@@ -101,9 +101,27 @@ async function instantiate(id: string, options: ModelResolveOptions): Promise<La
       }
       try {
         const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
-        // No CLI tools, no project settings, prompts sent verbatim: the CLI is only a model here.
+        const { mkdtempSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        // The CLI is only a model here: no built-in tools, no project settings, an empty working
+        // directory and an environment holding nothing but its own login, so page text in the
+        // prompt cannot steer it into reading files or the run's JL_* values.
+        const env: Record<string, string | undefined> = { PATH: process.env.PATH, HOME: process.env.HOME };
+        for (const name of ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"]) {
+          if (process.env[name]) env[name] = process.env[name];
+        }
         const provider = createClaudeCode({
-          defaultSettings: { allowedTools: [], settingSources: [], permissionPrompts: "none", verbatimPrompts: true }
+          defaultSettings: {
+            tools: [],
+            allowedTools: [],
+            disallowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "Task", "NotebookEdit", "TodoWrite"],
+            settingSources: [],
+            permissionPrompts: "none",
+            verbatimPrompts: true,
+            cwd: mkdtempSync(join(tmpdir(), "jl-claude-code-")),
+            env
+          }
         } as Parameters<typeof createClaudeCode>[0]);
         return promptedToolCalling(provider(modelId) as unknown as LanguageModelV4);
       } catch (error) {

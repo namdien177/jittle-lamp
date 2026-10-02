@@ -15,6 +15,8 @@ import { startFixtureApp, type FixtureApp } from "../test/fixtures/app/server";
 // the mock model. Run 1 is agent-driven, run 2 replays every Act with zero act model calls.
 
 const FIXTURE_PASSWORD = "fixture-Pa55word!";
+// A secret passed as a run param; it is unused by the case and must still never be written.
+const PARAM_SECRET = "param-Secret-7731";
 const fixtures = join(import.meta.dir, "../test/fixtures");
 const transcript = readFileSync(join(fixtures, "fixture-logout.transcript.md"), "utf8");
 
@@ -45,7 +47,7 @@ beforeAll(async () => {
   app = startFixtureApp({ email: "admin@example.test", password: FIXTURE_PASSWORD });
   cwd = mkdtempSync(join(tmpdir(), "jl-e2e-run-"));
   for (let index = 0; index < 2; index += 1) {
-    runs.push(await runTranscript({ transcript, transcriptPath: "fixture-logout.transcript.md", cwd, env: env() }));
+    runs.push(await runTranscript({ transcript, transcriptPath: "fixture-logout.transcript.md", cwd, env: env(), params: { api_token: PARAM_SECRET } }));
   }
 }, 240_000);
 
@@ -119,6 +121,15 @@ describe("jl-e2e run against the fixture app (mock model)", () => {
     expect(Object.keys(unzipSync(received ?? new Uint8Array())).sort()).toEqual(["recording.webm", "session.archive.json"]);
   });
 
+  test("a cancelled run is reported as cancelled", async () => {
+    const controller = new AbortController();
+    const pending = runTranscript({ transcript, transcriptPath: "fixture-logout.transcript.md", cwd: mkdtempSync(join(tmpdir(), "jl-e2e-cancel-")), env: env(), signal: controller.signal });
+    setTimeout(() => controller.abort(), 1500);
+    const result = await pending;
+    expect(result.report.status).toBe("cancelled");
+    expect(result.report.blockedReason).toBe("CANCELLED");
+  }, 120_000);
+
   test("no secret value in any run artifact (handover §6)", () => {
     const leaks: string[] = [];
     for (const file of allFiles(join(cwd, ".e2e"))) {
@@ -127,7 +138,7 @@ describe("jl-e2e run against the fixture app (mock model)", () => {
       if (file.endsWith(".zip")) {
         for (const [name, content] of Object.entries(unzipSync(new Uint8Array(bytes)))) texts.push(`${name}\n${new TextDecoder().decode(content)}`);
       }
-      if (texts.some((text) => text.includes(FIXTURE_PASSWORD))) leaks.push(file);
+      if (texts.some((text) => text.includes(FIXTURE_PASSWORD) || text.includes(PARAM_SECRET))) leaks.push(file);
     }
     expect(leaks).toEqual([]);
   });

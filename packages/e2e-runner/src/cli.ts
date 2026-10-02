@@ -107,9 +107,13 @@ export async function main(argv: readonly string[]): Promise<number> {
     if (report.blockedReason) console.log(`blocked: ${report.blockedReason}${report.missing.length ? ` (${report.missing.join(", ")})` : ""}`);
     console.log(`report: ${result.reportPath}`);
     if (flag(args, "upload") === "true") {
-      const { uploadRunEvidence } = await import("./evidence/upload");
-      const uploaded = await uploadRunEvidence(result, { env: process.env, cwd });
-      console.log(`evidence: ${uploaded.evidenceId}${uploaded.url ? ` ${uploaded.url}` : ""}`);
+      if (!result.recordingPath) {
+        console.log("evidence: not uploaded, the run produced no recording");
+      } else {
+        const { uploadRunEvidence } = await import("./evidence/upload");
+        const uploaded = await uploadRunEvidence(result, { env: process.env, cwd });
+        console.log(`evidence: ${uploaded.evidenceId}${uploaded.url ? ` ${uploaded.url}` : ""}`);
+      }
     }
     return report.outcome === "passed" ? 0 : report.outcome === "failed" ? 1 : 3;
   }

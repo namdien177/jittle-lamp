@@ -25,12 +25,21 @@ export const lockScript = `(() => {
   resume.style.cssText = "font:inherit;border:0;border-radius:6px;padding:4px 10px;background:#22c55e;color:#04210f;cursor:pointer;display:none";
   resume.addEventListener("click", (event) => { event.stopPropagation(); state.paused = false; state.reason = null; render(); }, true);
   banner.append(label, resume);
+  // Pages that rewrite the document (document.write, framework roots) drop foreign nodes.
+  const ensureMounted = () => {
+    const root = document.documentElement;
+    if (!root) return;
+    if (!shield.isConnected) root.append(shield);
+    if (!banner.isConnected) root.append(banner);
+  };
   const render = () => {
+    ensureMounted();
     label.textContent = state.paused ? "Paused: you interacted with the page. Nothing you do is recorded as a step." : "Jittle Lamp is running this test. Input is locked.";
     resume.style.display = state.paused ? "inline-block" : "none";
     shield.style.display = state.up && !state.paused ? "block" : "none";
   };
   const onUserInput = (event) => {
+    ensureMounted();
     if (!state.up || state.paused) return;
     if (event.target === resume) return;
     event.preventDefault();
@@ -42,7 +51,10 @@ export const lockScript = `(() => {
   for (const type of ["pointerdown", "mousedown", "click", "keydown", "wheel", "touchstart"]) {
     window.addEventListener(type, onUserInput, { capture: true, passive: false });
   }
-  const mount = () => { if (!document.documentElement) return; document.documentElement.append(shield, banner); render(); };
+  const mount = () => {
+    render();
+    new MutationObserver(() => { if (!shield.isConnected || !banner.isConnected) render(); }).observe(document, { childList: true, subtree: true });
+  };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true }); else mount();
   window.__jlLock = {
     down() { state.up = false; render(); },

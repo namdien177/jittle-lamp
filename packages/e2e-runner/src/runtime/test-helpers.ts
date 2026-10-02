@@ -56,9 +56,12 @@ export function params(bindings: Readonly<Record<string, Binding>>): Record<stri
       case "secret":
         out[param] = secrets.get(binding.name);
         break;
-      case "extracted":
-        out[param] = unique(extracted.get(binding.name) ?? "");
+      case "extracted": {
+        const value = extracted.get(binding.name) ?? "";
+        // unique() refuses an empty value; an empty one cannot leak into the key anyway.
+        out[param] = value.length > 0 ? unique(value) : value;
         break;
+      }
     }
   }
   return out;
@@ -98,12 +101,26 @@ export const stringSchema = {
   }
 } as const;
 
+// Outcomes that say nothing about the app under test: blocked, never failed (ADR 0002 decision 6;
+// design.md §5.1 "inconclusive → blocked").
+const blockingCodes = new Set([
+  "ASSERTION_INCONCLUSIVE",
+  "MODEL_PROVIDER_FAILED",
+  "MODEL_OUTPUT_INVALID",
+  "MODEL_UNAVAILABLE",
+  "STEP_NO_CONCLUSION",
+  "STEP_BUDGET_EXHAUSTED",
+  "CONTEXT_OVERFLOW",
+  "MISSING_VARIABLE",
+  "MISSING_CREDENTIAL"
+]);
+
 function errorInfo(error: unknown): { code: string; message: string; blocked: boolean; observed: string | null } {
   const record = (error ?? {}) as { code?: unknown; message?: unknown; blocked?: unknown; explanation?: unknown };
   const code = typeof record.code === "string" ? record.code : "STEP_FAILED";
   const message = typeof record.message === "string" ? record.message : String(error);
   const explanation = typeof record.explanation === "string" ? record.explanation : null;
-  return { code, message, blocked: record.blocked === true, observed: explanation };
+  return { code, message, blocked: record.blocked === true || blockingCodes.has(code), observed: explanation };
 }
 
 export async function step(meta: StepMeta, body: () => Promise<unknown>): Promise<void> {
@@ -131,6 +148,18 @@ export async function step(meta: StepMeta, body: () => Promise<unknown>): Promis
       observed: info.observed
     });
     throw error;
+  }
+}
+
+// A judgment on a screen that is still loading comes back inconclusive; judge once more after
+// the page settles before the step is blocked (design.md §5.1).
+export async function settle<T>(judge: () => Promise<T>, waitMs = Number(process.env.JL_SETTLE_MS ?? 3000)): Promise<T> {
+  try {
+    return await judge();
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code !== "ASSERTION_INCONCLUSIVE") throw error;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    return judge();
   }
 }
 

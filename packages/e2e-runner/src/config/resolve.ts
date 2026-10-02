@@ -45,7 +45,10 @@ export type ResolvedRunConfig = {
 };
 
 const publicCredentialFields = new Set(["username", "user", "email", "login", "name", "tenant", "school", "role"]);
-const secretNamePattern = /pass|secret|token|otp|pin|key|code/i;
+// Whole name segments only: OTP_CODE and API_KEY are secret, SCHOOL_CODE and SHIPPING are not
+// (design.md §9.1). JL_SECRET_NAMES lists any other names to treat as secret.
+const secretSegments = new Set(["PASSWORD", "PASSWD", "PASS", "PWD", "SECRET", "TOKEN", "OTP", "PIN", "KEY", "APIKEY", "PASSCODE"]);
+let extraSecretNames = new Set<string>();
 const providerKeyNames = [
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
@@ -64,7 +67,12 @@ export function isSecretCredentialField(field: string): boolean {
 }
 
 export function isSecretVariable(name: string): boolean {
-  return secretNamePattern.test(name);
+  if (extraSecretNames.has(name)) return true;
+  return name
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .some((segment) => secretSegments.has(segment));
 }
 
 type Layer = { source: ConfigSource; values: Record<string, string | undefined> };
@@ -95,6 +103,7 @@ export function resolveRunConfig(input: {
   org?: OrgRunConfig | null;
 }): ResolvedRunConfig {
   const layers = envLayers(input.env, input.envFiles ?? []);
+  extraSecretNames = new Set((lookup(layers, "JL_SECRET_NAMES")?.value ?? "").split(",").map((name) => name.trim()).filter(Boolean));
   const orgSource = (name: string): ConfigSource => `org:${name}`;
   const org = input.org ?? null;
 

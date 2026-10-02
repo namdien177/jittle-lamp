@@ -19,7 +19,7 @@ import {
   type TranscriptStep
 } from "@jittle-lamp/shared";
 
-import { resolveCredentialProfile, type ResolvedRunConfig } from "./config/resolve";
+import { isSecretVariable, resolveCredentialProfile, type ResolvedRunConfig } from "./config/resolve";
 
 // A RunPlan is the transcript resolved against macros and configuration: the steps the engine
 // executes, with variables substituted and secrets replaced by named placeholders the runner fills
@@ -189,19 +189,26 @@ export function buildRunPlan(input: {
     };
   }
 
-  // Case params: declared defaults, then run params; dataset rows arrive as run params.
+  // Case params: run params, then the config chain, then the case's declared defaults
+  // (design.md §9.2). Dataset rows arrive as run params.
   const params: Record<string, string> = {};
-  for (const param of testCase.metadata.params) if (param.default !== null) params[param.name] = param.default;
+  for (const param of testCase.metadata.params) {
+    const configured = input.config.vars.get(param.name);
+    if (configured) params[param.name] = configured.value;
+    else if (param.default !== null) params[param.name] = param.default;
+  }
   Object.assign(params, input.params ?? {});
   const config: ResolvedRunConfig = {
     ...input.config,
     vars: new Map([
       ...input.config.vars,
       ...Object.entries(params)
-        .filter(([name]) => !input.config.vars.has(name) || input.config.vars.get(name)?.source !== "param")
-        .map(([name, value]) => [name, { value, source: "param" as const, secret: false }] as const)
+        .filter(([name]) => !input.config.vars.has(name))
+        .map(([name, value]) => [name, { value, source: "param" as const, secret: isSecretVariable(name) }] as const)
     ])
   };
+  // Only public values are ever substituted into instruction text.
+  const publicParams = Object.fromEntries(Object.entries(params).filter(([name]) => !config.vars.get(name)?.secret));
 
   const missing = new Set<string>();
   const missingKinds = new Set<"variable" | "credential">();
@@ -210,13 +217,13 @@ export function buildRunPlan(input: {
   // Resolve credential profiles named by [Login: X] and {cred:X.field} (after param substitution).
   const profileNames = new Set<string>();
   for (const step of expanded.steps) {
-    for (const ref of extractStepReferences([substituteParams(step.text, params), ...step.args.map((arg) => substituteParams(arg.value, params))]).credentialRefs) {
+    for (const ref of extractStepReferences([substituteParams(step.text, publicParams), ...step.args.map((arg) => substituteParams(arg.value, publicParams))]).credentialRefs) {
       const dot = ref.lastIndexOf(".");
       profileNames.add(dot === -1 ? ref : ref.slice(0, dot));
     }
     if (step.type === "login") {
       const profile = loginProfileArg(step.args);
-      if (profile) profileNames.add(substituteParams(profile, params));
+      if (profile) profileNames.add(substituteParams(profile, publicParams));
     }
   }
   for (const name of profileNames) {
@@ -230,7 +237,7 @@ export function buildRunPlan(input: {
   }
 
   const steps: PlannedStep[] = expanded.steps.map((step) => {
-    const withParams = { ...step, text: substituteParams(step.text, params), args: step.args.map((arg) => ({ ...arg, value: substituteParams(arg.value, params) })) };
+    const withParams = { ...step, text: substituteParams(step.text, publicParams), args: step.args.map((arg) => ({ ...arg, value: substituteParams(arg.value, publicParams) })) };
     const rendered = renderInstruction(withParams, config, aliases, missing, missingKinds);
     const executes = !(step.type === "macro" || step.type === "login") || step.macroVersion === null;
     return { ...step, instruction: rendered.instruction, secrets: rendered.secrets, executes };
@@ -246,7 +253,7 @@ export function buildRunPlan(input: {
 
   return {
     ...base,
-    params: Object.fromEntries(Object.entries(params).filter(([name]) => !config.vars.get(name)?.secret)),
+    params: publicParams,
     steps,
     lint,
     missing: missingList,

@@ -1,4 +1,5 @@
 import type {
+  LanguageModelV4Usage,
   LanguageModelV4,
   LanguageModelV4CallOptions,
   LanguageModelV4Content,
@@ -66,7 +67,7 @@ export function toolProtocol(tools: readonly FunctionTool[], choice: LanguageMod
     .map((tool) => `- ${tool.name}: ${tool.description ?? ""}\n  input JSON schema: ${JSON.stringify(tool.inputSchema)}`)
     .join("\n");
   return [
-    "TOOL PROTOCOL. You cannot run tools yourself. Choose the next tool call and reply with ONLY one JSON object, no prose, no code fence:",
+    "TOOL PROTOCOL. You cannot run tools yourself. Choose the next tool call and reply with ONLY one JSON object, no prose, no code fence, no second thoughts:",
     '{"tool": "<tool name>", "input": { ...arguments matching the schema... }}',
     required,
     "Available tools:",
@@ -86,31 +87,82 @@ function rewritePrompt(prompt: LanguageModelV4Prompt, protocol: string | null): 
   ];
 }
 
-export function extractJsonObject(text: string): unknown {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  const candidate = (fenced?.[1] ?? text).trim();
-  const start = candidate.indexOf("{");
-  if (start === -1) throw new Error("no JSON object in model reply");
+// Every top-level JSON object in a reply, in order (fenced or not).
+export function extractJsonObjects(text: string): unknown[] {
+  const out: unknown[] = [];
   let depth = 0;
   let quoted = false;
-  for (let index = start; index < candidate.length; index += 1) {
-    const char = candidate[index];
+  let start = -1;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
     if (quoted) {
       if (char === "\\") index += 1;
       else if (char === '"') quoted = false;
       continue;
     }
-    if (char === '"') quoted = true;
-    else if (char === "{") depth += 1;
-    else if (char === "}") {
+    if (char === '"' && depth > 0) quoted = true;
+    else if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+    } else if (char === "}" && depth > 0) {
       depth -= 1;
-      if (depth === 0) return JSON.parse(candidate.slice(start, index + 1));
+      if (depth === 0 && start !== -1) {
+        try {
+          out.push(JSON.parse(text.slice(start, index + 1)));
+        } catch {
+          // not JSON; keep scanning
+        }
+        start = -1;
+      }
     }
   }
-  throw new Error("unterminated JSON object in model reply");
+  return out;
+}
+
+export function extractJsonObject(text: string): unknown {
+  const found = extractJsonObjects(text);
+  if (found.length === 0) throw new Error("no JSON object in model reply");
+  return found[0];
+}
+
+// The tool call a reply settles on: a native tool-call part, else the last JSON object naming a
+// known tool (models sometimes correct themselves mid-reply).
+export function pickToolCall(
+  content: readonly LanguageModelV4Content[],
+  toolNames: ReadonlySet<string>
+): { toolName: string; input: unknown } | null {
+  const native = [...content].reverse().find((part) => part.type === "tool-call" && toolNames.has(part.toolName));
+  if (native && native.type === "tool-call") {
+    return { toolName: native.toolName, input: typeof native.input === "string" ? JSON.parse(native.input || "{}") : native.input };
+  }
+  const text = content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+  const candidates = extractJsonObjects(text)
+    .filter((value): value is { tool: string; input?: unknown } => {
+      const record = value as { tool?: unknown };
+      return typeof record.tool === "string" && toolNames.has(record.tool);
+    });
+  const last = candidates.at(-1);
+  return last ? { toolName: last.tool, input: last.input ?? {} } : null;
 }
 
 let bridgeCallCounter = 0;
+
+const sum = (a: number | undefined, b: number | undefined) => (a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0));
+function addUsage(a: LanguageModelV4Usage, b: LanguageModelV4Usage): LanguageModelV4Usage {
+  return {
+    inputTokens: {
+      total: sum(a.inputTokens.total, b.inputTokens.total),
+      noCache: sum(a.inputTokens.noCache, b.inputTokens.noCache),
+      cacheRead: sum(a.inputTokens.cacheRead, b.inputTokens.cacheRead),
+      cacheWrite: sum(a.inputTokens.cacheWrite, b.inputTokens.cacheWrite)
+    },
+    outputTokens: {
+      total: sum(a.outputTokens.total, b.outputTokens.total),
+      text: sum(a.outputTokens.text, b.outputTokens.text),
+      reasoning: sum(a.outputTokens.reasoning, b.outputTokens.reasoning)
+    }
+  };
+}
 
 export function promptedToolCalling(inner: LanguageModelV4): LanguageModelV4 {
   const generate = async (options: LanguageModelV4CallOptions): Promise<LanguageModelV4GenerateResult> => {
@@ -123,36 +175,44 @@ export function promptedToolCalling(inner: LanguageModelV4): LanguageModelV4 {
         : null;
 
     const { tools: _tools, toolChoice: _choice, responseFormat: _format, ...rest } = options;
-    const result = await inner.doGenerate({
-      ...rest,
-      prompt: rewritePrompt(options.prompt, [protocol, jsonHint].filter((part): part is string => part !== null).join("\n\n") || null)
-    });
-    const text = result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+    const instructions = [protocol, jsonHint].filter((part): part is string => part !== null).join("\n\n") || null;
+    let prompt = rewritePrompt(options.prompt, instructions);
+    let result = await inner.doGenerate({ ...rest, prompt });
+    let usage = result.usage;
 
     if (protocol) {
-      try {
-        const parsed = extractJsonObject(text) as { tool?: unknown; input?: unknown };
-        const name = typeof parsed.tool === "string" ? parsed.tool : "";
-        if (tools.some((tool) => tool.name === name)) {
+      const names = new Set(tools.map((tool) => tool.name));
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const picked = pickToolCall(result.content, names);
+        if (picked) {
           bridgeCallCounter += 1;
           const content: LanguageModelV4Content[] = [
-            { type: "tool-call", toolCallId: `bridge-${bridgeCallCounter}`, toolName: name, input: JSON.stringify(parsed.input ?? {}) }
+            { type: "tool-call", toolCallId: `bridge-${bridgeCallCounter}`, toolName: picked.toolName, input: JSON.stringify(picked.input ?? {}) }
           ];
-          return { ...result, content, finishReason: { unified: "tool-calls", raw: "prompted-tool-call" } };
+          return { ...result, usage, content, finishReason: { unified: "tool-calls", raw: "prompted-tool-call" } };
         }
-      } catch {
-        // Fall through: the caller sees text and retries or repairs, as with any provider.
+        if (attempt === 1 || options.toolChoice?.type === "auto" || options.toolChoice === undefined) break;
+        // One correction round: the reply was not a usable tool call.
+        const replyText = result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+        prompt = [
+          ...prompt,
+          { role: "assistant", content: [{ type: "text", text: replyText || "(empty)" }] },
+          {
+            role: "user",
+            content: [{ type: "text", text: `That was not a valid tool call. Reply with ONLY one JSON object {"tool": <one of: ${[...names].join(", ")}>, "input": {...}} and nothing else.` }]
+          }
+        ];
+        result = await inner.doGenerate({ ...rest, prompt });
+        usage = addUsage(usage, result.usage);
       }
     }
+    const text = result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 
     if (wantsJson) {
-      try {
-        return { ...result, content: [{ type: "text", text: JSON.stringify(extractJsonObject(text)) }] };
-      } catch {
-        return result;
-      }
+      const last = extractJsonObjects(text).at(-1);
+      if (last !== undefined) return { ...result, usage, content: [{ type: "text", text: JSON.stringify(last) }] };
     }
-    return result;
+    return { ...result, usage };
   };
 
   return {

@@ -59,3 +59,26 @@ describe("run plan", () => {
     expect(plan.steps[1]?.instruction).toBe("Enter {{secret:vars.OTP_CODE}} into the code field for HQ");
   });
 });
+
+describe("review regressions: params", () => {
+  test("a secret run param is never substituted into instruction text", () => {
+    const plan = buildRunPlan({
+      transcript: "# T\nParams: password\n\n[Open] /login\nType {password} into the field\n## Checkpoint: c\n[Assert] the dashboard is visible",
+      config: resolveRunConfig({ env: pcfEnv, params: { password: "hunter2-SECRET" } }),
+      macros: loadMacros([]),
+      params: { password: "hunter2-SECRET" }
+    });
+    expect(JSON.stringify(plan.steps.map(({ secrets: _secrets, ...step }) => step))).not.toContain("hunter2-SECRET");
+    expect(JSON.stringify(plan.params)).not.toContain("hunter2-SECRET");
+    expect(plan.steps[1]?.instruction).toBe("Type {{secret:vars.password}} into the field");
+  });
+
+  test("case defaults come after the config chain (design.md §9.2)", () => {
+    const plan = buildRunPlan({
+      transcript: "# T\nParams: role=HQ_ADMIN\n\n[Open] /login\nType {role} into Role\n## Checkpoint: c\n[Assert] the dashboard is visible",
+      config: resolveRunConfig({ env: { ...pcfEnv, JL_VAR_role: "BRANCH_ADMIN" } }),
+      macros: loadMacros([])
+    });
+    expect(plan.params.role).toBe("BRANCH_ADMIN");
+  });
+});

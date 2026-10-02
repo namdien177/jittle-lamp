@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
 import { sha256Hex, type BlockedReason, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
@@ -8,16 +7,14 @@ import { sha256Hex, type BlockedReason, type CacheMode, type RunArtifact, type R
 import { loadEnvFiles, type EnvFile } from "./config/env-files";
 import { collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
 import { generateProject, type GeneratedProject } from "./generate/project";
+import { e2ePackageDir, engineVersion, runnerVersion } from "./paths";
 import { ModelResolutionError, resolveModel } from "./model/providers";
 import { buildRunPlan, loadMacros, type RunPlan } from "./plan";
 import { createRedactor, redactJson } from "./redact";
 import { buildRunReport, type AiTrace, type E2eReport } from "./report/build";
 import type { StepLogEvent } from "./runtime/step-log";
 
-const require = createRequire(import.meta.url);
-
-export const runnerVersion: string = (JSON.parse(readFileSync(require.resolve("../package.json"), "utf8")) as { version: string }).version;
-export const engineVersion: string = (JSON.parse(readFileSync(require.resolve("e2e/package.json"), "utf8")) as { version: string }).version;
+export { engineVersion, runnerVersion };
 
 export type RunTranscriptOptions = {
   transcript: string;
@@ -59,6 +56,7 @@ export type RunTranscriptResult = {
 };
 
 const defaultViewport = { width: 1440, height: 900 };
+const claudeCodeAuthNames = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
 
 function newRunId(): string {
   return `run_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -101,6 +99,15 @@ function readStepLog(path: string): StepLogEvent[] {
     });
 }
 
+// Host names the browser run needs: paths, locale, display, proxies and CA bundles (VPN and
+// self-hosted runners), and the Windows profile variables Playwright uses to find browsers.
+const hostEnvNames = [
+  "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TZ",
+  "PLAYWRIGHT_BROWSERS_PATH", "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS",
+  "SystemRoot", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "PATHEXT", "ComSpec", "windir"
+] as const;
+
 // The e2e process sees only what it needs: a minimal host environment plus the resolved JL_*
 // names. Nothing else from the caller's environment leaks into the browser run.
 export function buildChildEnv(input: {
@@ -110,7 +117,7 @@ export function buildChildEnv(input: {
   extra: Record<string, string>;
 }): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const name of ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SystemRoot", "PLAYWRIGHT_BROWSERS_PATH", "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY"]) {
+  for (const name of hostEnvNames) {
     const value = input.host[name];
     if (value !== undefined) env[name] = value;
   }
@@ -149,7 +156,17 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   const transcriptDir = options.transcriptPath ? dirname(resolve(options.cwd, options.transcriptPath)) : options.cwd;
   const macros = loadMacros([...(options.macroDirs ?? []), join(transcriptDir, "../macros"), join(options.cwd, "e2e/macros")]);
   const plan = buildRunPlan({ transcript: options.transcript, config, macros, params: options.params ?? {} });
-  const redact = createRedactor(collectSecretValues(config));
+  const allowClaudeCode = options.allowClaudeCode ?? env.JL_ALLOW_CLAUDE_CODE === "1";
+  // claude-code/ models (development only) spawn the `claude` CLI, which authenticates with the
+  // host's ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN; only those pass through, redacted.
+  const claudeCodeEnv: Record<string, string> = {};
+  if (allowClaudeCode && [config.actModel?.value, config.judgeModel?.value].some((id) => id?.startsWith("claude-code/"))) {
+    for (const name of claudeCodeAuthNames) {
+      const value = env[name];
+      if (value) claudeCodeEnv[name] = value;
+    }
+  }
+  const redact = createRedactor([...collectSecretValues(config), ...Object.values(claudeCodeEnv).filter((value) => !/^https?:/.test(value))]);
   const log = (line: string) => options.log?.(redact(line));
 
   const viewport = options.viewport ?? defaultViewport;
@@ -174,6 +191,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
 
   const finish = (input: {
     blocked?: { reason: BlockedReason; message: string } | null;
+    cancelled?: boolean;
     e2eReport?: E2eReport | null;
     aiTrace?: AiTrace | null;
     stepLog?: StepLogEvent[];
@@ -199,7 +217,8 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
         startedAt,
         finishedAt: new Date().toISOString(),
         artifacts: input.artifacts ?? [],
-        blocked: input.blocked ?? null
+        blocked: input.blocked ?? null,
+        cancelled: input.cancelled ?? false
       }),
       redact
     );
@@ -230,7 +249,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     const keys = Object.fromEntries([...config.providerKeys].map(([name, value]) => [name, value.value]));
     try {
       for (const id of new Set([model.act, model.judge].filter((value): value is string => value !== null))) {
-        await resolveModel(id, { keys, allowClaudeCode: options.allowClaudeCode ?? env.JL_ALLOW_CLAUDE_CODE === "1" });
+        await resolveModel(id, { keys, allowClaudeCode });
       }
     } catch (error) {
       if (error instanceof ModelResolutionError) return finish({ blocked: { reason: error.code, message: error.message } });
@@ -251,9 +270,12 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   });
 
   // instructionDigest → transcript step, so cache files say which step they belong to.
-  const cacheIndex: Record<string, { stepId: string; instructionKey: string }> = {};
+  // Two act steps with the same instruction share a digest; the store lists every candidate.
+  const cacheIndex: Record<string, Array<{ stepId: string; instructionKey: string }>> = {};
   for (const item of project.compiled) {
-    if (item.call === "act") cacheIndex[e2eInstructionDigest(item.template)] = { stepId: item.step.stepId, instructionKey: item.step.instructionKey };
+    if (item.call !== "act") continue;
+    const digest = e2eInstructionDigest(item.template);
+    cacheIndex[digest] = [...(cacheIndex[digest] ?? []), { stepId: item.step.stepId, instructionKey: item.step.instructionKey }];
   }
   const cacheIndexPath = join(runDir, "cache-index.json");
   writeFileSync(cacheIndexPath, JSON.stringify(cacheIndex, null, 2));
@@ -265,20 +287,24 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     plan,
     host: env,
     extra: {
+      ...claudeCodeEnv,
       JL_STEP_LOG: stepLogPath,
       JL_PROGRESS_LOG: progressPath,
       JL_SCREENSHOT_DIR: screenshotDir,
       JL_CACHE_INDEX: cacheIndexPath,
-      ...(options.allowClaudeCode || env.JL_ALLOW_CLAUDE_CODE === "1" ? { JL_ALLOW_CLAUDE_CODE: "1" } : {}),
+      ...(allowClaudeCode ? { JL_ALLOW_CLAUDE_CODE: "1" } : {}),
       ...(options.recordModelFixture ? { JL_RECORD_MODEL_FIXTURE: resolve(options.cwd, options.recordModelFixture) } : {})
     }
   });
 
-  const e2eBin = join(dirname(require.resolve("e2e/package.json")), "dist/cli/bin.js");
+  const e2eBin = join(e2ePackageDir, "dist/cli/bin.js");
   const args = [e2eBin, "run", "--config", project.configPath, "--ai-trace", ...(options.headed ? ["--headed"] : [])];
   log(`e2e run (${plan.steps.filter((step) => step.executes).length} steps, cache ${cacheMode})`);
 
   const outputLog = join(runDir, "e2e-output.log");
+  const timeoutMs = (options.timeoutMs ?? 15 * 60_000) + 120_000;
+  let spawnError: Error | null = null;
+  let timedOut = false;
   const exitCode = await new Promise<number | null>((resolvePromise) => {
     const child = spawn(env.JL_NODE ?? "node", args, { cwd: project.dir, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
     let seen = 0;
@@ -287,19 +313,31 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       for (const event of events.slice(seen)) options.onStepEvent?.(event);
       seen = events.length;
     }, 300);
+    // Watchdog above e2e's own attempt deadline: a hung engine must not hold a runner slot.
+    const watchdog = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
     const chunks: string[] = [];
-    child.stdout.on("data", (data: Buffer) => chunks.push(redact(data.toString())));
-    child.stderr.on("data", (data: Buffer) => chunks.push(redact(data.toString())));
+    child.stdout.on("data", (data: Buffer) => chunks.push(data.toString()));
+    child.stderr.on("data", (data: Buffer) => chunks.push(data.toString()));
     const abort = () => child.kill("SIGTERM");
     options.signal?.addEventListener("abort", abort, { once: true });
-    child.on("close", (code) => {
+    const done = (code: number | null) => {
       clearInterval(poll);
+      clearTimeout(watchdog);
       const events = readStepLog(stepLogPath);
       for (const event of events.slice(seen)) options.onStepEvent?.(event);
       options.signal?.removeEventListener("abort", abort);
-      writeFileSync(outputLog, chunks.join(""));
+      // Redact the whole log at once: a secret can straddle two chunks.
+      writeFileSync(outputLog, redact(chunks.join("")));
       resolvePromise(code);
+    };
+    child.on("error", (error) => {
+      spawnError = error;
+      done(null);
     });
+    child.on("close", (code) => done(code));
   });
 
   const e2eReport = readJson<E2eReport>(join(project.outputDir, "report.json"));
@@ -330,8 +368,13 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   }
 
   log(`e2e exited with ${exitCode}`);
-  if (exitCode === null && options.signal?.aborted) {
-    return finish({ blocked: { reason: "CANCELLED", message: "Run cancelled." }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
+  if (options.signal?.aborted) {
+    // e2e traps SIGTERM and exits 130.
+    return finish({ blocked: { reason: "CANCELLED", message: "Run cancelled." }, cancelled: true, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
+  }
+  if (spawnError || timedOut) {
+    const message = timedOut ? `e2e did not finish within ${timeoutMs} ms` : `could not start e2e: ${(spawnError as Error | null)?.message ?? "unknown error"}`;
+    return finish({ blocked: { reason: "ENGINE_ERROR", message }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
   }
   return finish({ e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
 }

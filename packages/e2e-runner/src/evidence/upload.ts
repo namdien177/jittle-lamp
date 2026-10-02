@@ -86,6 +86,8 @@ export function writeEvidenceBundle(result: RunTranscriptResult): EvidenceBundle
   writeFileSync(recordingPath, recording);
   writeFileSync(reportPath, result.redact(`${JSON.stringify(report, null, 2)}\n`));
   writeFileSync(result.reportPath, result.redact(`${JSON.stringify(report, null, 2)}\n`));
+  // Keep the project-level copy in step with the run's.
+  writeFileSync(join(result.runDir, "..", "..", "report.json"), result.redact(`${JSON.stringify(report, null, 2)}\n`));
   writeFileSync(zipPath, zipSync({ [sessionArchiveFileName]: archiveJson, [recordingFileName]: [recording, { level: 0 }] }));
   return { dir, archivePath, recordingPath, reportPath, zipPath, report };
 }

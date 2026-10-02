@@ -6,6 +6,7 @@ import type { StepScriptFile } from "../runtime/cache-store";
 export type CacheListEntry = {
   keyHash: string;
   stepId: string | null;
+  stepIds: string[];
   environment: string | null;
   recordedAt: string;
   actions: number;
@@ -24,6 +25,7 @@ export function listCache(dir: string): CacheListEntry[] {
           {
             keyHash: file.keyHash,
             stepId: file.stepId,
+            stepIds: file.stepIds ?? (file.stepId ? [file.stepId] : []),
             environment: file.environment,
             recordedAt: file.recordedAt,
             actions: file.entry.payload.actions.length,
@@ -39,7 +41,7 @@ export function listCache(dir: string): CacheListEntry[] {
 }
 
 export function clearCache(dir: string, stepId: string | null): number {
-  const entries = listCache(dir).filter((entry) => stepId === null || entry.stepId === stepId);
+  const entries = listCache(dir).filter((entry) => stepId === null || entry.stepIds.includes(stepId));
   for (const entry of entries) rmSync(entry.file, { force: true });
   return entries.length;
 }

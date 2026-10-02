@@ -21,6 +21,7 @@ import type { StepLogEvent } from "../runtime/step-log";
 
 export type E2eReportStep = {
   index: number;
+  startedAt?: string;
   kind?: string;
   api?: string;
   label?: string;
@@ -131,6 +132,26 @@ export function modeOf(step: PlannedStep, e2eStep: E2eReportStep | undefined): {
   return { mode: agentSideReasons.has(reason) ? "agent" : "handoff", cacheReason };
 }
 
+const blockedReasonByCode: Record<string, BlockedReason> = {
+  ASSERTION_INCONCLUSIVE: "INCONCLUSIVE",
+  MODEL_PROVIDER_FAILED: "MODEL_UNAVAILABLE",
+  MODEL_OUTPUT_INVALID: "MODEL_UNAVAILABLE",
+  MODEL_UNAVAILABLE: "MODEL_UNAVAILABLE",
+  APP_UNREACHABLE: "APP_UNREACHABLE",
+  ENVIRONMENT_UNAVAILABLE: "APP_UNREACHABLE",
+  AUTH_CREDENTIAL_UNAVAILABLE: "AUTH_CREDENTIAL_UNAVAILABLE",
+  AUTH_CREDENTIAL_INVALID: "AUTH_CREDENTIAL_UNAVAILABLE",
+  SECRET_UNAVAILABLE: "MISSING_CREDENTIAL",
+  MISSING_CREDENTIAL: "MISSING_CREDENTIAL",
+  MISSING_VARIABLE: "MISSING_VARIABLE",
+  STEP_BUDGET_EXHAUSTED: "STEP_BUDGET_EXHAUSTED",
+  REPLAY_STALE: "REPLAY_STALE"
+};
+
+export function blockedReasonFor(code: string | null): BlockedReason {
+  return (code && blockedReasonByCode[code]) || "INCONCLUSIVE";
+}
+
 export type BuildReportInput = {
   plan: RunPlan;
   runId: string | null;
@@ -147,6 +168,7 @@ export type BuildReportInput = {
   finishedAt: string;
   artifacts: RunArtifact[];
   blocked?: { reason: BlockedReason; message: string } | null;
+  cancelled?: boolean;
   attempt?: number;
 };
 
@@ -168,22 +190,39 @@ export function buildRunReport(input: BuildReportInput): RunReport {
   const traceUsage = usageFromAiTrace(input.aiTrace);
   const traceSeen = new Map<string, number>();
 
-  // e2e reports one step per open/act/assert/waitFor/extract call, in the order the test made them.
-  let e2eCursor = 0;
+  // e2e reports one step per open/act/assert/waitFor/extract call. Each belongs to the transcript
+  // step whose window contains its start; a re-judged assert yields two e2e steps for one of ours.
+  const windows = plan.steps.flatMap((step) => {
+    const begin = started.get(step.stepId);
+    if (!begin || !step.executes) return [];
+    const end = finished.get(step.stepId);
+    return [{ stepId: step.stepId, start: Date.parse(begin.at), end: end ? Date.parse(end.at) : Number.POSITIVE_INFINITY }];
+  });
+  const e2eByStep = new Map<string, E2eReportStep[]>();
+  e2eSteps.forEach((e2eStep, position) => {
+    const at = e2eStep.startedAt ? Date.parse(e2eStep.startedAt) : Number.NaN;
+    // Fallback without timestamps: the n-th e2e call belongs to the n-th executing step.
+    const owner = Number.isNaN(at)
+      ? windows.filter((window) => callingTypes.has(plan.steps.find((step) => step.stepId === window.stepId)?.type ?? ""))[position]
+      : windows.filter((window) => at >= window.start - 5 && at <= window.end).at(-1);
+    if (owner) e2eByStep.set(owner.stepId, [...(e2eByStep.get(owner.stepId) ?? []), e2eStep]);
+  });
+
   const steps: RunStepResult[] = plan.steps.map((step) => {
     const begin = started.get(step.stepId);
     const end = finished.get(step.stepId);
-    const executesCall = step.executes && callingTypes.has(step.type) && step.type !== "login" && step.type !== "macro";
-    const e2eStep = executesCall && begin ? e2eSteps[e2eCursor++] : undefined;
+    const ownSteps = e2eByStep.get(step.stepId) ?? [];
+    const e2eStep = ownSteps.at(-1);
 
     let usage = emptyModelUsage();
-    if (e2eStep && (e2eStep.metrics?.modelCalls ?? e2eStep.model?.calls ?? 0) > 0) {
-      const key = `${e2eStep.api ?? ""}\u0000${e2eStep.label ?? ""}`;
+    for (const own of ownSteps) {
+      if ((own.metrics?.modelCalls ?? own.model?.calls ?? 0) === 0) continue;
+      const key = `${own.api ?? ""}\u0000${own.label ?? ""}`;
       const occurrence = traceSeen.get(key) ?? 0;
       traceSeen.set(key, occurrence + 1);
       const fromTrace = traceUsage.get(key)?.[occurrence];
-      const fromReport = usageFromReportStep(e2eStep);
-      usage = fromTrace && fromTrace.modelCalls > 0 ? { ...fromTrace, costUsd: fromReport.costUsd } : fromReport;
+      const fromReport = usageFromReportStep(own);
+      usage = addModelUsage(usage, fromTrace && fromTrace.modelCalls > 0 ? { ...fromTrace, costUsd: fromReport.costUsd } : fromReport);
     }
 
     const { mode, cacheReason } = begin ? modeOf(step, e2eStep) : { mode: null, cacheReason: null };
@@ -242,19 +281,21 @@ export function buildRunReport(input: BuildReportInput): RunReport {
   const blockedStep = leaf.find((step) => step.status === "blocked");
   let blockedReason: BlockedReason | null = input.blocked?.reason ?? null;
   const errors: RunReport["errors"] = input.blocked ? [{ code: input.blocked.reason, message: input.blocked.message }] : [];
-  if (!input.blocked && input.exitCode !== null && input.exitCode >= 2 && !failedStep) {
-    blockedReason = blockedStep?.error?.code === "MODEL_UNAVAILABLE" ? "MODEL_UNAVAILABLE" : "ENGINE_ERROR";
+  // A blocked step names the reason; only without one does a non-zero e2e exit become ENGINE_ERROR.
+  if (!input.blocked && blockedStep) blockedReason = blockedReasonFor(blockedStep.error?.code ?? null);
+  if (!input.blocked && !blockedStep && !failedStep && input.exitCode !== null && input.exitCode >= 2) {
+    blockedReason = "ENGINE_ERROR";
     errors.push({ code: blockedReason, message: `e2e exited with code ${input.exitCode}` });
+  }
+  // A run where steps that should have executed never did cannot pass.
+  const unfinished = leaf.some((step) => step.status === "skipped") && !failedStep && !blockedStep;
+  if (!input.blocked && !blockedReason && unfinished && input.e2eReport !== null) {
+    blockedReason = "ENGINE_ERROR";
+    errors.push({ code: blockedReason, message: "Some steps never ran." });
   }
   if (!input.blocked && !input.e2eReport && input.exitCode !== null) {
     blockedReason = "ENGINE_ERROR";
     errors.push({ code: "ENGINE_ERROR", message: "e2e wrote no report.json" });
-  }
-  if (blockedStep && !blockedReason) {
-    const code = blockedStep.error?.code ?? "INCONCLUSIVE";
-    blockedReason = (["APP_UNREACHABLE", "AUTH_CREDENTIAL_UNAVAILABLE", "STEP_BUDGET_EXHAUSTED", "MODEL_UNAVAILABLE", "REPLAY_STALE"] as const).find(
-      (reason) => reason === code
-    ) ?? "INCONCLUSIVE";
   }
   for (const step of leaf) if (step.error) errors.push({ code: step.error.code, message: step.error.message });
 
@@ -274,7 +315,7 @@ export function buildRunReport(input: BuildReportInput): RunReport {
     params: plan.params,
     runner: input.runner,
     model: input.model,
-    status: blockedReason && !input.e2eReport ? "failed" : "completed",
+    status: input.cancelled ? "cancelled" : blockedReason && !input.e2eReport ? "failed" : "completed",
     outcome,
     blockedReason,
     missing: plan.missing,

@@ -14,6 +14,8 @@ export type StepScriptFile = {
   schemaVersion: "jl-step-script-1";
   keyHash: string;
   stepId: string | null;
+  // Every step with this instruction (repeated lines share one e2e digest).
+  stepIds: string[];
   instructionKey: string | null;
   environment: string | null;
   recordedAt: string;
@@ -21,7 +23,7 @@ export type StepScriptFile = {
   entry: TraceEntry;
 };
 
-export type CacheIndex = Record<string, { stepId: string; instructionKey: string }>;
+export type CacheIndex = Record<string, Array<{ stepId: string; instructionKey: string }>>;
 
 function readIndex(path: string | undefined): CacheIndex {
   if (!path || !existsSync(path)) return {};
@@ -62,11 +64,13 @@ export function createJlCacheStore(options: { dir: string; writable: boolean; in
       mkdirSync(options.dir, { recursive: true });
       const index = readIndex(options.indexPath ?? process.env.JL_CACHE_INDEX);
       const digest = payload.recordedFor?.instructionDigest;
-      const step = digest ? index[digest] : undefined;
+      const candidates = digest ? (index[digest] ?? []) : [];
+      const step = candidates[0];
       const file: StepScriptFile = {
         schemaVersion: "jl-step-script-1",
         keyHash,
         stepId: step?.stepId ?? null,
+        stepIds: candidates.map((candidate) => candidate.stepId),
         instructionKey: step?.instructionKey ?? null,
         environment: options.environment ?? process.env.JL_ENV_NAME ?? null,
         recordedAt: new Date().toISOString(),

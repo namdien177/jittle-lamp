@@ -1,20 +1,17 @@
 import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 import type { CacheMode } from "@jittle-lamp/shared";
 
 import { isSecretCredentialField, type ResolvedRunConfig } from "../config/resolve";
 import type { PlannedStep, RunPlan } from "../plan";
+import { e2ePackageDir, runtimeDir } from "../paths";
 import type { Binding } from "../runtime/test-helpers";
 
 // Transcript → generated e2e project (ADR 0002 decision 10): `tests/case.e2e.ts` with one e2e call
 // per executable step, and `e2e.config.ts` with the target, models, cache and secrets. Both files
 // hold names only; values arrive through the JL_* environment of the e2e process.
 
-const runtimeDir = resolve(dirname(fileURLToPath(import.meta.url)), "../runtime");
-const require = createRequire(import.meta.url);
 
 // e2e keys its replay cache on the test file path and title; both stay constant so a case keeps
 // its scripts across runs, run directories and machines.
@@ -121,7 +118,7 @@ function callCode(compiled: CompiledStep): string {
         ? `agent.act(${template}, { params: jl.params(${bindings}) })`
         : `agent.act(${template})`;
     case "assert":
-      return `agent.assert(jl.fill(${template}, ${bindings}))`;
+      return `jl.settle(() => agent.assert(jl.fill(${template}, ${bindings})))`;
     case "wait":
       return `agent.waitFor(jl.fill(${template}, ${bindings}))`;
     case "extract": {
@@ -237,7 +234,7 @@ export function renderConfigFile(input: {
 function e2eNodeModulesDir(): string {
   // The directory that contains the resolved `e2e` package, so the generated project resolves the
   // same e2e, engine and provider packages as the runner.
-  return dirname(dirname(require.resolve("e2e/package.json")));
+  return dirname(e2ePackageDir);
 }
 
 export function generateProject(options: GenerateOptions): GeneratedProject {
@@ -245,7 +242,7 @@ export function generateProject(options: GenerateOptions): GeneratedProject {
   rmSync(join(dir, "tests"), { recursive: true, force: true });
   mkdirSync(join(dir, "tests"), { recursive: true });
   const nodeModules = join(dir, "node_modules");
-  if (!existsSync(nodeModules)) symlinkSync(e2eNodeModulesDir(), nodeModules, "dir");
+  if (!existsSync(nodeModules)) symlinkSync(e2eNodeModulesDir(), nodeModules, process.platform === "win32" ? "junction" : "dir");
 
   const extractedNames = new Set<string>();
   const compiled: CompiledStep[] = [];
@@ -282,7 +279,7 @@ export function generateProject(options: GenerateOptions): GeneratedProject {
     configPath,
     renderConfigFile({
       targetName,
-      appIdentity: `jl-env:${plan.environmentName ?? new URL(fallbackUrl).host}`,
+      appIdentity: `jl-env:${plan.environmentName ?? new URL(fallbackUrl).hostname}`,
       fallbackUrl,
       credentialProfiles: [...credentialProfiles],
       secretNames: secretList,
