@@ -137,6 +137,8 @@ describe("AI user access", () => {
 			["GET", "/test-tags"],
 			["GET", "/notifications"],
 			["POST", "/notifications/read"],
+			["POST", "/notifications/read-all"],
+			["POST", "/notifications/event-1/read"],
 		] as const) {
 			expect(isAiUserRouteAllowed(method, path)).toBe(true);
 		}

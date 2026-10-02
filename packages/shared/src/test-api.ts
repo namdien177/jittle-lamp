@@ -686,6 +686,13 @@ export const notificationSchema = z.object({
   readAt: epochMs.nullable()
 });
 export const notificationListResponseSchema = z.object({ items: z.array(notificationSchema), unread: z.number().int().nonnegative() });
+// Marks notifications read: the listed ids, or everything with `all`.
+export const markNotificationsReadRequestSchema = z.object({ ids: z.array(id).max(500).default([]), all: z.boolean().default(false) });
+// Per-user opt-in by kind; run events about the user's own runs are always delivered.
+export const notificationSubscriptionsSchema = z.object({
+  subscribed: z.array(notificationKindSchema),
+  unsubscribed: z.array(notificationKindSchema).default([])
+});
 
 export const notificationChannelSchema = z.object({
   id,
@@ -801,6 +808,7 @@ export type ModelSettings = z.infer<typeof modelSettingsSchema>;
 export type ModelCostReport = z.infer<typeof modelCostReportSchema>;
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 export type Notification = z.infer<typeof notificationSchema>;
+export type NotificationSubscriptions = z.infer<typeof notificationSubscriptionsSchema>;
 export type NotificationChannel = z.infer<typeof notificationChannelSchema>;
 export type WebhookRule = z.infer<typeof webhookRuleSchema>;
 export type WebhookEndpoint = z.infer<typeof webhookEndpointSchema>;

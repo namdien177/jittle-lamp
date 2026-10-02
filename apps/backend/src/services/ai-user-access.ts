@@ -103,7 +103,8 @@ const aiUserRoutes: ReadonlyArray<{
 		path: /^\/test-(?:environments|credentials|macros|tags)\/?$/,
 	},
 	{ methods: ["GET"], path: /^\/notifications\/?$/ },
-	{ methods: ["POST"], path: /^\/notifications\/read\/?$/ },
+	{ methods: ["POST"], path: /^\/notifications\/read(?:-all)?\/?$/ },
+	{ methods: ["POST"], path: /^\/notifications\/[^/%?#]+\/read\/?$/ },
 ];
 
 export const isAiUserRouteAllowed = (method: string, path: string): boolean => {

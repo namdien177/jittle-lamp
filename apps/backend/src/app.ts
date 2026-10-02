@@ -19,6 +19,7 @@ import {
 	createMigrationDiscoveryRoutes,
 	createMigrationManagementRoutes,
 } from "./routes/migrations";
+import { createNotificationRoutes } from "./routes/notifications";
 import { createOrganizationRoutes } from "./routes/orgs";
 import { createProtectedRoutes } from "./routes/protected";
 import { createRunnerPoolRoutes } from "./routes/runner-pools";
@@ -183,6 +184,7 @@ export const createApp = (
 		.use(createTestRunRoutes(auth))
 		.use(createTestConfigRoutes(auth))
 		.use(createRunnerPoolRoutes(auth))
+		.use(createNotificationRoutes(auth))
 		.use(createProtectedRoutes(auth));
 
 	if (artifactStorage.mode === "memory" && devArtifactReadEnabled(runtime)) {

@@ -18,6 +18,7 @@ import {
 	testImportItems,
 } from "../db/schema";
 import { HttpError, notFound } from "../http/test-http";
+import { emitNotification, emitReviewPendingCount } from "./notifications";
 import {
 	createTestCase,
 	deriveCaseColumns,
@@ -697,5 +698,17 @@ export const patchImportBatch = async (
 		})
 		.where(eq(testImportBatches.id, batch.id))
 		.returning();
+	await emitNotification(db, {
+		orgId: input.orgId,
+		kind: "import.finished",
+		subjectType: "test_import_batch",
+		subjectId: batch.id,
+		actorId: input.userId,
+		recipients: [batch.createdBy, input.userId],
+		payload: { sourceKind: batch.sourceKind, ...counts },
+	});
+	if (counts.created + counts.updated > 0) {
+		await emitReviewPendingCount(db, input.orgId, input.userId);
+	}
 	return { batch: done ?? batch, committed: true };
 };

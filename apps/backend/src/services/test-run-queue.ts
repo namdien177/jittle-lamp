@@ -1,6 +1,11 @@
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
-import { runnerWorkers, testRuns } from "../db/schema";
+import { runnerPools, runnerWorkers, testRuns } from "../db/schema";
+import {
+	dispatchPendingNotifications,
+	emitNotification,
+	emitRunOutcome,
+} from "./notifications";
 import {
 	ACTIVE_RUN_STATUSES,
 	poolConcurrency,
@@ -8,6 +13,7 @@ import {
 	RUN_LEASE_MS,
 	RUN_MAX_ATTEMPTS,
 	type RunnerPoolRow,
+	refreshBatch,
 	type TestRunRow,
 	WORKER_LIVE_MS,
 } from "./test-runs";
@@ -242,6 +248,41 @@ export const sweepRunQueue = async (
 			)
 			.returning(),
 	);
+
+	// Producers: lost and lease-cancelled runs, offline runners (design.md §10b).
+	const finishedIds = [
+		...result.lost.map((run) => run.id),
+		...result.cancelled,
+	];
+	if (finishedIds.length > 0) {
+		const finished = await db.query.testRuns.findMany({
+			where: inArray(testRuns.id, finishedIds),
+		});
+		for (const run of finished) {
+			await emitRunOutcome(db, run);
+			if (run.batchId) await refreshBatch(db, run.batchId, now);
+		}
+	}
+	for (const worker of result.offlineWorkers) {
+		const pool = await db.query.runnerPools.findFirst({
+			where: eq(runnerPools.id, worker.poolId),
+			columns: { name: true, createdBy: true },
+		});
+		await emitNotification(db, {
+			orgId: worker.orgId,
+			kind: "runner.offline",
+			subjectType: "runner_worker",
+			subjectId: worker.id,
+			recipients: [pool?.createdBy],
+			payload: {
+				poolId: worker.poolId,
+				poolName: pool?.name ?? null,
+				hostname: worker.hostname,
+				lastHeartbeatAt: worker.lastHeartbeatAt,
+			},
+		});
+	}
+	await dispatchPendingNotifications(db, now).catch(() => 0);
 	return result;
 };
 

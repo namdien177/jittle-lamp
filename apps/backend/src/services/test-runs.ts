@@ -46,6 +46,7 @@ import {
 } from "../db/schema";
 import { HttpError, notFound } from "../http/test-http";
 import type { ArtifactStorage } from "./artifact-storage";
+import { emitNotification, emitRunOutcome } from "./notifications";
 import { caseSteps, parseJsonColumn, type TestCaseRow } from "./test-cases";
 import {
 	createOpaqueToken,
@@ -760,7 +761,35 @@ export const refreshBatch = async (
 			updatedAt: now,
 		})
 		.where(eq(testRunBatches.id, batchId));
-	return { finished: finished && batch.finishedAt === null, changed };
+	const justFinished = finished && batch.finishedAt === null;
+	if (justFinished) {
+		const subscribers = runs.length
+			? await db.query.testRunSubscribers.findMany({
+					where: inArray(
+						testRunSubscribers.runId,
+						runs.map((run) => run.id),
+					),
+					columns: { userId: true },
+				})
+			: [];
+		await emitNotification(db, {
+			orgId: batch.orgId,
+			kind: "batch.finished",
+			subjectType: "test_run_batch",
+			subjectId: batch.id,
+			recipients: [batch.createdBy, ...subscribers.map((row) => row.userId)],
+			payload: {
+				kind: batch.kind,
+				suiteId: batch.suiteId,
+				status,
+				total: runs.length,
+				passed,
+				failed,
+				blocked,
+			},
+		});
+	}
+	return { finished: justFinished, changed };
 };
 
 export const toBatch = async (
@@ -1307,6 +1336,11 @@ export const cancelRun = async (
 			.where(and(eq(testRuns.id, run.id), eq(testRuns.status, "queued")))
 			.returning({ id: testRuns.id });
 		if (updated.length > 0) {
+			await emitRunOutcome(db, {
+				...run,
+				status: "cancelled",
+				cancelledBy: input.userId,
+			});
 			if (run.batchId) await refreshBatch(db, run.batchId, now);
 			return { cancelled: true, cancelRequested: true, unsubscribed: false };
 		}

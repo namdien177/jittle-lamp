@@ -17,6 +17,7 @@ import {
 	testStepScripts,
 } from "../db/schema";
 import { HttpError } from "../http/test-http";
+import { emitRunOutcome } from "./notifications";
 import { parseJsonColumn } from "./test-cases";
 import { releaseWorkerRun } from "./test-run-queue";
 import {
@@ -294,6 +295,8 @@ export const finalizeRun = async (
 			.returning();
 		if (flaky) final = flaky;
 	}
+	// A retried attempt is not the verdict; subscribers hear about the final attempt.
+	if (!retry) await emitRunOutcome(db, final);
 	if (final.batchId) await refreshBatch(db, final.batchId, now);
 	return { run: final, alreadyFinal: false, retry };
 };
