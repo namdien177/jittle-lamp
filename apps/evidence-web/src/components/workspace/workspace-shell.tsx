@@ -20,6 +20,7 @@ import { cn } from "../../lib/cn";
 import { UserButton } from "../../auth";
 import { useAccountProfile } from "../../queries";
 import { DuplicateDialogHost } from "../../test-cases/duplicate-dialog";
+import { NotificationBell } from "../../notifications/notification-bell";
 import { Badge } from "../ui/badge";
 import { buttonVariants } from "../ui/button";
 import { UploadEvidenceButton } from "../upload-evidence-button";
@@ -328,6 +329,7 @@ export function WorkspaceShell({
               </>
             ) : null}
             {location.pathname !== "/evidence" ? <EvidenceSearch /> : null}
+            <NotificationBell />
             <button
               type="button"
               aria-label="Toggle theme"

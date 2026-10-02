@@ -1,3 +1,5 @@
+import { lintTestCase, parseTestCaseTranscript, type LintFinding, type MacroDefinition, type MacroParam } from "@jittle-lamp/shared";
+
 // Pure helpers for Settings → Test cases (design.md §9.3, §10.4, §14). No React, no DOM.
 
 // ---------------------------------------------------------------------------------------------
@@ -209,4 +211,43 @@ export function runSettingsFromForm(form: RunSettingsForm): { value: RunSettings
     },
     errors
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Macros
+// ---------------------------------------------------------------------------------------------
+
+// Rules about whole cases do not apply to a macro body.
+const caseOnlyRules = new Set(["missing-title", "no-assert", "step-count", "assert-without-checkpoint"]);
+
+export function lintMacroBody(transcript: string, params: readonly Pick<MacroParam, "name">[], macros: readonly Pick<MacroDefinition, "name" | "params">[]): LintFinding[] {
+  if (transcript.trim().length === 0) return [];
+  try {
+    const { testCase } = parseTestCaseTranscript(transcript);
+    return lintTestCase(testCase, {
+      macros: macros.map((macro) => ({ name: macro.name, params: macro.params })),
+      environmentVariables: params.map((param) => param.name)
+    }).filter((finding) => !caseOnlyRules.has(finding.ruleId));
+  } catch (error) {
+    return [{ ruleId: "parse", severity: "error", message: error instanceof Error ? error.message : "Cannot parse the body.", stepId: null, line: null, fix: null }];
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------------------------
+
+export const tagColors = ["#22c55e", "#0ea5e9", "#6366f1", "#a855f7", "#ec4899", "#ef4444", "#f97316", "#eab308", "#64748b"] as const;
+
+export function tagLabel(tag: { namespace: string; name: string }): string {
+  return tag.namespace ? `${tag.namespace}:${tag.name}` : tag.name;
+}
+
+// Namespaces alphabetically with free tags (empty namespace) last; tags by name within each.
+export function groupTagsByNamespace<T extends { namespace: string; name: string }>(tags: readonly T[]): Array<{ namespace: string; tags: T[] }> {
+  const groups = new Map<string, T[]>();
+  for (const tag of tags) groups.set(tag.namespace, [...(groups.get(tag.namespace) ?? []), tag]);
+  return [...groups.entries()]
+    .sort(([left], [right]) => (left === "" ? 1 : right === "" ? -1 : left.localeCompare(right)))
+    .map(([namespace, items]) => ({ namespace, tags: [...items].sort((left, right) => left.name.localeCompare(right.name)) }));
 }

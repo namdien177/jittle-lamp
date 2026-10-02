@@ -21,6 +21,7 @@ import { JoinPage } from "./pages/join";
 import { LandingPage } from "./pages/landing";
 import { PrivacyPage } from "./pages/privacy";
 import { RouteError } from "./pages/route-error";
+import { testCaseSettingsRoutes } from "./pages/settings-test-cases/routes";
 import { testCaseAdminRoutes } from "./test-cases/admin-routes";
 
 /** Thin progress bar shown during route transitions. */
@@ -132,7 +133,8 @@ export const router = createBrowserRouter([
               { index: true, lazy: async () => ({ Component: (await import("./pages/settings")).SettingsOverviewPage }) },
               { path: "ai-tokens", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsAiTokensPage }) },
               { path: "api-tokens", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsApiTokensPage }) },
-              { path: "migration", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsMigrationPage }) }
+              { path: "migration", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsMigrationPage }) },
+              ...testCaseSettingsRoutes
             ]
           }
         ]
