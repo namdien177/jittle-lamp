@@ -1,12 +1,14 @@
 import { createApp } from "./app";
 import { cleanupExpiredDeviceAuthState } from "./services/desktop-auth";
 import {
+	applyTestRunRetention,
 	cleanupAbandonedEvidenceUploads,
 	purgeExpiredDeletedEvidences,
 } from "./services/evidence-maintenance";
 import { createMigrationWorker } from "./services/migration-worker";
 import { cleanupExpiredOrganizationActivityLogs } from "./services/organization-activity";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
+import { createTestRunQueueWorker } from "./services/test-run-queue";
 import { runDatabaseMigrations } from "./startup/run-database-migrations";
 
 const { app, runtime, logger, db, artifactStorage, organizationMigration } =
@@ -45,6 +47,9 @@ try {
 				"durable organization migration worker started",
 			);
 		}
+		// Test run queue: lease expiry, RUNNER_LOST, NO_RUNNER and offline runners.
+		createTestRunQueueWorker({ db }).start();
+		logger.info("test run queue maintenance started");
 		const runMaintenance = async () => {
 			if (organizationMigration) {
 				try {
@@ -84,6 +89,15 @@ try {
 				}
 			} catch (err) {
 				logger.error({ err }, "failed to clean up abandoned evidence uploads");
+			}
+
+			try {
+				const binned = await applyTestRunRetention(db);
+				if (binned > 0) {
+					logger.info({ binned }, "expired test run evidence moved to the bin");
+				}
+			} catch (err) {
+				logger.error({ err }, "failed to apply test run evidence retention");
 			}
 
 			try {

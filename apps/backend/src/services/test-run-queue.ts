@@ -1,12 +1,15 @@
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { runnerWorkers, testRuns } from "../db/schema";
 import {
 	ACTIVE_RUN_STATUSES,
 	poolConcurrency,
+	RUN_HEARTBEAT_MS,
 	RUN_LEASE_MS,
+	RUN_MAX_ATTEMPTS,
 	type RunnerPoolRow,
 	type TestRunRow,
+	WORKER_LIVE_MS,
 } from "./test-runs";
 import { createOpaqueToken, hashToken, RUN_TOKEN_PREFIX } from "./test-tokens";
 import type { BackendDb } from "./user-provisioning";
@@ -117,5 +120,172 @@ export const expiredLeaseCondition = (now: number) =>
 export const noLiveWorkerForPool = (now: number, liveMs: number) =>
 	sql`not exists (select 1 from ${runnerWorkers} w where w.pool_id = ${testRuns.runnerPoolId} and w.revoked_at is null and w.last_heartbeat_at > ${now - liveMs})`;
 
-export const queuedWithoutPool = () =>
-	and(eq(testRuns.status, "queued"), isNull(testRuns.runnerPoolId));
+export type QueueSweepResult = {
+	requeued: string[];
+	lost: TestRunRow[];
+	cancelled: string[];
+	offlineWorkers: Array<typeof runnerWorkers.$inferSelect>;
+};
+
+// Lease maintenance (design.md §10.1): an expired lease returns the run to the queue with
+// attempts + 1; the third loss fails it as blocked RUNNER_LOST. A run whose cancel was requested
+// is cancelled instead. Queued runs of pools without a live worker carry NO_RUNNER.
+export const sweepRunQueue = async (
+	db: BackendDb,
+	now = Date.now(),
+): Promise<QueueSweepResult> => {
+	const result: QueueSweepResult = {
+		requeued: [],
+		lost: [],
+		cancelled: [],
+		offlineWorkers: [],
+	};
+	const expired = await db.query.testRuns.findMany({
+		where: expiredLeaseCondition(now),
+	});
+	for (const run of expired) {
+		const attempts = run.attempts + 1;
+		const guard = and(
+			eq(testRuns.id, run.id),
+			eq(testRuns.status, run.status),
+			eq(testRuns.workerLeaseExpiresAt, run.workerLeaseExpiresAt ?? 0),
+		);
+		const clearLease = {
+			workerId: null,
+			workerLeaseOwner: null,
+			workerLeaseExpiresAt: null,
+			workerHeartbeatAt: null,
+			runTokenHash: null,
+			runTokenExpiresAt: null,
+			currentStepId: null,
+			attempts,
+			updatedAt: now,
+		};
+		if (run.cancelRequestedAt !== null) {
+			const updated = await withBusyRetry(() =>
+				db
+					.update(testRuns)
+					.set({ ...clearLease, status: "cancelled", finishedAt: now })
+					.where(guard)
+					.returning({ id: testRuns.id }),
+			);
+			if (updated.length > 0) result.cancelled.push(run.id);
+		} else if (attempts >= RUN_MAX_ATTEMPTS) {
+			const [updated] = await withBusyRetry(() =>
+				db
+					.update(testRuns)
+					.set({
+						...clearLease,
+						status: "failed",
+						outcome: "blocked",
+						blockedReason: "RUNNER_LOST",
+						error: `The runner stopped heartbeating ${attempts} times`,
+						finishedAt: now,
+					})
+					.where(guard)
+					.returning(),
+			);
+			if (updated) result.lost.push(updated);
+		} else {
+			const updated = await withBusyRetry(() =>
+				db
+					.update(testRuns)
+					.set({ ...clearLease, status: "queued", claimedAt: null })
+					.where(guard)
+					.returning({ id: testRuns.id }),
+			);
+			if (updated.length > 0) result.requeued.push(run.id);
+		}
+		await releaseWorkerRun(db, run.id, now);
+	}
+
+	await withBusyRetry(() =>
+		db
+			.update(testRuns)
+			.set({ blockedReason: "NO_RUNNER", updatedAt: now })
+			.where(
+				and(
+					eq(testRuns.status, "queued"),
+					isNull(testRuns.blockedReason),
+					or(
+						isNull(testRuns.runnerPoolId),
+						noLiveWorkerForPool(now, WORKER_LIVE_MS),
+					),
+				),
+			),
+	);
+	await withBusyRetry(() =>
+		db
+			.update(testRuns)
+			.set({ blockedReason: null, updatedAt: now })
+			.where(
+				and(
+					eq(testRuns.status, "queued"),
+					eq(testRuns.blockedReason, "NO_RUNNER"),
+					sql`${testRuns.runnerPoolId} is not null`,
+					sql`not (${noLiveWorkerForPool(now, WORKER_LIVE_MS)})`,
+				),
+			),
+	);
+
+	// Workers that stopped heartbeating are reported once until they come back.
+	result.offlineWorkers = await withBusyRetry(() =>
+		db
+			.update(runnerWorkers)
+			.set({ offlineNotifiedAt: now, updatedAt: now })
+			.where(
+				and(
+					isNull(runnerWorkers.revokedAt),
+					isNull(runnerWorkers.offlineNotifiedAt),
+					lt(runnerWorkers.lastHeartbeatAt, now - RUNNER_OFFLINE_MS),
+				),
+			)
+			.returning(),
+	);
+	return result;
+};
+
+// A worker is reported offline after two missed lease windows.
+export const RUNNER_OFFLINE_MS = 2 * RUN_LEASE_MS;
+
+export type TestRunQueueWorker = {
+	runOnce(): Promise<QueueSweepResult>;
+	start(): () => void;
+};
+
+// Background loop next to the migration worker: sweeps leases every heartbeat interval.
+export const createTestRunQueueWorker = (input: {
+	db: BackendDb;
+	onSweep?: (result: QueueSweepResult) => Promise<void>;
+	intervalMs?: number;
+	now?: () => number;
+}): TestRunQueueWorker => {
+	const now = input.now ?? Date.now;
+	const runOnce = async () => {
+		const result = await sweepRunQueue(input.db, now());
+		await input.onSweep?.(result);
+		return result;
+	};
+	return {
+		runOnce,
+		start: () => {
+			let stopped = false;
+			const loop = async () => {
+				while (!stopped) {
+					await runOnce().catch(() => undefined);
+					await new Promise<void>((resolve) => {
+						const timer = setTimeout(
+							resolve,
+							input.intervalMs ?? RUN_HEARTBEAT_MS,
+						);
+						timer.unref();
+					});
+				}
+			};
+			void loop();
+			return () => {
+				stopped = true;
+			};
+		},
+	};
+};
