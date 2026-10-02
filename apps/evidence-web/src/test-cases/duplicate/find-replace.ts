@@ -20,28 +20,39 @@ export function activeReplacements(rows: readonly Replacement[]): Replacement[] 
   return result;
 }
 
-// Single left-to-right pass, longest match first at each position, so replacements do not chain
-// (`A→B`, `B→C` turns "AB" into "BC", not "CC").
+// Applied in order, each row over the result of the previous one (the backend's
+// `text.split(find).join(replace)` chain), so the preview matches the duplicate exactly. Replaced
+// text keeps its highlight even when a later row rewrites it.
 export function replacementSegments(text: string, rows: readonly Replacement[]): PreviewSegment[] {
-  const replacements = activeReplacements(rows).sort((left, right) => right.find.length - left.find.length);
-  if (replacements.length === 0) return text.length > 0 ? [{ text, replaced: false }] : [];
-  const segments: PreviewSegment[] = [];
-  let plain = "";
-  let index = 0;
-  while (index < text.length) {
-    const match = replacements.find((replacement) => text.startsWith(replacement.find, index));
-    if (match) {
-      if (plain.length > 0) segments.push({ text: plain, replaced: false });
-      plain = "";
-      segments.push({ text: match.replace, replaced: true, original: match.find });
-      index += match.find.length;
-    } else {
-      plain += text[index];
-      index += 1;
+  let segments: PreviewSegment[] = text.length > 0 ? [{ text, replaced: false }] : [];
+  for (const replacement of activeReplacements(rows)) {
+    const next: PreviewSegment[] = [];
+    for (const segment of segments) {
+      const parts = segment.text.split(replacement.find);
+      if (parts.length === 1) {
+        next.push(segment);
+        continue;
+      }
+      parts.forEach((part, index) => {
+        if (index > 0 && replacement.replace.length > 0) {
+          next.push({ text: replacement.replace, replaced: true, original: segment.replaced ? segment.original : replacement.find });
+        }
+        if (part.length > 0) next.push(segment.replaced ? { text: part, replaced: true, original: segment.original } : { text: part, replaced: false });
+      });
     }
+    segments = mergePlainSegments(next);
   }
-  if (plain.length > 0) segments.push({ text: plain, replaced: false });
   return segments;
+}
+
+function mergePlainSegments(segments: readonly PreviewSegment[]): PreviewSegment[] {
+  const merged: PreviewSegment[] = [];
+  for (const segment of segments) {
+    const last = merged[merged.length - 1];
+    if (last && !last.replaced && !segment.replaced) merged[merged.length - 1] = { text: last.text + segment.text, replaced: false };
+    else merged.push(segment);
+  }
+  return merged;
 }
 
 export function applyReplacements(text: string, rows: readonly Replacement[]): string {
@@ -51,7 +62,13 @@ export function applyReplacements(text: string, rows: readonly Replacement[]): s
 }
 
 export function countReplacements(text: string, rows: readonly Replacement[]): number {
-  return replacementSegments(text, rows).filter((segment) => segment.replaced).length;
+  let current = text;
+  let count = 0;
+  for (const replacement of activeReplacements(rows)) {
+    count += current.split(replacement.find).length - 1;
+    current = current.split(replacement.find).join(replacement.replace);
+  }
+  return count;
 }
 
 export function defaultDuplicateTitle(title: string): string {

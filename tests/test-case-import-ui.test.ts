@@ -391,19 +391,27 @@ describe("duplicate find/replace", () => {
     ""
   ].join("\n");
 
-  it("replaces literally in one pass without chaining and highlights each change", () => {
+  it("applies rows in order like the backend and highlights each change", () => {
+    const backend = (text: string, rows: Array<{ find: string; replace: string }>) => rows.reduce((current, row) => current.split(row.find).join(row.replace), text);
     const rows = [
       { find: "A", replace: "B" },
       { find: "B", replace: "C" }
     ];
-    expect(applyReplacements("AB", rows)).toBe("BC");
+    expect(applyReplacements("AB", rows)).toBe(backend("AB", rows));
+    expect(applyReplacements("AB", rows)).toBe("CC");
     expect(replacementSegments("xAy", rows)).toEqual([
       { text: "x", replaced: false },
-      { text: "B", replaced: true, original: "A" },
+      { text: "C", replaced: true, original: "A" },
       { text: "y", replaced: false }
     ]);
-    expect(applyReplacements("HQ_ADMIN and HQ", [{ find: "HQ", replace: "BR" }, { find: "HQ_ADMIN", replace: "BRANCH_ADMIN" }])).toBe("BRANCH_ADMIN and BR");
+    const roles = [
+      { find: "HQ_ADMIN", replace: "BRANCH_ADMIN" },
+      { find: "HQ admin", replace: "Branch admin" }
+    ];
+    expect(applyReplacements(source, roles)).toBe(backend(source, roles));
+    expect(replacementSegments("drop me", [{ find: " me", replace: "" }])).toEqual([{ text: "drop", replaced: false }]);
     expect(countReplacements(source, [{ find: "HQ_ADMIN", replace: "BRANCH_ADMIN" }])).toBe(2);
+    expect(countReplacements("AB", rows)).toBe(3);
     expect(applyReplacements("a.b", [{ find: ".", replace: "-" }])).toBe("a-b");
   });
 
