@@ -7,6 +7,7 @@ import {
 import { createMigrationWorker } from "./services/migration-worker";
 import { cleanupExpiredOrganizationActivityLogs } from "./services/organization-activity";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
+import { createTestRunQueueWorker } from "./services/test-run-queue";
 import { runDatabaseMigrations } from "./startup/run-database-migrations";
 
 const { app, runtime, logger, db, artifactStorage, organizationMigration } =
@@ -45,6 +46,9 @@ try {
 				"durable organization migration worker started",
 			);
 		}
+		// Test run queue: lease expiry, RUNNER_LOST, NO_RUNNER and offline runners.
+		createTestRunQueueWorker({ db }).start();
+		logger.info("test run queue maintenance started");
 		const runMaintenance = async () => {
 			if (organizationMigration) {
 				try {

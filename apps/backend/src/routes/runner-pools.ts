@@ -34,7 +34,7 @@ import {
 	toRunnerPool,
 	verifyWorkerToken,
 } from "../services/runner-pools";
-import { claimNextRun } from "../services/test-run-queue";
+import { claimNextRun, sweepRunQueue } from "../services/test-run-queue";
 import { buildClaimedRun } from "../services/test-runs";
 
 const poolParams = z.object({ id: z.string().min(1) });
@@ -120,6 +120,8 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 					worker,
 					request: { runId: worker.currentRunId, load: worker.load },
 				});
+				// Expired leases go back to the queue before this worker picks.
+				await sweepRunQueue(db);
 				const claimed = await claimNextRun(db, { pool, workerId: worker.id });
 				return respond(claimRunResponseSchema, {
 					run: claimed
