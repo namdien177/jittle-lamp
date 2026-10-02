@@ -48,6 +48,9 @@ describe("model spend", () => {
       ["Automation and deleted users", "67%", "3 runs"],
       ["Linh", "33%", "1 run"]
     ]);
+    expect(userShareRows(report, { currentUserId: "u1" }).map((row) => row.label)).toEqual(["Automation and deleted users", "Linh (you)"]);
+    expect(userShareRows({ ...report, byUser: [{ userId: "01a0fede-a47d", name: null, costUsd: 1, runs: 1 }] }).map((row) => row.label)).toEqual(["User 01a0fede"]);
+    expect(userShareRows({ ...report, byUser: [{ userId: "u9", name: null, costUsd: 1, runs: 1 }] }, { currentUserId: "u9" })[0]?.label).toBe("You");
     expect(modelShareRows(report)[0]?.detail).toBe("1.3M tokens");
     expect(averagePerRun(report)).toBe(0.75);
   });

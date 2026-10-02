@@ -61,12 +61,20 @@ export function formatDayLabel(day: string): string {
 
 export type ShareRow = { key: string; label: string; costUsd: number; share: number; detail: string };
 
-export function userShareRows(report: Pick<ModelCostReport, "byUser" | "totalCostUsd">): ShareRow[] {
+// The report may carry user ids without names; the viewer's own row reads "You".
+function userLabel(entry: { userId: string | null; name: string | null }, currentUserId: string | null): string {
+  if (entry.name) return entry.userId && entry.userId === currentUserId ? `${entry.name} (you)` : entry.name;
+  if (!entry.userId) return "Automation and deleted users";
+  if (entry.userId === currentUserId) return "You";
+  return `User ${entry.userId.slice(0, 8)}`;
+}
+
+export function userShareRows(report: Pick<ModelCostReport, "byUser" | "totalCostUsd">, options: { currentUserId?: string | null } = {}): ShareRow[] {
   return [...report.byUser]
     .sort((left, right) => right.costUsd - left.costUsd)
     .map((entry, index) => ({
       key: entry.userId ?? `unknown-${index}`,
-      label: entry.name ?? (entry.userId ? "Unknown user" : "Automation and deleted users"),
+      label: userLabel(entry, options.currentUserId ?? null),
       costUsd: entry.costUsd,
       share: report.totalCostUsd > 0 ? entry.costUsd / report.totalCostUsd : 0,
       detail: `${entry.runs} run${entry.runs === 1 ? "" : "s"}`

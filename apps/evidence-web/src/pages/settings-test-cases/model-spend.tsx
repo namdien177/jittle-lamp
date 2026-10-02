@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 
 import { Skeleton } from "../../components/ui/misc";
 import { cn } from "../../lib/cn";
+import { useAccountProfile } from "../../queries";
 import { useModelCosts } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, StatTile, pressable } from "../../test-cases/admin-ui";
 import {
@@ -49,6 +50,7 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
   // Rounded to the minute so the query key is stable between renders.
   const range = useMemo(() => costPeriodRange(period, Math.floor(Date.now() / 60_000) * 60_000), [period]);
   const report = useModelCosts(range);
+  const profile = useAccountProfile();
   const bars = report.data ? dailyBars(report.data) : [];
   const average = report.data ? averagePerRun(report.data) : null;
   const peak = bars.reduce((max, bar) => Math.max(max, bar.costUsd), 0);
@@ -129,7 +131,7 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
 
           <div className="grid gap-4 md:grid-cols-2">
             <AdminCard title="By user" description="The requester of each run">
-              <ShareTable rows={userShareRows(report.data)} label="Spend by user" empty="No runs in this period." />
+              <ShareTable rows={userShareRows(report.data, { currentUserId: profile.data?.localUserId ?? null })} label="Spend by user" empty="No runs in this period." />
             </AdminCard>
             <AdminCard title="By model" description="Act and judge models">
               <ShareTable rows={modelShareRows(report.data)} label="Spend by model" empty="No model calls in this period." />
