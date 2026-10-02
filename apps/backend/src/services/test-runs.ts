@@ -797,10 +797,18 @@ export const toBatch = async (
 	batchId: string,
 	orgId: string,
 ): Promise<TestRunBatch> => {
-	await refreshBatch(db, batchId);
-	const batch = await db.query.testRunBatches.findFirst({
-		where: and(eq(testRunBatches.id, batchId), eq(testRunBatches.orgId, orgId)),
+	const scope = and(
+		eq(testRunBatches.id, batchId),
+		eq(testRunBatches.orgId, orgId),
+	);
+	// The organisation check comes first: another organisation's batch is never refreshed.
+	const owned = await db.query.testRunBatches.findFirst({
+		where: scope,
+		columns: { id: true },
 	});
+	if (!owned) throw notFound("TEST_RUN_BATCH_NOT_FOUND", "Run batch not found");
+	await refreshBatch(db, owned.id);
+	const batch = await db.query.testRunBatches.findFirst({ where: scope });
 	if (!batch) throw notFound("TEST_RUN_BATCH_NOT_FOUND", "Run batch not found");
 	const runIds = parseJsonColumn(batch.runIdsJson, z.array(z.string()), []);
 	const latest = await finalAttempts(db, [...new Set(runIds)]);
