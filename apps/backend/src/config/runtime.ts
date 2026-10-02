@@ -41,6 +41,9 @@ export type RuntimeConfig = {
 	clerkAuthorizedParties: string[] | undefined;
 	webAppOrigin: string | undefined;
 	apiOrigin: string | undefined;
+	devAuthEnabled: boolean;
+	secretsMasterKey: string | undefined;
+	secretsMasterKeyPrevious: string | undefined;
 };
 
 const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, "");
@@ -131,5 +134,8 @@ export const buildRuntimeConfig = (env: AppEnv): RuntimeConfig => {
 		apiOrigin: env.JITTLE_LAMP_API_ORIGIN
 			? normalizeOrigin(env.JITTLE_LAMP_API_ORIGIN)
 			: undefined,
+		devAuthEnabled: parseBooleanFlag(env.JITTLE_LAMP_DEV_AUTH_ENABLED, false),
+		secretsMasterKey: env.JL_SECRETS_MASTER_KEY?.trim(),
+		secretsMasterKeyPrevious: env.JL_SECRETS_MASTER_KEY_PREVIOUS?.trim(),
 	};
 };

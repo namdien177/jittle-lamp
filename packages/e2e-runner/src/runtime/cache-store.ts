@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ActionTrace, CacheReadResult, CacheStore, TraceEntry } from "e2e";
 
 import { renderPlaywright } from "../cache/render";
+import { takeoverSteps } from "./live";
 
 // File-backed `cache.store` (handover 0.4): one JSON file per e2e cache key in `.e2e/cache`. The
 // e2e record is stored untouched under `entry`; alongside it the runner keeps which transcript step
@@ -74,6 +75,8 @@ export function createBackendCacheStore(options: {
       const index = readIndex(options.indexPath ?? process.env.JL_CACHE_INDEX);
       const digest = payload.recordedFor?.instructionDigest;
       const candidates = digest ? (index[digest] ?? []) : [];
+      // Nothing done during a take-over is cached (design.md §5.4).
+      if (candidates.some((candidate) => takeoverSteps().has(candidate.stepId))) return undefined;
       const entry: TraceEntry = { schemaVersion: "trace-1", createdAt: new Date().toISOString(), payload };
       const body = JSON.stringify({
         entry,
@@ -120,6 +123,7 @@ export function createFileCacheStore(options: { dir: string; writable: boolean; 
       const index = readIndex(options.indexPath ?? process.env.JL_CACHE_INDEX);
       const digest = payload.recordedFor?.instructionDigest;
       const candidates = digest ? (index[digest] ?? []) : [];
+      if (candidates.some((candidate) => takeoverSteps().has(candidate.stepId))) return undefined;
       const step = candidates[0];
       const file: StepScriptFile = {
         schemaVersion: "jl-step-script-1",

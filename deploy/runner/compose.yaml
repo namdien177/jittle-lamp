@@ -1,7 +1,9 @@
 # Cloud runner pool: N identical workers for one pool (design.md §5.4, §10.1).
 #   cp runner.env.sample runner.env   # set JL_API_ORIGIN and JL_RUNNER_TOKEN
 #   docker compose -f deploy/runner/compose.yaml up -d --scale runner=2
-# Each container registers once and keeps its worker credential in its own volume.
+# Each container registers once and keeps its worker credential in the shared state volume under
+# a file named after its host name, so replicas are distinct workers. The pool registration token
+# registers any number of workers and may stay in runner.env.
 services:
   runner:
     image: jittle-lamp/e2e-runner:${JL_RUNNER_IMAGE_TAG:-latest}
@@ -22,7 +24,8 @@ services:
       resources:
         limits:
           memory: 3g
-    stop_grace_period: 2m
+    # A case may run up to the 15 min attempt deadline; let it finish on `docker compose down`.
+    stop_grace_period: 20m
 
 volumes:
   runner-state:

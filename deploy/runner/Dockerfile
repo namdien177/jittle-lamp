@@ -42,7 +42,10 @@ ENV NODE_ENV=production \
     JL_RUNNER_WORK_DIR=/var/lib/jl-e2e-runner \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-RUN mkdir -p /var/lib/jl-e2e-runner /home/pwuser/.config/jittle-lamp/runner \
+RUN ln -s /app/packages/e2e-runner/dist/cli.js /usr/local/bin/jl-e2e \
+  && ln -s /app/packages/e2e-runner/dist/daemon.js /usr/local/bin/jl-e2e-runner \
+  && chmod +x /app/packages/e2e-runner/dist/cli.js /app/packages/e2e-runner/dist/daemon.js \
+  && mkdir -p /var/lib/jl-e2e-runner /home/pwuser/.config/jittle-lamp/runner \
   && chown -R pwuser:pwuser /var/lib/jl-e2e-runner /home/pwuser/.config \
   && node /app/packages/e2e-runner/dist/cli.js help >/dev/null
 

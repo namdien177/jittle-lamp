@@ -3,6 +3,7 @@ import { unzipSync } from "fflate";
 import {
   checkpointTag,
   generateArchiveEntryId,
+  takeoverTag,
   sessionArchiveSchema,
   sessionSchemaVersion,
   stepTag,
@@ -22,6 +23,8 @@ import {
 type TraceEvent = Record<string, unknown> & { type?: string };
 
 export type EngineEvent = { at: string; name: string; detail: string };
+// What a person did during a live take-over (design.md §5.4): tagged user:takeover.
+export type TakeoverEvent = { at: string; stepId: string | null; kind: "start" | "end" | "input"; inputKind?: string; detail: string };
 
 const maxBodyBytes = 64 * 1024;
 const sensitiveHeaders = new Set(["authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token", "x-csrf-token"]);
@@ -126,6 +129,7 @@ export type BuildArchiveInput = {
   traceZip: Uint8Array | null;
   report: RunReport;
   engineEvents: readonly EngineEvent[];
+  takeoverEvents?: readonly TakeoverEvent[];
   sessionId: string;
   name: string;
   videoDurationMs: number | null;
@@ -203,6 +207,28 @@ export function buildRunArchive(input: BuildArchiveInput): { archive: SessionArc
         })
       });
     }
+  }
+
+  for (const event of input.takeoverEvents ?? []) {
+    const ms = Date.parse(event.at);
+    const tags = [...(event.stepId ? [stepTag(event.stepId)] : []), takeoverTag];
+    actions.push({
+      at: ms,
+      build: (seq, index) => ({
+        id: generateArchiveEntryId(sessionId, "actions", index),
+        seq,
+        at: event.at,
+        tags,
+        payload:
+          event.kind === "input"
+            ? event.inputKind === "type"
+              ? { kind: "interaction", type: "input", inputKind: "text", redacted: true, target: { selectorAlternates: [], textPreview: `Take-over: ${event.detail}`.slice(0, 240) } }
+              : event.inputKind === "press"
+                ? { kind: "interaction", type: "keyboard", eventType: "keydown", key: event.detail.replace(/^pressed /, "") || "Unidentified", redacted: false }
+                : { kind: "interaction", type: "click", target: { selectorAlternates: [], textPreview: `Take-over: ${event.detail}`.slice(0, 240) } }
+            : { kind: "lifecycle", phase: event.kind === "start" ? "paused" : "recording", detail: event.kind === "start" ? "Take-over started: the run is paused and still recording." : "Take-over ended: the agent continues." }
+      })
+    });
   }
 
   // Interactions: input actions from the trace, targets from the nearest engine event.
