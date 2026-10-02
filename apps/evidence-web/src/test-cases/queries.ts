@@ -110,12 +110,12 @@ export function useTestRun(runId: string | null) {
   });
 }
 
-export function useSimilarTestCases(q: string) {
+export function useSimilarTestCases(q: string, excludeId: string | null = null) {
   const getToken = useAuthToken();
   const trimmed = q.trim();
   return useQuery({
-    queryKey: testQueryKeys.similar(trimmed),
-    queryFn: ({ signal }) => testApi.similar(getToken, trimmed, signal),
+    queryKey: [...testQueryKeys.similar(trimmed), excludeId] as const,
+    queryFn: ({ signal }) => testApi.similar(getToken, trimmed, signal, excludeId),
     enabled: useSignedIn() && trimmed.length >= 6,
     staleTime: 60_000,
     retry: false

@@ -66,7 +66,7 @@ export function useDebounced<T>(value: T, delayMs: number): T {
 // "3 similar cases" while typing a title (GET /test-cases/similar).
 export function SimilarHint(props: { title: string; excludeId?: string | null }): React.JSX.Element | null {
   const debounced = useDebounced(props.title, 450);
-  const query = useSimilarTestCases(debounced);
+  const query = useSimilarTestCases(debounced, props.excludeId ?? null);
   const [open, setOpen] = React.useState(false);
   const items = (query.data?.items ?? []).filter((item) => item.id !== props.excludeId);
   if (items.length === 0) return null;

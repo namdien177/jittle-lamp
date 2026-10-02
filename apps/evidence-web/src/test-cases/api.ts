@@ -142,10 +142,15 @@ export const testApi = {
   bulk: async (getToken: FetchToken, input: Partial<BulkTestCaseRequest> & Pick<BulkTestCaseRequest, "action" | "ids">) =>
     parseEnvelope(bulkTestCaseResponseSchema, await request(getToken, "/test-cases/bulk", { method: "POST", ...json(input) }), [], "bulk action"),
 
-  similar: async (getToken: FetchToken, q: string, signal?: AbortSignal) =>
+  // `title` is what the route matches on; `q` is the contract's alias.
+  similar: async (getToken: FetchToken, q: string, signal?: AbortSignal, excludeId?: string | null) =>
     parseEnvelope(
       similarTestCasesResponseSchema,
-      await request(getToken, `/test-cases/similar?${new URLSearchParams({ q }).toString()}`, signal ? { signal } : {}),
+      await request(
+        getToken,
+        `/test-cases/similar?${new URLSearchParams({ q, title: q, ...(excludeId ? { excludeId } : {}) }).toString()}`,
+        signal ? { signal } : {}
+      ),
       [],
       "similar cases"
     ),
