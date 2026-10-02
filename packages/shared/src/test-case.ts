@@ -157,6 +157,8 @@ const metadataKeyByLabel = new Map<string, TranscriptMetadataKey>([
   ["duplicate-of", "duplicateOf"]
 ]);
 
+const nullableMetadataKeys = new Set<TranscriptMetadataKey>(["key", "env", "externalId", "duplicateOf"]);
+
 const metadataKeyOrder: readonly TranscriptMetadataKey[] = transcriptMetadataKeySchema.options;
 
 const disabledPrefix = "// ";
@@ -184,16 +186,32 @@ export function normalizeInstructionText(text: string): string {
   return text.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+// Identity text for a step: whitespace and letter case do not matter, except inside `{…}` references
+// and in [Open] targets, where case changes the URL or the variable.
+export function normalizeStepIdentityText(type: TranscriptStepType, text: string): string {
+  const collapsed = text.normalize("NFC").replace(/\s+/g, " ").trim();
+  if (type === "open") return collapsed;
+  return collapsed
+    .split(/(\{[^{}]*\})/)
+    .map((part) => (part.startsWith("{") ? part : part.toLowerCase()))
+    .join("");
+}
+
 export function computeInstructionKey(input: {
   type: TranscriptStepType;
   macro: string | null;
   args: readonly StepArg[];
   text: string;
 }): string {
-  const canonicalArgs = input.args.map((arg) => [arg.name, arg.value.trim()]);
+  // [Login: PCF] and [Login: profile=PCF] are the same call.
+  const args =
+    input.type === "login"
+      ? input.args.map((arg, index) => (arg.name === null && index === 0 ? { name: "profile", value: arg.value } : arg))
+      : input.args;
+  const canonicalArgs = args.map((arg) => [arg.name === null ? null : arg.name.toLowerCase(), arg.value.trim()]);
   const macro = input.macro === null ? null : input.macro.toLowerCase();
   return `sha256:${sha256Hex(
-    JSON.stringify([input.type, macro, canonicalArgs, normalizeInstructionText(input.text)])
+    JSON.stringify([input.type, macro, canonicalArgs, normalizeStepIdentityText(input.type, input.text)])
   )}`;
 }
 
@@ -481,7 +499,7 @@ function buildStep(input: {
 }
 
 export function loginProfileArg(args: readonly StepArg[]): string | null {
-  const named = args.find((arg) => arg.name === "profile");
+  const named = args.find((arg) => arg.name?.toLowerCase() === "profile");
   if (named && named.value.length > 0) return named.value;
   const positional = args.find((arg) => arg.name === null);
   return positional && positional.value.length > 0 ? positional.value : null;
@@ -491,30 +509,39 @@ export function loginProfileArg(args: readonly StepArg[]): string | null {
 // Document parsing
 // ---------------------------------------------------------------------------------------------
 
+// Comma-separated metadata lists; items containing a comma are written in double quotes.
 function splitList(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
+  return (splitArgList(value) ?? [{ name: null, value }])
+    .map((part) => unquoteArgValue(part.name === null ? part.value : `${part.name}=${part.value}`))
     .filter((item) => item.length > 0);
 }
 
+function serializeList(items: readonly string[]): string {
+  return items.map((item) => quoteArgValue(item, false)).join(", ");
+}
+
 export function parseParamDeclarations(value: string): ParamDeclaration[] {
-  return splitList(value).map((item) => {
-    const equals = item.indexOf("=");
-    if (equals === -1) return { name: item, default: null, required: true };
-    return { name: item.slice(0, equals).trim(), default: item.slice(equals + 1).trim(), required: false };
-  });
+  const parts = splitArgList(value) ?? [{ name: null, value }];
+  return parts
+    .map((part) =>
+      part.name === null
+        ? { name: unquoteArgValue(part.value), default: null, required: true }
+        : { name: part.name, default: unquoteArgValue(part.value), required: false }
+    )
+    .filter((param) => param.name.length > 0 && argNamePattern.test(param.name));
 }
 
 function serializeParamDeclarations(params: readonly ParamDeclaration[]): string {
-  return params.map((param) => (param.default === null ? param.name : `${param.name}=${param.default}`)).join(", ");
+  return params
+    .map((param) => (param.default === null ? param.name : `${param.name}=${quoteArgValue(param.default, false)}`))
+    .join(", ");
 }
 
 function parseTableRow(line: string): string[] {
   let body = line.trim();
   if (body.startsWith("|")) body = body.slice(1);
-  if (body.endsWith("|")) body = body.slice(0, -1);
-  return body.split("|").map((cell) => cell.trim());
+  if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
+  return body.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
 }
 
 const tableSeparatorPattern = /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?$/;
@@ -552,6 +579,12 @@ function newCaseBuilder(title: string, line: number): CaseBuilder {
 export type ParseTranscriptOptions = {
   // Steps of the previously saved version, per case index, used to keep step ids stable on edit.
   previousSteps?: ReadonlyArray<readonly Pick<TranscriptStep, "stepId" | "instructionKey">[]>;
+  // Previously saved cases; each new case is matched by Key, then title, then position.
+  previousCases?: ReadonlyArray<{
+    key: string | null;
+    title: string;
+    steps: readonly Pick<TranscriptStep, "stepId" | "instructionKey">[];
+  }>;
 };
 
 export function parseTranscriptDocument(text: string, options: ParseTranscriptOptions = {}): ParsedTranscriptDocument {
@@ -624,7 +657,7 @@ export function parseTranscriptDocument(text: string, options: ParseTranscriptOp
       return;
     }
 
-    const headingMatch = /^(#{1,6})\s*(.*)$/.exec(trimmed);
+    const headingMatch = /^(#{1,6})(?:\s+(.*))?$/.exec(trimmed);
     if (headingMatch) {
       const level = headingMatch[1]?.length ?? 1;
       const headingText = (headingMatch[2] ?? "").trim();
@@ -676,8 +709,8 @@ export function parseTranscriptDocument(text: string, options: ParseTranscriptOp
       const key = metaMatch ? metadataKeyByLabel.get((metaMatch[1] ?? "").toLowerCase()) : undefined;
       if (metaMatch && key) {
         const value = (metaMatch[2] ?? "").trim();
-        applyMetadata(builder.metadata, key, value, lineNumber, diagnostics);
-        if (!builder.metadata.order.includes(key)) builder.metadata.order.push(key);
+        const applied = applyMetadata(builder.metadata, key, value, lineNumber, diagnostics);
+        if (applied && !builder.metadata.order.includes(key)) builder.metadata.order.push(key);
         builder.lastMetadataKey = key;
         return;
       }
@@ -704,7 +737,7 @@ export function parseTranscriptDocument(text: string, options: ParseTranscriptOp
       occurrences.set(step.instructionKey, occurrence + 1);
       return { ...step, stepId: deriveStepId(step.instructionKey, occurrence) };
     });
-    const previous = options.previousSteps?.[caseIndex];
+    const previous = options.previousSteps?.[caseIndex] ?? matchPreviousCase(options.previousCases, builder, caseIndex);
 
     return {
       title: builder.title,
@@ -719,7 +752,37 @@ export function parseTranscriptDocument(text: string, options: ParseTranscriptOp
   return { cases, diagnostics };
 }
 
+// Returns false when the line carried nothing that serialises back (empty or invalid value).
+function matchPreviousCase(
+  previousCases: ParseTranscriptOptions["previousCases"],
+  builder: CaseBuilder,
+  caseIndex: number
+): readonly Pick<TranscriptStep, "stepId" | "instructionKey">[] | undefined {
+  if (!previousCases) return undefined;
+  const key = builder.metadata.key;
+  const byKey = key === null ? undefined : previousCases.find((candidate) => candidate.key === key);
+  if (byKey) return byKey.steps;
+  const title = normalizeInstructionText(builder.title);
+  const byTitle = previousCases.filter((candidate) => normalizeInstructionText(candidate.title) === title);
+  if (byTitle.length === 1) return byTitle[0]?.steps;
+  return previousCases[caseIndex]?.steps;
+}
+
 function applyMetadata(
+  metadata: TranscriptMetadata,
+  key: TranscriptMetadataKey,
+  value: string,
+  line: number,
+  diagnostics: TranscriptDiagnostic[]
+): boolean {
+  if (value.length === 0 && (nullableMetadataKeys.has(key) || key === "tags" || key === "links" || key === "params" || key === "retries")) {
+    return false;
+  }
+  applyMetadataValue(metadata, key, value, line, diagnostics);
+  return serializeMetadataValue(metadata, key) !== null;
+}
+
+function applyMetadataValue(
   metadata: TranscriptMetadata,
   key: TranscriptMetadataKey,
   value: string,
@@ -742,9 +805,14 @@ function applyMetadata(
     case "links":
       metadata.links = splitList(value);
       return;
-    case "params":
+    case "params": {
       metadata.params = parseParamDeclarations(value);
+      const declared = (splitArgList(value) ?? []).length;
+      if (metadata.params.length !== declared) {
+        diagnostics.push({ line, code: "invalid-metadata", message: "Params has an entry without a valid name; it was ignored." });
+      }
       return;
+    }
     case "retries": {
       const retries = Number.parseInt(value, 10);
       if (!Number.isInteger(retries) || retries < 0 || String(retries) !== value) {
@@ -795,11 +863,11 @@ function serializeMetadataValue(metadata: TranscriptMetadata, key: TranscriptMet
     case "description":
       return metadata.description === null ? null : metadata.description.split("\n").join("\n  ");
     case "tags":
-      return metadata.tags.length > 0 ? metadata.tags.join(", ") : null;
+      return metadata.tags.length > 0 ? serializeList(metadata.tags) : null;
     case "env":
       return metadata.env;
     case "links":
-      return metadata.links.length > 0 ? metadata.links.join(", ") : null;
+      return metadata.links.length > 0 ? serializeList(metadata.links) : null;
     case "params":
       return metadata.params.length > 0 ? serializeParamDeclarations(metadata.params) : null;
     case "retries":
@@ -823,9 +891,11 @@ function serializeDataset(dataset: TranscriptDataset): string[] {
   return lines;
 }
 
-export function serializeTestCase(testCase: ParsedTestCase): string {
+export function serializeTestCase(testCase: ParsedTestCase, options: { forceHeading?: boolean } = {}): string {
   const lines: string[] = [];
+  const hasMetadata = metadataKeyOrder.some((key) => serializeMetadataValue(testCase.metadata, key) !== null);
   if (testCase.title.length > 0) lines.push(`# ${testCase.title}`);
+  else if (options.forceHeading || hasMetadata) lines.push("#");
 
   const metadataKeys = [
     ...testCase.metadata.order,
@@ -858,7 +928,9 @@ export function serializeTestCase(testCase: ParsedTestCase): string {
 }
 
 export function serializeTranscriptDocument(document: Pick<ParsedTranscriptDocument, "cases">): string {
-  const body = document.cases.map(serializeTestCase).join("\n\n");
+  const body = document.cases
+    .map((testCase, index) => serializeTestCase(testCase, { forceHeading: index > 0 }))
+    .join("\n\n");
   return body.length > 0 ? `${body}\n` : "";
 }
 
@@ -956,11 +1028,13 @@ export function resolveMacroArguments(
       values[param.name] = arg.value;
       continue;
     }
-    if (!macro.params.some((param) => param.name === arg.name)) {
+    const argName = arg.name.toLowerCase();
+    const param = macro.params.find((candidate) => candidate.name.toLowerCase() === argName);
+    if (!param) {
       errors.push(`${macro.name} has no parameter "${arg.name}".`);
       continue;
     }
-    values[arg.name] = arg.value;
+    values[param.name] = arg.value;
   }
 
   for (const param of macro.params) {
@@ -1106,16 +1180,64 @@ export type TranscriptLintRule = {
   check: (testCase: ParsedTestCase, context: TranscriptLintContext) => Omit<LintFinding, "ruleId" | "severity">[];
 };
 
-const selectorPattern =
-  /(?:^|\s)[#.][A-Za-z][\w-]*(?=$|[\s>\[:.,])|\[(?:data-[\w-]+|id|class|name|aria-[\w-]+)=|\bxpath\b|\bcss selector\b|querySelector|\/\/[a-z]+\[|\s>\s[a-z#.]/i;
-const thenSplitPattern = /\s*(?:,\s*)?\b(?:and then|then|rồi|sau đó|và sau đó)\b\s*/i;
-const andPattern = /\b(?:and|và)\b/gi;
-const actionVerbPattern =
-  /^(?:click|press|type|enter|fill|select|choose|open|go to|navigate|submit|tap|nhấn|bấm|chọn|nhập|điền|mở|vào)\b/i;
-const vagueAssertPattern = /^(?:works|ok|okay|correct|fine|đúng|ổn|it works|looks good)\.?$/i;
-const secretWordPattern = /\b(?:password|passcode|passwd|pwd|mật khẩu|otp)\b/i;
-const secretValuePattern =
-  /\b(?:password|passcode|passwd|pwd|mật khẩu|otp)\b\s*(?:is|là|:|=)?\s*["']?(?!\{)[^\s"'{}]*(?:\d{4,}|[A-Z][a-z]+\d|[^\w\s{}]\w*\d)/i;
+// `\b` only knows ASCII letters; these boundaries also hold for Vietnamese words.
+const words = (alternatives: string, flags = "iu") =>
+  new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, flags);
+
+const fileExtensions = "xlsx|xls|csv|pdf|png|jpe?g|gif|docx?|pptx?|json|txt|zip|md|html?";
+const selectorPattern = new RegExp(
+  [
+    // #id or .class tokens, but not file extensions such as ".xlsx"
+    `(?:^|\\s)#[A-Za-z][\\w-]*`,
+    `(?:^|\\s)\\.(?!(?:${fileExtensions})(?![\\w-]))[A-Za-z][\\w-]*(?=$|[\\s>\\[:.,])`,
+    // tag.class, tag#id, attribute selectors and combinators between CSS-like tokens
+    `\\b(?:div|span|button|input|a|li|ul|form|table|tr|td|select|label)[#.][\\w-]+`,
+    `\\[(?:data-[\\w-]+|id|class|name|aria-[\\w-]+|type|role)=`,
+    `\\b(?:div|span|button|input|li|ul|form|table|tr|td|[\\w-]*[#.][\\w-]+)\\s*>\\s*(?:div|span|button|input|a|li|ul|form|[#.][\\w-]+)`,
+    `\\bxpath\\b`,
+    `\\bcss selector\\b`,
+    `querySelector`,
+    `//[a-z]+\\[`
+  ].join("|"),
+  "i"
+);
+const thenSplitPattern = new RegExp(
+  `\\s*(?:,\\s*)?${words("and then|then|sau đó|và sau đó|rồi sau đó").source}\\s*|\\s*,\\s*rồi\\s+`,
+  "iu"
+);
+const andPattern = new RegExp(words("and|và").source, "giu");
+const imperativeVerbPattern = new RegExp(`^${words("click|press|tap|type|fill in|fill|submit|nhấn|bấm|nhập|điền|gõ").source}`, "iu");
+const objectVerbPattern = new RegExp(
+  `^${words("open|select|choose|go to|navigate to|mở|chọn|vào").source}\\s+(?:the|a|an|on|to|"|nút|menu|popup|trang|tab|mục|link|dialog|modal|button)(?![\\p{L}\\p{N}])`,
+  "iu"
+);
+const vagueAssertPattern = /^(?:works|ok|okay|correct|fine|đúng|ổn|it works|looks good|đúng rồi|thành công)\.?$/iu;
+const secretWordPattern = words("password|passcode|passwd|pwd|pin|mật khẩu|mã pin|otp");
+const secretColumnPattern = /pass|pwd|secret|token|otp|pin|mật khẩu/i;
+
+const maxLintTextLength = 2000;
+
+// A token that looks like a credential: mixes letters with digits or symbols, or is a 4+ digit code.
+function looksLikeSecretToken(token: string): boolean {
+  const value = token.replace(/^["'(]+|["'),.;:]+$/g, "");
+  if (value.length < 4 || value.length > 128) return false;
+  if (/^\{.*\}$/.test(value) || /^(?:https?:)?\/\//i.test(value) || /^\/[\w/-]*$/.test(value)) return false;
+  if (/^\d{4,}$/.test(value)) return true;
+  if (value.length < 6) return false;
+  const hasLetter = /\p{L}/u.test(value);
+  const hasDigit = /\d/.test(value);
+  const hasSymbol = /[^\p{L}\p{N}]/u.test(value);
+  return hasLetter && (hasDigit || (hasSymbol && /\p{Lu}/u.test(value)));
+}
+
+function containsSecretValue(text: string): boolean {
+  const capped = text.length > maxLintTextLength ? text.slice(0, maxLintTextLength) : text;
+  if (!secretWordPattern.test(capped)) return false;
+  const withoutRefs = capped.replace(/\{[^{}]*\}/g, " ");
+  return withoutRefs.split(/\s+/).some(looksLikeSecretToken);
+}
+
+const stripQuoted = (text: string) => text.replace(/"[^"]*"|“[^”]*”/g, (match) => "_".repeat(match.length));
 
 const stepFinding = (step: TranscriptStep, message: string, fix: LintFix | null = null) => ({
   message,
@@ -1172,11 +1294,23 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
       activeSteps(testCase)
         .filter((step) => step.type === "act")
         .flatMap((step) => {
-          const parts = step.text.split(thenSplitPattern).map((part) => part.trim()).filter((part) => part.length > 0);
-          if (parts.length >= 2) {
-            return [stepFinding(step, "Two intents in one step; split it.", { kind: "split-step", stepId: step.stepId, parts })];
+          const text = step.text.slice(0, maxLintTextLength);
+          const masked = stripQuoted(text);
+          const parts: string[] = [];
+          let rest = 0;
+          const splitter = new RegExp(thenSplitPattern.source, "giu");
+          for (const match of masked.matchAll(splitter)) {
+            parts.push(text.slice(rest, match.index));
+            rest = match.index + match[0].length;
           }
-          const ands = step.text.replace(/"[^"]*"/g, "").match(andPattern)?.length ?? 0;
+          parts.push(text.slice(rest));
+          const nonEmpty = parts.map((part) => part.trim()).filter((part) => part.length > 0);
+          if (nonEmpty.length >= 2) {
+            return [
+              stepFinding(step, "Two intents in one step; split it.", { kind: "split-step", stepId: step.stepId, parts: nonEmpty })
+            ];
+          }
+          const ands = masked.match(andPattern)?.length ?? 0;
           return ands >= 2 ? [stepFinding(step, "Several intents in one step; split it.")] : [];
         })
   },
@@ -1187,7 +1321,7 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
     description: "Actions are separate from asserts; an assert only checks the screen.",
     check: (testCase) =>
       activeSteps(testCase)
-        .filter((step) => step.type === "assert" && actionVerbPattern.test(step.text))
+        .filter((step) => step.type === "assert" && (imperativeVerbPattern.test(step.text) || objectVerbPattern.test(step.text)))
         .map((step) =>
           stepFinding(step, "This assert performs an action; make it an [Act] step.", {
             kind: "change-type",
@@ -1204,7 +1338,10 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
     check: (testCase) =>
       activeSteps(testCase)
         .filter((step) => step.type === "assert")
-        .filter((step) => step.text.replace(/\{[^{}]*\}/g, "x").trim().length < 12 || vagueAssertPattern.test(step.text.trim()))
+        .filter((step) => {
+          const text = step.text.trim();
+          return text.split(/\s+/).filter((word) => word.length > 0).length < 2 || vagueAssertPattern.test(text);
+        })
         .map((step) => stepFinding(step, "Assert is too vague; say what must be visible."))
   },
   {
@@ -1255,14 +1392,33 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
     id: "possible-secret",
     severity: "error",
     source: "design §4",
-    description: "Secrets are never written in transcripts; use a credential profile.",
-    check: (testCase) =>
-      activeSteps(testCase)
-        .filter((step) => {
-          const text = [step.text, ...step.args.map((arg) => arg.value)].join(" ");
-          return secretWordPattern.test(text) && secretValuePattern.test(text);
-        })
-        .map((step) => stepFinding(step, "Looks like a secret value; reference a credential profile with {cred:PROFILE.field}."))
+    description: "Secrets are never written in transcripts, params, descriptions or datasets; use a credential profile.",
+    check: (testCase) => {
+      const message = "Looks like a secret value; reference a credential profile with {cred:PROFILE.field}.";
+      const findings: Omit<LintFinding, "ruleId" | "severity">[] = activeSteps(testCase)
+        .filter((step) => containsSecretValue([step.text, ...step.args.map((arg) => `${arg.name ?? ""} ${arg.value}`)].join(" ")))
+        .map((step) => stepFinding(step, message));
+
+      const metadataTexts = [
+        testCase.metadata.description ?? "",
+        ...testCase.metadata.params.map((param) => `${param.name} ${param.default ?? ""}`)
+      ];
+      if (metadataTexts.some(containsSecretValue)) {
+        findings.push({ message: `${message} (metadata)`, stepId: null, line: testCase.line, fix: null });
+      }
+      const dataset = testCase.dataset;
+      if (dataset) {
+        const secretColumns = dataset.columns.filter((column) => secretColumnPattern.test(column));
+        const leaks = dataset.rows.some((row) =>
+          secretColumns.some((column) => {
+            const value = (row[column] ?? "").trim();
+            return value.length > 0 && !/^\{.*\}$/.test(value);
+          })
+        );
+        if (leaks) findings.push({ message: `${message} (dataset column ${secretColumns.join(", ")})`, stepId: null, line: testCase.line, fix: null });
+      }
+      return findings;
+    }
   },
   {
     id: "unknown-macro",

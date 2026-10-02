@@ -436,3 +436,117 @@ describe("lint", () => {
     expect(applyLintFix(testCase, finding.fix).steps[0]?.text).toBe("menuitem Logout");
   });
 });
+
+describe("review regressions", () => {
+  const roundTrip = (text: string) => {
+    const first = parseTranscriptDocument(text);
+    const second = parseTranscriptDocument(serializeTranscriptDocument(first));
+    parsedTranscriptDocumentSchema.parse(first);
+    parsedTranscriptDocumentSchema.parse(second);
+    expect(second.cases.map(withoutLines)).toEqual(first.cases.map(withoutLines));
+    return first;
+  };
+
+  test("empty titles, escaped pipes, commas in lists and invalid metadata round-trip", () => {
+    expect(roundTrip("# A\n[Act] x\n\n#\n[Act] y").cases).toHaveLength(2);
+    expect(roundTrip("#\nKey: K1\n[Act] y").cases[0]?.metadata.key).toBe("K1");
+    expect(roundTrip("# T\n\n[Act] x\n\n## Dataset\n| a | b |\n| --- | --- |\n| x\\|y | 2 |").cases[0]?.dataset?.rows).toEqual([
+      { a: "x|y", b: "2" }
+    ]);
+    expect(roundTrip('# T\nParams: list="a,b", role\nTags: "odd, tag", x\n\n[Act] x').cases[0]?.metadata).toMatchObject({
+      params: [
+        { name: "list", default: "a,b", required: false },
+        { name: "role", default: null, required: true }
+      ],
+      tags: ["odd, tag", "x"]
+    });
+    const invalid = roundTrip("# T\nKey:\nRetries: 1.5\nParams: =x, ok\n\n[Act] x");
+    expect(invalid.cases[0]?.metadata.order).toEqual(["params"]);
+    expect(invalid.cases[0]?.metadata.params.map((param) => param.name)).toEqual(["ok"]);
+    expect(invalid.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["invalid-metadata", "invalid-metadata"]);
+  });
+
+  test("a hash without a space is step text, not a heading", () => {
+    const { testCase } = parseTestCaseTranscript("# T\n\n#123 mở đơn hàng\n[Assert] đơn hàng #123 hiển thị");
+    expect(testCase.steps.map((step) => step.text)).toEqual(["#123 mở đơn hàng", "đơn hàng #123 hiển thị"]);
+  });
+
+  test("identity keeps case in [Open] targets and {var} names, and [Login: X] equals [Login: profile=X]", () => {
+    const key = (text: string) => parseTestCaseTranscript(`# T\n\n${text}`).testCase.steps[0]?.instructionKey;
+    expect(key("[Open] /Admin/Users")).not.toBe(key("[Open] /admin/users"));
+    expect(key("Type {Email} into Email")).not.toBe(key("Type {email} into Email"));
+    expect(key("Type {email} into EMAIL")).toBe(key("type {email} into email"));
+    expect(key("[Login: PCF]")).toBe(key("[Login: profile=PCF]"));
+    expect(key("[Login: PCF]")).toBe(key("[Login: Profile=PCF]"));
+    expect(ruleIdsOf("# T\n\n[Login: Profile=PCF]\n## Checkpoint: c\n[Assert] the dashboard is visible")).not.toContain(
+      "login-needs-profile"
+    );
+  });
+
+  test("previous cases are matched by Key, then title, not by position", () => {
+    const before = parseTranscriptDocument("# A\nKey: TC-1\n\n[Act] click Save\n\n# B\n\n[Act] click Save");
+    const ids = before.cases.map((testCase) => testCase.steps[0]?.stepId);
+    const imported = before.cases.map((testCase, index) => ({
+      key: testCase.metadata.key,
+      title: testCase.title,
+      steps: testCase.steps.map((step) => ({ ...step, stepId: `st_case${index}` }))
+    }));
+    const after = parseTranscriptDocument("# B\n\n[Act] click Save\n\n# A renamed\nKey: TC-1\n\n[Act] click Save", {
+      previousCases: imported
+    });
+    expect(after.cases.map((testCase) => testCase.steps[0]?.stepId)).toEqual(["st_case1", "st_case0"]);
+    expect(ids[0]).toBe(ids[1] ?? "missing");
+  });
+
+  const ruleIdsOf = (text: string) => lintTestCase(parseTestCaseTranscript(text).testCase).map((finding) => finding.ruleId);
+  const withCheckpoint = (step: string) => `# T\n\n${step}\n## Checkpoint: c\n[Assert] trang chủ hiển thị tên trường`;
+
+  test("Vietnamese instructions trigger the same rules as English ones", () => {
+    expect(ruleIdsOf(withCheckpoint("mở trang hồ sơ sau đó nhấn Sửa"))).toContain("multiple-intents");
+    expect(ruleIdsOf(withCheckpoint("nhập tên và email và số điện thoại"))).toContain("multiple-intents");
+    expect(ruleIdsOf("# T\n\n[Act] x\n## Checkpoint: c\n[Assert] Mở popup xác nhận")).toContain("action-in-assert");
+    expect(ruleIdsOf(withCheckpoint("nhập mật khẩu mới Abc12345"))).toContain("possible-secret");
+  });
+
+  test("secret detection covers more phrasings, params, descriptions and dataset columns", () => {
+    for (const step of ["type Abc@12345 into the password field", "type hunter2 as the password", "nhập mã OTP 123456"]) {
+      expect(ruleIdsOf(withCheckpoint(step))).toContain("possible-secret");
+    }
+    expect(ruleIdsOf("# T\nParams: password=Abc@12345\n\n[Act] x\n## Checkpoint: c\n[Assert] the dashboard is visible")).toContain(
+      "possible-secret"
+    );
+    expect(
+      ruleIdsOf("# T\nDescription: log in with password Secret@2024\n\n[Act] x\n## Checkpoint: c\n[Assert] the dashboard is visible")
+    ).toContain("possible-secret");
+    expect(
+      ruleIdsOf(
+        "# T\n\n[Act] x\n## Checkpoint: c\n[Assert] the dashboard is visible\n\n## Dataset\n| user | password |\n| --- | --- |\n| a | Secret@2024 |"
+      )
+    ).toContain("possible-secret");
+    expect(ruleIdsOf(withCheckpoint("Enter {cred:PCF.password} into the Password field"))).not.toContain("possible-secret");
+    expect(ruleIdsOf(withCheckpoint("nhập {OTP_CODE} vào ô mã OTP"))).not.toContain("possible-secret");
+  });
+
+  test("realistic instructions do not trigger false positives", () => {
+    const clean = [
+      withCheckpoint("mở Settings > Users"),
+      withCheckpoint("mở Cài đặt > Người dùng"),
+      withCheckpoint("tải file báo cáo .xlsx về máy"),
+      withCheckpoint('nhấn nút "Lưu rồi đóng"'),
+      withCheckpoint("chọn lớp đã tạo rồi trong danh sách"),
+      "# T\n\n[Act] x\n## Checkpoint: c\n[Assert] Open orders count is 3",
+      "# T\n\n[Act] x\n## Checkpoint: c\n[Assert] Select box shows three options",
+      "# T\n\n[Act] x\n## Checkpoint: c\n[Assert] vào được trang chủ thành công",
+      "# T\n\n[Act] x\n## Checkpoint: c\n[Assert] Email trống"
+    ];
+    for (const text of clean) {
+      expect({ text, rules: ruleIdsOf(text).filter((id) => id !== "step-count") }).toEqual({ text, rules: [] });
+    }
+  });
+
+  test("lint stays fast on very long lines", () => {
+    const started = performance.now();
+    ruleIdsOf(withCheckpoint(`password ${"a".repeat(20_000)}`));
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+});
