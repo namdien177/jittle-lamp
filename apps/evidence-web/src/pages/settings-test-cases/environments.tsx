@@ -71,7 +71,7 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
                 <TableHead>Base URL</TableHead>
                 <TableHead>Runner pool</TableHead>
                 <TableHead className="w-24">Variables</TableHead>
-                <TableHead className="w-24">Used by</TableHead>
+                <TableHead className="w-24 whitespace-nowrap">Used by</TableHead>
                 <TableHead className="w-28 pr-5 text-right">
                   <span className="sr-only">Actions</span>
                 </TableHead>
@@ -81,17 +81,17 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
               {(environments.data ?? []).map((environment) => (
                 <TableRow key={environment.id}>
                   <TableCell className="pl-5">
-                    <span className="font-mono text-sm font-semibold text-foreground">{environment.name}</span>
-                    {environment.agentInstructions ? <span className="block text-xs text-muted-foreground">agent instructions · {environment.agentInstructions.length.toLocaleString()} chars</span> : null}
+                    <span className="whitespace-nowrap font-mono text-sm font-semibold text-foreground">{environment.name}</span>
+                    {environment.agentInstructions ? <span className="block whitespace-nowrap text-xs text-muted-foreground">instructions · {environment.agentInstructions.length.toLocaleString()} chars</span> : null}
                   </TableCell>
                   <TableCell className="max-w-64 truncate font-mono text-xs" title={environment.baseUrl}>
                     {environment.baseUrl}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={environment.runnerPool === "cloud" ? "default" : "brand"}>{runnerPoolLabel(environment.runnerPool, pools.data ?? [])}</Badge>
+                    <Badge variant={environment.runnerPool === "cloud" ? "default" : "outline"}>{runnerPoolLabel(environment.runnerPool, pools.data ?? [])}</Badge>
                   </TableCell>
                   <TableCell className="tabular-nums">{Object.keys(environment.variables).length}</TableCell>
-                  <TableCell className="tabular-nums">
+                  <TableCell className="whitespace-nowrap tabular-nums">
                     {environment.usedByCases} case{environment.usedByCases === 1 ? "" : "s"}
                   </TableCell>
                   <TableCell className="pr-5 text-right">
@@ -212,7 +212,7 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
             <Input id="env-base-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} className="font-mono" inputMode="url" />
           </Field>
           <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Variables</span>
+            <span className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Variables</span>
             <KeyValueEditor
               rows={variables}
               onChange={setVariables}

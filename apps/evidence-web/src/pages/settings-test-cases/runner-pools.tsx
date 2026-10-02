@@ -69,7 +69,7 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                   <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
                     <Server className="size-4 text-muted-foreground" aria-hidden />
                     <h3 className="font-mono text-sm font-semibold text-foreground">{pool.name}</h3>
-                    <Badge variant={pool.kind === "cloud" ? "default" : "brand"}>{pool.kind}</Badge>
+                    <Badge variant={pool.kind === "cloud" ? "default" : "outline"}>{pool.kind}</Badge>
                     <span className="text-sm text-muted-foreground">
                       {online} of {pool.workers.length} online · up to {pool.maxConcurrentRuns} at a time
                     </span>

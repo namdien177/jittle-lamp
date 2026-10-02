@@ -165,7 +165,7 @@ function TagDialog(props: { tag: TestTag | null; onClose: () => void }): React.J
           </Field>
         </div>
         <fieldset>
-          <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Colour</legend>
+          <legend className="mb-2 font-semibold uppercase tracking-[0.06em] text-muted-foreground">Colour</legend>
           <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Tag colour">
             {tagColors.map((swatch) => (
               <button

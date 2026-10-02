@@ -78,9 +78,8 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
               <TableRow>
                 <TableHead className="pl-5">Profile</TableHead>
                 <TableHead>Scope</TableHead>
-                <TableHead>Public fields</TableHead>
-                <TableHead>Secret fields</TableHead>
-                <TableHead className="w-28">Last used</TableHead>
+                <TableHead>Fields</TableHead>
+                <TableHead className="w-28 whitespace-nowrap">Last used</TableHead>
                 <TableHead className="w-32 pr-5 text-right">
                   <span className="sr-only">Actions</span>
                 </TableHead>
@@ -97,35 +96,33 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
                       </Badge>
                     </span>
                   </TableCell>
-                  <TableCell className="text-sm">{environmentName(credential.environmentId, environments.data ?? [])}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm">{environmentName(credential.environmentId, environments.data ?? [])}</TableCell>
                   <TableCell>
                     <dl className="grid gap-0.5 text-sm">
                       {Object.entries(credential.fields).map(([key, value]) => (
-                        <div key={key} className="flex gap-1.5">
-                          <dt className="font-mono text-xs text-muted-foreground">{key}</dt>
+                        <div key={key} className="flex min-w-0 gap-1.5">
+                          <dt className="shrink-0 font-mono text-xs leading-5 text-muted-foreground">{key}</dt>
                           <dd className="min-w-0 truncate text-foreground" title={value}>
                             {value}
                           </dd>
                         </div>
                       ))}
-                      {Object.keys(credential.fields).length === 0 ? <span className="text-muted-foreground">—</span> : null}
+                      {credential.secretFieldNames.map((field) => (
+                        <div key={field} className="flex items-center gap-1.5">
+                          <dt className="flex shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground">
+                            <Lock className="size-3" aria-hidden />
+                            {field}
+                          </dt>
+                          <dd className="font-mono text-foreground">
+                            <span aria-hidden>{MASK}</span>
+                            <span className="sr-only">hidden, write-only</span>
+                          </dd>
+                        </div>
+                      ))}
+                      {Object.keys(credential.fields).length + credential.secretFieldNames.length === 0 ? <span className="text-muted-foreground">—</span> : null}
                     </dl>
                   </TableCell>
-                  <TableCell>
-                    <ul className="grid gap-0.5 text-sm">
-                      {credential.secretFieldNames.map((field) => (
-                        <li key={field} className="flex items-center gap-1.5">
-                          <Lock className="size-3 text-muted-foreground" aria-hidden />
-                          <span className="font-mono text-xs text-muted-foreground">{field}</span>
-                          <span className="font-mono text-foreground" aria-label="hidden value">
-                            {MASK}
-                          </span>
-                        </li>
-                      ))}
-                      {credential.secretFieldNames.length === 0 ? <span className="text-muted-foreground">—</span> : null}
-                    </ul>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{credential.lastUsedAt ? formatRelativeTime(credential.lastUsedAt) : "Never"}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{credential.lastUsedAt ? formatRelativeTime(credential.lastUsedAt) : "Never"}</TableCell>
                   <TableCell className="pr-5 text-right">
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} ${credential.profile}`} onClick={() => setEditing(credential)}>
@@ -277,7 +274,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
           </div>
 
           <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Public fields</span>
+            <span className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Public fields</span>
             <KeyValueEditor rows={fields} onChange={setFields} keyLabel="Field" valueLabel="Value" keyPlaceholder="username" valuePlaceholder="qa-admin@example.com" addLabel="Add public field" disabled={props.readOnly} />
             {fieldResult.errors.map((error) => (
               <p key={error} className="text-sm text-destructive">
@@ -287,7 +284,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
           </div>
 
           <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Secret fields · write-only</span>
+            <span className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Secret fields · write-only</span>
             {secrets.map((row, index) => (
               <div key={index} className={cn("grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_2.25rem] items-center gap-2", row.remove && "opacity-60")}>
                 {row.stored ? (

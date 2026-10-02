@@ -219,7 +219,7 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
           </div>
 
           <div className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Parameters</span>
+            <span className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Parameters</span>
             {params.length > 0 ? (
               <div className="grid grid-cols-[minmax(0,2fr)_8rem_6rem_minmax(0,2fr)_2.25rem] gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                 <span>Name</span>
