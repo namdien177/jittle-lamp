@@ -12,6 +12,8 @@ import type { RuntimeConfig } from "../config/runtime";
 
 export type ArtifactStorage = {
 	mode: "s3" | "memory";
+	// Memory storage signs read URLs only in the dev-auth setup (devArtifactReadEnabled).
+	signsReadUrls?: boolean;
 	putObject: (input: {
 		key: string;
 		body: Uint8Array;
@@ -172,11 +174,16 @@ export const createArtifactStorage = (
 	};
 };
 
+// Whether createReadUrl returns playable URLs: always for S3, in memory mode only in dev auth.
+export const canSignReadUrls = (storage: ArtifactStorage): boolean =>
+	storage.mode === "s3" || storage.signsReadUrls === true;
+
 const createMemoryArtifactStorage = (devRead?: {
 	baseUrl: string;
 	secret: string;
 }): ArtifactStorage => ({
 	mode: "memory",
+	signsReadUrls: Boolean(devRead),
 	putObject: async (input) => {
 		memoryObjects.set(input.key, {
 			body: input.body,

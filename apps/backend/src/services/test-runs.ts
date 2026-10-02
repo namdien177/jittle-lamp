@@ -867,15 +867,19 @@ const medianDurationByCase = async (
 	return out;
 };
 
-// Queue position (1 = next) and estimated start: median duration of the last ten completed
+// Queue position (0 = next), depth of the pool's queue, and estimated start: median duration of the last ten completed
 // runs of each case ahead, spread over the pool's concurrency (design.md §10.1).
 export const queuePlacement = async (
 	db: BackendDb,
 	run: TestRunRow,
 	now = Date.now(),
-): Promise<{ position: number | null; estimatedStartAt: number | null }> => {
+): Promise<{
+	position: number | null;
+	depth: number | null;
+	estimatedStartAt: number | null;
+}> => {
 	if (run.status !== "queued")
-		return { position: null, estimatedStartAt: null };
+		return { position: null, depth: null, estimatedStartAt: null };
 	const poolCondition = run.runnerPoolId
 		? eq(testRuns.runnerPoolId, run.runnerPoolId)
 		: and(
@@ -935,8 +939,13 @@ export const queuePlacement = async (
 		ahead.length < freeSlots
 			? 0
 			: (remainingRunning + queuedWork) / Math.max(1, concurrency);
+	const [depth] = await db
+		.select({ value: sql<number>`count(*)` })
+		.from(testRuns)
+		.where(and(poolCondition, eq(testRuns.status, "queued")));
 	return {
-		position: ahead.length + 1,
+		position: ahead.length,
+		depth: Number(depth?.value ?? 0),
 		estimatedStartAt: Math.round(now + waitMs),
 	};
 };
@@ -1010,6 +1019,7 @@ export const toRunSummary = async (
 		evidenceId: run.evidenceId,
 		batchId: run.batchId,
 		queuePosition: placement.position,
+		queueDepth: placement.depth,
 		estimatedStartAt: placement.estimatedStartAt,
 		subscribers: subscribers.map((subscriber) => ({
 			userId: subscriber.userId,
@@ -1274,6 +1284,7 @@ export const toCreateRunResponse = async (
 		attached: first.attached,
 		status: run.status,
 		queuePosition: placement.position,
+		queueDepth: placement.depth,
 		requestedBy: subscribers.map((subscriber) => ({
 			userId: subscriber.userId,
 			name: null,

@@ -316,7 +316,10 @@ export const createTestRunResponseSchema = z.object({
   runId: id,
   attached: z.boolean(),
   status: testRunStatusSchema,
+  // 0-based place in the pool's queue (0 = claimed next); null once the run left the queue.
   queuePosition: z.number().int().nonnegative().nullable(),
+  // Runs queued in the same pool.
+  queueDepth: z.number().int().nonnegative().nullable().optional(),
   requestedBy: z.array(z.object({ userId: id, name: z.string().nullable() })),
   batchId: id.nullable().default(null),
   runIds: z.array(id).default([])
@@ -381,7 +384,10 @@ export const testRunSummarySchema = z.object({
   finishedAt: epochMs.nullable(),
   evidenceId: id.nullable(),
   batchId: id.nullable(),
+  // 0-based place in the pool's queue (0 = claimed next); null once the run left the queue.
   queuePosition: z.number().int().nonnegative().nullable(),
+  // Runs queued in the same pool.
+  queueDepth: z.number().int().nonnegative().nullable().optional(),
   estimatedStartAt: epochMs.nullable(),
   subscribers: z.array(z.object({ userId: id, name: z.string().nullable() })),
   metrics: testRunMetricsSchema

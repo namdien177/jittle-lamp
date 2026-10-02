@@ -46,7 +46,8 @@ describe("test run routes and runner contract", () => {
 		expect(requested.body).toMatchObject({
 			attached: false,
 			status: "queued",
-			queuePosition: 1,
+			queuePosition: 0,
+			queueDepth: 1,
 		});
 		const runId = requested.body.runId;
 		const queued = await fixture.call<TestRunDetail>(`/test-runs/${runId}`, {

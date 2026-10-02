@@ -1,6 +1,7 @@
 import {
 	agentNotesSchema,
 	modelCostReportSchema,
+	modelPriceSchema,
 	modelSettingsSchema,
 	testCredentialSchema,
 	testEnvironmentSchema,
@@ -53,10 +54,12 @@ import {
 	listCredentials,
 	listEnvironments,
 	renderEnvironmentFile,
+	resolvePriceTable,
 	saveCredential,
 	saveEnvironment,
 	saveMacro,
 	saveModelSettings,
+	saveOrganizationModelPrices,
 	saveRunSettings,
 	tagCountsForOrg,
 	toCredential,
@@ -647,6 +650,51 @@ export const createTestConfigRoutes = (auth: ClerkAuthPlugin) =>
 					modelCostReportSchema,
 					await buildCostReport(db, who.orgId, query),
 				);
+			}),
+		)
+		// Price table used for run cost: global defaults with organisation overrides.
+		.get("/model-prices", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireAnyTestPermission(
+					db,
+					who,
+					"test_config.manage",
+					"test_config.use",
+				);
+				const table = await resolvePriceTable(db, who.orgId);
+				return z
+					.array(modelPriceSchema)
+					.parse(
+						[...table.prices].sort((a, b) =>
+							a.modelId.localeCompare(b.modelId),
+						),
+					);
+			}),
+		)
+		.put("/model-prices", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const prices = parseInput(z.array(modelPriceSchema).max(500), ctx.body);
+				await saveOrganizationModelPrices(db, who.orgId, prices);
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: "test_config.model_prices_updated",
+					entity: { type: "test_model_prices", id: who.orgId },
+					message: `Set ${prices.length} model price override(s)`,
+				});
+				const table = await resolvePriceTable(db, who.orgId);
+				return z
+					.array(modelPriceSchema)
+					.parse(
+						[...table.prices].sort((a, b) =>
+							a.modelId.localeCompare(b.modelId),
+						),
+					);
 			}),
 		)
 		.get("/test-agent-notes", (ctx) =>

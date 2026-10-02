@@ -318,6 +318,8 @@ export const createTestCaseRoutes = (
 				await requireTestPermission(db, who, "test_case.view");
 				const query = parseInput(
 					z.object({
+						// `q` is accepted as the title (search-box clients).
+						q: z.string().max(500).optional(),
 						title: z.string().max(500).optional(),
 						transcript: z.string().max(200_000).optional(),
 						excludeId: z.string().optional(),
@@ -327,7 +329,7 @@ export const createTestCaseRoutes = (
 				);
 				return respond(similarTestCasesResponseSchema, {
 					items: await findSimilarCases(db, who.orgId, {
-						title: query.title,
+						title: query.title ?? query.q,
 						transcript: query.transcript,
 						...(query.excludeId ? { excludeIds: [query.excludeId] } : {}),
 						...(query.limit ? { limit: query.limit } : {}),
@@ -342,6 +344,7 @@ export const createTestCaseRoutes = (
 				await requireTestPermission(db, who, "test_case.view");
 				const body = parseInput(
 					z.object({
+						q: z.string().max(500).optional(),
 						title: z.string().max(500).optional(),
 						transcript: z.string().max(200_000).optional(),
 						excludeIds: z.array(z.string()).optional(),
@@ -350,7 +353,7 @@ export const createTestCaseRoutes = (
 				);
 				return respond(similarTestCasesResponseSchema, {
 					items: await findSimilarCases(db, who.orgId, {
-						title: body.title,
+						title: body.title ?? body.q,
 						transcript: body.transcript,
 						...(body.excludeIds ? { excludeIds: body.excludeIds } : {}),
 					}),

@@ -1061,3 +1061,38 @@ export const buildCostReport = async (
 		})),
 	};
 };
+
+// Organisation price overrides replace the previous override set; models without an override
+// fall back to the global defaults (org_id null).
+export const saveOrganizationModelPrices = async (
+	db: BackendDb,
+	orgId: string,
+	prices: readonly ModelPrice[],
+	now = Date.now(),
+): Promise<void> => {
+	const models = new Set<string>();
+	for (const price of prices) {
+		if (models.has(price.modelId)) {
+			throw new HttpError(
+				422,
+				"VALIDATION",
+				`Duplicate price for ${price.modelId}`,
+			);
+		}
+		models.add(price.modelId);
+	}
+	await db.delete(testModelPrices).where(eq(testModelPrices.orgId, orgId));
+	const version = `org-${new Date(now).toISOString().slice(0, 10)}-${now}`;
+	for (const price of prices) {
+		await db.insert(testModelPrices).values({
+			orgId,
+			modelId: price.modelId,
+			inputUsdPerMtok: price.inputUsdPerMtok,
+			cachedInputUsdPerMtok: price.cachedInputUsdPerMtok,
+			outputUsdPerMtok: price.outputUsdPerMtok,
+			version,
+			effectiveFrom: 0,
+			createdAt: now,
+		});
+	}
+};
