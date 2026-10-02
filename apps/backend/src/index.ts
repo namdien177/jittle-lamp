@@ -1,6 +1,7 @@
 import { createApp } from "./app";
 import { cleanupExpiredDeviceAuthState } from "./services/desktop-auth";
 import {
+	applyTestRunRetention,
 	cleanupAbandonedEvidenceUploads,
 	purgeExpiredDeletedEvidences,
 } from "./services/evidence-maintenance";
@@ -88,6 +89,15 @@ try {
 				}
 			} catch (err) {
 				logger.error({ err }, "failed to clean up abandoned evidence uploads");
+			}
+
+			try {
+				const binned = await applyTestRunRetention(db);
+				if (binned > 0) {
+					logger.info({ binned }, "expired test run evidence moved to the bin");
+				}
+			} catch (err) {
+				logger.error({ err }, "failed to apply test run evidence retention");
 			}
 
 			try {

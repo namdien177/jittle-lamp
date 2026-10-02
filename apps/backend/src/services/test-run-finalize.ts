@@ -5,13 +5,23 @@ import {
 	priceRunReport,
 	type RunReport,
 } from "@jittle-lamp/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { z } from "zod/v4";
 
-import { evidences, testCaseEvidences, testRuns } from "../db/schema";
+import {
+	evidences,
+	testCaseEvidences,
+	testCases,
+	testRunSteps,
+	testRuns,
+	testStepScripts,
+} from "../db/schema";
 import { HttpError } from "../http/test-http";
+import { parseJsonColumn } from "./test-cases";
 import { releaseWorkerRun } from "./test-run-queue";
 import {
 	ACTIVE_RUN_STATUSES,
+	queueRetryRun,
 	refreshBatch,
 	type TestRunRow,
 	upsertRunSteps,
@@ -113,6 +123,82 @@ export const linkRunEvidence = async (
 export type FinalizeResult = {
 	run: TestRunRow;
 	alreadyFinal: boolean;
+	// Set when a failed attempt was queued again under the case's retries.
+	retry: TestRunRow | null;
+};
+
+// Replayed steps verify their scripts; a hand-off means the cached script no longer matched, so
+// scripts this run did not record are marked stale with the reason (design.md §5.2).
+export const updateStepScripts = async (
+	db: BackendDb,
+	run: TestRunRow,
+	report: RunReport,
+	now = Date.now(),
+) => {
+	const scripts = await db.query.testStepScripts.findMany({
+		where: and(
+			eq(testStepScripts.testCaseId, run.testCaseId),
+			eq(testStepScripts.status, "active"),
+			or(
+				isNull(testStepScripts.environmentId),
+				run.environmentId
+					? eq(testStepScripts.environmentId, run.environmentId)
+					: isNull(testStepScripts.environmentId),
+			),
+		),
+	});
+	const forStep = (stepId: string) =>
+		scripts.filter(
+			(script) =>
+				script.stepId === stepId ||
+				parseJsonColumn(script.stepIdsJson, z.array(z.string()), []).includes(
+					stepId,
+				),
+		);
+	for (const step of report.steps) {
+		const matching = forStep(step.stepId);
+		if (matching.length === 0) continue;
+		if (step.mode === "replayed" && step.status === "passed") {
+			for (const script of matching) {
+				await db
+					.update(testStepScripts)
+					.set({
+						verifiedCount: script.verifiedCount + 1,
+						lastReplayedAt: now,
+						updatedAt: now,
+					})
+					.where(eq(testStepScripts.id, script.id));
+			}
+			const version = Math.max(...matching.map((script) => script.version));
+			await db
+				.update(testRunSteps)
+				.set({ scriptVersion: version })
+				.where(
+					and(
+						eq(testRunSteps.runId, run.id),
+						eq(testRunSteps.stepId, step.stepId),
+					),
+				);
+		} else if (step.mode === "handoff") {
+			const stale = matching.filter(
+				(script) => script.recordedFromRunId !== run.id,
+			);
+			if (stale.length === 0) continue;
+			await db
+				.update(testStepScripts)
+				.set({
+					status: "stale",
+					staleReason: `replay stopped (${step.cacheReason ?? "hand-off"}); re-generated on run ${run.id}`,
+					updatedAt: now,
+				})
+				.where(
+					inArray(
+						testStepScripts.id,
+						stale.map((script) => script.id),
+					),
+				);
+		}
+	}
 };
 
 export const finalizeRun = async (
@@ -126,7 +212,7 @@ export const finalizeRun = async (
 	const now = input.now ?? Date.now();
 	const { run, request } = input;
 	if (!(ACTIVE_RUN_STATUSES as readonly string[]).includes(run.status)) {
-		return { run, alreadyFinal: true };
+		return { run, alreadyFinal: true, retry: null };
 	}
 	if (request.report.runId && request.report.runId !== run.id) {
 		throw new HttpError(
@@ -178,9 +264,36 @@ export const finalizeRun = async (
 			where: eq(testRuns.id, run.id),
 		});
 		if (!current) throw new Error("Run disappeared during finalisation");
-		return { run: current, alreadyFinal: true };
+		return { run: current, alreadyFinal: true, retry: null };
 	}
 	await releaseWorkerRun(db, run.id, now);
-	if (updated.batchId) await refreshBatch(db, updated.batchId, now);
-	return { run: updated, alreadyFinal: false };
+	await updateStepScripts(db, updated, report, now);
+
+	// Retries per case (design.md §14): a failed attempt is queued again while retries remain;
+	// a later pass is outcome passed and flaky.
+	let retry: TestRunRow | null = null;
+	let final = updated;
+	if (updated.status !== "cancelled" && updated.outcome === "failed") {
+		const testCase = await db.query.testCases.findFirst({
+			where: eq(testCases.id, run.testCaseId),
+			columns: { retries: true, status: true, deletedAt: true },
+		});
+		if (
+			testCase &&
+			testCase.deletedAt === null &&
+			testCase.status !== "archived" &&
+			run.retryAttempt <= testCase.retries
+		) {
+			retry = await queueRetryRun(db, updated, now);
+		}
+	} else if (updated.outcome === "passed" && run.retryAttempt > 1) {
+		const [flaky] = await db
+			.update(testRuns)
+			.set({ flaky: true, updatedAt: now })
+			.where(eq(testRuns.id, run.id))
+			.returning();
+		if (flaky) final = flaky;
+	}
+	if (final.batchId) await refreshBatch(db, final.batchId, now);
+	return { run: final, alreadyFinal: false, retry };
 };
