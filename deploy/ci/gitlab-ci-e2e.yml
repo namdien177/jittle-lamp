@@ -1,0 +1,28 @@
+# Jittle Lamp test cases in GitLab CI (design.md §9.4 "CI", §10c pipeline-side alternative).
+# Include from the .gitlab-ci.yml of the repository whose app you test:
+#   include:
+#     - remote: https://<your jittle-lamp repo>/-/raw/main/deploy/ci/gitlab-ci-e2e.yml
+# or copy the job. CI/CD variables: JL_RUNNER_IMAGE (deploy/runner/Dockerfile, published by your
+# deployment), JL_API_ORIGIN, JL_WEB_ORIGIN, JL_API_TOKEN (masked; automation token),
+# JL_SUITE_ID, JL_ENVIRONMENT_ID. The suite runs on your runner pool; a self-hosted pool inside
+# your network reaches review apps and UAT behind VPN. Blocked cases appear as skipped in JUnit.
+
+jl-e2e:
+  stage: test
+  image:
+    name: $JL_RUNNER_IMAGE
+    entrypoint: [""]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - >
+      jl-e2e run --suite "$JL_SUITE_ID" --env "$JL_ENVIRONMENT_ID"
+      --var "commit=${CI_COMMIT_SHORT_SHA}" --cache strict --wait --junit jl-e2e-junit.xml
+  artifacts:
+    when: always
+    reports:
+      junit: jl-e2e-junit.xml
+    paths:
+      - jl-e2e-junit.xml
+  timeout: 1h

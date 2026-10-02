@@ -19,9 +19,9 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 | 1a.5 | Queue and worker contract | todo | | |
 | 1a.6 | Run finalisation | todo | | |
 | 1a.7 | Notifications (in-app) | todo | | |
-| 1b.1 | Runner daemon | todo | | |
-| 1b.2 | Backend-backed cache store | todo | | |
-| 1b.3 | CLI extras (`env pull`, `export`, `push`, `--suite --wait --junit`) | todo | | |
+| 1b.1 | Runner daemon | in progress | 33f78f2 | `jl-e2e-runner start`: register once (credential mode 600), heartbeat, claim, per-run config, progress with per-step screenshot, evidence ZIP, finalise. Verified against an in-process stand-in of the contract (`browser/daemon.browser.test.ts`); integration with the real backend pending 1a.4/1a.5. |
+| 1b.2 | Backend-backed cache store | in progress | 6aa0f71 | `cache.store` over `/test-runs/:id/cache/:keyHash`; run 2 replays every act from it (stand-in backend). Real-backend check pending 1a.4. |
+| 1b.3 | CLI extras (`env pull`, `export`, `push`, `--suite --wait --junit`) | in progress | fcfc368 | Unit tests with a fake API (`test/remote.test.ts`); end-to-end with an automation token pending 1a.4. |
 | 1c.1 | Web: list and detail | todo | | |
 | 1c.2 | Web: structured step editor | todo | | |
 | 1c.3 | Web: run detail | todo | | |
@@ -32,15 +32,15 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 | 1e | Docs (`docs/mcp.md`, runner setup, `.env.sample`) | todo | | |
 | 2.1 | GitLab and GitHub webhooks with status reporting (§10c) | todo | | |
 | 2.2 | Slack notification channel (§10b) | todo | | |
-| 2.3 | Live view of cloud runs with take-over (§5.4) | todo | | |
+| 2.3 | Live view of cloud runs with take-over (§5.4) | in progress | e0a4217 | Runner side done: frames while watched, take-over pauses before the next agent action, input replayed and tagged `user:takeover`, nothing cached (browser test). Backend endpoints and web panel pending. |
 | 2.4 | Agent notes per organisation | todo | | |
-| 2.5 | GitHub Actions and GitLab CI templates | todo | | |
-| ops.1 | Dockerfile and compose for the cloud runner pool | todo | | |
-| ops.2 | systemd unit and `runner-setup.md` | todo | | |
+| 2.5 | GitHub Actions and GitLab CI templates | done | cbb8c75 | `deploy/ci/github-actions-e2e.yml`, `deploy/ci/gitlab-ci-e2e.yml` run a suite through the runner image with JUnit; end-to-end demonstration with an automation token comes with 1b.3. |
+| ops.1 | Dockerfile and compose for the cloud runner pool | done | cbb8c75 | `deploy/runner/{Dockerfile,compose.yaml,runner.env.sample}`; image built locally and ran the fixture case with the mock model inside the container; CI job `build_runner_image`. |
+| ops.2 | systemd unit and `runner-setup.md` | done | ef0a1a6 | `deploy/runner/jl-e2e-runner.service`, `docs/e2e-test-cases/runner-setup.md`. |
 | ops.3 | Evidence retention job running | todo | | |
 | ops.4 | Model cost per organisation in the UI | todo | | |
 | ops.5 | `docs/mcp.md` updated | todo | | |
-| ops.6 | QA engineer onboarding guide | todo | | |
+| ops.6 | QA engineer onboarding guide | done | cbb8c75 | `docs/e2e-test-cases/onboarding-qa.md`. |
 | ops.7 | `.env.sample` updated | todo | | |
 
 ## ADR amendments
@@ -48,6 +48,8 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 None yet.
 
 ## Log
+
+- 2026-10-03: shared HTTP contract committed (0db109d). Backend 1a delegated to one engineer (sequential units). Web 1c.1-1c.3, web 1c.4/1c.5/ops.4 and desktop/MCP 1d run in parallel worktrees (`feat/e2e-1c-core`, `feat/e2e-1c-admin`, `feat/e2e-1d`) against the contract and merge back after review. Runner daemon, backend cache store, CLI extras, runner image, systemd unit, CI templates, onboarding guide and the runner side of live view done on this branch.
 
 - 2026-10-03: phase 0 done. 0.3 to 0.5 in `packages/e2e-runner`; review found 13 issues (secret params in labels, JSON redaction, claude-code tools, exit-code and cancel mapping, built CLI paths), all fixed with tests. 0.6 spike on PCF UAT passed both runs; the example transcript needed two corrections for an HQ admin (recorded in design §14). Gate: keep Tester Army e2e.
 

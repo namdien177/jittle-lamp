@@ -28,6 +28,8 @@ export const mockTurnSchema = z.object({
     .optional(),
   // Repeat this turn instead of consuming it (handy for "done" or judge turns).
   repeat: z.boolean().default(false),
+  // Simulated model latency, for tests that need a step to take a while.
+  delayMs: z.number().int().nonnegative().default(0),
   content: z.array(
     z.discriminatedUnion("type", [
       z.object({ type: z.literal("text"), text: z.string() }),
@@ -166,6 +168,7 @@ export class MockReplayModel implements LanguageModelV4 {
 
   async doGenerate(options: LanguageModelV4CallOptions): Promise<LanguageModelV4GenerateResult> {
     const { turn } = this.pick(options);
+    if (turn.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, turn.delayMs));
     const content = this.content(turn, options);
     const hasToolCall = content.some((part) => part.type === "tool-call");
     return {
@@ -215,6 +218,7 @@ export function recordingModel(inner: LanguageModelV4, fixturePath: string): Lan
     fixture.turns.push({
       match: tools.length > 0 ? { tools } : undefined,
       repeat: false,
+      delayMs: 0,
       content: result.content.flatMap((part): MockTurn["content"] => {
         if (part.type === "text") return [{ type: "text" as const, text: part.text }];
         if (part.type === "reasoning") return [{ type: "reasoning" as const, text: part.text }];

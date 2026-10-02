@@ -6,7 +6,7 @@ import { zipSync } from "fflate";
 import { recordingFileName, sessionArchiveFileName, type RunReport } from "@jittle-lamp/shared";
 
 import type { RunTranscriptResult } from "../run";
-import { buildRunArchive, type EngineEvent } from "./archive";
+import { buildRunArchive, type EngineEvent, type TakeoverEvent } from "./archive";
 
 // Evidence for one run (design.md §5.3): recording.webm, session.archive.json (v4) and
 // run-report.json, plus a ZIP in the shape `POST /automation/evidences/zip` accepts.
@@ -38,6 +38,24 @@ function engineEvents(runDir: string): EngineEvent[] {
     });
 }
 
+function takeoverEvents(runDir: string): TakeoverEvent[] {
+  const path = join(runDir, "steps.jsonl");
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .flatMap((line): TakeoverEvent[] => {
+      try {
+        const event = JSON.parse(line) as { type?: string; at: string; stepId: string | null; action?: "start" | "end"; kind?: string; detail?: string };
+        if (event.type === "takeover") return [{ at: event.at, stepId: event.stepId, kind: event.action ?? "start", detail: "" }];
+        if (event.type === "takeover-input") return [{ at: event.at, stepId: event.stepId, kind: "input", inputKind: event.kind ?? "click", detail: event.detail ?? "" }];
+        return [];
+      } catch {
+        return [];
+      }
+    });
+}
+
 function webmDurationHint(report: RunReport): number | null {
   const ends = report.steps.flatMap((step) => (step.videoOffsetMs !== null && step.durationMs !== null ? [step.videoOffsetMs + step.durationMs] : []));
   return ends.length > 0 ? Math.max(...ends) : null;
@@ -55,6 +73,7 @@ export function writeEvidenceBundle(result: RunTranscriptResult): EvidenceBundle
     traceZip,
     report: result.report,
     engineEvents: engineEvents(result.runDir),
+    takeoverEvents: takeoverEvents(result.runDir),
     sessionId,
     name: result.report.testCase.key ? `${result.report.testCase.key} ${result.report.testCase.title}` : result.report.testCase.title || "Test run",
     videoDurationMs: webmDurationHint(result.report),

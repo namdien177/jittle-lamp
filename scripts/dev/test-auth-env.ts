@@ -107,6 +107,11 @@ const writeDevAuthEnv = async (): Promise<Record<string, string>> => {
 		JITTLE_LAMP_DEV_AUTH_EMAIL: email,
 		JITTLE_LAMP_DEV_AUTH_NAME: name,
 		JITTLE_LAMP_DEV_AUTH_TOKEN: token,
+		// Local master key for test credential secrets; kept across setups so stored secrets
+		// stay readable.
+		JL_SECRETS_MASTER_KEY:
+			firstNonEmpty(existing.JL_SECRETS_MASTER_KEY) ??
+			randomBytes(32).toString("base64"),
 	};
 
 	const orderedKeys = [
@@ -130,6 +135,7 @@ const writeDevAuthEnv = async (): Promise<Record<string, string>> => {
 		"JITTLE_LAMP_DEV_AUTH_EMAIL",
 		"JITTLE_LAMP_DEV_AUTH_NAME",
 		"JITTLE_LAMP_DEV_AUTH_TOKEN",
+		"JL_SECRETS_MASTER_KEY",
 	] as const;
 
 	const body = [

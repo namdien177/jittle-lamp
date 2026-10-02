@@ -55,6 +55,8 @@ export type RunTranscriptOptions = {
   // Backend cache store and progress screenshots for daemon runs.
   backend?: { apiUrl: string; runId: string; runToken: string };
   progressScreenshots?: boolean;
+  // Live view: directory the daemon relays control and input through (design.md §5.4).
+  liveDir?: string;
   priceTableVersion?: string;
   log?: (line: string) => void;
 };
@@ -327,6 +329,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       JL_CACHE_INDEX: cacheIndexPath,
       ...(options.backend ? { JL_CACHE_API_URL: options.backend.apiUrl, JL_RUN_ID: options.backend.runId, JL_RUN_TOKEN: options.backend.runToken } : {}),
       ...(options.progressScreenshots ? { JL_PROGRESS_SCREENSHOTS: "1" } : {}),
+      ...(options.liveDir ? { JL_LIVE_DIR: options.liveDir } : {}),
       ...(allowClaudeCode ? { JL_ALLOW_CLAUDE_CODE: "1" } : {}),
       ...(options.recordModelFixture ? { JL_RECORD_MODEL_FIXTURE: resolve(options.cwd, options.recordModelFixture) } : {})
     }
@@ -345,7 +348,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     let seen = 0;
     const poll = setInterval(() => {
       const events = readStepLog(stepLogPath);
-      for (const event of events.slice(seen)) options.onStepEvent?.(event);
+      for (const event of events.slice(seen)) options.onStepEvent?.(redactJson(event, redact));
       seen = events.length;
     }, 300);
     // Watchdog above e2e's own attempt deadline: a hung engine must not hold a runner slot.
@@ -358,11 +361,13 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     child.stderr.on("data", (data: Buffer) => chunks.push(data.toString()));
     const abort = () => child.kill("SIGTERM");
     options.signal?.addEventListener("abort", abort, { once: true });
+    // A cancel that arrived before the child existed.
+    if (options.signal?.aborted) abort();
     const done = (code: number | null) => {
       clearInterval(poll);
       clearTimeout(watchdog);
       const events = readStepLog(stepLogPath);
-      for (const event of events.slice(seen)) options.onStepEvent?.(event);
+      for (const event of events.slice(seen)) options.onStepEvent?.(redactJson(event, redact));
       options.signal?.removeEventListener("abort", abort);
       // Redact the whole log at once: a secret can straddle two chunks.
       writeFileSync(outputLog, redact(chunks.join("")));

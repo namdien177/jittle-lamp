@@ -1,14 +1,23 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname as osHostname, homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { zipSync } from "fflate";
 
-import { macroDefinitionSchema, type ClaimedRun, type RunStepResult, type TestRunProgressRequest } from "@jittle-lamp/shared";
+import {
+  macroDefinitionSchema,
+  type ClaimedRun,
+  type FinalizeTestRunRequest,
+  type RunReport,
+  type RunStepResult,
+  type TestRunProgressRequest
+} from "@jittle-lamp/shared";
 
-import type { OrgRunConfig } from "../config/resolve";
+import { resolveRunConfig, type OrgRunConfig } from "../config/resolve";
 import { writeEvidenceBundle } from "../evidence/upload";
-import { runnerVersion } from "../paths";
+import { engineVersion, runnerVersion } from "../paths";
+import { buildRunPlan } from "../plan";
+import { buildRunReport } from "../report/build";
 import { runTranscript, type RunTranscriptResult } from "../run";
 import type { StepLogEvent } from "../runtime/step-log";
 import { BackendClient, BackendError } from "./api";
@@ -32,6 +41,8 @@ export type WorkerOptions = {
   // Host environment for the browser child (proxies, display); JL_* and keys come from the backend.
   hostEnv?: Readonly<Record<string, string | undefined>>;
   once?: boolean;
+  // Keep run directories (video, trace) after finalisation, for debugging.
+  keepRunDirs?: boolean;
 };
 
 // The organisation's configuration comes from the backend; JL_* names and model keys in the
@@ -42,9 +53,11 @@ export function hostEnvForRuns(env: Readonly<Record<string, string | undefined>>
   );
 }
 
+// One credential per API and host name, so replicas sharing a state volume stay distinct workers.
 export function defaultStatePath(apiOrigin: string): string {
-  const host = new URL(apiOrigin).host.replace(/[^A-Za-z0-9.-]/g, "_");
-  return join(homedir(), ".config", "jittle-lamp", "runner", `${host}.json`);
+  const api = new URL(apiOrigin).host.replace(/[^A-Za-z0-9.-]/g, "_");
+  const host = osHostname().replace(/[^A-Za-z0-9.-]/g, "_");
+  return join(homedir(), ".config", "jittle-lamp", "runner", `${api}-${host}.json`);
 }
 
 function readState(path: string): WorkerState | null {
@@ -62,10 +75,12 @@ function writeState(path: string, state: WorkerState): void {
   chmodSync(path, 0o600);
 }
 
+// A stored credential always wins; the registration token is only used when this host has none
+// (a pool registration token registers any number of workers, so keeping it set is harmless).
 export async function ensureRegistered(client: BackendClient, options: WorkerOptions): Promise<WorkerState> {
   const statePath = options.statePath ?? defaultStatePath(options.apiOrigin);
   const existing = readState(statePath);
-  if (existing && existing.apiOrigin === options.apiOrigin && !options.registrationToken) return existing;
+  if (existing && existing.apiOrigin === options.apiOrigin) return existing;
   if (!options.registrationToken) {
     throw new Error(`No worker registration in ${statePath}; start once with --token <registration token>.`);
   }
@@ -105,6 +120,65 @@ function stepUpdate(event: Extract<StepLogEvent, { type: "step-started" | "step-
   };
 }
 
+const lostLease = (error: unknown) =>
+  error instanceof BackendError && (error.status === 401 || error.status === 403 || error.status === 409 || error.status === 410);
+
+async function withRetry<T>(label: string, action: () => Promise<T>, log: (line: string) => void, attempts = 6): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      // Network failures and server errors are retried; a rejected or malformed request is not.
+      const network = error instanceof Error && (error.name === "TypeError" || error.name === "TimeoutError" || error.name === "AbortError");
+      const retryable = error instanceof BackendError ? error.status >= 500 || error.status === 429 : network;
+      if (!retryable || attempt >= attempts) throw error;
+      const delay = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+      log(`${label} failed (${error instanceof Error ? error.message : String(error)}); retrying in ${delay} ms`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+// A run that cannot start (config fetch failed, runner crashed before e2e) is reported as blocked
+// rather than left to expire into RUNNER_LOST.
+function blockedReport(claimed: ClaimedRun, message: string): RunReport {
+  const plan = buildRunPlan({
+    transcript: claimed.transcript,
+    config: resolveRunConfig({ env: {} }),
+    macros: claimed.macros.map((macro) => macroDefinitionSchema.parse({ ...macro, status: "active" })),
+    previousSteps: claimed.steps
+  });
+  const now = new Date().toISOString();
+  return buildRunReport({
+    plan,
+    runId: claimed.runId,
+    testCaseId: claimed.testCaseId,
+    transcriptVersion: claimed.transcriptVersion,
+    environmentId: claimed.environmentId,
+    runner: {
+      runner: "jl-e2e-runner",
+      runnerVersion,
+      engine: "e2e",
+      engineVersion,
+      browser: "chromium",
+      browserVersion: null,
+      headless: true,
+      viewport: { width: 1440, height: 900 },
+      cacheMode: claimed.cacheMode,
+      host: "self-hosted"
+    },
+    model: { act: null, judge: null, provider: null },
+    e2eReport: null,
+    aiTrace: null,
+    stepLog: [],
+    exitCode: null,
+    startedAt: now,
+    finishedAt: now,
+    artifacts: [],
+    blocked: { reason: "ENGINE_ERROR", message }
+  });
+}
+
 // Executes one claimed run end to end. Exported for tests.
 export async function executeClaimedRun(input: {
   client: BackendClient;
@@ -115,30 +189,103 @@ export async function executeClaimedRun(input: {
   allowClaudeCode?: boolean;
   hostEnv: Readonly<Record<string, string | undefined>>;
   log: (line: string) => void;
+  keepRunDirs?: boolean;
 }): Promise<{ result: RunTranscriptResult | null; evidenceId: string | null }> {
   const { client, claimed, log } = input;
-  const config = await client.config(claimed.runId, claimed.runToken);
   const controller = new AbortController();
   let pending: Promise<unknown> = Promise.resolve();
   let lastSentAt = 0;
+  let leaseLost = false;
 
-  // Progress goes out in order; a cancel request from the backend aborts the run.
+  // Progress goes out in order; a cancel request or a lost lease aborts the run.
   const send = (body: TestRunProgressRequest) => {
     pending = pending
       .then(() => client.progress(claimed.runId, claimed.runToken, body))
       .then((response) => {
         if ((response as { cancelRequested?: boolean }).cancelRequested) controller.abort();
       })
-      .catch((error: unknown) => log(`progress for ${claimed.runId} failed: ${error instanceof Error ? error.message : String(error)}`));
+      .catch((error: unknown) => {
+        if (lostLease(error)) {
+          leaseLost = true;
+          controller.abort();
+        }
+        log(`progress for ${claimed.runId} failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
     lastSentAt = Date.now();
   };
   send({ status: "running", currentStepId: null, steps: [] });
+  // Keeps the lease alive through the run, the evidence upload and finalisation.
   const keepAlive = setInterval(() => {
     if (Date.now() - lastSentAt > 8_000) send({ steps: [] });
   }, 2_000);
 
+  // Every attempt starts clean: a retried run (same id) must not see the last attempt's files.
+  const liveDir = join(input.workDir, ".live", claimed.runId);
+  const runDir = join(input.workDir, ".e2e", "runs", claimed.runId);
+  rmSync(liveDir, { recursive: true, force: true });
+  rmSync(runDir, { recursive: true, force: true });
+  mkdirSync(liveDir, { recursive: true });
+  writeFileSync(join(liveDir, "control.json"), JSON.stringify({ live: false, takeover: false }));
+
+  // Live view relay: backend control and input → JL_LIVE_DIR → e2e worker; frames back.
+  let liveSeq = -1;
+  let liveEnabled = true;
+  let lastFrameMtime = 0;
+  let liveBusy = false;
+  const liveLoop = setInterval(() => {
+    if (!liveEnabled || liveBusy) return;
+    liveBusy = true;
+    void (async () => {
+      const control = await client.liveControl(claimed.runId, claimed.runToken, liveSeq);
+      if (!control) {
+        liveEnabled = false;
+        return;
+      }
+      if (control.cancelRequested) controller.abort();
+      // Input first, then the state: input sent together with "stop" must not wait for the next take-over.
+      const fresh = control.inputs.filter((event) => event.seq > liveSeq).sort((a, b) => a.seq - b.seq);
+      if (fresh.length > 0) {
+        appendFileSync(join(liveDir, "inputs.jsonl"), fresh.map((event) => `${JSON.stringify(event)}\n`).join(""));
+        liveSeq = fresh.at(-1)?.seq ?? liveSeq;
+      }
+      writeFileSync(join(liveDir, "control.json"), JSON.stringify({ live: control.live || control.takeover, takeover: control.takeover }));
+      const framePath = join(liveDir, "frame.jpg");
+      if ((control.live || control.takeover) && existsSync(framePath)) {
+        const mtime = statSync(framePath).mtimeMs;
+        if (mtime !== lastFrameMtime) {
+          lastFrameMtime = mtime;
+          await client.liveFrame(claimed.runId, claimed.runToken, new Uint8Array(readFileSync(framePath)));
+        }
+      }
+    })()
+      .catch((error: unknown) => log(`live relay for ${claimed.runId}: ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => {
+        liveBusy = false;
+      });
+  }, Number(process.env.JL_LIVE_POLL_MS ?? 1_000));
+
+  const cleanup = () => {
+    clearInterval(keepAlive);
+    clearInterval(liveLoop);
+    // inputs.jsonl may hold what a person typed during a take-over: never keep it.
+    rmSync(liveDir, { recursive: true, force: true });
+    if (!input.keepRunDirs) rmSync(runDir, { recursive: true, force: true });
+  };
+
   let result: RunTranscriptResult | null = null;
+  let evidenceId: string | null = null;
   try {
+    let config: Awaited<ReturnType<BackendClient["config"]>>;
+    try {
+      config = await withRetry("config", () => client.config(claimed.runId, claimed.runToken), log);
+    } catch (error) {
+      const report = blockedReport(claimed, `Could not fetch the run configuration: ${error instanceof Error ? error.message : String(error)}`);
+      clearInterval(liveLoop);
+      await pending;
+      if (!leaseLost) await withRetry("finalize", () => finalizeOnce(client, claimed, { report, evidenceId: null }), log);
+      return { result: null, evidenceId: null };
+    }
+
     result = await runTranscript({
       transcript: claimed.transcript,
       cwd: input.workDir,
@@ -159,9 +306,14 @@ export async function executeClaimedRun(input: {
       ...(config.priceTableVersion ? { priceTableVersion: config.priceTableVersion } : {}),
       backend: { apiUrl: input.apiOrigin, runId: claimed.runId, runToken: claimed.runToken },
       progressScreenshots: true,
+      liveDir,
       signal: controller.signal,
       log: (line) => log(`[${claimed.runId}] ${line}`),
       onStepEvent: (event) => {
+        if (event.type === "takeover") {
+          send({ status: event.action === "start" ? "paused" : "running", steps: [] });
+          return;
+        }
         if (event.type !== "step-started" && event.type !== "step-finished") return;
         const screenshot =
           event.type === "step-finished" && event.screenshot && existsSync(event.screenshot)
@@ -174,47 +326,73 @@ export async function executeClaimedRun(input: {
         });
       }
     });
-  } finally {
-    clearInterval(keepAlive);
-    await pending;
-  }
+    clearInterval(liveLoop);
 
-  let evidenceId: string | null = null;
-  if (result.recordingPath) {
-    try {
-      const bundle = writeEvidenceBundle(result);
-      const files: Record<string, Uint8Array> = {
-        "session.archive.json": new Uint8Array(readFileSync(bundle.archivePath)),
-        "recording.webm": new Uint8Array(readFileSync(bundle.recordingPath)),
-        "run-report.json": new Uint8Array(readFileSync(bundle.reportPath))
-      };
-      for (const step of bundle.report.steps) {
-        if (step.screenshot && existsSync(step.screenshot)) files[`screenshots/${step.stepId}.png`] = new Uint8Array(readFileSync(step.screenshot));
-      }
-      evidenceId = await client.uploadEvidence(claimed.runId, claimed.runToken, zipSync(files, { level: 6 }));
-      result = { ...result, report: bundle.report };
-    } catch (error) {
-      log(`[${claimed.runId}] evidence upload failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (leaseLost) {
+      log(`[${claimed.runId}] lease lost; the backend re-queues the run, nothing is finalised from here`);
+      return { result, evidenceId: null };
     }
+
+    if (result.recordingPath) {
+      try {
+        const bundle = writeEvidenceBundle(result);
+        const files: Record<string, Uint8Array> = {
+          "session.archive.json": new Uint8Array(readFileSync(bundle.archivePath)),
+          "recording.webm": new Uint8Array(readFileSync(bundle.recordingPath)),
+          "run-report.json": new Uint8Array(readFileSync(bundle.reportPath))
+        };
+        for (const step of bundle.report.steps) {
+          if (step.screenshot && existsSync(step.screenshot)) files[`screenshots/${step.stepId}.png`] = new Uint8Array(readFileSync(step.screenshot));
+        }
+        const zip = zipSync(files, { level: 6 });
+        evidenceId = await withRetry("evidence upload", () => client.uploadEvidence(claimed.runId, claimed.runToken, zip), log, 4);
+        result = { ...result, report: bundle.report };
+      } catch (error) {
+        log(`[${claimed.runId}] evidence upload failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const report = {
+      ...result.report,
+      // Screenshot paths are local to this host; the evidence carries the files.
+      steps: result.report.steps.map((step: RunStepResult) => ({ ...step, screenshot: step.screenshot ? `screenshots/${step.stepId}.png` : null }))
+    };
+    await withRetry("finalize", () => finalizeOnce(client, claimed, { report, evidenceId }), log);
+    log(`[${claimed.runId}] ${report.outcome}${report.blockedReason ? ` (${report.blockedReason})` : ""}${evidenceId ? ` evidence ${evidenceId}` : ""}`);
+    return { result, evidenceId };
+  } catch (error) {
+    // The runner itself failed: report the run blocked instead of leaving it to expire.
+    if (!leaseLost && !(error instanceof BackendError)) {
+      await withRetry("finalize", () => finalizeOnce(client, claimed, { report: blockedReport(claimed, error instanceof Error ? error.message : String(error)), evidenceId }), log).catch(
+        () => undefined
+      );
+    }
+    throw error;
+  } finally {
+    await pending;
+    cleanup();
   }
-  const report = {
-    ...result.report,
-    // Screenshot paths are local to this host; the evidence carries the files.
-    steps: result.report.steps.map((step: RunStepResult) => ({ ...step, screenshot: step.screenshot ? `screenshots/${step.stepId}.png` : null }))
-  };
-  await client.finalize(claimed.runId, claimed.runToken, { report, evidenceId });
-  log(`[${claimed.runId}] ${report.outcome}${report.blockedReason ? ` (${report.blockedReason})` : ""}${evidenceId ? ` evidence ${evidenceId}` : ""}`);
-  return { result, evidenceId };
+}
+
+// A second finalize after a lost response is answered 409 by the backend: already done.
+async function finalizeOnce(client: BackendClient, claimed: ClaimedRun, body: FinalizeTestRunRequest): Promise<void> {
+  try {
+    await client.finalize(claimed.runId, claimed.runToken, body);
+  } catch (error) {
+    if (error instanceof BackendError && error.status === 409) return;
+    throw error;
+  }
 }
 
 export async function startWorker(options: WorkerOptions): Promise<void> {
   const log = options.log ?? ((line: string) => console.error(`[jl-e2e-runner] ${line}`));
   const client = new BackendClient({ origin: options.apiOrigin, ...(options.fetch ? { fetch: options.fetch } : {}), userAgent: `jl-e2e-runner/${runnerVersion}` });
   const state = await ensureRegistered(client, options);
-  const concurrency = Math.max(1, options.concurrency ?? 1);
+  const requested = Number(options.concurrency ?? 1);
+  const concurrency = Number.isFinite(requested) ? Math.min(50, Math.max(1, Math.floor(requested))) : 1;
   const pollMs = options.pollMs ?? 3_000;
   const active = new Map<string, Promise<void>>();
   let stopping = false;
+  let fatal: unknown = null;
   log(`registered as worker ${state.workerId} in pool ${state.poolId}; concurrency ${concurrency}`);
 
   const heartbeat = setInterval(() => {
@@ -240,7 +418,13 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
       try {
         claimed = await client.claim(state.workerToken);
       } catch (error) {
-        if (error instanceof BackendError && (error.status === 401 || error.status === 403)) throw error;
+        if (error instanceof BackendError && (error.status === 401 || error.status === 403)) {
+          // The worker was removed from its pool: stop claiming, let running cases finish.
+          log(`worker credential rejected (${error.status}); stopping after ${active.size} active run(s)`);
+          stopping = true;
+          fatal = error;
+          continue;
+        }
         log(`claim failed: ${error instanceof Error ? error.message : String(error)}`);
       }
       if (!claimed) {
@@ -260,7 +444,8 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         headed: options.headed ?? false,
         allowClaudeCode: options.allowClaudeCode ?? false,
         hostEnv: hostEnvForRuns(options.hostEnv ?? process.env),
-        log
+        log,
+        keepRunDirs: options.keepRunDirs ?? process.env.JL_RUNNER_KEEP_RUNS === "1"
       })
         .then(() => undefined)
         .catch((error: unknown) => log(`run ${run.runId} crashed: ${error instanceof Error ? error.message : String(error)}`))
@@ -272,6 +457,7 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
       }
     }
     await Promise.all(active.values());
+    if (fatal) throw fatal;
   } finally {
     clearInterval(heartbeat);
     process.off("SIGTERM", stop);

@@ -9,7 +9,8 @@
     "jl-e2e-runner": "./dist/daemon.js"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./model": "./src/model/providers.ts"
   },
   "engines": {
     "node": ">=22.12.0"
