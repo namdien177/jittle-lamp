@@ -128,7 +128,7 @@ export function createTestApi(options: { getToken: FetchToken; fetcher?: typeof 
     listCaseRuns: async (testCaseId, runOptions = {}) =>
       parse(
         testRunListResponseSchema,
-        await request("GET", `/test-cases/${id(testCaseId)}/runs`, { query: new URLSearchParams({ limit: String(runOptions.limit ?? 20) }) }),
+        await request("GET", "/test-runs", { query: new URLSearchParams({ testCaseId, limit: String(runOptions.limit ?? 20) }) }),
         "run list"
       ),
     listRuns: async (runOptions = {}) => {

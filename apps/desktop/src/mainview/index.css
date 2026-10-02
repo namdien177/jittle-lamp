@@ -2413,8 +2413,17 @@ a:hover {
 }
 
 .tc-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 11px;
   color: var(--accent);
+  cursor: pointer;
+}
+
+.tc-link:hover {
+  text-decoration: underline;
 }
 
 .tc-config {
