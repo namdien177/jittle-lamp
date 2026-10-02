@@ -88,6 +88,9 @@ describe("notification links", () => {
     expect(notificationHref({ ...base, kind: "run.finished", url: "/test-cases?case=x" })).toBe("/test-cases?case=x");
     expect(notificationHref({ ...base, kind: "run.finished", url: "https://app.example/test-cases/review?x=1" }, "https://app.example")).toBe("/test-cases/review?x=1");
     expect(notificationHref({ ...base, kind: "run.finished", url: "https://evil.example/x" }, "https://app.example")).toBe("/test-runs/run_1");
+    expect(notificationHref({ ...base, kind: "run.finished", url: "//evil.example/x" })).toBe("/test-runs/run_1");
+    expect(notificationHref({ ...base, kind: "review.pending_count", url: "/test-cases?status=review" })).toBe("/test-cases/review");
+    expect(notificationHref({ ...base, kind: "runner.offline", url: "/settings/runner-pools" })).toBe("/settings/test-cases/runner-pools");
   });
 
   it("caps the badge and names the bell for screen readers", () => {

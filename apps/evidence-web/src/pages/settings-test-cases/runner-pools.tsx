@@ -71,24 +71,22 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                     <h3 className="font-mono text-sm font-semibold text-foreground">{pool.name}</h3>
                     <Badge variant={pool.kind === "cloud" ? "default" : "outline"}>{pool.kind}</Badge>
                     <span className="text-sm text-muted-foreground">
-                      {online} of {pool.workers.length} online · up to {pool.maxConcurrentRuns} at a time
+                      {online} of {pool.workers.length} online · up to {pool.maxConcurrentRuns} at a time · {pool.running} running ·{" "}
+                      <span className={cn(pool.queued > 0 && online === 0 && "font-semibold text-warning")}>{pool.queued} queued</span>
                     </span>
-                    <span className="ml-auto flex items-center gap-2 text-sm">
-                      <Badge variant="outline">{pool.running} running</Badge>
-                      <Badge variant={pool.queued > 0 && online === 0 ? "warning" : "outline"}>{pool.queued} queued</Badge>
-                      {canManage && pool.kind === "self-hosted" ? (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          disabled={issueToken.isPending}
-                          aria-label={`New registration token for ${pool.name}`}
-                          onClick={() => void issueToken.mutateAsync(pool.id).then((response) => setIssued({ poolName: pool.name, token: response.registrationToken }))}
-                        >
-                          <KeyRound aria-hidden />
-                          New token
-                        </Button>
-                      ) : null}
-                    </span>
+                    {canManage && pool.kind === "self-hosted" ? (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="ml-auto"
+                        disabled={issueToken.isPending}
+                        aria-label={`New token for ${pool.name}`}
+                        onClick={() => void issueToken.mutateAsync(pool.id).then((response) => setIssued({ poolName: pool.name, token: response.registrationToken }))}
+                      >
+                        <KeyRound aria-hidden />
+                        New token
+                      </Button>
+                    ) : null}
                   </header>
                   {pool.queued > 0 && online === 0 ? (
                     <p className="flex items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-sm text-warning">

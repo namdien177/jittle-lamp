@@ -16,15 +16,27 @@ export function importBatchHref(batchId: string): string {
 export const reviewQueueHref = "/test-cases/review";
 export const runnerPoolsHref = "/settings/test-cases/runner-pools";
 
+// Backend URLs whose screens live elsewhere in the web app.
+const pathAliases: Record<string, string> = {
+  "/test-cases?status=review": reviewQueueHref,
+  "/settings/runner-pools": runnerPoolsHref
+};
+
+function localPath(url: string, origin?: string): string | null {
+  if (url.startsWith("/") && !url.startsWith("//")) return pathAliases[url] ?? url;
+  try {
+    const parsed = new URL(url);
+    if (origin && parsed.origin === origin) return localPath(`${parsed.pathname}${parsed.search}${parsed.hash}`);
+  } catch {
+    // not a URL; use the subject
+  }
+  return null;
+}
+
 export function notificationHref(notification: Pick<Notification, "url" | "kind" | "subjectType" | "subjectId">, origin?: string): string | null {
   if (notification.url) {
-    if (notification.url.startsWith("/")) return notification.url;
-    try {
-      const url = new URL(notification.url);
-      if (origin && url.origin === origin) return `${url.pathname}${url.search}${url.hash}`;
-    } catch {
-      // fall through to the subject
-    }
+    const path = localPath(notification.url, origin);
+    if (path) return path;
   }
   switch (notification.kind) {
     case "run.finished":

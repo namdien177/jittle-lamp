@@ -204,7 +204,7 @@ export const testAdminApi = {
   // Notifications -----------------------------------------------------------------------------
   listNotifications: (getToken: FetchToken) => request(getToken, "/notifications?limit=30", notificationListResponseSchema),
   markNotificationsRead: (getToken: FetchToken, body: { ids: string[] } | { all: true }) =>
-    request(getToken, "/notifications/read", okSchema, json("POST", body)),
+    request(getToken, "/notifications/read", okSchema, json("POST", "all" in body ? { ids: [], all: true } : { ids: body.ids, all: false })),
   listNotificationChannels: (getToken: FetchToken) =>
     request(getToken, "/notification-channels", listOf(notificationChannelSchema, "channels"))
 };
