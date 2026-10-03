@@ -46,6 +46,7 @@ import {
 } from "../db/schema";
 import { HttpError, notFound } from "../http/test-http";
 import type { ArtifactStorage } from "./artifact-storage";
+import { withBusyRetry } from "./db-busy";
 import { emitNotification, emitRunOutcome } from "./notifications";
 import { caseSteps, parseJsonColumn, type TestCaseRow } from "./test-cases";
 import {
@@ -183,6 +184,9 @@ export const poolConcurrency = async (
 // Throttle: token bucket per user or token (design.md §10.3)
 // ---------------------------------------------------------------------------------------------
 
+// One statement refills and takes a token, so concurrent requests can never spend the same
+// token twice: the upsert's WHERE skips the write (and returns no row) when the refilled
+// bucket holds less than one token.
 export const consumeRunRequestToken = async (
 	db: BackendDb,
 	input: {
@@ -195,6 +199,24 @@ export const consumeRunRequestToken = async (
 	const now = input.now ?? Date.now();
 	const size = input.settings.tokenBucketSize;
 	const refillPerMs = size / (input.settings.tokenBucketWindowSeconds * 1000);
+	const refilled = sql`min(${size}, ${testRateBuckets.tokens} + max(0, ${now} - ${testRateBuckets.updatedAt}) * ${refillPerMs})`;
+	const taken = await withBusyRetry(() =>
+		db
+			.insert(testRateBuckets)
+			.values({
+				orgId: input.orgId,
+				bucketKey: input.bucketKey,
+				tokens: size - 1,
+				updatedAt: now,
+			})
+			.onConflictDoUpdate({
+				target: [testRateBuckets.orgId, testRateBuckets.bucketKey],
+				set: { tokens: sql`${refilled} - 1`, updatedAt: now },
+				setWhere: sql`${refilled} >= 1`,
+			})
+			.returning({ tokens: testRateBuckets.tokens }),
+	);
+	if (taken.length > 0) return { ok: true };
 	const row = await db.query.testRateBuckets.findFirst({
 		where: and(
 			eq(testRateBuckets.orgId, input.orgId),
@@ -206,26 +228,11 @@ export const consumeRunRequestToken = async (
 				size,
 				row.tokens + Math.max(0, now - row.updatedAt) * refillPerMs,
 			)
-		: size;
-	if (available < 1) {
-		return {
-			ok: false,
-			retryAfter: Math.max(1, Math.ceil((1 - available) / refillPerMs / 1000)),
-		};
-	}
-	await db
-		.insert(testRateBuckets)
-		.values({
-			orgId: input.orgId,
-			bucketKey: input.bucketKey,
-			tokens: available - 1,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			target: [testRateBuckets.orgId, testRateBuckets.bucketKey],
-			set: { tokens: available - 1, updatedAt: now },
-		});
-	return { ok: true };
+		: 0;
+	return {
+		ok: false,
+		retryAfter: Math.max(1, Math.ceil((1 - available) / refillPerMs / 1000)),
+	};
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -368,8 +375,9 @@ const insertRun = async (
 		now: number;
 		retryOf?: TestRunRow;
 	},
-): Promise<TestRunRow> => {
+): Promise<TestRunRow | null> => {
 	const { plan } = input;
+	const exclusive = !plan.request.force && !input.retryOf;
 	const environment = await resolveRunEnvironment(
 		db,
 		input.orgId,
@@ -391,6 +399,7 @@ const insertRun = async (
 			paramsHash: input.paramsHash,
 			cacheMode: plan.request.cacheMode,
 			dedupeKey: input.dedupeKey,
+			dedupeExclusive: exclusive,
 			trigger: plan.request.trigger,
 			priority: plan.request.priority ?? defaultPriority(plan.request.trigger),
 			runnerAffinity:
@@ -409,11 +418,31 @@ const insertRun = async (
 			createdAt: input.now,
 			updatedAt: input.now,
 		})
+		// Only test_runs_org_dedupe_open_unique can conflict: a concurrent request opened the
+		// same run first, and the caller attaches to it.
+		.onConflictDoNothing()
 		.returning();
-	if (!run) throw new Error("Failed to create test run");
+	if (!run) {
+		if (exclusive) return null;
+		throw new Error("Failed to create test run");
+	}
 	await subscribe(db, run.id, input.requester.userId, plan.request.trigger);
 	return run;
 };
+
+const findOpenExclusiveRun = (
+	db: BackendDb,
+	orgId: string,
+	dedupeKey: string,
+) =>
+	db.query.testRuns.findFirst({
+		where: and(
+			eq(testRuns.orgId, orgId),
+			eq(testRuns.dedupeKey, dedupeKey),
+			eq(testRuns.dedupeExclusive, true),
+			inArray(testRuns.status, [...OPEN_RUN_STATUSES]),
+		),
+	});
 
 const planRunsForCase = (
 	row: TestCaseRow,
@@ -606,17 +635,40 @@ export const requestRuns = async (
 			results.push({ runId: sharedRunId, attached: true });
 			continue;
 		}
-		const run = await insertRun(db, {
-			orgId: input.orgId,
-			requester: input.requester,
-			plan: entry.plan,
-			dedupeKey: entry.dedupeKey,
-			paramsHash: entry.paramsHash,
-			batchId,
-			now,
-		});
-		createdByKey.set(entry.dedupeKey, run.id);
-		results.push({ runId: run.id, attached: false });
+		let created: PlannedResult | null = null;
+		for (let attempt = 0; attempt < 3 && !created; attempt += 1) {
+			const run = await insertRun(db, {
+				orgId: input.orgId,
+				requester: input.requester,
+				plan: entry.plan,
+				dedupeKey: entry.dedupeKey,
+				paramsHash: entry.paramsHash,
+				batchId,
+				now,
+			});
+			if (run) {
+				created = { runId: run.id, attached: false };
+				break;
+			}
+			// Lost the race to an identical request: attach to the run it opened.
+			const winner = await findOpenExclusiveRun(
+				db,
+				input.orgId,
+				entry.dedupeKey,
+			);
+			if (winner) {
+				await subscribe(
+					db,
+					winner.id,
+					input.requester.userId,
+					entry.plan.request.trigger,
+				);
+				created = { runId: winner.id, attached: true };
+			}
+		}
+		if (!created) throw new Error("Failed to create test run");
+		createdByKey.set(entry.dedupeKey, created.runId);
+		results.push(created);
 	}
 	if (batchId) {
 		await db
@@ -1580,6 +1632,57 @@ export const recordProgress = async (
 			takeoverRequested: false,
 		};
 	}
+	const status =
+		request.status ?? (run.status === "claimed" ? "running" : run.status);
+	// Guarded on the token that authenticated this call: a run finalised, cancelled by the
+	// sweep, requeued or claimed by another worker since then is left alone.
+	const [updated] = await db
+		.update(testRuns)
+		.set({
+			status,
+			...(status === "running" && run.startedAt === null
+				? { startedAt: now }
+				: {}),
+			...(request.currentStepId !== undefined
+				? { currentStepId: request.currentStepId }
+				: {}),
+			...(request.runnerInfo
+				? {
+						runnerInfoJson: JSON.stringify(request.runnerInfo),
+						runner: request.runnerInfo.host,
+					}
+				: {}),
+			blockedReason: null,
+			...extendLease(now),
+		})
+		.where(
+			and(
+				eq(testRuns.id, run.id),
+				inArray(testRuns.status, [...ACTIVE_RUN_STATUSES]),
+				run.runTokenHash
+					? eq(testRuns.runTokenHash, run.runTokenHash)
+					: isNull(testRuns.runTokenHash),
+			),
+		)
+		.returning({ cancelRequestedAt: testRuns.cancelRequestedAt });
+	if (!updated) {
+		const current = await db.query.testRuns.findFirst({
+			where: eq(testRuns.id, run.id),
+			columns: { status: true },
+		});
+		if (current?.status === "cancelled") {
+			return {
+				cancelRequested: true,
+				leaseExpiresAt: null,
+				takeoverRequested: false,
+			};
+		}
+		throw new HttpError(
+			409,
+			"TEST_RUN_LEASE_LOST",
+			"The run is no longer leased with this run token",
+		);
+	}
 	let screenshotKey: string | undefined;
 	let screenshotMimeType: string | undefined;
 	if (request.screenshot) {
@@ -1631,30 +1734,9 @@ export const recordProgress = async (
 		);
 	}
 	await upsertRunSteps(db, run.id, steps, now);
-	const status =
-		request.status ?? (run.status === "claimed" ? "running" : run.status);
-	await db
-		.update(testRuns)
-		.set({
-			status,
-			...(status === "running" && run.startedAt === null
-				? { startedAt: now }
-				: {}),
-			...(request.currentStepId !== undefined
-				? { currentStepId: request.currentStepId }
-				: {}),
-			...(request.runnerInfo
-				? {
-						runnerInfoJson: JSON.stringify(request.runnerInfo),
-						runner: request.runnerInfo.host,
-					}
-				: {}),
-			blockedReason: null,
-			...extendLease(now),
-		})
-		.where(eq(testRuns.id, run.id));
 	return {
-		cancelRequested: run.cancelRequestedAt !== null,
+		cancelRequested:
+			run.cancelRequestedAt !== null || updated.cancelRequestedAt !== null,
 		leaseExpiresAt: now + RUN_LEASE_MS,
 		takeoverRequested: run.takeoverRequestedAt !== null,
 	};

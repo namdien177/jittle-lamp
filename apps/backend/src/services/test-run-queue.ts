@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { runnerPools, runnerWorkers, testRuns } from "../db/schema";
+import { withBusyRetry } from "./db-busy";
 import {
 	dispatchPendingNotifications,
 	emitNotification,
@@ -20,39 +21,11 @@ import {
 import { createOpaqueToken, hashToken, RUN_TOKEN_PREFIX } from "./test-tokens";
 import type { BackendDb } from "./user-provisioning";
 
+export { withBusyRetry };
+
 // Runner claims (design.md §10.1): one atomic statement picks the first queued run of the pool
 // by priority then queued_at, only while the pool runs fewer than its max_concurrent_runs, and
 // takes a 30 s lease. Same lease pattern as migration-worker.ts.
-
-const isBusyError = (error: unknown): boolean => {
-	let current: unknown = error;
-	for (let depth = 0; depth < 5 && current; depth += 1) {
-		const text = String(
-			(current as { code?: unknown }).code ?? (current as Error).message ?? "",
-		);
-		if (/SQLITE_BUSY|database is locked/i.test(text)) return true;
-		current = (current as { cause?: unknown }).cause;
-	}
-	return false;
-};
-
-// Concurrent writers on separate connections can see SQLITE_BUSY; the statement is atomic, so
-// retrying it is safe.
-export const withBusyRetry = async <T>(
-	operation: () => Promise<T>,
-	attempts = 20,
-): Promise<T> => {
-	for (let attempt = 1; ; attempt += 1) {
-		try {
-			return await operation();
-		} catch (error) {
-			if (!isBusyError(error) || attempt >= attempts) throw error;
-			await new Promise((resolve) =>
-				setTimeout(resolve, 5 + Math.random() * 20 * attempt),
-			);
-		}
-	}
-};
 
 export const claimNextRun = async (
 	db: BackendDb,
