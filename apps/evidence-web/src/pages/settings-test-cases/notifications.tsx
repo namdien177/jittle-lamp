@@ -1,53 +1,92 @@
-import React from "react";
-import { Bell, Globe, MessageSquare } from "lucide-react";
+import React, { useState } from "react";
+import { Bell, Globe, MessageSquare, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import type { NotificationChannel, NotificationKind } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { ConfirmDialog, Dialog } from "../../components/ui/dialog";
+import { Field } from "../../components/ui/field";
+import { Input } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/misc";
-import { useNotificationChannels } from "../../test-cases/admin-queries";
-import { AdminCard } from "../../test-cases/admin-ui";
+import { Select } from "../../components/ui/select";
+import { useToast } from "../../toast";
+import { testAdminApi } from "../../test-cases/admin-api";
+import { testAdminKeys, useNotificationChannels, useTestAdminMutation, useTestCredentials, useTestPermissions } from "../../test-cases/admin-queries";
+import { AdminCard, ErrorNote, ReadOnlyNotice, Toggle, pressable } from "../../test-cases/admin-ui";
+import { channelFilterSummary, notificationKindLabels, splitList } from "../../test-config/webhook-ui";
 
-// Settings → Notifications (design.md §10b): the beta ships the in-app channel only. Slack and
-// webhook channels are listed when the backend has them and marked phase 2 otherwise.
+// Settings → Notifications (design.md §10b, unit 2.2): every run, batch, import and review event
+// goes through one bus. In-app is always on; Slack and outgoing-webhook channels are added here,
+// filtered by event kind and by the tags of the cases an event is about.
 
 const eventDescriptions: Record<NotificationKind, string> = {
   "run.finished": "A run you requested or attached to finished",
   "run.blocked": "A run is blocked (missing credential, no runner, budget)",
-  "batch.finished": "A dataset or suite batch finished",
+  "batch.finished": "A dataset, suite or CI batch finished",
   "import.finished": "An import batch is ready or committed",
   "review.pending_count": "Cases are waiting in the review queue",
   "runner.offline": "A runner pool has no live worker"
 };
 
-function ChannelRow(props: { icon: React.ReactNode; title: string; detail: string; status: React.ReactNode }): React.JSX.Element {
+type ExternalKind = "slack" | "webhook";
+
+function ChannelRow(props: { icon: React.ReactNode; title: string; detail: string; status: React.ReactNode; actions?: React.ReactNode }): React.JSX.Element {
   return (
-    <li className="flex items-center gap-3 rounded-md border border-border px-4 py-3">
+    <li className="flex flex-wrap items-center gap-3 rounded-md border border-border px-4 py-3">
       <span className="grid size-9 shrink-0 place-items-center rounded-md border border-border bg-secondary text-muted-foreground">{props.icon}</span>
       <div className="mr-auto min-w-0">
         <p className="font-semibold text-foreground">{props.title}</p>
         <p className="text-sm text-muted-foreground">{props.detail}</p>
       </div>
       {props.status}
+      {props.actions}
     </li>
   );
 }
 
-function channelDetail(channel: NotificationChannel): string {
-  const kinds = channel.filter.kinds.length > 0 ? channel.filter.kinds.join(", ") : "all events";
-  const target = channel.kind === "webhook" ? (channel.config.url ?? "webhook") : channel.kind === "slack" ? "Slack webhook credential" : channel.kind;
-  return `${target} · ${kinds}`;
-}
-
 export function SettingsTestNotificationsPage(): React.JSX.Element {
+  const toast = useToast();
+  const permissions = useTestPermissions();
+  const canManage = permissions.can("test_config.manage");
   const channels = useNotificationChannels();
-  // No channel endpoint yet (404) means the backend only has the in-app channel.
-  const external = (channels.data ?? []).filter((channel) => channel.kind !== "in_app");
-  const hasSlack = external.some((channel) => channel.kind === "slack");
-  const hasWebhook = external.some((channel) => channel.kind === "webhook");
+  const credentials = useTestCredentials();
+  const [editing, setEditing] = useState<NotificationChannel | "new" | null>(null);
+  const [deleting, setDeleting] = useState<NotificationChannel | null>(null);
+  const update = useTestAdminMutation(
+    (getToken, input: { id: string; enabled: boolean }) => testAdminApi.updateNotificationChannel(getToken, input.id, { enabled: input.enabled }),
+    [testAdminKeys.notificationChannels]
+  );
+  const remove = useTestAdminMutation((getToken, channelId: string) => testAdminApi.deleteNotificationChannel(getToken, channelId), [testAdminKeys.notificationChannels]);
+  const test = useTestAdminMutation((getToken, channelId: string) => testAdminApi.testNotificationChannel(getToken, channelId), []);
+  const external = (channels.data ?? []).filter((channel) => channel.kind === "slack" || channel.kind === "webhook");
+  const credentialName = (id: string | undefined) => (credentials.data ?? []).find((credential) => credential.id === id)?.profile ?? "deleted credential";
+
+  const sendTest = async (channel: NotificationChannel) => {
+    try {
+      const result = await test.mutateAsync(channel.id);
+      if (result.delivered) toast.success("Test message sent", channel.kind === "slack" ? "Check the Slack channel." : "Check your endpoint.");
+      else toast.error("Test message failed", result.error ?? undefined);
+    } catch (error) {
+      toast.error("Test message failed", error instanceof Error ? error.message : undefined);
+    }
+  };
 
   return (
     <div className="grid gap-4">
-      <AdminCard title="Channels" description="Every run, batch, import and review event goes through one bus; channels decide where it is delivered.">
+      {!canManage && !permissions.loading ? <ReadOnlyNotice permission="test_config.manage" /> : null}
+      <AdminCard
+        title="Channels"
+        description="Every run, batch, import and review event goes through one bus; channels decide where it is delivered."
+        actions={
+          canManage ? (
+            <Button size="sm" className={pressable} onClick={() => setEditing("new")}>
+              <Plus aria-hidden />
+              Add channel
+            </Button>
+          ) : null
+        }
+      >
+        <ErrorNote error={update.error ?? remove.error} />
         {channels.isPending && !channels.isError ? (
           <Skeleton className="h-32" />
         ) : (
@@ -62,17 +101,35 @@ export function SettingsTestNotificationsPage(): React.JSX.Element {
               <ChannelRow
                 key={channel.id}
                 icon={channel.kind === "slack" ? <MessageSquare className="size-4" aria-hidden /> : <Globe className="size-4" aria-hidden />}
-                title={channel.kind === "slack" ? "Slack" : channel.kind === "webhook" ? "Webhook" : channel.kind}
-                detail={channelDetail(channel)}
+                title={
+                  channel.kind === "slack"
+                    ? `Slack${channel.config.channel ? ` ${channel.config.channel}` : ""} · ${credentialName(channel.config.credentialId)}`
+                    : `Webhook · ${channel.config.url ?? ""}`
+                }
+                detail={channelFilterSummary(channel.filter)}
                 status={<Badge variant={channel.enabled ? "success" : "muted"}>{channel.enabled ? "Enabled" : "Disabled"}</Badge>}
+                actions={
+                  canManage ? (
+                    <span className="flex items-center gap-1">
+                      <Toggle checked={channel.enabled} label="Enabled" disabled={update.isPending} onChange={(enabled) => void update.mutateAsync({ id: channel.id, enabled })} />
+                      <Button variant="ghost" size="xs" className={pressable} disabled={test.isPending} onClick={() => void sendTest(channel)}>
+                        <Send aria-hidden /> Send test
+                      </Button>
+                      <Button variant="ghost" size="icon-sm" aria-label="Edit channel" onClick={() => setEditing(channel)}>
+                        <Pencil aria-hidden />
+                      </Button>
+                      <Button variant="ghost" size="icon-sm" aria-label="Delete channel" onClick={() => setDeleting(channel)}>
+                        <Trash2 aria-hidden />
+                      </Button>
+                    </span>
+                  ) : null
+                }
               />
             ))}
-            {!hasSlack ? <ChannelRow icon={<MessageSquare className="size-4" aria-hidden />} title="Slack" detail="Post run and batch results to a channel." status={<Badge variant="outline">Phase 2</Badge>} /> : null}
-            {!hasWebhook ? <ChannelRow icon={<Globe className="size-4" aria-hidden />} title="Webhook" detail="POST event JSON to your endpoint." status={<Badge variant="outline">Phase 2</Badge>} /> : null}
           </ul>
         )}
       </AdminCard>
-      <AdminCard title="Events" description="Delivered in-app during the beta.">
+      <AdminCard title="Events" description="Every channel can narrow these down by kind and by case tag.">
         <ul className="grid gap-2 text-sm">
           {(Object.keys(eventDescriptions) as NotificationKind[]).map((kind) => (
             <li key={kind} className="flex flex-wrap items-baseline gap-x-3">
@@ -82,6 +139,128 @@ export function SettingsTestNotificationsPage(): React.JSX.Element {
           ))}
         </ul>
       </AdminCard>
+      {editing ? <ChannelDialog channel={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
+      <ConfirmDialog
+        open={deleting !== null}
+        destructive
+        title="Delete this channel?"
+        description="Events stop going to it. The Slack credential stays in Credentials."
+        confirmLabel="Delete channel"
+        busy={remove.isPending}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => {
+          if (deleting) void remove.mutateAsync(deleting.id).finally(() => setDeleting(null));
+        }}
+      />
     </div>
+  );
+}
+
+function ChannelDialog(props: { channel: NotificationChannel | null; onClose: () => void }): React.JSX.Element {
+  const credentials = useTestCredentials();
+  const slackCredentials = (credentials.data ?? []).filter((credential) => credential.kind === "slack_webhook");
+  const [kind, setKind] = useState<ExternalKind>(props.channel?.kind === "webhook" ? "webhook" : "slack");
+  const [credentialId, setCredentialId] = useState(props.channel?.config.credentialId ?? "");
+  const [label, setLabel] = useState(props.channel?.config.channel ?? "");
+  const [url, setUrl] = useState(props.channel?.config.url ?? "");
+  const [kinds, setKinds] = useState<NotificationKind[]>(props.channel?.filter.kinds ?? ["run.finished", "run.blocked", "batch.finished"]);
+  const [tags, setTags] = useState((props.channel?.filter.tags ?? []).join(", "));
+  const [error, setError] = useState<string | null>(null);
+  const save = useTestAdminMutation(
+    (getToken, body: { kind: ExternalKind; config: Record<string, string>; filter: { kinds: NotificationKind[]; tags: string[] } }) =>
+      props.channel ? testAdminApi.updateNotificationChannel(getToken, props.channel.id, body) : testAdminApi.createNotificationChannel(getToken, { ...body, enabled: true }),
+    [testAdminKeys.notificationChannels]
+  );
+
+  const submit = async () => {
+    if (kind === "slack" && !credentialId) return setError("Choose the Slack webhook credential.");
+    if (kind === "webhook" && !/^https?:\/\/\S+$/i.test(url.trim())) return setError("The URL must start with http:// or https://.");
+    setError(null);
+    await save.mutateAsync({
+      kind,
+      config: kind === "slack" ? { credentialId, ...(label.trim() ? { channel: label.trim() } : {}) } : { url: url.trim() },
+      filter: { kinds, tags: splitList(tags) }
+    });
+    props.onClose();
+  };
+
+  return (
+    <Dialog
+      title={props.channel ? "Edit channel" : "Add channel"}
+      description="Slack posts a short message with the outcome, the case and a link to the run."
+      onClose={props.onClose}
+      size="md"
+      footer={
+        <>
+          <Button size="sm" variant="ghost" onClick={props.onClose} disabled={save.isPending}>
+            Cancel
+          </Button>
+          <Button size="sm" className={pressable} disabled={save.isPending} onClick={() => void submit()}>
+            {save.isPending ? "Saving…" : props.channel ? "Save channel" : "Add channel"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4">
+        {props.channel ? null : (
+          <Field label="Kind" htmlFor="channel-kind">
+            <Select<ExternalKind>
+              ariaLabel="Channel kind"
+              value={kind}
+              onValueChange={setKind}
+              options={[
+                { value: "slack", label: "Slack (incoming webhook)" },
+                { value: "webhook", label: "Webhook (event JSON)" }
+              ]}
+            />
+          </Field>
+        )}
+        {kind === "slack" ? (
+          <>
+            <Field label="Slack webhook credential" htmlFor="channel-credential" hint="A slack_webhook credential whose secret field url holds the incoming-webhook URL.">
+              <Select<string>
+                ariaLabel="Slack webhook credential"
+                value={credentialId}
+                onValueChange={setCredentialId}
+                options={[
+                  { value: "", label: slackCredentials.length === 0 ? "Create one in Credentials first" : "Choose a credential" },
+                  ...slackCredentials.map((credential) => ({ value: credential.id, label: credential.profile }))
+                ]}
+              />
+            </Field>
+            <Field label="Channel label" htmlFor="channel-label" hint="Shown here only; the webhook decides the Slack channel.">
+              <Input id="channel-label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="#qa-runs" maxLength={80} />
+            </Field>
+          </>
+        ) : (
+          <Field label="URL" htmlFor="channel-url">
+            <Input id="channel-url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://chat.example.com/hooks/jittle-lamp" />
+          </Field>
+        )}
+        <div className="grid gap-1.5">
+          <span className="text-sm font-medium text-foreground">Events</span>
+          <p className="text-sm text-muted-foreground">None selected sends every event.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(Object.keys(notificationKindLabels) as NotificationKind[]).map((item) => (
+              <Toggle
+                key={item}
+                checked={kinds.includes(item)}
+                label={notificationKindLabels[item]}
+                onChange={(on) => setKinds((current) => (on ? [...new Set([...current, item])] : current.filter((value) => value !== item)))}
+              />
+            ))}
+          </div>
+        </div>
+        <Field label="Case tags" htmlFor="channel-tags" hint="Only events about cases with any of these tags; empty sends all.">
+          <Input id="channel-tags" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="team:qa-pcf, prio:p1" className="font-mono" />
+        </Field>
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <ErrorNote error={save.error} />
+      </div>
+    </Dialog>
   );
 }

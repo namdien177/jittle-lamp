@@ -39,7 +39,11 @@ export const testAdminKeys = {
   modelCosts: (orgId: string | null, from: number, to: number) => [...testAdminKeys.all(orgId), "model-costs", from, to] as const,
   runnerPools: (orgId: string | null) => [...testAdminKeys.all(orgId), "runner-pools"] as const,
   notifications: (orgId: string | null) => [...testAdminKeys.all(orgId), "notifications"] as const,
-  notificationChannels: (orgId: string | null) => [...testAdminKeys.all(orgId), "notification-channels"] as const
+  notificationChannels: (orgId: string | null) => [...testAdminKeys.all(orgId), "notification-channels"] as const,
+  webhooks: (orgId: string | null) => [...testAdminKeys.all(orgId), "webhooks"] as const,
+  webhookDeliveries: (orgId: string | null, endpointId: string) => [...testAdminKeys.all(orgId), "webhook-deliveries", endpointId] as const,
+  suites: (orgId: string | null) => [...testAdminKeys.all(orgId), "suites"] as const,
+  agentNotes: (orgId: string | null) => [...testAdminKeys.all(orgId), "agent-notes"] as const
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -54,15 +58,17 @@ export type TestPermission =
   | "test_case.approve"
   | "test_case.delete"
   | "test_run.create"
+  | "test_run.cancel"
+  | "test_run.cancel_any"
   | "test_run.view"
   | "test_config.manage"
   | "test_config.use";
 
 const defaultTestGrants: Record<string, readonly TestPermission[]> = {
   developer: ["test_case.view", "test_run.create", "test_run.view", "test_config.use"],
-  qa_engineer: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.view", "test_config.use"],
-  moderator: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.view", "test_config.manage", "test_config.use"],
-  admin: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.view", "test_config.manage", "test_config.use"]
+  qa_engineer: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.cancel", "test_run.cancel_any", "test_run.view", "test_config.use"],
+  moderator: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.cancel", "test_run.cancel_any", "test_run.view", "test_config.manage", "test_config.use"],
+  admin: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.cancel", "test_run.cancel_any", "test_run.view", "test_config.manage", "test_config.use"]
 };
 
 export function useTestPermissions(): { can: (permission: TestPermission) => boolean; loading: boolean } {
@@ -118,6 +124,14 @@ export const useTestRunSettings = () => useOrgQuery(testAdminKeys.runSettings, t
 export const useModelSettings = () => useOrgQuery(testAdminKeys.modelSettings, testAdminApi.getModelSettings);
 export const useRunnerPools = () => useOrgQuery(testAdminKeys.runnerPools, testAdminApi.listRunnerPools, { refetchInterval: 15_000 });
 export const useNotificationChannels = () => useOrgQuery(testAdminKeys.notificationChannels, testAdminApi.listNotificationChannels);
+export const useWebhooks = () => useOrgQuery(testAdminKeys.webhooks, testAdminApi.listWebhooks);
+export const useWebhookDeliveries = (endpointId: string | null) =>
+  useOrgQuery((orgId) => testAdminKeys.webhookDeliveries(orgId, endpointId ?? "none"), (getToken) => testAdminApi.listWebhookDeliveries(getToken, endpointId ?? ""), {
+    enabled: Boolean(endpointId),
+    refetchInterval: 15_000
+  });
+export const useTestSuites = () => useOrgQuery(testAdminKeys.suites, testAdminApi.listSuites);
+export const useAgentNotes = () => useOrgQuery(testAdminKeys.agentNotes, testAdminApi.getAgentNotes);
 export const useModelCosts = (range: { from: number; to: number }) =>
   useOrgQuery((orgId) => testAdminKeys.modelCosts(orgId, range.from, range.to), (getToken) => testAdminApi.getModelCosts(getToken, range));
 export const useNotifications = () => useOrgQuery(testAdminKeys.notifications, testAdminApi.listNotifications, { refetchInterval: notificationPollMs });

@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router";
-import { Bell, Bot, CircleDollarSign, Gauge, Globe, KeyRound, Puzzle, Server, Tags } from "lucide-react";
+import { Bell, Bot, CircleDollarSign, Gauge, Globe, KeyRound, NotebookPen, Puzzle, Server, Tags, Webhook } from "lucide-react";
 
 import { cn } from "../../lib/cn";
 
@@ -15,7 +15,9 @@ export const testCaseSettingsTabs = [
   { to: "/settings/test-cases/model-spend", label: "Model spend", icon: CircleDollarSign },
   { to: "/settings/test-cases/runner-pools", label: "Runner pools", icon: Server },
   { to: "/settings/test-cases/test-runs", label: "Test runs", icon: Gauge },
-  { to: "/settings/test-cases/notifications", label: "Notifications", icon: Bell }
+  { to: "/settings/test-cases/notifications", label: "Notifications", icon: Bell },
+  { to: "/settings/test-cases/webhooks", label: "Webhooks", icon: Webhook },
+  { to: "/settings/test-cases/agent-notes", label: "Agent notes", icon: NotebookPen }
 ] as const;
 
 export function TestCaseSettingsNav(): React.JSX.Element {

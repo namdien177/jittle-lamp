@@ -1,6 +1,8 @@
 import { z } from "zod/v4";
 import {
+  agentNotesSchema,
   bulkTestCaseResponseSchema,
+  createWebhookEndpointResponseSchema,
   createRunnerPoolResponseSchema,
   duplicateTestCaseResponseSchema,
   importBatchSchema,
@@ -16,8 +18,14 @@ import {
   testEnvironmentSchema,
   testMacroSchema,
   testRunSettingsSchema,
+  testSuiteSchema,
   testTagSchema,
+  webhookDeliverySchema,
+  webhookEndpointSchema,
   type BulkTestCaseRequest,
+  type UpsertNotificationChannelRequest,
+  type UpsertWebhookEndpointRequest,
+  type WebhookRule,
   type CreateImportRequest,
   type DuplicateTestCaseRequest,
   type TestCaseStatus
@@ -206,5 +214,30 @@ export const testAdminApi = {
   markNotificationsRead: (getToken: FetchToken, body: { ids: string[] } | { all: true }) =>
     request(getToken, "/notifications/read", okSchema, json("POST", "all" in body ? { ids: [], all: true } : { ids: body.ids, all: false })),
   listNotificationChannels: (getToken: FetchToken) =>
-    request(getToken, "/notification-channels", listOf(notificationChannelSchema, "channels"))
+    request(getToken, "/notification-channels", listOf(notificationChannelSchema, "channels")),
+  createNotificationChannel: (getToken: FetchToken, body: UpsertNotificationChannelRequest) =>
+    request(getToken, "/notification-channels", oneOf(notificationChannelSchema, "channel"), json("POST", body)),
+  updateNotificationChannel: (getToken: FetchToken, channelId: string, body: Partial<UpsertNotificationChannelRequest>) =>
+    request(getToken, `/notification-channels/${id(channelId)}`, oneOf(notificationChannelSchema, "channel"), json("PATCH", body)),
+  deleteNotificationChannel: (getToken: FetchToken, channelId: string) =>
+    request(getToken, `/notification-channels/${id(channelId)}`, okSchema, { method: "DELETE" }),
+  testNotificationChannel: (getToken: FetchToken, channelId: string) =>
+    request(getToken, `/notification-channels/${id(channelId)}/test`, z.object({ delivered: z.boolean(), error: z.string().nullable() }), json("POST", {})),
+
+  // CI webhooks (design.md §10c) --------------------------------------------------------------
+  listWebhooks: (getToken: FetchToken) => request(getToken, "/test-webhooks", listOf(webhookEndpointSchema, "endpoints")),
+  createWebhook: (getToken: FetchToken, body: UpsertWebhookEndpointRequest) =>
+    request(getToken, "/test-webhooks", createWebhookEndpointResponseSchema, json("POST", body)),
+  updateWebhook: (getToken: FetchToken, endpointId: string, body: { rules?: WebhookRule[]; enabled?: boolean }) =>
+    request(getToken, `/test-webhooks/${id(endpointId)}`, oneOf(webhookEndpointSchema, "endpoint"), json("PATCH", body)),
+  rotateWebhookSecret: (getToken: FetchToken, endpointId: string) =>
+    request(getToken, `/test-webhooks/${id(endpointId)}/rotate-secret`, createWebhookEndpointResponseSchema, json("POST", {})),
+  deleteWebhook: (getToken: FetchToken, endpointId: string) => request(getToken, `/test-webhooks/${id(endpointId)}`, okSchema, { method: "DELETE" }),
+  listWebhookDeliveries: (getToken: FetchToken, endpointId: string) =>
+    request(getToken, `/test-webhooks/${id(endpointId)}/deliveries`, listOf(webhookDeliverySchema, "deliveries")),
+  listSuites: (getToken: FetchToken) => request(getToken, "/test-suites", listOf(testSuiteSchema, "suites")),
+
+  // Agent notes (organisation memory for the agent) ------------------------------------------
+  getAgentNotes: (getToken: FetchToken) => request(getToken, "/test-agent-notes", agentNotesSchema),
+  saveAgentNotes: (getToken: FetchToken, notes: string) => request(getToken, "/test-agent-notes", agentNotesSchema, json("PUT", { notes }))
 };
