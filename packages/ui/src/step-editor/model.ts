@@ -201,6 +201,14 @@ export function serializeEditorDoc(doc: EditorDoc): string {
   return lines.join("\n");
 }
 
+// Text mode edit: a single case replaces the doc; text holding several `# title` cases keeps the
+// doc as it was (null) so switching back never drops cases.
+export function textModeUpdate(text: string, doc: EditorDoc): { doc: EditorDoc | null; cases: number } {
+  const cases = parseTranscriptDocument(text).cases.filter((testCase) => testCase.title.trim().length > 0).length;
+  if (cases > 1) return { doc: null, cases };
+  return { doc: docFromTranscript(text, doc.baseSteps, doc), cases };
+}
+
 export function testCaseFromDoc(doc: EditorDoc): ParsedTestCase {
   const text = serializeEditorDoc(doc);
   const parsed = parseTranscriptDocument(text, doc.baseSteps.length > 0 ? { previousSteps: [doc.baseSteps] } : {});

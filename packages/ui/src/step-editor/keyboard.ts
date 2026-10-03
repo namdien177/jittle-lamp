@@ -53,14 +53,17 @@ export function editorKeyCommand(event: EditorKey, context: EditorKeyContext): E
     if (event.key === "Escape") return "picker-close";
   }
 
-  if (context.target === "chip" && event.key === "Tab" && !mod && !alt) return shift ? "type-prev" : "type-next";
+  // Alt+↑/↓ changes the step type from the chip or the field; Tab keeps moving focus.
+  if (alt && !mod && !shift && context.target !== "heading" && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+    return event.key === "ArrowUp" ? "type-prev" : "type-next";
+  }
 
   if (event.key === "Enter" && mod) return "run";
   if (event.key === "Enter" && alt && !mod) return "run-from-here";
   if (mod && !alt && (event.key === "d" || event.key === "D")) return "duplicate-row";
   if (mod && shift && event.key === "ArrowUp") return "move-up";
   if (mod && shift && event.key === "ArrowDown") return "move-down";
-  if (mod && !shift && (event.key === "/" || event.key === "?")) return "toggle-disabled";
+  if (mod && !shift && event.key === "/") return "toggle-disabled";
   if (event.key === "Enter" && !shift && !mod && !alt) return "new-row";
   if (event.key === "Backspace" && !mod && context.fieldEmpty && context.target !== "chip") return "delete-row";
   if (event.key === "ArrowUp" && !mod && !shift && !alt && context.caretAtStart) return "focus-prev";
@@ -72,4 +75,11 @@ export function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
   const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "";
   return /mac|iphone|ipad/i.test(platform);
+}
+
+// Commands that do not change the document stay available in a read-only editor.
+const readOnlySafeCommands = new Set<EditorCommand>(["focus-prev", "focus-next", "picker-close", "run", "run-from-here"]);
+
+export function editorCommandAllowed(command: EditorCommand, readOnly: boolean): boolean {
+  return !readOnly || readOnlySafeCommands.has(command);
 }

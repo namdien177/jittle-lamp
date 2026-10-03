@@ -4,7 +4,11 @@ import { describe, expect, test } from "bun:test";
 
 import { lintTestCase, parseTranscriptDocument, serializeTestCase } from "@jittle-lamp/shared";
 
-import { editorKeyCommand, type EditorKeyContext } from "../packages/ui/src/step-editor/keyboard";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { editorCommandAllowed, editorKeyCommand, type EditorKeyContext } from "../packages/ui/src/step-editor/keyboard";
+import { StepEditor } from "../packages/ui/src/step-editor/step-editor";
 import {
   applyFixToDoc,
   argsFromParamValues,
@@ -39,6 +43,7 @@ import {
   setRowText,
   suggestElementNames,
   testCaseFromDoc,
+  textModeUpdate,
   tokenizeInstruction,
   toggleRowDisabled,
   typeOptions,
@@ -389,10 +394,15 @@ describe("keyboard map", () => {
     expect(editorKeyCommand({ key: "d", ctrlKey: true }, { ...field, isMac: false })).toBe("duplicate-row");
   });
 
-  test("Tab cycles only on the chip; pickers capture arrows, Enter and Escape", () => {
-    expect(editorKeyCommand({ key: "Tab" }, { ...field, target: "chip" })).toBe("type-next");
-    expect(editorKeyCommand({ key: "Tab", shiftKey: true }, { ...field, target: "chip" })).toBe("type-prev");
+  test("Alt+↑/↓ changes the type; Tab always moves focus (no keyboard trap); pickers capture arrows, Enter and Escape", () => {
+    expect(editorKeyCommand({ key: "ArrowDown", altKey: true }, { ...field, target: "chip" })).toBe("type-next");
+    expect(editorKeyCommand({ key: "ArrowUp", altKey: true }, { ...field, target: "chip" })).toBe("type-prev");
+    expect(editorKeyCommand({ key: "ArrowDown", altKey: true }, field)).toBe("type-next");
+    expect(editorKeyCommand({ key: "ArrowDown", altKey: true }, { ...field, target: "heading" })).toBeNull();
+    expect(editorKeyCommand({ key: "Tab" }, { ...field, target: "chip" })).toBeNull();
+    expect(editorKeyCommand({ key: "Tab", shiftKey: true }, { ...field, target: "chip" })).toBeNull();
     expect(editorKeyCommand({ key: "Tab" }, field)).toBeNull();
+    expect(editorKeyCommand({ key: "?", metaKey: true }, field)).toBeNull();
     const open = { ...field, pickerOpen: true };
     expect(editorKeyCommand({ key: "ArrowDown" }, open)).toBe("picker-next");
     expect(editorKeyCommand({ key: "Enter" }, open)).toBe("picker-accept");
@@ -471,5 +481,49 @@ describe("bare rows that look like other syntax survive a save", () => {
       expect(parsed.checkpoints.map((checkpoint) => checkpoint.title)).toEqual([title]);
       expect(parsed.dataset).toBeNull();
     }
+  });
+});
+
+describe("read-only editor", () => {
+  test("only navigation and run commands are allowed when read-only", () => {
+    for (const command of ["new-row", "duplicate-row", "move-up", "move-down", "toggle-disabled", "delete-row", "type-next", "picker-accept"] as const) {
+      expect(editorCommandAllowed(command, true)).toBe(false);
+      expect(editorCommandAllowed(command, false)).toBe(true);
+    }
+    for (const command of ["focus-prev", "focus-next", "picker-close", "run"] as const) expect(editorCommandAllowed(command, true)).toBe(true);
+  });
+
+  test("renders without add, drag, remove or fix controls and with read-only fields", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login\n[Act] click #save then wait\n\n## Checkpoint: Done\n[Assert] the page is visible");
+    const html = renderToStaticMarkup(React.createElement(StepEditor, { doc, onChange: () => undefined, readOnly: true }));
+    expect(html).not.toContain("+ Add step");
+    expect(html).not.toContain('draggable="true"');
+    expect(html).not.toContain("jl-se-fix");
+    expect(html).not.toContain("Remove checkpoint heading");
+    const inputs = html.match(/<input class="jl-se-input[^>]*>/g) ?? [];
+    expect(inputs.length).toBe(4);
+    expect(inputs.every((input) => input.includes('readOnly=""'))).toBe(true);
+    const editable = renderToStaticMarkup(React.createElement(StepEditor, { doc, onChange: () => undefined }));
+    expect(editable).toContain("+ Add step");
+    expect(editable).toContain("jl-se-fix");
+  });
+
+  test("roving tabindex: only the first row's controls are tabbable before focus", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login\n[Act] open the menu\n[Assert] the menu is visible");
+    const html = renderToStaticMarkup(React.createElement(StepEditor, { doc, onChange: () => undefined }));
+    const inputs = [...html.matchAll(/<input[^>]*aria-label="Step \d+ instruction"[^>]*>/g)].map((match) => match[0]);
+    expect(inputs).toHaveLength(3);
+    expect(inputs.map((input) => /tabindex="0"/i.test(input))).toEqual([true, false, false]);
+  });
+});
+
+describe("Text mode with several cases", () => {
+  test("a second # heading keeps the doc unchanged instead of dropping a case", () => {
+    const doc = exampleDoc();
+    const single = textModeUpdate(serializeEditorDoc(doc).replace("[Open] /login", "[Open] /signin"), doc);
+    expect(single.cases).toBe(1);
+    expect(single.doc && serializeEditorDoc(single.doc)).toContain("[Open] /signin");
+    const multi = textModeUpdate(`${serializeEditorDoc(doc)}\n\n# Second case\n[Open] /x`, doc);
+    expect(multi).toEqual({ doc: null, cases: 2 });
   });
 });
