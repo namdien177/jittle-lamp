@@ -73,6 +73,8 @@ export function CaseListPane(props: {
   onQuickCreate: () => void;
   scrollToCursorToken: number;
   headerAccessory?: React.ReactNode;
+  // The last change came from the keyboard: no enter animation or background transition.
+  instant?: boolean;
 }): React.JSX.Element {
   const { items, total, filters, columns } = props;
   const count = Math.max(items.length, props.hasMore ? Math.min(total, items.length + 40) : items.length);
@@ -253,7 +255,7 @@ export function CaseListPane(props: {
       ) : null}
 
       {selectedCount > 0 ? (
-        <div className="jl-tc-enter flex flex-wrap items-center gap-1.5 border-b border-primary/30 bg-primary/8 px-4 py-1.5" role="toolbar" aria-label="Bulk actions">
+        <div className={cn(!props.instant && "jl-tc-enter", "flex flex-wrap items-center gap-1.5 border-b border-primary/30 bg-primary/8 px-4 py-1.5")} role="toolbar" aria-label="Bulk actions">
           <span className="mr-1 text-[13px] font-semibold tabular-nums">{selectedCount} selected</span>
           {(
             [
@@ -278,7 +280,18 @@ export function CaseListPane(props: {
       ) : null}
 
       <div
+        role="grid"
+        aria-label="Test cases"
+        aria-rowcount={total + 1}
+        aria-multiselectable="true"
+        aria-activedescendant={items[props.cursor] ? caseRowId(items[props.cursor]?.id ?? "") : undefined}
+        tabIndex={0}
+        data-instant={props.instant ? "true" : "false"}
+        className="flex min-h-0 flex-1 flex-col outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+      >
+      <div
         role="row"
+        aria-rowindex={1}
         className="grid items-center gap-2 border-b border-border px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
         style={{ gridTemplateColumns: template }}
       >
@@ -298,7 +311,7 @@ export function CaseListPane(props: {
         ))}
       </div>
 
-      <div ref={scrollRef} className="jl-scroll relative min-h-0 flex-1 overflow-y-auto" role="grid" aria-rowcount={total} aria-label="Test cases" tabIndex={-1}>
+      <div ref={scrollRef} className="jl-scroll relative min-h-0 flex-1 overflow-y-auto" role="rowgroup">
         {props.error ? (
           <p className="p-6 text-[13.5px] text-destructive">{props.error}</p>
         ) : !props.loading && items.length === 0 ? (
@@ -340,6 +353,7 @@ export function CaseListPane(props: {
           </div>
         )}
       </div>
+      </div>
 
       <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-1.5 text-[11.5px] text-muted-foreground">
         <span>
@@ -363,6 +377,10 @@ export function CaseListPane(props: {
       </footer>
     </section>
   );
+}
+
+export function caseRowId(caseId: string): string {
+  return `tc-row-${caseId.replace(/[^\w-]/g, "_")}`;
 }
 
 const numericColumns = new Set<ListColumnId>(["passRate", "costAvg", "steps"]);
@@ -466,7 +484,8 @@ const CaseRow = React.memo(function CaseRow(props: {
   return (
     <div
       role="row"
-      aria-rowindex={props.index + 1}
+      id={caseRowId(item.id)}
+      aria-rowindex={props.index + 2}
       aria-selected={props.checked}
       data-cursor={props.cursor ? "true" : "false"}
       className={cn(

@@ -26,6 +26,7 @@ export function CaseDetailPane(props: {
   onDuplicate: (ids: string[]) => void;
   onClose: () => void;
   onTagClick: (tag: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }): React.JSX.Element {
   const query = useTestCase(props.caseId);
   const detail = query.data;
@@ -161,7 +162,7 @@ export function CaseDetailPane(props: {
       </div>
 
       <div className="px-5 py-4" role="tabpanel">
-        {props.tab === "steps" ? <StepsTab key={detail.id} detail={detail} onRun={() => props.onRun(detail)} /> : null}
+        {props.tab === "steps" ? <StepsTab key={detail.id} detail={detail} onRun={() => props.onRun(detail)} {...(props.onDirtyChange ? { onDirtyChange: props.onDirtyChange } : {})} /> : null}
         {props.tab === "sessions" ? <SessionsTab detail={detail} /> : null}
         {props.tab === "scripts" ? <ScriptsTab detail={detail} /> : null}
       </div>

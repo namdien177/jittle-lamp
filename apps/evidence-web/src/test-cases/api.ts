@@ -3,7 +3,6 @@ import {
   bulkTestCaseResponseSchema,
   createTestRunResponseSchema,
   duplicateTestCaseResponseSchema,
-  notificationListResponseSchema,
   similarTestCasesResponseSchema,
   stepScriptSchema,
   testCaseDetailSchema,
@@ -155,12 +154,6 @@ export const testApi = {
       "similar cases"
     ),
 
-  exportDocument: async (getToken: FetchToken, ids: readonly string[]) => {
-    const payload = await request(getToken, `/test-cases/export?${new URLSearchParams({ ids: ids.join(",") }).toString()}`);
-    if (typeof payload === "string") return payload;
-    return parseEnvelope(z.object({ document: z.string() }), payload, [], "export").document;
-  },
-
   createRun: async (getToken: FetchToken, testCaseId: string, input: Partial<CreateTestRunRequest>) =>
     parseEnvelope(
       createTestRunResponseSchema,
@@ -192,8 +185,5 @@ export const testApi = {
   listCredentials: async (getToken: FetchToken) =>
     parseList(testCredentialSchema, await request(getToken, "/test-credentials"), ["credentials"], "credentials"),
 
-  listTags: async (getToken: FetchToken) => parseList(testTagSchema, await request(getToken, "/test-tags"), ["tags"], "tags"),
-
-  listNotifications: async (getToken: FetchToken) =>
-    parseEnvelope(notificationListResponseSchema, await request(getToken, "/notifications"), [], "notifications")
+  listTags: async (getToken: FetchToken) => parseList(testTagSchema, await request(getToken, "/test-tags"), ["tags"], "tags")
 };
