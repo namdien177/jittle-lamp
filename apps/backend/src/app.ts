@@ -211,6 +211,7 @@ export const createApp = (
 		.use(createMigrationManagementRoutes(auth, organizationMigration))
 		.use(
 			createTestCaseRoutes(auth, {
+				outbound,
 				...(dependencies.generateText
 					? { generateText: dependencies.generateText }
 					: {}),
