@@ -17,7 +17,7 @@ import { testAdminApi } from "../../test-cases/admin-api";
 import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestPermissions } from "../../test-cases/admin-queries";
 import { AdminCard, CopyBlock, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { testRunHref } from "../../notifications/notification-links";
-import { runnerCommands } from "../../test-config/config-ui";
+import { registrationTokenAction, runnerCommands } from "../../test-config/config-ui";
 
 // Settings → Runner pools (design.md §5.4, docs/e2e-test-cases/runner-setup.md): pools, workers and
 // registration. The registration token appears once, right after the pool is created.
@@ -32,7 +32,7 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
   const canManage = permissions.can("test_config.manage");
   const pools = useRunnerPools();
   const [creating, setCreating] = useState(false);
-  const [issued, setIssued] = useState<{ poolName: string; token: string } | null>(null);
+  const [issued, setIssued] = useState<{ title: string; note: string; token: string } | null>(null);
   const issueToken = useTestAdminMutation((getToken, poolId: string) => testAdminApi.issueRegistrationToken(getToken, poolId), [testAdminKeys.runnerPools]);
   const [removing, setRemoving] = useState<{ pool: RunnerPool; workerId: string; hostname: string } | null>(null);
   const removeWorker = useTestAdminMutation(
@@ -64,6 +64,7 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
           <div className="grid gap-4">
             {(pools.data ?? []).map((pool) => {
               const online = pool.workers.filter((worker) => worker.status === "online").length;
+              const tokenAction = registrationTokenAction(pool, canManage);
               return (
                 <section key={pool.id} aria-label={`Pool ${pool.name}`} className="rounded-md border border-border">
                   <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
@@ -74,17 +75,21 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                       {online} of {pool.workers.length} online · up to {pool.maxConcurrentRuns} at a time · {pool.running} running ·{" "}
                       <span className={cn(pool.queued > 0 && online === 0 && "font-semibold text-warning")}>{pool.queued} queued</span>
                     </span>
-                    {canManage && pool.kind === "self-hosted" ? (
+                    {tokenAction ? (
                       <Button
                         variant="ghost"
                         size="xs"
                         className="ml-auto"
                         disabled={issueToken.isPending}
-                        aria-label={`New token for ${pool.name}`}
-                        onClick={() => void issueToken.mutateAsync(pool.id).then((response) => setIssued({ poolName: pool.name, token: response.registrationToken }))}
+                        aria-label={tokenAction.ariaLabel}
+                        onClick={() =>
+                          void issueToken
+                            .mutateAsync(pool.id)
+                            .then((response) => setIssued({ title: tokenAction.title, note: tokenAction.note, token: response.registrationToken }))
+                        }
                       >
                         <KeyRound aria-hidden />
-                        New token
+                        {tokenAction.label}
                       </Button>
                     ) : null}
                   </header>
@@ -150,7 +155,7 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
         )}
       </AdminCard>
       {creating ? <CreatePoolDialog onClose={() => setCreating(false)} /> : null}
-      {issued ? <TokenIssuedDialog title={`New registration token for ${issued.poolName}`} token={issued.token} onClose={() => setIssued(null)} /> : null}
+      {issued ? <TokenIssuedDialog title={issued.title} note={issued.note} token={issued.token} onClose={() => setIssued(null)} /> : null}
       <ConfirmDialog
         open={removing !== null}
         destructive
@@ -219,7 +224,7 @@ function CreatePoolDialog(props: { onClose: () => void }): React.JSX.Element {
   );
 }
 
-function TokenIssuedDialog(props: { title: string; token: string; onClose: () => void }): React.JSX.Element {
+function TokenIssuedDialog(props: { title: string; note?: string; token: string; onClose: () => void }): React.JSX.Element {
   const commands = runnerCommands({ apiOrigin: resolvedApiOrigin(), token: props.token });
   return (
     <Dialog
@@ -235,7 +240,10 @@ function TokenIssuedDialog(props: { title: string; token: string; onClose: () =>
     >
       <div className="flex gap-3 rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-foreground">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-        <p>This registration token is shown once. A worker uses it on its first start, then keeps its own credential. Anyone with the token can add a worker to this pool, so treat it like a password.</p>
+        <p>
+          This registration token is shown once. A worker uses it on its first start, then keeps its own credential. Anyone with the token can add a worker to this pool, so treat it like a password.
+          {props.note ? ` ${props.note}` : null}
+        </p>
       </div>
       <CopyBlock label="Registration token" value={props.token} />
       <CopyBlock label="Start a runner" value={commands.start} multiline />
