@@ -92,6 +92,61 @@ describe("config resolution chain (design.md §9.2)", () => {
     expect(collectSecretValues(config)).toEqual(expect.arrayContaining([FIXTURE_PASSWORD, "123456", "sk-ant-fixture-key"]));
   });
 
+  test("provider keys and the OpenAI-compatible base URL pass through .env.e2e; keys are secret, the URL is not", () => {
+    const dir = tempDir();
+    writeFileSync(
+      join(dir, ".env.e2e"),
+      [
+        "JL_MODEL=openai-compatible/llama-3.3-70b",
+        "JL_JUDGE_MODEL=xai/grok-4",
+        "OPENAI_COMPATIBLE_BASE_URL=https://llm.internal.example/v1",
+        "OPENAI_COMPATIBLE_API_KEY=sk-compatible-fixture",
+        "XAI_API_KEY=xai-fixture-key",
+        "GOOGLE_GENERATIVE_AI_API_KEY=google-fixture-key",
+        "AWS_SECRET_ACCESS_KEY=not-a-runner-name"
+      ].join("\n")
+    );
+    const files = loadEnvFiles(dir, []);
+    expect(Object.keys(files[0]?.values ?? {}).sort()).toEqual([
+      "GOOGLE_GENERATIVE_AI_API_KEY",
+      "JL_JUDGE_MODEL",
+      "JL_MODEL",
+      "OPENAI_COMPATIBLE_API_KEY",
+      "OPENAI_COMPATIBLE_BASE_URL",
+      "XAI_API_KEY"
+    ]);
+    const config = resolveRunConfig({ env: {}, envFiles: files });
+    expect(config.actModel?.value).toBe("openai-compatible/llama-3.3-70b");
+    expect(config.judgeModel?.value).toBe("xai/grok-4");
+    expect(config.providerKeys.get("OPENAI_COMPATIBLE_BASE_URL")).toMatchObject({ value: "https://llm.internal.example/v1", secret: false });
+    expect(config.providerKeys.get("XAI_API_KEY")?.secret).toBe(true);
+    expect(config.providerKeys.get("GOOGLE_GENERATIVE_AI_API_KEY")?.secret).toBe(true);
+    const secrets = collectSecretValues(config);
+    expect(secrets).toEqual(expect.arrayContaining(["sk-compatible-fixture", "xai-fixture-key", "google-fixture-key"]));
+    expect(secrets).not.toContain("https://llm.internal.example/v1");
+    const table = formatConfigTable(describeResolvedConfig(config));
+    expect(table).toContain("https://llm.internal.example/v1");
+    for (const secret of ["sk-compatible-fixture", "xai-fixture-key", "google-fixture-key"]) expect(table).not.toContain(secret);
+  });
+
+  test("the organisation's base URL and keys reach the run as provider environment", () => {
+    const config = resolveRunConfig({
+      env: {},
+      org: {
+        environment: { name: "uat", baseUrl: "https://uat.example", variables: {} },
+        credentials: [],
+        model: {
+          act: "openai-compatible/llama-3.3-70b",
+          judge: "openrouter/openai/gpt-5",
+          apiKeys: { OPENAI_COMPATIBLE_BASE_URL: "https://llm.internal.example/v1", OPENROUTER_API_KEY: "sk-or-fixture-key" }
+        }
+      }
+    });
+    expect(config.providerKeys.get("OPENAI_COMPATIBLE_BASE_URL")).toMatchObject({ source: "org:uat", secret: false });
+    expect(config.providerKeys.get("OPENROUTER_API_KEY")).toMatchObject({ value: "sk-or-fixture-key", secret: true });
+    expect(config.judgeModel?.value).toBe("openrouter/openai/gpt-5");
+  });
+
   test("rejects an unknown cache mode", () => {
     expect(() => resolveRunConfig({ env: { JL_CACHE_MODE: "sometimes" } })).toThrow("JL_CACHE_MODE");
   });

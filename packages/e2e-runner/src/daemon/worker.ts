@@ -6,6 +6,7 @@ import { zipSync } from "fflate";
 
 import {
   macroDefinitionSchema,
+  modelProviderEnvNames,
   type ClaimedRun,
   type FinalizeTestRunRequest,
   type RunReport,
@@ -50,13 +51,16 @@ export type WorkerOptions = {
 // The organisation's configuration comes from the backend; JL_* names and model keys in the
 // daemon's own environment must not override it.
 // With --allow-claude-code (development only) the claude CLI's own login variables pass through.
+const providerEnvNames = new Set(modelProviderEnvNames);
 const claudeCodeLogin = new Set(["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"]);
 export function hostEnvForRuns(env: Readonly<Record<string, string | undefined>>, options: { allowClaudeCode?: boolean } = {}): Record<string, string | undefined> {
   return Object.fromEntries(
     Object.entries(env).filter(
       ([name]) =>
         (options.allowClaudeCode && claudeCodeLogin.has(name)) ||
-        (!name.startsWith("JL_") && !/_API_KEY$|^ANTHROPIC_|^OPENAI_|^OPENROUTER_|^AI_GATEWAY_|^E2E_SECRET_|^E2E_USER_/.test(name))
+        (!name.startsWith("JL_") &&
+          !providerEnvNames.has(name) &&
+          !/_API_KEY$|^ANTHROPIC_|^OPENAI_|^OPENROUTER_|^AI_GATEWAY_|^XAI_|^GOOGLE_GENERATIVE_AI_|^E2E_SECRET_|^E2E_USER_/.test(name))
     )
   );
 }
