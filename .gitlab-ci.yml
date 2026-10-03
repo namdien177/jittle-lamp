@@ -39,6 +39,7 @@ runner-browser:
   variables:
     E2E_TELEMETRY_DISABLED: "1"
   script:
+    - apt-get update && apt-get install -y --no-install-recommends unzip
     - curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"
     - export PATH="$HOME/.bun/bin:$PATH"
     - bun install --frozen-lockfile
