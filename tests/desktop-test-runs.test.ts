@@ -154,6 +154,7 @@ describe("live run polling state machine", () => {
     expect(describeRunState(fixtureRunSummary({ status: "queued", queuePosition: 2 }))).toEqual({ tone: "neutral", text: "Queued · 2 ahead" });
     expect(describeRunState(fixtureRunSummary({ status: "queued", queuePosition: 0 })).text).toBe("Queued · next");
     expect(describeRunState(fixtureRunSummary({ status: "queued", blockedReason: "NO_RUNNER" })).tone).toBe("warning");
+    expect(describeRunState(fixtureRunSummary({ status: "queued", queuePosition: 0, blockedReason: "BUDGET_EXCEEDED" }))).toEqual({ tone: "warning", text: "Queued · daily model budget used up" });
     expect(describeRunState(fixtureRunSummary({ status: "completed", outcome: "blocked" })).text).toBe("Blocked");
     expect(describeRunState(fixtureRunSummary({ status: "completed", outcome: "passed", flaky: true })).text).toBe("Passed · flaky");
     expect(describeRunState(fixtureRunSummary({ status: "completed", outcome: "failed" })).tone).toBe("danger");
