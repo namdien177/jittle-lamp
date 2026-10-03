@@ -205,3 +205,13 @@ describe("live progress rows created before finalisation", () => {
     expect(runProgress(steps, transcript)).toEqual({ done: 1, total: 3 });
   });
 });
+
+describe("run polling backs off on errors", () => {
+  test("2 s while active, doubling per consecutive failure up to 30 s, back to 2 s after a success", () => {
+    const active = { status: "running" as const };
+    expect([0, 1, 2, 3, 4, 5, 9].map((failures) => runPollInterval(active, failures))).toEqual([2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000]);
+    expect(runPollInterval(undefined, 2)).toBe(8_000);
+    expect(runPollInterval({ status: "completed" }, 3)).toBe(false);
+    expect(runPollInterval(active, 0)).toBe(2_000);
+  });
+});

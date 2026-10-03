@@ -11,8 +11,14 @@ export function isRunActive(status: TestRunSummary["status"]): boolean {
 }
 
 // GET /test-runs/:id every 2 s while the run is queued or executing; stop once it finished.
+// Failed polls back off (4 s, 8 s, 16 s, capped at 30 s) and the next success resets the pace.
 export const runPollIntervalMs = 2_000;
-export function runPollInterval(run: Pick<TestRunSummary, "status"> | undefined): number | false {
+export const runPollMaxIntervalMs = 30_000;
+export function runPollInterval(run: Pick<TestRunSummary, "status"> | undefined, consecutiveFailures = 0): number | false {
+  if (consecutiveFailures > 0) {
+    if (run && !isRunActive(run.status)) return false;
+    return Math.min(runPollMaxIntervalMs, runPollIntervalMs * 2 ** consecutiveFailures);
+  }
   if (!run) return false;
   return isRunActive(run.status) ? runPollIntervalMs : false;
 }
