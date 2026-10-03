@@ -22,7 +22,7 @@ import {
 	evidenceActivityEntity,
 	recordOrganizationActivity,
 } from "./organization-activity";
-import { linkRunEvidence } from "./test-run-finalize";
+import { linkRunEvidence, TEST_RUN_SOURCE_TYPE } from "./test-run-finalize";
 import type { TestRunRow } from "./test-runs";
 import type { BackendDb } from "./user-provisioning";
 import {
@@ -37,7 +37,7 @@ import {
 
 export const MAX_RUN_EVIDENCE_ZIP_BYTES = 64 * 1024 * 1024;
 export const RUN_REPORT_FILE_NAME = "run-report.json";
-export const TEST_RUN_SOURCE_TYPE = "test-run";
+export { TEST_RUN_SOURCE_TYPE };
 
 const sha256Hex = async (payload: Uint8Array): Promise<string> => {
 	const copy = new Uint8Array(payload.byteLength);

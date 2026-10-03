@@ -88,15 +88,22 @@ export const runMetricsFromReport = (
 	};
 };
 
+// Evidence uploaded by a runner for a run: sourceType "test-run", sourceExternalId = run id.
+export const TEST_RUN_SOURCE_TYPE = "test-run";
+
 export const linkRunEvidence = async (
 	db: BackendDb,
 	run: TestRunRow,
 	evidenceId: string,
 ) => {
+	// Only the evidence this run uploaded (POST /test-runs/:id/evidence) can be attached: any
+	// other evidence of the organisation would be relabelled as this run's recording.
 	const evidence = await db.query.evidences.findFirst({
 		where: and(
 			eq(evidences.id, evidenceId),
 			eq(evidences.orgId, run.orgId),
+			eq(evidences.sourceType, TEST_RUN_SOURCE_TYPE),
+			eq(evidences.sourceExternalId, run.id),
 			isNull(evidences.deletedAt),
 		),
 		columns: { id: true },
@@ -105,7 +112,7 @@ export const linkRunEvidence = async (
 		throw new HttpError(
 			422,
 			"TEST_RUN_EVIDENCE_INVALID",
-			"The evidence does not exist in this organisation",
+			"The evidence was not uploaded for this run",
 		);
 	}
 	await db
