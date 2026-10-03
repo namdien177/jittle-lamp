@@ -109,6 +109,20 @@ node packages/e2e-runner/dist/daemon.js start --api http://127.0.0.1:3001 --toke
 
 Use `mock:<fixture.json>` model ids for offline work, or `claude-code/<model>` with `--allow-claude-code` (section 5).
 
+### Vercel Preview with a preprod backend
+
+Use `apps/evidence-web` as the Vercel root directory with access to files outside that directory, build command `bun run build`, and output `dist`. The web build builds shared, viewer-core, viewer-react and ui before bundling the app, so a fresh build needs no cached package output.
+
+Scope `JITTLE_LAMP_API_ORIGIN` and `CLERK_PUBLISHABLE_KEY` separately: Production uses the production API and Clerk live instance; Preview uses the preprod API and Clerk test instance. Do not put database, storage, master or model keys into this static frontend.
+
+On the preprod backend set `NODE_ENV=staging`, both Clerk test keys, and `VERCEL_PREVIEW_PROJECT` / `VERCEL_PREVIEW_TEAM` to the exact Vercel project and team slugs. This accepts only immutable deployment origins of the form `https://<project>-<9 lowercase alphanumeric characters>-<team>.vercel.app`; JWT signature and authorized-party checks still apply. Add each branch alias as an exact entry in `CLERK_AUTHORIZED_PARTIES`. Production rejects this preview configuration. Set `WEB_APP_ORIGIN` to a stable, explicitly authorized branch alias for links.
+
+Give preprod its own Turso database, app secret and master key. Prefer its own storage bucket and credential. If the storage account cannot create another bucket, `S3_KEY_PREFIX=preprod` scopes PUT, GET, signed links and DELETE to `preprod/` in the existing bucket. This shares the bucket and credential; it does not provide an IAM boundary. Changing a prefix does not move existing evidence objects.
+
+For this project, production is `https://jl-api.monthlyparty.com`, preprod is `https://jl-api-preprod.monthlyparty.com`, and Vercel project/team are `jittler-lamp-desktop` / `namdien177s-projects`. The current feature branch alias is `https://jittler-lamp-desktop-git-feat-e2e-t-ca2d8e-namdien177s-projects.vercel.app`. GitLab MR !5 is mirrored by GitHub PR #40; pushing the feature branch to GitHub triggers a Preview build. The preprod backend tracks `feat/e2e-test-cases`; production tracks `main`.
+
+Model credentials are saved by an organisation administrator in Settings → Test cases → Models, encrypted with that environment's master key. For a Vercel AI Gateway key select `gateway/<provider>/<model>` for act and judge. A backend or runner host `AI_GATEWAY_API_KEY` does not configure an organisation: managed runs use the organisation's encrypted provider keys. Configure production and preprod independently.
+
 ### Staging
 
 Staging should mirror production: the same image, `NODE_ENV=staging`, its own Clerk instance, Turso database, bucket and master key, and its own runner deployment.

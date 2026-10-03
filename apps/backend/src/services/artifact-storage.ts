@@ -121,13 +121,16 @@ export const createArtifactStorage = (
 		...(runtime.s3.endpoint ? { endpoint: runtime.s3.endpoint } : {}),
 	});
 
+	const objectKey = (key: string) =>
+		runtime.s3?.keyPrefix ? `${runtime.s3.keyPrefix}/${key}` : key;
+
 	return {
 		mode: "s3",
 		putObject: async (input) => {
 			await client.send(
 				new PutObjectCommand({
 					Bucket: runtime.s3?.bucket,
-					Key: input.key,
+					Key: objectKey(input.key),
 					Body: input.body,
 					ContentType: input.contentType,
 					ChecksumSHA256: input.checksumSha256,
@@ -139,7 +142,7 @@ export const createArtifactStorage = (
 			const response = await client.send(
 				new GetObjectCommand({
 					Bucket: runtime.s3?.bucket,
-					Key: input.key,
+					Key: objectKey(input.key),
 				}),
 			);
 			if (!response.Body) {
@@ -155,7 +158,7 @@ export const createArtifactStorage = (
 				client,
 				new GetObjectCommand({
 					Bucket: runtime.s3?.bucket,
-					Key: input.key,
+					Key: objectKey(input.key),
 					ResponseContentType: input.responseContentType,
 				}),
 				{ expiresIn: ttlSeconds },
@@ -167,7 +170,7 @@ export const createArtifactStorage = (
 			await client.send(
 				new DeleteObjectCommand({
 					Bucket: runtime.s3?.bucket,
-					Key: input.key,
+					Key: objectKey(input.key),
 				}),
 			);
 		},

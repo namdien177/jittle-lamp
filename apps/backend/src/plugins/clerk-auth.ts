@@ -1,6 +1,7 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { Elysia, status } from "elysia";
 import type { Logger } from "pino";
+import { clerkAuthorizedPartiesForRequest } from "../config/preview-origins";
 
 import type { RuntimeConfig } from "../config/runtime";
 import {
@@ -182,8 +183,9 @@ const authenticateWithRequestState = async (
 	if (runtime.clerkJwtKey && !runtime.clerkSecretKey) {
 		authenticateOptions.jwtKey = runtime.clerkJwtKey;
 	}
-	if (runtime.clerkAuthorizedParties) {
-		authenticateOptions.authorizedParties = runtime.clerkAuthorizedParties;
+	const authorizedParties = clerkAuthorizedPartiesForRequest(runtime, request);
+	if (authorizedParties) {
+		authenticateOptions.authorizedParties = authorizedParties;
 	}
 	if (runtime.clerkAudience) {
 		authenticateOptions.audience = runtime.clerkAudience;
@@ -229,8 +231,9 @@ const authenticateWithVerifyToken = async (
 	if (runtime.clerkJwtKey && !runtime.clerkSecretKey) {
 		verifyOptions.jwtKey = runtime.clerkJwtKey;
 	}
-	if (runtime.clerkAuthorizedParties) {
-		verifyOptions.authorizedParties = runtime.clerkAuthorizedParties;
+	const authorizedParties = clerkAuthorizedPartiesForRequest(runtime, request);
+	if (authorizedParties) {
+		verifyOptions.authorizedParties = authorizedParties;
 	}
 	if (runtime.clerkAudience) {
 		verifyOptions.audience = runtime.clerkAudience;
@@ -297,7 +300,10 @@ const authenticateRequest = async (
 		// Not a desktop session token; continue with Clerk verification.
 	}
 
-	if (runtime.clerkPublishableKey) {
+	if (
+		runtime.clerkPublishableKey &&
+		(runtime.clerkSecretKey || !runtime.clerkJwtKey)
+	) {
 		return authenticateWithRequestState(request, runtime);
 	}
 

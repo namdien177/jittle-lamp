@@ -1,6 +1,7 @@
 import { cors } from "@elysia/cors";
 import { Elysia, NotFound, ParseError, ValidationError } from "elysia";
 import type { Logger } from "pino";
+import { isVercelPreviewOrigin } from "../config/preview-origins";
 
 import type { RuntimeConfig } from "../config/runtime";
 import { createApiError } from "../http/api-error";
@@ -71,7 +72,10 @@ const isAllowedCorsOrigin = (runtime: RuntimeConfig, origin: string) => {
 		return true;
 	}
 
-	return isDevelopmentRuntime(runtime) && localWebOrigins.has(normalizedOrigin);
+	return (
+		isVercelPreviewOrigin(runtime, normalizedOrigin) ||
+		(isDevelopmentRuntime(runtime) && localWebOrigins.has(normalizedOrigin))
+	);
 };
 
 export const createCorePlugin = ({

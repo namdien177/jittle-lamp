@@ -33,6 +33,12 @@ const envSchema = z
 		RUN_DB_MIGRATIONS: z.string().optional(),
 		TURSO_AUTH_TOKEN: optionalNonEmptyString,
 		S3_BUCKET: optionalNonEmptyString,
+		S3_KEY_PREFIX: optionalNonEmptyString.pipe(
+			z
+				.string()
+				.regex(/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/)
+				.optional(),
+		),
 		S3_REGION: optionalNonEmptyString,
 		S3_ENDPOINT: optionalUrlString,
 		S3_ACCESS_KEY_ID: optionalNonEmptyString,
@@ -59,6 +65,18 @@ const envSchema = z
 		CLERK_JWT_KEY: optionalNonEmptyString,
 		CLERK_AUDIENCE: optionalNonEmptyString,
 		CLERK_AUTHORIZED_PARTIES: optionalNonEmptyString,
+		VERCEL_PREVIEW_PROJECT: optionalNonEmptyString.pipe(
+			z
+				.string()
+				.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+				.optional(),
+		),
+		VERCEL_PREVIEW_TEAM: optionalNonEmptyString.pipe(
+			z
+				.string()
+				.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+				.optional(),
+		),
 		WEB_APP_ORIGIN: optionalUrlString,
 		JITTLE_LAMP_API_ORIGIN: optionalUrlString,
 		JITTLE_LAMP_DEV_AUTH_ENABLED: z.string().optional(),
@@ -129,6 +147,24 @@ const envSchema = z
 				path: ["S3_BUCKET"],
 				message: "S3_BUCKET is required in production",
 			});
+		}
+
+		if (env.VERCEL_PREVIEW_PROJECT || env.VERCEL_PREVIEW_TEAM) {
+			if (
+				env.NODE_ENV !== "staging" ||
+				!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_") ||
+				(env.CLERK_SECRET_KEY !== undefined &&
+					!env.CLERK_SECRET_KEY.startsWith("sk_test_")) ||
+				!env.VERCEL_PREVIEW_PROJECT ||
+				!env.VERCEL_PREVIEW_TEAM
+			) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["VERCEL_PREVIEW_PROJECT"],
+					message:
+						"Vercel preview origins require staging, a Clerk test instance, and both VERCEL_PREVIEW_PROJECT and VERCEL_PREVIEW_TEAM",
+				});
+			}
 		}
 
 		const clerkConfigured = Boolean(
