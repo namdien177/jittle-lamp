@@ -5,7 +5,7 @@ import { Button } from "../../components/ui/button";
 import { Textarea } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/misc";
 import { cn } from "../../lib/cn";
-import { useOrganizationMembers } from "../../queries";
+import { useAccountProfile, useOrganizationMembers } from "../../queries";
 import { useToast } from "../../toast";
 import { formatRelativeTime } from "../../utils";
 import { testAdminApi } from "../../test-cases/admin-api";
@@ -22,7 +22,8 @@ export function SettingsTestAgentNotesPage(): React.JSX.Element {
   const canManage = permissions.can("test_config.manage");
   const notes = useAgentNotes();
   const orgId = useActiveOrgId();
-  const members = useOrganizationMembers(orgId, { limit: 200 });
+  const members = useOrganizationMembers(orgId);
+  const profile = useAccountProfile();
   const [text, setText] = useState("");
   const save = useTestAdminMutation((getToken, value: string) => testAdminApi.saveAgentNotes(getToken, value), [testAdminKeys.agentNotes]);
   const budget = notesBudget(text);
@@ -32,8 +33,18 @@ export function SettingsTestAgentNotesPage(): React.JSX.Element {
     if (notes.data) setText(notes.data.notes);
   }, [notes.data]);
 
-  const author = notes.data?.updatedBy ? members.data?.members.find((member) => member.userId === notes.data?.updatedBy) : null;
-  const authorName = author ? author.displayName || author.email || "a member" : notes.data?.updatedBy ? "a former member" : null;
+  const updatedBy = notes.data?.updatedBy ?? null;
+  const author = updatedBy ? members.data?.members.find((member) => member.userId === updatedBy) : undefined;
+  // "you" for the signed-in person; a member's name when the member list has them.
+  const authorName = !updatedBy
+    ? null
+    : updatedBy === profile.data?.localUserId
+      ? "you"
+      : author
+        ? author.displayName || author.email || "a member"
+        : members.isSuccess && members.data.total <= members.data.members.length
+          ? "a former member"
+          : null;
 
   const submit = async () => {
     if (budget.over) return;

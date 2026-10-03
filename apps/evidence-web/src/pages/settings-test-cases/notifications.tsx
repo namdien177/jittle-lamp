@@ -41,14 +41,16 @@ type ExternalKind = "slack" | "webhook";
 
 function ChannelRow(props: { icon: React.ReactNode; title: string; detail: string; status: React.ReactNode; actions?: React.ReactNode }): React.JSX.Element {
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-md border border-border px-4 py-3">
-      <span className="grid size-9 shrink-0 place-items-center rounded-md border border-border bg-secondary text-muted-foreground">{props.icon}</span>
-      <div className="mr-auto min-w-0">
-        <p className="font-semibold text-foreground">{props.title}</p>
-        <p className="text-sm text-muted-foreground">{props.detail}</p>
+    <li className="rounded-md border border-border px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-md border border-border bg-secondary text-muted-foreground">{props.icon}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-foreground">{props.title}</p>
+          <p className="text-sm text-muted-foreground">{props.detail}</p>
+        </div>
+        {props.actions ? null : props.status}
       </div>
-      {props.status}
-      {props.actions}
+      {props.actions ? <div className="mt-2 flex flex-wrap items-center gap-1 pl-12">{props.actions}</div> : null}
     </li>
   );
 }

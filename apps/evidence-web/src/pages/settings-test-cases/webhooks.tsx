@@ -105,7 +105,6 @@ export function SettingsTestWebhooksPage(): React.JSX.Element {
                 <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
                   <Webhook className="size-4 text-muted-foreground" aria-hidden />
                   <h3 className="text-sm font-semibold text-foreground">{providerLabels[endpoint.provider]}</h3>
-                  <Badge variant={endpoint.enabled ? "success" : "muted"}>{endpoint.enabled ? "Enabled" : "Disabled"}</Badge>
                   <span className="text-sm text-muted-foreground">created {formatRelativeTime(endpoint.createdAt)}</span>
                   <span className="ml-auto flex items-center gap-1">
                     <Toggle
@@ -222,7 +221,7 @@ function Deliveries(props: { endpointId: string }): React.JSX.Element {
                 <TableCell>
                   <Badge variant={deliveryTone(delivery.status)}>{delivery.status}</Badge>
                 </TableCell>
-                <TableCell className="text-sm">{delivery.eventType}</TableCell>
+                <TableCell className="whitespace-nowrap text-sm">{delivery.eventType}</TableCell>
                 <TableCell className="font-mono text-xs">{shortSha(delivery.triggerRef)}</TableCell>
                 <TableCell className="max-w-[28rem] truncate text-sm text-muted-foreground" title={delivery.error ?? undefined}>
                   {delivery.error ?? (delivery.batchId ? "Suite queued" : "")}
