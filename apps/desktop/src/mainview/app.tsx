@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Analytics } from "@vercel/analytics/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { formatOffset, type TimelineItem, type TimelineSection } from "@jittle-lamp/shared";
-import { deriveSectionTimeline } from "@jittle-lamp/viewer-core";
+import { deriveGapMarkers, deriveSectionTimeline } from "@jittle-lamp/viewer-core";
 import { BookOpen, Building2, ChevronDown, Cloud, FlaskConical, LogOut, PlayCircle, Settings, User } from "lucide-react";
 import { MemoryRouter, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams, useRoutes } from "react-router";
 import {
@@ -443,6 +443,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
   const { activeSection, mergeGroups, selectedActionIds, networkSubtypeFilter, networkSearchQuery } = viewerState;
   const activeStepId = viewerState.stepFilter;
   const stepChips = useMemo(() => (payload ? buildViewerStepChips(payload.archive) : []), [payload]);
+  const gapMarkersMs = useMemo(() => (payload ? deriveGapMarkers(payload.archive) : []), [payload]);
 
   // `sectionItems` and `rows` are rebuilt only when the viewer-state slices that
   // actually feed them change, instead of on every render of this overlay.
@@ -528,6 +529,7 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
       open
       onClose={desktop.closeViewer}
       title={payload.archive.name}
+      gapMarkersMs={gapMarkersMs}
       aboutEvidence={payload.archive.recorder}
       tags={tags}
       source={mapDesktopSource(payload.source)}

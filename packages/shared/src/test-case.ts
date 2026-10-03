@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { fakeDataFieldsOf, fakeDataGroupOf, isFakeDataToken } from "./fake-data";
 import { sha256Hex } from "./sha256";
 
 // Transcript model for AI-driven E2E test cases (design.md §4 and §7, ADR 0002 decisions 1, 7, 13).
@@ -15,6 +16,7 @@ export const transcriptStepTypeSchema = z.enum([
   "screenshot",
   "extract",
   "note",
+  "use",
   "macro"
 ]);
 
@@ -26,7 +28,8 @@ export const builtinStepTags = {
   wait: "Wait",
   screenshot: "Screenshot",
   extract: "Extract",
-  note: "Note"
+  note: "Note",
+  use: "Use"
 } as const satisfies Record<Exclude<z.infer<typeof transcriptStepTypeSchema>, "macro">, string>;
 
 export const stepArgSchema = z.object({
@@ -496,6 +499,14 @@ function buildStep(input: {
     fileRefs: references.fileRefs,
     disabled: input.disabled
   };
+}
+
+// `[Use: TC-0001]` or `[Use: case=TC-0001, role=HQ_ADMIN]`: the key of the case to run inline.
+export function useCaseKeyArg(args: readonly StepArg[]): string | null {
+  const named = args.find((arg) => arg.name?.toLowerCase() === "case");
+  if (named && named.value.trim().length > 0) return named.value.trim();
+  const positional = args.find((arg) => arg.name === null);
+  return positional && positional.value.trim().length > 0 ? positional.value.trim() : null;
 }
 
 export function loginProfileArg(args: readonly StepArg[]): string | null {
@@ -999,13 +1010,23 @@ export const expandedStepSchema = transcriptStepSchema.extend({
   macroVersion: z.number().int().positive().nullable()
 });
 
+// A case another case runs inline with `[Use: KEY]`: its saved transcript at its current version.
+export const linkedCaseSchema = z.object({
+  key: z.string().min(1),
+  title: z.string(),
+  version: z.number().int().positive(),
+  params: z.array(paramDeclarationSchema),
+  transcript: z.string()
+});
+
 export type MacroParam = z.infer<typeof macroParamSchema>;
+export type LinkedCase = z.infer<typeof linkedCaseSchema>;
 export type MacroDefinition = z.infer<typeof macroDefinitionSchema>;
 export type ExpandedStep = z.infer<typeof expandedStepSchema>;
 
 export type MacroExpansionError = {
   stepId: string;
-  code: "unknown-macro" | "missing-argument" | "unknown-argument" | "recursive-macro" | "macro-too-deep";
+  code: "unknown-macro" | "unknown-case" | "missing-argument" | "unknown-argument" | "recursive-macro" | "macro-too-deep";
   message: string;
 };
 
@@ -1048,17 +1069,109 @@ export function resolveMacroArguments(
 
 const maxMacroDepth = 4;
 
-// Expand macro calls into the steps the runner executes. Expanded steps carry the macro version in
-// their instructionKey, so editing a macro invalidates only the scripts of its expanded steps.
+// Expand macro calls and `[Use: KEY]` steps into the steps the runner executes, in the same browser.
+// Expanded steps carry the macro (or case) version in their instructionKey, so editing a macro
+// invalidates only the scripts of its expanded steps.
 export function expandMacros(
   steps: readonly TranscriptStep[],
-  macros: readonly MacroDefinition[]
+  macros: readonly MacroDefinition[],
+  cases: readonly LinkedCase[] = []
 ): { steps: ExpandedStep[]; errors: MacroExpansionError[] } {
   const byName = new Map(macros.map((macro) => [macro.name.toLowerCase(), macro]));
+  const casesByKey = new Map(cases.map((linked) => [linked.key.toLowerCase(), linked]));
   const errors: MacroExpansionError[] = [];
   const out: ExpandedStep[] = [];
 
+  const expandBody = (
+    step: TranscriptStep,
+    body: readonly TranscriptStep[],
+    values: Readonly<Record<string, string>>,
+    identity: readonly unknown[],
+    depth: number,
+    stack: readonly string[]
+  ) => {
+    for (const child of body) {
+      if (child.disabled) continue;
+      const text = substituteVariables(child.text, values);
+      const args = child.args.map((arg) => ({ ...arg, value: substituteVariables(arg.value, values) }));
+      const references = extractStepReferences([text, ...args.map((arg) => arg.value)]);
+      const credentialRefs = new Set(references.credentialRefs);
+      if (child.type === "login") {
+        const profile = loginProfileArg(args);
+        if (profile !== null) credentialRefs.add(profile);
+      }
+      const instructionKey = `sha256:${sha256Hex(JSON.stringify([step.instructionKey, ...identity, child.instructionKey]))}`;
+      visit(
+        {
+          ...child,
+          stepId: `${step.stepId}.${child.ordinal}`,
+          instructionKey,
+          ordinal: step.ordinal,
+          line: step.line,
+          checkpointId: step.checkpointId,
+          text,
+          args,
+          variables: references.variables,
+          credentialRefs: [...credentialRefs],
+          fileRefs: references.fileRefs
+        },
+        step.stepId,
+        depth + 1,
+        stack
+      );
+    }
+  };
+
+  const visitUse = (step: TranscriptStep, parentStepId: string | null, depth: number, stack: readonly string[]) => {
+    const key = useCaseKeyArg(step.args);
+    const linked = key === null ? undefined : casesByKey.get(key.toLowerCase());
+    if (!linked) {
+      errors.push({ stepId: step.stepId, code: "unknown-case", message: key === null ? "[Use] needs a case key, e.g. [Use: TC-0001]." : `No test case ${key}.` });
+      out.push({ ...step, parentStepId, depth, macroVersion: null });
+      return;
+    }
+    const marker = `case:${linked.key.toLowerCase()}`;
+    if (stack.includes(marker)) {
+      errors.push({ stepId: step.stepId, code: "recursive-macro", message: `${linked.key} uses itself.` });
+      return;
+    }
+    if (depth >= maxMacroDepth) {
+      errors.push({ stepId: step.stepId, code: "macro-too-deep", message: `Macros and [Use] nest deeper than ${maxMacroDepth} levels.` });
+      return;
+    }
+    // Arguments other than the key fill the linked case's params; its defaults fill the rest. A
+    // param left open resolves like any {variable} of the run (environment, run params).
+    const values: Record<string, string> = {};
+    const params = linked.params;
+    const keyArgument = step.args.find((arg) => arg.name?.toLowerCase() === "case") ?? step.args.find((arg) => arg.name === null);
+    let positional = 0;
+    for (const arg of step.args) {
+      if (arg === keyArgument) continue;
+      if (arg.name === null) {
+        const param = params[positional];
+        positional += 1;
+        if (param) values[param.name] = arg.value;
+        else errors.push({ stepId: step.stepId, code: "unknown-argument", message: `${linked.key} takes ${params.length} param(s).` });
+        continue;
+      }
+      const param = params.find((candidate) => candidate.name.toLowerCase() === arg.name?.toLowerCase());
+      if (param) values[param.name] = arg.value;
+      else errors.push({ stepId: step.stepId, code: "unknown-argument", message: `${linked.key} has no param "${arg.name}".` });
+    }
+    for (const param of params) {
+      if (values[param.name] === undefined && param.default !== null) values[param.name] = param.default;
+    }
+
+    out.push({ ...step, parentStepId, depth, macroVersion: linked.version });
+    const body = parseTranscriptDocument(linked.transcript).cases[0]?.steps ?? [];
+    expandBody(step, body, values, ["case", linked.key.toLowerCase(), linked.version], depth, [...stack, marker]);
+  };
+
   const visit = (step: TranscriptStep, parentStepId: string | null, depth: number, stack: readonly string[]) => {
+    if (step.type === "use") {
+      visitUse(step, parentStepId, depth, stack);
+      return;
+    }
     const isCall = step.type === "macro" || step.type === "login";
     if (!isCall || step.macro === null) {
       out.push({ ...step, parentStepId, depth, macroVersion: null });
@@ -1092,38 +1205,7 @@ export function expandMacros(
     out.push({ ...step, parentStepId, depth, macroVersion: macro.version });
 
     const body = parseTranscriptDocument(macro.transcript).cases[0]?.steps ?? [];
-    for (const child of body) {
-      if (child.disabled) continue;
-      const text = substituteVariables(child.text, values);
-      const args = child.args.map((arg) => ({ ...arg, value: substituteVariables(arg.value, values) }));
-      const references = extractStepReferences([text, ...args.map((arg) => arg.value)]);
-      const credentialRefs = new Set(references.credentialRefs);
-      if (child.type === "login") {
-        const profile = loginProfileArg(args);
-        if (profile !== null) credentialRefs.add(profile);
-      }
-      const instructionKey = `sha256:${sha256Hex(
-        JSON.stringify([step.instructionKey, macro.name.toLowerCase(), macro.version, child.instructionKey])
-      )}`;
-      visit(
-        {
-          ...child,
-          stepId: `${step.stepId}.${child.ordinal}`,
-          instructionKey,
-          ordinal: step.ordinal,
-          line: step.line,
-          checkpointId: step.checkpointId,
-          text,
-          args,
-          variables: references.variables,
-          credentialRefs: [...credentialRefs],
-          fileRefs: references.fileRefs
-        },
-        step.stepId,
-        depth + 1,
-        [...stack, macro.name.toLowerCase()]
-      );
-    }
+    expandBody(step, body, values, [macro.name.toLowerCase(), macro.version], depth, [...stack, macro.name.toLowerCase()]);
   };
 
   for (const step of steps) {
@@ -1170,6 +1252,10 @@ export type TranscriptLintContext = {
   environmentVariables?: readonly string[];
   // Element names observed in the last run's snapshots ("menuitem Đăng xuất"), used for fix suggestions.
   elementNames?: readonly string[];
+  // Keys of the organisation's cases; when given, [Use: KEY] must name one of them.
+  cases?: readonly Pick<LinkedCase, "key">[];
+  // The key of the case being linted when its transcript has no `Key:` line.
+  caseKey?: string | null;
 };
 
 export type TranscriptLintRule = {
@@ -1371,6 +1457,24 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
         .map((step) => stepFinding(step, "[Login] needs a credential profile, e.g. [Login: PCF_HQ_ADMIN]."))
   },
   {
+    id: "use-needs-case",
+    severity: "error",
+    source: "design §4",
+    description: "[Use] names the case to run inline, e.g. [Use: TC-0001].",
+    check: (testCase, context) =>
+      activeSteps(testCase).flatMap((step) => {
+        if (step.type !== "use") return [];
+        const key = useCaseKeyArg(step.args);
+        if (key === null) return [stepFinding(step, "[Use] needs a case key, e.g. [Use: TC-0001].")];
+        const self = context.caseKey ?? testCase.metadata.key;
+        if (key.toLowerCase() === self?.toLowerCase()) return [stepFinding(step, `${key} cannot use itself.`)];
+        if (context.cases && !context.cases.some((linked) => linked.key.toLowerCase() === key.toLowerCase())) {
+          return [stepFinding(step, `No test case ${key}.`)];
+        }
+        return [];
+      })
+  },
+  {
     id: "missing-argument",
     severity: "error",
     source: "design §4",
@@ -1445,7 +1549,8 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
     id: "undeclared-variable",
     severity: "warning",
     source: "design §7",
-    description: "Every {variable} is a case param, dataset column, extracted value or environment variable.",
+    description:
+      "Every {variable} is a case param, dataset column, extracted value, environment variable or generated value ({person.name}).",
     check: (testCase, context) => {
       const known = new Set<string>([
         ...testCase.metadata.params.map((param) => param.name),
@@ -1456,9 +1561,18 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
       const findings: Omit<LintFinding, "ruleId" | "severity">[] = [];
       for (const step of activeSteps(testCase)) {
         for (const name of step.variables) {
-          if (known.has(name) || reported.has(name)) continue;
+          if (known.has(name) || reported.has(name) || isFakeDataToken(name)) continue;
           reported.add(name);
-          findings.push(stepFinding(step, `Undeclared variable {${name}}.`, { kind: "declare-param", name }));
+          const generated = fakeDataGroupOf(name);
+          if (generated) {
+            const fields = fakeDataFieldsOf(generated.group).join(", ");
+            findings.push(stepFinding(step, `{${name}} is not a generated value. ${generated.group} has: ${fields}.`));
+          } else if (argNamePattern.test(name)) {
+            findings.push(stepFinding(step, `Undeclared variable {${name}}.`, { kind: "declare-param", name }));
+          } else {
+            // Params cannot have dots, so there is nothing to declare.
+            findings.push(stepFinding(step, `Undeclared variable {${name}}.`));
+          }
         }
         if (step.type === "extract") {
           const name = step.args.find((arg) => arg.name === null)?.value;

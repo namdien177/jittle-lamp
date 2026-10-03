@@ -1,17 +1,19 @@
 import React from "react";
 import { Link } from "react-router";
 import type { TestCaseDetail, TestEnvironment } from "@jittle-lamp/shared";
-import { docFromTranscript, serializeEditorDoc, type EditorCredential, type EditorDoc, type EditorMacro } from "@jittle-lamp/ui";
+import { docFromTranscript, serializeEditorDoc, type EditorCase, type EditorCredential, type EditorDoc, type EditorMacro } from "@jittle-lamp/ui";
 
-import { useSimilarTestCases, useTestCredentials, useTestEnvironments, useTestMacros, useTestTags } from "./queries";
+import { useLinkableCases, useSimilarTestCases, useTestCredentials, useTestEnvironments, useTestMacros, useTestTags } from "./queries";
 import { tagValue } from "./list-model";
 
-// Data the step editor needs from the organisation: macros, credential profiles (names only),
-// environment variables and tag suggestions.
+// Data the step editor needs from the organisation: macros, cases for [Use: KEY], credential
+// profiles (names only), environment variables and tag suggestions.
 
 export type EditorCatalog = {
   macros: EditorMacro[];
   macrosLoaded: boolean;
+  cases: EditorCase[];
+  casesLoaded: boolean;
   credentials: EditorCredential[];
   environments: TestEnvironment[];
   tagSuggestions: string[];
@@ -20,6 +22,7 @@ export type EditorCatalog = {
 
 export function useEditorCatalog(): EditorCatalog {
   const macrosQuery = useTestMacros();
+  const casesQuery = useLinkableCases();
   const credentialsQuery = useTestCredentials();
   const environmentsQuery = useTestEnvironments();
   const tagsQuery = useTestTags();
@@ -29,6 +32,8 @@ export function useEditorCatalog(): EditorCatalog {
     return {
       macros: (macrosQuery.data ?? []).map((macro) => ({ name: macro.name, params: macro.params, transcript: macro.transcript, version: macro.version })),
       macrosLoaded: macrosQuery.isSuccess,
+      cases: casesQuery.data?.cases ?? [],
+      casesLoaded: casesQuery.data?.complete ?? false,
       credentials: (credentialsQuery.data ?? [])
         .filter((credential) => credential.kind === "login")
         .map((credential) => ({ profile: credential.profile, fields: Object.keys(credential.fields), secretFields: credential.secretFieldNames })),
@@ -39,7 +44,7 @@ export function useEditorCatalog(): EditorCatalog {
         environments.find((environment) => environment.id === fallbackId) ??
         null
     };
-  }, [macrosQuery.data, macrosQuery.isSuccess, credentialsQuery.data, environmentsQuery.data, tagsQuery.data]);
+  }, [macrosQuery.data, macrosQuery.isSuccess, casesQuery.data, credentialsQuery.data, environmentsQuery.data, tagsQuery.data]);
 }
 
 export function editorDocFromDetail(detail: Pick<TestCaseDetail, "transcript" | "steps">): EditorDoc {
@@ -75,7 +80,7 @@ export function SimilarHint(props: { title: string; excludeId?: string | null })
     <span className="relative">
       <button
         type="button"
-        className="jl-tc-press rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-[12.5px] font-medium text-foreground"
+        className="jl-tc-press rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-sm font-medium text-foreground"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
@@ -88,12 +93,12 @@ export function SimilarHint(props: { title: string; excludeId?: string | null })
               key={item.id}
               role="listitem"
               to={`/test-cases?case=${encodeURIComponent(item.id)}`}
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] hover:bg-muted"
+              className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
               onClick={() => setOpen(false)}
             >
-              <span className="font-mono text-[11.5px] text-muted-foreground">{item.key}</span>
+              <span className="font-mono text-xs text-muted-foreground">{item.key}</span>
               <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              <span className="font-mono text-[11.5px] tabular-nums text-muted-foreground">{item.exact ? "exact" : `${Math.round(item.score * 100)}%`}</span>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">{item.exact ? "exact" : `${Math.round(item.score * 100)}%`}</span>
             </Link>
           ))}
         </span>

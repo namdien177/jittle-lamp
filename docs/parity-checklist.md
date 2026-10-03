@@ -11,6 +11,7 @@ Use this single checklist for both manual QA verification and automated coverage
 | PARITY-MERGE-01 | Merge/unmerge visibility and contiguous selection rules | `tests/timeline.test.ts` → `buildVisibleActionRows`, `buildVisibleActionRangeSelection`, `getContiguousMergeableActionIds`; `tests/viewer-core.test.ts` → `applyArchiveToViewerCore` hydrates merge groups |
 | PARITY-NET-01 | Network filtering/search behavior (plain text + regex) | `tests/timeline.test.ts` → `buildSectionTimeline network search` |
 | PARITY-STEP-01 | Test-run evidence (archive v4): step chips, step-filtered timeline, step seek, review saves keep steps | `tests/review-e2e-parity.test.ts` → `test-run evidence (archive v4)`; `tests/viewer-core.test.ts` → `viewer-core step filter`; `tests/session-contracts.test.ts` → `session archive v4` |
+| PARITY-SKIP-01 | Skip gaps during playback: jump to 1.5 s before the next step, manual seeks respected | `tests/gap-skip.test.ts` → `gapSkipTarget`, `nextGapMarker`, `deriveGapMarkers` (run offsets → step annotations → interactions) |
 | PARITY-EXPORT-01 | Export updated ZIP behavior + schema fidelity | `tests/evidence-viewer.test.ts` → `buildReviewedArchive` + `buildReviewedSessionZip`; `tests/session-contracts.test.ts` → schema version + network payload fidelity checks |
 
 ## QA parity checklist
@@ -45,3 +46,9 @@ Use this single checklist for both manual QA verification and automated coverage
 - [ ] **Desktop app**: a run's evidence shows one chip per step with its status; selecting a step filters actions, requests and logs to `step:<id>` and seeks the video to the step start. (Task: `PARITY-STEP-01`)
 - [ ] **Evidence web app**: the same evidence shows the same chips and filtered rows; exporting a reviewed ZIP keeps the step annotations. (Task: `PARITY-STEP-01`)
 - [ ] **Both**: the Info tab shows "Runner used" with runner, engine and browser versions for runner evidence and "Extension used" for recordings. (Task: `PARITY-STEP-01`)
+
+### 7) Skip gaps during playback
+
+- [ ] **Desktop app**: a long recording shows the Skip gaps button, on by default; playback jumps over idle stretches to 1.5 s before the next interaction. (Task: `PARITY-SKIP-01`)
+- [ ] **Evidence web app**: run evidence skips to 1.5 s before each step; seeking into a gap by hand plays that gap until the next step. (Task: `PARITY-SKIP-01`)
+- [ ] **Both**: turning the button off is remembered on the device and plays the recording straight through. (Task: `PARITY-SKIP-01`)

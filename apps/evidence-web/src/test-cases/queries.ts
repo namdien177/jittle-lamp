@@ -157,6 +157,21 @@ export function useTestEnvironments() {
   return useQuery({ queryKey: testQueryKeys.environments(orgId), queryFn: () => testApi.listEnvironments(getToken), enabled: useSignedIn(), staleTime: configStale });
 }
 
+// Cases a [Use: KEY] step can name. Complete only when one page holds them all; until then the
+// editor does not flag unknown keys.
+const linkableLimit = 500;
+export function useLinkableCases() {
+  const getToken = useAuthToken();
+  const orgId = useTestOrgId();
+  return useQuery({
+    queryKey: testKeys.linkableCases(orgId),
+    queryFn: () => testApi.listTestCases(getToken, { sort: "key", order: "asc", limit: linkableLimit }),
+    enabled: useSignedIn(),
+    staleTime: 20_000,
+    select: (page: TestCaseListResponse) => ({ cases: page.items.map((item) => ({ key: item.key, title: item.title })), complete: page.nextCursor === null })
+  });
+}
+
 export function useTestMacros() {
   const getToken = useAuthToken();
   const orgId = useTestOrgId();

@@ -168,6 +168,9 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
         onModeChange={setMode}
         macros={catalog.macros}
         macrosLoaded={catalog.macrosLoaded}
+        cases={catalog.cases}
+        casesLoaded={catalog.casesLoaded}
+        caseKey={detail.key}
         credentials={catalog.credentials}
         environmentVariables={environment ? Object.keys(environment.variables) : []}
         environmentName={environment?.name ?? null}
@@ -227,7 +230,7 @@ function EditorToolbar(props: {
       </DropdownMenu>
       {props.dirty && !props.readOnly ? (
         <>
-          <span className="text-[12px] text-muted-foreground">Unsaved</span>
+          <span className="text-xs text-muted-foreground">Unsaved</span>
           <Button size="sm" variant="ghost" className="jl-tc-press" onClick={props.onDiscard} disabled={props.saving}>
             Discard
           </Button>
@@ -244,7 +247,7 @@ function EditorToolbar(props: {
 
 function ConflictBanner(props: { detailVersion: number; busy: boolean; onReload: () => void; onOverwrite: () => void; onCopy: () => void }): React.JSX.Element {
   return (
-    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-warning/45 bg-warning/10 px-3 py-2 text-[13px]">
+    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-warning/45 bg-warning/10 px-3 py-2 text-sm">
       <span className="mr-auto">
         Someone saved this case while you were editing. Your changes are not saved yet; the latest version is v{props.detailVersion} or newer.
       </span>

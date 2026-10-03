@@ -31,7 +31,7 @@ export const notesStyles = `
 
 .jl-vm-tagbar-empty {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
 }
 
@@ -43,7 +43,7 @@ export const notesStyles = `
   border: 1px solid;
   border-radius: 5px;
   padding: 2px 7px;
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--jl-font-scale, 1));
   font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
@@ -68,7 +68,7 @@ export const notesStyles = `
   color: var(--jl-vm-soft, rgba(239, 239, 239, 0.68));
   padding: 2px 8px;
   font-family: inherit;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-weight: 500;
   cursor: pointer;
 }
@@ -112,7 +112,7 @@ export const notesStyles = `
   outline: none;
   background: transparent;
   color: var(--jl-vm-text, #efefef);
-  font-size: 13px;
+  font-size:calc(13px * var(--jl-font-scale, 1));
 }
 
 .jl-vm-tag-options {
@@ -153,7 +153,7 @@ export const notesStyles = `
 .jl-vm-tag-no-results {
   padding: 10px;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
 }
 
 .jl-vm-notes {
@@ -178,7 +178,7 @@ export const notesStyles = `
 }
 
 .jl-vm-notes-label {
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
   font-weight: 500;
   display: flex;
@@ -188,7 +188,7 @@ export const notesStyles = `
 
 .jl-vm-saving {
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-size: 11px;
+  font-size:calc(11px * var(--jl-font-scale, 1));
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
@@ -217,7 +217,7 @@ export const notesStyles = `
   justify-content: space-between;
   gap: 12px;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   margin-bottom: 6px;
 }
 
@@ -229,7 +229,7 @@ export const notesStyles = `
 .jl-vm-comment p {
   margin: 0;
   color: var(--jl-vm-text, #efefef);
-  font-size: 13px;
+  font-size:calc(13px * var(--jl-font-scale, 1));
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -272,12 +272,12 @@ export const notesStyles = `
   border-radius: 8px;
   padding: 8px 10px;
   font-family: inherit;
-  font-size: 13px;
+  font-size:calc(13px * var(--jl-font-scale, 1));
   line-height: 1.45;
 }
 
 .jl-vm-notes-notice {
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   color: var(--jl-vm-warn, #f59e0b);
   background: rgba(240, 136, 62, 0.12);
   padding: 6px 8px;

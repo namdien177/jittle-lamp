@@ -35,7 +35,7 @@ export function AdminCard(props: {
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0 space-y-0.5">
           <h2 className="text-sm font-semibold">{props.title}</h2>
-          {props.description ? <p className="max-w-2xl text-[13px] text-muted-foreground">{props.description}</p> : null}
+          {props.description ? <p className="max-w-2xl text-sm text-muted-foreground">{props.description}</p> : null}
         </div>
         {props.actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{props.actions}</div> : null}
       </div>
@@ -46,7 +46,7 @@ export function AdminCard(props: {
 
 export function ReadOnlyNotice(props: { permission: string }): React.JSX.Element {
   return (
-    <p className="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-[13px] text-muted-foreground" role="note">
+    <p className="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground" role="note">
       <Lock className="size-3.5 shrink-0" aria-hidden />
       Read-only. Editing needs the <code className="font-mono text-xs">{props.permission}</code> permission.
     </p>
@@ -139,7 +139,7 @@ export function TranscriptView(props: {
   }
   return (
     <div className={cn("overflow-hidden rounded-md border border-border bg-background", props.className)}>
-      <div role="region" aria-label={props.label} className="jl-scroll max-h-[28rem] overflow-auto py-2 font-mono text-[13px] leading-6">
+      <div role="region" aria-label={props.label} className="jl-scroll max-h-[28rem] overflow-auto py-2 font-mono text-sm leading-6">
         {lines.map((line, index) => {
           const lineNumber = index + 1;
           const findings = byLine.get(lineNumber) ?? [];
@@ -168,7 +168,7 @@ export function ReplacementPreview(props: { segments: readonly PreviewSegment[];
     <div
       role="region"
       aria-label={props.label}
-      className="jl-scroll max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-3 py-2 font-mono text-[13px] leading-6"
+      className="jl-scroll max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-3 py-2 font-mono text-sm leading-6"
     >
       {props.segments.map((segment, index) =>
         segment.replaced ? (
@@ -196,7 +196,7 @@ export function CopyBlock(props: { label: string; value: string; secret?: boolea
   return (
     <div className="grid gap-1">
       <span className="text-xs font-medium text-muted-foreground">{props.label}</span>
-      <div className="flex items-start gap-2 overflow-hidden rounded-md border border-border bg-muted py-1 pl-3 pr-1.5 font-mono text-[13px]">
+      <div className="flex items-start gap-2 overflow-hidden rounded-md border border-border bg-muted py-1 pl-3 pr-1.5 font-mono text-sm">
         <code className={cn("min-w-0 flex-1 py-1.5 text-foreground", props.multiline ? "whitespace-pre-wrap break-all" : "truncate")}>{props.value}</code>
         <Hint label="Copy">
           <button

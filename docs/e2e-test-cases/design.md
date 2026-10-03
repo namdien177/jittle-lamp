@@ -99,7 +99,7 @@ step        := "[" tag [":" args] "]" text
              | text                          (bare text = Act)
 args        := value                         (fills the macro's first parameter)
              | name "=" value {"," name "=" value}
-tag         := Open | Act | Assert | Login | Wait | Screenshot | Extract | Note | <macro name>
+tag         := Open | Act | Assert | Login | Wait | Screenshot | Extract | Note | Use | <macro name>
 ```
 
 | Tag | Meaning | Cached? | Model call on replay |
@@ -112,9 +112,16 @@ tag         := Open | Act | Assert | Login | Wait | Screenshot | Extract | Note 
 | `[Screenshot] <label>` | Capture a screenshot artifact | n/a | no |
 | `[Extract: <var>] <text>` | Agent extracts a value into `{var}` for later steps | no | always |
 | `[Note] <text>` | Not executed; shown in reports | n/a | no |
+| `[Use: <key>, <param>=<value>] <text>` | Runs another case's steps here, in the same browser and session. Named arguments fill that case's params; its defaults fill the rest | per step of that case | only on hand-off |
 | `[<Macro>: <arg>]` | Any other tag resolves to an org macro of that name | per macro step | only on hand-off |
 
-Variables: `{name}` is substituted from run params, then environment variables. Values never enter the cache key, so `{email}` can vary per run while the step still replays. Secrets are never written in transcripts; `[Login: PCF]` references a credential profile and the runner fills the password without sending it to the model.
+Variables: `{name}` is substituted from run params, then environment variables. Values never enter the cache key, so `{email}` can vary per run while the step still replays. A value read by `[Extract: x]` fills `{x}` in later steps while the run executes.
+
+Linked cases: `[Use: TC-0001]` runs case TC-0001 inline at its current version, so a "create an interest" case can start with the "admin signs in" case instead of repeating its steps. Values its `[Extract]` steps read fill `{name}` in the steps after the `[Use]`, and the credential profiles it logs in with are delivered with the run. Linked cases may use others up to four levels deep; a case that uses itself, directly or through another, is an error, and lint flags a key the organisation does not have. Local runs find the case among the `*.transcript.md` files next to the one being run, by `Key:`. The editor's `[` picker lists the organisation's cases as `[Use: KEY]`.
+
+Generated values: `{person.name}`, `{person.email}`, `{phone.number}`, `{location.address}`, `{company.name}`, `{date.birthdate}`, `{lorem.sentence}` and the other fields in `packages/shared/src/fake-data.ts` resolve to realistic fake data (faker) when no param, dataset column or variable has that name. The runner draws one value per token per run in the environment's data locale (Settings → Environments, default English; `JL_DATA_LOCALE` locally). Fields of one person agree: `{person.email}` is built from `{person.firstName}` and `{person.lastName}`, and `{internet.email}` is the same value. A number after the group is another entity: `{person2.name}` and `{person2.email}` belong to a second person. Emails use `example.com`. Step labels in the run show the drawn values, and the run report lists them under `params`. The editor's `{` picker offers them, and lint names the fields of a mistyped one (`{person.nmae}`).
+
+Secrets are never written in transcripts; `[Login: PCF]` references a credential profile and the runner fills the password without sending it to the model.
 
 Step identity: each step gets a stable `stepId` when the transcript is saved. On edit, the parser re-matches steps by `instructionKey = sha256(type, arg, normalisedText)` so unchanged lines keep their id, cache and run history. A changed line is a new step with an empty cache.
 
@@ -342,6 +349,8 @@ Metadata is a form, not front matter: title, tag input grouped by namespace, env
 
 **Import pipeline.** Upload → parse → mapping (CSV/XLSX only) → preview table with per-row lint, exact-duplicate (`fingerprint`) and near-duplicate matches (FTS5 trigram over title + transcript; embeddings later) → per-row decision `create / update existing / skip / merge` with bulk "apply to all similar" → create as a background batch on the lease worker → batch page with progress, created/updated/skipped/error counts, error CSV. Re-importing the same file is idempotent through `external_id` or `Key`. Imports of 1,000 rows must finish in under a minute without a model; rows that need the model (free-text steps) are queued and shown as "normalising".
 
+**General instructions and explored spreadsheets.** A "General instructions" import takes plain language: one case per `# Title` section, or per paragraph without headings. Each case is tried on a real browser before review. It needs an environment and becomes an import item in `pending` holding the instructions as `[Note]` lines, plus a row in `test_explorations` for the environment's runner pool. When the pool has no run queued, an idle worker claims the exploration from `/runner-pools/claim` (runs always come first). It reads `GET /test-explorations/:id/config`: the environment, the model, and only the login profiles the instructions name. It runs `e2e explore` with a goal that says to follow the instructions, 8 steps and 10 minutes at most, and posts `run.explore` to `POST /test-explorations/:id/result`. Both endpoints answer only the worker holding the lease, a 15-minute lease with 2 attempts. The backend writes the item's transcript from the instructions and what the agent did, with the organisation's model, using the visible labels it saw and `[Login: PROFILE]` for sign-ins. Without a model it writes one `[Act]` per explored step and the closing assessment as the `[Assert]`. The item then gets lint and duplicate checks like any other. The batch stays `parsing` (shown as "n of m explored") until its last exploration reports, and cannot be committed before. A failed exploration leaves the instructions for the reviewer with the reason. CSV and XLSX imports from the web go through the same exploration, each row's mapped steps being the instructions, so they need an environment too; the API keeps `explore: false` as its default for scripts. An explored import holds at most 50 cases and needs `test_config.use`, because it decrypts profiles and the model key.
+
 **Duplicate.** `d` on a case or a selection opens a dialog: new title (default "<title> (copy)"), tags, find/replace across transcript and title (e.g. `HQ_ADMIN` → `BRANCH_ADMIN`), what to copy (links, tags, environment, datasets), and "link as variant" vs "independent copy". Steps whose `instructionKey` is unchanged **inherit the source's active step scripts**, so a duplicate replays on its first run instead of paying the agent again. `duplicated_from_id` keeps the lineage; the source shows "3 derived cases". Multi-select duplicate applies the same find/replace to all.
 
 **Review queue.** AI-generated and imported cases are `review` until a person approves them. The queue is a batch view: left list, right side shows the transcript with lint and the source (ticket text, sheet row, originating case) side by side; `a` approve, `x` reject, `e` edit, `shift+a` approve all with no lint warnings. Approved cases become `active`; rejected ones are archived with a reason that feeds back into the generation prompt.
@@ -398,6 +407,7 @@ The same test case must run against a cloud-configured environment and against a
 | `{SCHOOL_CODE}` | `vars.SCHOOL_CODE` | environment variable (non-secret) |
 | `[Login: PCF_HQ_ADMIN]` | `credential('PCF_HQ_ADMIN').username`, `secret('PCF_HQ_ADMIN.password')` | credential profile; secret fields are filled by the runner and masked everywhere |
 | `{student}` with `--var student=...` | `params.student` | run parameter |
+| `{person.name}` (nothing else of that name) | `vars["person.name"]` | value generated for this run in the environment's data locale (§4) |
 
 `secret()` never returns a string to the agent or to the report. The runner fills it into the page directly and registers the value for redaction in snapshots, console, network bodies and video banners (the extension's redaction rules already cover input events).
 
@@ -410,6 +420,7 @@ For each name the runner checks, in order, and stops at the first hit:
    - `JL_ENV_BASE_URL`, `JL_ENV_NAME`
    - `JL_VAR_<KEY>` → `vars.KEY`
    - `JL_CRED_<PROFILE>_<FIELD>` → `credential('PROFILE').FIELD`, e.g. `JL_CRED_PCF_HQ_ADMIN_PASSWORD`
+   - `JL_DATA_LOCALE` (locale of generated values such as `vi` or `en_GB`)
    - `JL_MODEL`, `JL_JUDGE_MODEL`, the provider key the model ids need (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `XAI_API_KEY`, `AI_GATEWAY_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`), `OPENAI_COMPATIBLE_BASE_URL` (not a secret), `JL_CACHE_MODE`, `JL_CACHE_DIR`
 3. **Desktop secret store** (`safeStorage`), desktop host only.
 4. **Organisation configuration on the backend**: the selected `test_environment` and the `test_credentials` it references, fetched with the user's session (desktop) or a per-run token (cloud worker).

@@ -43,6 +43,7 @@ import { PageBody, PageHeader, PageTabs } from "../components/page";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
+import { Checkbox } from "../components/ui/checkbox";
 import { Input } from "../components/ui/input";
 import { Field } from "../components/ui/field";
 import { SimpleSelect } from "../components/ui/select";
@@ -50,6 +51,7 @@ import { ConfirmDialog, SimpleDialog } from "../components/ui/dialog";
 import { EmptyState } from "../components/ui/empty";
 import { Skeleton } from "../components/ui/skeleton";
 import { cn } from "../lib/cn";
+import { groupPermissions, permissionInfo } from "./organisation-permissions";
 import {
   Table,
   TableBody,
@@ -1234,26 +1236,6 @@ export function OrgInvitationsTab(): React.JSX.Element {
 
 /* ── Roles tab ──────────────────────────────────────────────────────────────── */
 
-const permissionLabels: Record<OrganizationPermission, string> = {
-  "evidence.view": "View evidence",
-  "evidence.download": "Download evidence",
-  "evidence.comment": "Comment",
-  "evidence.create": "Create sessions",
-  "evidence.update.own": "Edit own evidence",
-  "evidence.delete.own": "Delete own evidence",
-  "evidence.move.own": "Move own evidence",
-  "evidence.update.any": "Edit all evidence",
-  "evidence.delete.any": "Delete all evidence",
-  "evidence.move.any": "Move all evidence",
-  "evidence.tags.manage": "Manage evidence tags",
-  "invitations.create": "Create invitation links",
-  "invitations.disable": "Disable invitation links",
-  "join_requests.manage": "Review join requests",
-  "roles.manage": "Manage roles",
-  "members.assign_role": "Assign roles",
-  "members.kick": "Remove members",
-  "activity.view": "View activity",
-};
 const adminOnlyPermissions = new Set<OrganizationPermission>([
   "invitations.create",
   "roles.manage",
@@ -1409,72 +1391,57 @@ export function OrgRolesTab(): React.JSX.Element {
                   {roleBadge(selectedRole.key)}
                 </div>
 
-                <div className="grid gap-2 xl:grid-cols-2">
-                  {permissions.map((permission) => {
-                    const adminOnly = adminOnlyPermissions.has(permission);
-                    const checked =
-                      selectedRole.key === "admin" ||
-                      (!adminOnly && selectedRole.permissions.includes(permission));
-                    const locked = selectedRole.key === "admin" || adminOnly;
-                    const pending =
-                      pendingPermission?.role === selectedRole.key &&
-                      pendingPermission.permission === permission;
-                    const disabled = !ctx.canAdmin || locked || pending;
-                    const reason =
-                      selectedRole.key === "admin"
-                        ? "Admin permissions are fixed."
-                        : adminOnly
-                          ? "Admin-only permission."
-                          : !ctx.canAdmin
-                            ? "Admin access required."
-                            : null;
-
-                    return (
-                      <label
-                        key={permission}
-                        className={[
-                          "flex min-h-12 items-center gap-3 rounded-md border px-3 py-2 text-base transition-colors",
-                          checked
-                            ? "border-primary/40 bg-primary/10"
-                            : "border-border bg-card",
-                          disabled ? "text-muted-foreground" : "cursor-pointer hover:border-border-strong",
-                          pending ? "animate-pulse" : "",
-                        ].join(" ")}
-                        aria-busy={pending}
-                      >
-                        <input
-                          type="checkbox"
-                          className="size-4 accent-primary"
-                          checked={checked}
-                          disabled={disabled}
-                          onChange={(event) =>
-                            void togglePermission(
-                              selectedRole.key,
-                              permission,
-                              event.currentTarget.checked,
-                            ).catch((err) =>
-                              ctx.setError(
-                                err instanceof Error
-                                  ? err.message
-                                  : "Unable to update role.",
-                              ),
-                            )
-                          }
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-medium">
-                            {permissionLabels[permission]}
-                          </span>
-                          {reason ? (
-                            <span className="block text-base text-muted-foreground">
-                              {reason}
+                {groupPermissions(permissions).map((group) => (
+                  <section key={group.label} className="space-y-2" aria-label={`${group.label} permissions`}>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      {group.label}
+                      <span className="font-normal text-muted-foreground tabular-nums">
+                        {group.permissions.filter((permission) => selectedRole.key === "admin" || selectedRole.permissions.includes(permission)).length}/{group.permissions.length}
+                      </span>
+                    </h3>
+                    <div className="grid gap-2 xl:grid-cols-2">
+                      {group.permissions.map((permission) => {
+                        const info = permissionInfo[permission] ?? { label: permission };
+                        const adminOnly = adminOnlyPermissions.has(permission);
+                        const checked = selectedRole.key === "admin" || (!adminOnly && selectedRole.permissions.includes(permission));
+                        const locked = selectedRole.key === "admin" || adminOnly;
+                        const pending = pendingPermission?.role === selectedRole.key && pendingPermission.permission === permission;
+                        const disabled = !ctx.canAdmin || locked || pending;
+                        const reason =
+                          selectedRole.key === "admin" ? "Admin permissions are fixed." : adminOnly ? "Admin-only permission." : !ctx.canAdmin ? "Admin access required." : null;
+                        return (
+                          <label
+                            key={permission}
+                            className={cn(
+                              "flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+                              checked ? "border-primary/40 bg-primary/10" : "border-border bg-card",
+                              disabled ? "text-muted-foreground" : "cursor-pointer hover:border-border-strong",
+                              pending && "animate-pulse"
+                            )}
+                            aria-busy={pending}
+                          >
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={checked}
+                              disabled={disabled}
+                              onCheckedChange={(next) =>
+                                void togglePermission(selectedRole.key, permission, next).catch((err) =>
+                                  ctx.setError(err instanceof Error ? err.message : "Unable to update role.")
+                                )
+                              }
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-medium text-foreground">{info.label}</span>
+                              <span className="block font-mono text-xs text-muted-foreground">{permission}</span>
+                              {info.description ? <span className="mt-0.5 block text-xs text-muted-foreground">{info.description}</span> : null}
+                              {reason ? <span className="mt-0.5 block text-xs text-muted-foreground">{reason}</span> : null}
                             </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
               </div>
             ) : (
               <EmptyState

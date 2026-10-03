@@ -243,6 +243,7 @@ describe("import batch page logic", () => {
     resultTestCaseId: null,
     error: null,
     state: "ready",
+    exploration: null,
     ...overrides
   });
   const exact = { id: "c1", key: "TC-0412", title: "Login", score: 1, exact: true };

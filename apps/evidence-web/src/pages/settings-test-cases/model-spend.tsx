@@ -109,7 +109,7 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
               </div>
               <div className="flex gap-px" aria-hidden>
                 {bars.map((bar, index) => (
-                  <span key={bar.day} className="min-w-0 flex-1 overflow-visible whitespace-nowrap text-[10px] text-muted-foreground">
+                  <span key={bar.day} className="min-w-0 flex-1 overflow-visible whitespace-nowrap text-2xs text-muted-foreground">
                     {index % labelEvery === 0 ? formatDayLabel(bar.day) : ""}
                   </span>
                 ))}

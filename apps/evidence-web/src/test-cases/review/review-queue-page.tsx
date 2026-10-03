@@ -6,7 +6,7 @@ import type { TestCaseDetail } from "@jittle-lamp/shared";
 
 import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
+import { Button, buttonVariants } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ui/dialog";
 import { Textarea } from "../../components/ui/textarea";
 import { EmptyState } from "../../components/ui/empty";
@@ -157,7 +157,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
         description="Imported and AI-generated cases stay in review until someone approves them. Approved cases become active; rejected ones are archived with your reason."
         actions={
           <>
-            <Link to="/test-cases/import" className="text-sm font-semibold text-primary hover:underline">
+            <Link to="/test-cases/import" className={buttonVariants({ variant: "ghost", size: "sm" })}>
               Import
             </Link>
             {canApprove ? (

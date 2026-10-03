@@ -227,7 +227,14 @@ export const createApp = (
 			}),
 		)
 		.use(createTestConfigRoutes(auth, { outbound }))
-		.use(createRunnerPoolRoutes(auth))
+		.use(
+			createRunnerPoolRoutes(auth, {
+				...(dependencies.generateText
+					? { generateText: dependencies.generateText }
+					: {}),
+				outbound,
+			}),
+		)
 		.use(createNotificationRoutes(auth))
 		.use(createProtectedRoutes(auth));
 

@@ -17,11 +17,12 @@ import { cn } from "../../lib/cn";
 import { testAdminApi, type EnvironmentInput } from "../../test-cases/admin-api";
 import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestEnvironments, useTestPermissions } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
-import { agentInstructionsCounter, environmentNamePattern, isHttpUrl, runnerPoolValue } from "../../test-config/config-ui";
+import { agentInstructionsCounter, dataLocaleLabel, dataLocaleOptions, environmentNamePattern, isHttpUrl, runnerPoolValue } from "../../test-config/config-ui";
 import { testingSettingsBase } from "./routes";
 import { Hint, TruncatedText } from "../../components/ui/tooltip";
 
-// Settings → Environments (design.md §9.3, §14): base URL, variables, runner pool, agent instructions.
+// Settings → Environments (design.md §9.3, §14): base URL, variables, runner pool, data locale,
+// agent instructions.
 
 export function runnerPoolLabel(value: string, pools: readonly RunnerPool[]): string {
   if (value === "cloud") return "cloud";
@@ -43,7 +44,7 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
       {!canManage && !permissions.loading ? <ReadOnlyNotice permission="test_config.manage" /> : null}
       <AdminCard
         title="Environments"
-        description="Where cases run: base URL, runner pool and agent instructions. Values for {NAME} live in Variables."
+        description="Where cases run: base URL, runner pool, data locale and agent instructions. Values for {NAME} live in Variables."
         actions={
           canManage ? (
             <Button size="sm" className={pressable} onClick={() => setEditing("new")}>
@@ -78,6 +79,7 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
                 <TableRow key={environment.id}>
                   <TableCell className="pl-4">
                     <span className="whitespace-nowrap font-mono text-sm font-semibold text-foreground">{environment.name}</span>
+                    {environment.dataLocale ? <span className="block whitespace-nowrap text-xs text-muted-foreground">data · {dataLocaleLabel(environment.dataLocale)}</span> : null}
                     {environment.agentInstructions ? <span className="block whitespace-nowrap text-xs text-muted-foreground">instructions · {environment.agentInstructions.length.toLocaleString()} chars</span> : null}
                   </TableCell>
                   <TableCell className="max-w-64 font-mono text-xs">
@@ -139,6 +141,7 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
   const [baseUrl, setBaseUrl] = useState(source?.baseUrl ?? "https://");
   const [runnerPool, setRunnerPool] = useState(source?.runnerPool ?? "cloud");
   const [agentInstructions, setAgentInstructions] = useState(source?.agentInstructions ?? "");
+  const [dataLocale, setDataLocale] = useState(source?.dataLocale ?? "");
   const [notes, setNotes] = useState(source?.notes ?? "");
   const [submitted, setSubmitted] = useState(false);
 
@@ -155,6 +158,7 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
     ...props.pools.filter((pool) => pool.kind === "self-hosted").map((pool) => ({ label: `self-hosted · ${pool.name}`, value: runnerPoolValue(pool) }))
   ];
   if (!poolOptions.some((option) => option.value === runnerPool)) poolOptions.push({ label: `${runnerPool} (no such pool)`, value: runnerPool });
+  const localeOptions = dataLocaleOptions();
   const valid = !nameError && !urlError && !counter.over;
 
   const submit = async () => {
@@ -167,6 +171,7 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
       variables: source?.variables ?? {},
       runnerPool,
       agentInstructions: agentInstructions.trim() ? agentInstructions : null,
+      dataLocale: dataLocale === "" ? null : dataLocale,
       notes: notes.trim() ? notes : null
     });
     props.onClose();
@@ -214,8 +219,11 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
           <Field label="Base URL" htmlFor="env-base-url" error={submitted ? urlError : undefined} hint="[Open] /path resolves against it">
             <Input id="env-base-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} className="font-mono" inputMode="url" />
           </Field>
+          <Field label="Data locale" hint="Language and region of generated values such as {person.name} and {location.address}">
+            <SimpleSelect ariaLabel="Data locale" value={dataLocale} onValueChange={setDataLocale} options={localeOptions} disabled={props.readOnly} />
+          </Field>
           {source ? (
-            <p className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-[13px] text-muted-foreground">
+            <p className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
               <span>
                 {Object.keys(source.variables).length} variable{Object.keys(source.variables).length === 1 ? "" : "s"} in this environment.
               </span>

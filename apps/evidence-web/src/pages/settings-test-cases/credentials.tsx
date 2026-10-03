@@ -93,7 +93,7 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
                   <TableCell className="pl-4">
                     <span className="font-mono text-sm font-semibold text-foreground">{credential.profile}</span>
                     <span className="mt-0.5 block">
-                      <Badge variant="outline" className="px-1.5 py-0 text-[11px]">
+                      <Badge variant="outline" className="px-1.5 py-0 text-xs">
                         {kindLabels[credential.kind]}
                       </Badge>
                     </span>

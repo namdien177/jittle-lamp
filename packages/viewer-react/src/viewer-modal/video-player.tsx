@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type * as React from "react";
 import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
+import { SkipGapsButton, useGapSkipper, useSkipGapsPreference } from "./gap-skip";
+
 import { seekVideo } from "../seek-video";
 
 export type VideoPlayerProps = {
@@ -10,6 +12,8 @@ export type VideoPlayerProps = {
   videoDurationHintMs?: number;
   onVideoTimeUpdate: () => void;
   onVideoError?: () => void;
+  // Video offsets (ms) of the steps, for Skip gaps; see viewer-core deriveGapMarkers.
+  gapMarkersMs?: readonly number[];
 };
 
 const playbackRates = [1, 1.5, 2, 0.5];
@@ -138,6 +142,8 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [rate, setRate] = useState(1);
+  const [skipGaps, setSkipGaps] = useSkipGapsPreference();
+  const gapSkipper = useGapSkipper(props.gapMarkersMs, skipGaps);
   const [controlsVisible, setControlsVisible] = useState(true);
 
   const clearHideTimer = useCallback((): void => {
@@ -169,7 +175,12 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
     };
     const handleTimeUpdate = (): void => {
       const t = player.currentTime;
-      if (typeof t === "number" && Number.isFinite(t)) setCurrentTime(t);
+      if (typeof t === "number" && Number.isFinite(t)) {
+        setCurrentTime(t);
+        gapSkipper.onTime(t, !player.paused && !player.seeking, (seconds) => {
+          void seekVideo(player, seconds).catch(() => latestCallbacksRef.current.onVideoError?.());
+        });
+      }
       latestCallbacksRef.current.onVideoTimeUpdate();
     };
     const handleDurationChange = (): void => {
@@ -252,8 +263,9 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
     const player = videoNodeRef.current;
     const next = Number(event.target.value);
     setCurrentTime(next);
+    gapSkipper.onManualSeek(next);
     if (player) void seekVideo(player, next).catch(() => latestCallbacksRef.current.onVideoError?.());
-  }, []);
+  }, [gapSkipper]);
 
   const handleVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
     const player = videoNodeRef.current;
@@ -392,6 +404,8 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
             style={rangeFill(volumePct)}
             aria-label="Volume"
           />
+
+          <SkipGapsButton enabled={skipGaps} onChange={setSkipGaps} hasMarkers={(props.gapMarkersMs?.length ?? 0) > 0} />
 
           <button type="button" className="jl-vm-vc-rate" aria-label="Playback speed" data-tip="Playback speed" data-tip-side="top" onClick={cycleRate}>
             {rate}×

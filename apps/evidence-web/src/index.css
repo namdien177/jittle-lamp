@@ -26,15 +26,20 @@
    brand colour lives in `primary` and the `brand-*` scale.
    ───────────────────────────────────────────────────────────────────────── */
 :root {
-  /* Type scale (overrides Tailwind's text-* sizes; the workspace is dense). */
-  --text-xs: 11.5px;
-  --text-sm: 13px;
-  --text-base: 14px;
-  --text-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 20px;
-  --text-3xl: 24px;
-  --text-4xl: 56px;
+  /* Type scale on a 16px base (1rem). Every size is a step on this scale, so the whole UI follows
+     the root font size. Body text is text-base; controls and secondary text use text-sm. */
+  --text-2xs: 0.6875rem; /* 11px: key caps, tiny counters */
+  --text-xs: 0.75rem; /* 12px: captions, meta */
+  --text-sm: 0.875rem; /* 14px: controls, tables, secondary text */
+  --text-base: 1rem; /* 16px: body */
+  --text-lg: 1.125rem; /* 18px */
+  --text-xl: 1.25rem; /* 20px: page titles */
+  --text-2xl: 1.5rem; /* 24px */
+  --text-3xl: 1.875rem; /* 30px */
+  --text-4xl: 3.5rem; /* 56px: landing hero */
+  /* Shared viewer and step list (@jittle-lamp/viewer-react, @jittle-lamp/ui) size their text in
+     px for the desktop app; on the web they scale with this factor (16px base / 14px). */
+  --jl-font-scale: 1.142857;
   --leading-body: 1.5;
   --leading-tight: 1.15;
 
@@ -216,6 +221,9 @@
   --color-brand-700: var(--brand-700);
   --color-brand-800: var(--brand-800);
   --color-brand-900: var(--brand-900);
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
 
   --font-sans: var(--font-ui);
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;

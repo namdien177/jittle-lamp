@@ -90,7 +90,7 @@ export function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLD
 }
 
 export function DialogTitle({ className, ...props }: React.ComponentProps<typeof BaseDialog.Title>): React.JSX.Element {
-  return <BaseDialog.Title data-slot="dialog-title" className={cn("text-[15px] font-semibold leading-tight", className)} {...props} />;
+  return <BaseDialog.Title data-slot="dialog-title" className={cn("text-lg font-semibold leading-tight", className)} {...props} />;
 }
 
 export function DialogDescription({ className, ...props }: React.ComponentProps<typeof BaseDialog.Description>): React.JSX.Element {

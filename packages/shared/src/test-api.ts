@@ -1,6 +1,9 @@
 import { z } from "zod/v4";
 
+import { isFakeDataLocale } from "./fake-data";
+import { claimedExplorationSchema, importItemExplorationSchema } from "./test-exploration";
 import {
+  linkedCaseSchema,
   lintFindingSchema,
   macroParamSchema,
   paramDeclarationSchema,
@@ -196,7 +199,8 @@ export const similarTestCasesResponseSchema = z.object({ items: z.array(similarT
 // Import, review queue
 // ---------------------------------------------------------------------------------------------
 
-export const importSourceKindSchema = z.enum(["transcript-doc", "gherkin", "csv", "xlsx", "jira", "ai-generation"]);
+// `instructions`: plain-language instructions, explored on a browser and written as transcripts.
+export const importSourceKindSchema = z.enum(["transcript-doc", "gherkin", "csv", "xlsx", "jira", "ai-generation", "instructions"]);
 export const importDecisionSchema = z.enum(["create", "update", "skip", "merge"]);
 
 export const importMappingSchema = z.object({
@@ -217,7 +221,10 @@ export const createImportRequestSchema = z.object({
   jql: z.string().max(2000).optional(),
   jiraCredentialId: id.optional(),
   defaultTags: z.array(z.string().min(1)).default([]),
-  environmentId: id.nullable().optional()
+  environmentId: id.nullable().optional(),
+  // Try each item on a browser in the environment and rewrite it from what the agent did
+  // (always for `instructions`; csv and xlsx when asked). Needs an environment.
+  explore: z.boolean().default(false)
 });
 
 export const importItemSchema = z.object({
@@ -232,7 +239,9 @@ export const importItemSchema = z.object({
   resultTestCaseId: id.nullable(),
   error: z.string().nullable(),
   // Rows whose steps need the model ("normalising") stay pending until it returns.
-  state: z.enum(["pending", "ready", "committed", "skipped", "error"])
+  state: z.enum(["pending", "ready", "committed", "skipped", "error"]),
+  // Set when the item is explored on a browser before review.
+  exploration: importItemExplorationSchema.nullable().default(null)
 });
 
 export const importBatchSchema = z.object({
@@ -523,6 +532,8 @@ export const claimedRunSchema = z.object({
   transcriptVersion: z.number().int().positive(),
   steps: z.array(transcriptStepSchema),
   macros: z.array(z.object({ name: z.string(), version: z.number().int().positive(), params: z.array(macroParamSchema), transcript: z.string() })),
+  // Cases the transcript runs inline with [Use: KEY], transitively.
+  cases: z.array(linkedCaseSchema).default([]),
   environmentId: id.nullable(),
   params: z.record(z.string(), z.string()),
   cacheMode: cacheModeSchema,
@@ -531,7 +542,8 @@ export const claimedRunSchema = z.object({
   // Per-run token for GET /test-runs/:id/config, progress, cache and evidence upload; valid for the lease.
   runToken: z.string().min(1)
 });
-export const claimRunResponseSchema = z.object({ run: claimedRunSchema.nullable() });
+// A worker gets a run or, when its pool has no run queued, an exploration (import).
+export const claimRunResponseSchema = z.object({ run: claimedRunSchema.nullable(), exploration: claimedExplorationSchema.nullable().default(null) });
 
 // The resolved environment and decrypted credentials for one run (§9.3). Matches the runner's
 // OrgRunConfig; returned only to a run token, never to a browser.
@@ -540,7 +552,9 @@ export const testRunConfigSchema = z.object({
     name: z.string().min(1),
     baseUrl: z.string(),
     variables: z.record(z.string(), z.string()),
-    agentInstructions: z.string().nullable()
+    agentInstructions: z.string().nullable(),
+    // Locale of generated values ({person.name}); null means en.
+    dataLocale: z.string().nullable().default(null)
   }),
   credentials: z.array(
     z.object({
@@ -567,6 +581,7 @@ export const testEnvironmentSchema = z.object({
   variables: z.record(z.string(), z.string()),
   runnerPool: z.string().min(1),
   agentInstructions: z.string().max(16_384).nullable(),
+  dataLocale: z.string().nullable().default(null),
   notes: z.string().nullable(),
   usedByCases: z.number().int().nonnegative(),
   createdAt: epochMs,
@@ -578,6 +593,11 @@ export const upsertTestEnvironmentRequestSchema = z.object({
   variables: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string()).default({}),
   runnerPool: z.string().min(1).default("cloud"),
   agentInstructions: z.string().max(16_384).nullable().optional(),
+  dataLocale: z
+    .string()
+    .refine(isFakeDataLocale, "Unknown data locale")
+    .nullable()
+    .optional(),
   notes: z.string().max(2000).nullable().optional()
 });
 

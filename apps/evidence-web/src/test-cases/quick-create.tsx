@@ -136,7 +136,7 @@ export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids:
                   type="button"
                   aria-expanded={showMore}
                   onClick={() => setShowMore((value) => !value)}
-                  className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] font-medium text-foreground transition-colors hover:bg-accent/60"
+                  className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent/60"
                 >
                   <ChevronRight aria-hidden className={cn("size-4 text-muted-foreground transition-transform duration-150", showMore && "rotate-90")} />
                   Links, params and dataset
@@ -159,7 +159,7 @@ export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids:
             <>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium text-foreground">{doc.title}</p>
+                  <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
                   <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                     <span>{environment ? `Runs on ${environment.name}` : "No default environment"}</span>
                     {doc.metadata.tags.slice(0, 4).map((tag) => (
@@ -186,7 +186,7 @@ export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids:
               </ul>
 
               {split ? (
-                <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-[13px]">
+                <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm">
                   <span className="mr-auto">The pasted document holds {split.cases} cases.</span>
                   <Button size="sm" variant="ghost" onClick={() => setSplit(null)} disabled={busy}>
                     Dismiss
@@ -205,6 +205,8 @@ export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids:
                 autoFocus
                 macros={catalog.macros}
                 macrosLoaded={catalog.macrosLoaded}
+                cases={catalog.cases}
+                casesLoaded={catalog.casesLoaded}
                 credentials={catalog.credentials}
                 environmentVariables={environment ? Object.keys(environment.variables) : []}
                 environmentName={environment?.name ?? null}
@@ -268,7 +270,7 @@ function Stepper(props: { current: Step; onSelect: (step: Step) => void }): Reac
             >
               <span
                 className={cn(
-                  "grid size-5 place-items-center rounded-full border text-[11px] tabular-nums",
+                  "grid size-5 place-items-center rounded-full border text-xs tabular-nums",
                   state === "current" && "border-primary bg-primary text-primary-foreground",
                   state === "done" && "border-primary/40 bg-primary/10 text-brand-300",
                   state === "upcoming" && "border-border text-muted-foreground"

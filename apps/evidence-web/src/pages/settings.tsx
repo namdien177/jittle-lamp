@@ -280,7 +280,7 @@ function SettingCard(props: {
 			<div className="border-b border-border px-4 py-3">
 				<h2 className="text-sm font-semibold">{props.title}</h2>
 				{props.description ? (
-					<p className="text-[13px] text-muted-foreground">{props.description}</p>
+					<p className="text-sm text-muted-foreground">{props.description}</p>
 				) : null}
 			</div>
 			<CardContent className="p-4">{props.children}</CardContent>
@@ -308,7 +308,8 @@ const accountSettingsGroups: SettingsNavGroup[] = [
 
 function TokenWarning(props: { children: React.ReactNode }): React.JSX.Element {
 	return (
-		<div className="flex gap-3 rounded-md border border-warning/35 bg-warning/10 p-3 text-base text-muted-foreground">
+		<div className="flex gap-3 rounded-md border border-warning/35 bg-warning/10 p-3 text-sm text-muted-foreground">
+			{/* One 20px line of text-sm: the 16px icon sits 2px down to share its centre. */}
 			<AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
 			<p>{props.children}</p>
 		</div>

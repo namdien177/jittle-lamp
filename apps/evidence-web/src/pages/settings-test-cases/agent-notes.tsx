@@ -81,7 +81,7 @@ export function SettingsTestAgentNotesPage(): React.JSX.Element {
               onChange={(event) => setText(event.target.value)}
               rows={14}
               spellCheck
-              className="font-mono text-[13px] leading-relaxed"
+              className="font-mono text-sm leading-relaxed"
               placeholder={"Records created by tests start with E2E-.\nDismiss the cookie banner before anything else.\nNever delete or archive existing records."}
               aria-describedby="agent-notes-meta"
             />

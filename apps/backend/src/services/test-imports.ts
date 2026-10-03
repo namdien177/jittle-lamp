@@ -2,11 +2,14 @@ import {
 	type CreateImportRequest,
 	type ImportBatch,
 	type ImportItem,
+	type ImportItemExploration,
 	lintFindingSchema,
 	parseTranscriptDocument,
 	type patchImportRequestSchema,
+	serializeStepLine,
 	serializeTestCase,
 	similarTestCaseSchema,
+	splitInstructions,
 } from "@jittle-lamp/shared";
 import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod/v4";
@@ -39,6 +42,7 @@ import {
 	withMetadataKey,
 } from "./test-cases";
 import type { TestSecrets } from "./test-config";
+import { explorationsForItems, queueExploration } from "./test-explorations";
 import {
 	buildCaseDocument,
 	extractTranscript,
@@ -105,6 +109,42 @@ const splitTranscriptDocument = (content: string): ImportCandidate[] => {
 	}));
 };
 
+// "General instructions": the instructions as Notes until the exploration writes the steps.
+const instructionCandidates = (content: string): ImportCandidate[] =>
+	splitInstructions(content).map((item, index) => ({
+		title: item.title || `Instructions ${index + 1}`,
+		externalId: null,
+		transcript: `${[
+			`# ${item.title || `Instructions ${index + 1}`}`,
+			"",
+			...item.instructions
+				.split("\n")
+				.map((line) => line.trim())
+				.filter((line) => line.length > 0)
+				.map((line) =>
+					serializeStepLine({
+						tag: "Note",
+						args: [],
+						text: line,
+						disabled: false,
+					}),
+				),
+		].join("\n")}\n`,
+		source: { kind: "instructions", instructions: item.instructions },
+	}));
+
+// What an exploration follows for an item: the instructions as written, or a spreadsheet row's
+// transcript without its heading and metadata.
+const explorationInstructions = (candidate: ImportCandidate): string => {
+	const instructions = candidate.source.instructions;
+	if (typeof instructions === "string") return instructions;
+	return candidate.transcript
+		.split("\n")
+		.filter((line) => !/^#\s|^[A-Za-z-]+:\s/.test(line.trim()))
+		.join("\n")
+		.trim();
+};
+
 const findExisting = async (
 	db: BackendDb,
 	orgId: string,
@@ -141,7 +181,7 @@ type AnalysedItem = {
 	existingId: string | null;
 };
 
-const analyseCandidate = async (
+export const analyseCandidate = async (
 	db: BackendDb,
 	orgId: string,
 	candidate: { title: string; transcript: string; externalId: string | null },
@@ -226,6 +266,8 @@ const addDefaultTags = (transcript: string, tags: readonly string[]) => {
 // Jira imports generate one transcript per issue with a model call inside the request
 // (design.md §7 plans a background job; until then the request makes at most this many calls).
 export const JIRA_IMPORT_MAX_ISSUES = 20;
+// Each explored item takes a runner for up to ten minutes.
+export const EXPLORE_MAX_ITEMS = 50;
 
 const jiraCandidates = async (
 	db: BackendDb,
@@ -416,6 +458,9 @@ export const createImportBatch = async (
 			case "jira":
 				candidates = await jiraCandidates(db, secrets, input);
 				break;
+			case "instructions":
+				candidates = instructionCandidates(content);
+				break;
 		}
 	} catch (error) {
 		if (error instanceof HttpError) throw error;
@@ -447,6 +492,25 @@ export const createImportBatch = async (
 	const environmentId = await resolveEnvironmentId(db, input.orgId, {
 		environmentId: request.environmentId,
 	});
+	// Instructions are always tried on a browser; spreadsheets when asked.
+	const explore =
+		request.sourceKind === "instructions" ||
+		(request.explore &&
+			(request.sourceKind === "csv" || request.sourceKind === "xlsx"));
+	if (explore && !environmentId) {
+		throw new HttpError(
+			422,
+			"EXPLORE_NEEDS_ENVIRONMENT",
+			"Choose the environment the instructions are tried in",
+		);
+	}
+	if (explore && candidates.length > EXPLORE_MAX_ITEMS) {
+		throw new HttpError(
+			413,
+			"IMPORT_TOO_LARGE",
+			`An explored import holds at most ${EXPLORE_MAX_ITEMS} cases`,
+		);
+	}
 	const now = Date.now();
 	const [batch] = await db
 		.insert(testImportBatches)
@@ -459,6 +523,7 @@ export const createImportBatch = async (
 			optionsJson: JSON.stringify({
 				defaultTags: request.defaultTags,
 				environmentId,
+				explore,
 				...(request.jql ? { jql: request.jql } : {}),
 			}),
 			status: "parsing",
@@ -482,33 +547,57 @@ export const createImportBatch = async (
 		);
 		const failed = candidate.error ?? analysed.error;
 		if (failed) errors += 1;
-		await db.insert(testImportItems).values({
-			batchId: batch.id,
-			ordinal,
-			externalId: analysed.externalId,
-			title: analysed.title,
-			transcript: analysed.transcript,
-			sourceJson: JSON.stringify(candidate.source),
-			parsedJson: analysed.parsedJson,
-			lintJson: JSON.stringify(analysed.lint),
-			similarJson: JSON.stringify(analysed.similar),
-			decision: failed ? "skip" : analysed.decision,
-			state: failed ? "error" : analysed.state,
-			resultTestCaseId: analysed.existingId,
-			error: failed ?? null,
-			createdAt: now,
-			updatedAt: now,
-		});
+		const explored = explore && !candidate.error && environmentId !== null;
+		const [item] = await db
+			.insert(testImportItems)
+			.values({
+				batchId: batch.id,
+				ordinal,
+				externalId: analysed.externalId,
+				title: analysed.title,
+				transcript: analysed.transcript,
+				sourceJson: JSON.stringify(candidate.source),
+				parsedJson: analysed.parsedJson,
+				lintJson: JSON.stringify(analysed.lint),
+				similarJson: JSON.stringify(analysed.similar),
+				decision: explored ? "create" : failed ? "skip" : analysed.decision,
+				// An explored item waits for its exploration, whatever its first draft parsed to.
+				state: explored ? "pending" : failed ? "error" : analysed.state,
+				resultTestCaseId: analysed.existingId,
+				error: explored ? null : (failed ?? null),
+				createdAt: now,
+				updatedAt: now,
+			})
+			.returning({ id: testImportItems.id });
+		if (explored && item && environmentId) {
+			await queueExploration(db, {
+				orgId: input.orgId,
+				batchId: batch.id,
+				itemId: item.id,
+				environmentId,
+				title: analysed.title || candidate.title,
+				instructions: explorationInstructions(candidate),
+				now,
+			});
+		}
 	}
+	// An explored batch stays `parsing` until its last exploration reports.
 	const [ready] = await db
 		.update(testImportBatches)
-		.set({ status: "ready", errors, updatedAt: Date.now() })
+		.set({
+			status: explore ? "parsing" : "ready",
+			errors: explore ? 0 : errors,
+			updatedAt: Date.now(),
+		})
 		.where(eq(testImportBatches.id, batch.id))
 		.returning();
 	return ready ?? batch;
 };
 
-const toImportItem = (row: ImportItemRow): ImportItem => ({
+const toImportItem = (
+	row: ImportItemRow,
+	exploration: ImportItemExploration | null,
+): ImportItem => ({
 	id: row.id,
 	ordinal: row.ordinal,
 	externalId: row.externalId,
@@ -520,6 +609,7 @@ const toImportItem = (row: ImportItemRow): ImportItem => ({
 	resultTestCaseId: row.resultTestCaseId,
 	error: row.error,
 	state: row.state,
+	exploration,
 });
 
 export const getImportBatchRow = async (
@@ -546,6 +636,10 @@ export const toImportBatch = async (
 		where: eq(testImportItems.batchId, batch.id),
 		orderBy: asc(testImportItems.ordinal),
 	});
+	const explorations = await explorationsForItems(
+		db,
+		items.map((item) => item.id),
+	);
 	return {
 		id: batch.id,
 		sourceKind: batch.sourceKind,
@@ -559,7 +653,9 @@ export const toImportBatch = async (
 		},
 		createdBy: batch.createdBy,
 		createdAt: batch.createdAt,
-		items: items.map(toImportItem),
+		items: items.map((item) =>
+			toImportItem(item, explorations.get(item.id) ?? null),
+		),
 	};
 };
 
@@ -637,6 +733,13 @@ export const patchImportBatch = async (
 	if (!request.commit) {
 		const refreshed = await getImportBatchRow(db, input.orgId, batch.id);
 		return { batch: refreshed, committed: false };
+	}
+	if (batch.status === "parsing") {
+		throw new HttpError(
+			409,
+			"IMPORT_EXPLORING",
+			"Some items are still being tried on a browser; commit when they are ready",
+		);
 	}
 
 	await db

@@ -81,7 +81,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
   return (
     <div className="jl-tc-scope grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
       <header className="flex flex-col gap-2 border-b border-border px-5 py-3">
-        <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <Link to={caseLink} className="jl-tc-press inline-flex items-center gap-1 rounded hover:text-foreground">
             <ArrowLeft className="size-3.5" aria-hidden /> {run.testCaseKey}
           </Link>
@@ -89,7 +89,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
           <span className="truncate text-foreground">{run.testCaseTitle}</span>
           <span>· v{run.transcriptVersion}</span>
           <span className="ml-auto flex items-center gap-2">
-            {props.refreshing && active ? <span className="text-[11.5px]">updating…</span> : null}
+            {props.refreshing && active ? <span className="text-xs">updating…</span> : null}
             {mayCancel ? (
               <Button size="xs" variant="destructive" className="jl-tc-press" onClick={requestCancel} disabled={cancel.isPending}>
                 <Ban aria-hidden /> {cancel.isPending ? "Cancelling…" : "Cancel run"}
@@ -98,11 +98,11 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-[18px] font-semibold tracking-[-0.01em]">Run {formatRelative(run.queuedAt)}</h1>
+          <h1 className="text-xl font-semibold tracking-[-0.01em]">Run {formatRelative(run.queuedAt)}</h1>
           <RunStatusBadge run={run} />
-          {run.status === "completed" || run.status === "failed" || run.status === "cancelled" ? <Badge variant="muted" className="px-1.5 py-0 text-[11px]">{run.status}</Badge> : null}
-          {run.flaky ? <Badge variant="warning" className="px-1.5 py-0 text-[11px]">flaky</Badge> : null}
-          <span className="text-[12.5px] text-muted-foreground">
+          {run.status === "completed" || run.status === "failed" || run.status === "cancelled" ? <Badge variant="muted" className="px-1.5 py-0 text-xs">{run.status}</Badge> : null}
+          {run.flaky ? <Badge variant="warning" className="px-1.5 py-0 text-xs">flaky</Badge> : null}
+          <span className="text-sm text-muted-foreground">
             {run.trigger} · {run.createdByName ?? (run.createdBy !== null && currentUserIds.includes(run.createdBy) ? "you" : "unknown")} · {run.environmentName ?? "no environment"} · pool {run.runnerPool} · cache {run.cacheMode}
           </span>
         </div>
@@ -126,20 +126,20 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
         <aside className="jl-scroll flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-border px-4 py-3" aria-label="Run steps">
           {run.outcome === "blocked" || run.blockedReason ? (
             <section role="alert" className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2">
-              <p className="font-mono text-[12.5px] font-semibold text-foreground">{run.blockedReason ?? "BLOCKED"}</p>
-              <p className="mt-1 text-[13px] leading-relaxed text-foreground/85">{blockedExplanation ?? "The run could not judge the app."}</p>
-              {run.error ? <p className="mt-1 font-mono text-[12px] text-muted-foreground">{run.error}</p> : null}
+              <p className="font-mono text-sm font-semibold text-foreground">{run.blockedReason ?? "BLOCKED"}</p>
+              <p className="mt-1 text-sm leading-relaxed text-foreground/85">{blockedExplanation ?? "The run could not judge the app."}</p>
+              {run.error ? <p className="mt-1 font-mono text-xs text-muted-foreground">{run.error}</p> : null}
             </section>
           ) : run.error ? (
-            <section role="alert" className="rounded-md border border-destructive/45 bg-destructive/10 px-3 py-2 font-mono text-[12.5px]">
+            <section role="alert" className="rounded-md border border-destructive/45 bg-destructive/10 px-3 py-2 font-mono text-sm">
               {run.error}
             </section>
           ) : null}
 
           {active ? (
-            <section className="rounded-md border border-border bg-card/40 px-3 py-2 text-[13px]" aria-live="polite">
+            <section className="rounded-md border border-border bg-card/40 px-3 py-2 text-sm" aria-live="polite">
               {run.status === "queued" ? (
-                <p className="font-mono text-[12.5px]">{queuePill ?? "queued"}</p>
+                <p className="font-mono text-sm">{queuePill ?? "queued"}</p>
               ) : (
                 <p>
                   <span className="jl-tc-pulse mr-1.5 inline-block size-2 rounded-full bg-primary align-middle" aria-hidden />
@@ -147,7 +147,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
                 </p>
               )}
               {run.subscribers.length > 1 ? (
-                <p className="mt-1 flex items-center gap-1 text-[12.5px] text-muted-foreground">
+                <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                   <Users className="size-3.5" aria-hidden /> attached: {run.subscribers.map((subscriber) => subscriber.name ?? subscriber.userId).join(", ")}
                 </p>
               ) : null}
@@ -169,7 +169,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
             </section>
           ) : null}
 
-          <div className="flex items-center justify-between text-[12px] text-muted-foreground">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
               {progress.done} of {progress.total} steps
             </span>
@@ -199,7 +199,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
           ) : active ? (
             <LivePanel run={run} />
           ) : (
-            <div className="grid flex-1 place-items-center p-8 text-center text-[13.5px] text-muted-foreground">
+            <div className="grid flex-1 place-items-center p-8 text-center text-base text-muted-foreground">
               No evidence was uploaded for this run{run.status === "cancelled" ? " (cancelled)" : ""}.
             </div>
           )}
@@ -211,7 +211,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
 
 function ExpectedObserved(props: { expected: string; observed: string | null; error: string | null; screenshotUrl: string | null }): React.JSX.Element {
   return (
-    <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 text-[12.5px]">
+    <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 text-sm">
       <span className="text-muted-foreground">Expected</span>
       <span className="text-foreground">{props.expected}</span>
       <span className="text-muted-foreground">Observed</span>
@@ -224,7 +224,7 @@ function ExpectedObserved(props: { expected: string; observed: string | null; er
 function SelectedStep(props: { step: TestRunStep }): React.JSX.Element {
   const { step } = props;
   return (
-    <section className="rounded-md border border-border bg-card/40 px-3 py-2 text-[12.5px]" aria-label={`Step ${step.ordinal} details`}>
+    <section className="rounded-md border border-border bg-card/40 px-3 py-2 text-sm" aria-label={`Step ${step.ordinal} details`}>
       <p className="font-semibold text-foreground">
         {step.ordinal}. [{step.type}] {step.label}
       </p>
@@ -259,9 +259,9 @@ function LivePanel(props: { run: TestRunDetail }): React.JSX.Element {
       {shot ? (
         <img src={shot.url} alt={`Screen after: ${shot.label}`} className="max-h-[70vh] max-w-full rounded-md border border-white/10 object-contain shadow-2xl" />
       ) : (
-        <p className="text-[13.5px] text-white/60">{props.run.status === "queued" ? formatQueuePill(props.run) ?? "Waiting for a runner…" : "Waiting for the first screenshot…"}</p>
+        <p className="text-base text-white/60">{props.run.status === "queued" ? formatQueuePill(props.run) ?? "Waiting for a runner…" : "Waiting for the first screenshot…"}</p>
       )}
-      <p className="text-[13px] text-white/70" aria-live="polite">
+      <p className="text-sm text-white/70" aria-live="polite">
         {current ? `Now: ${current.label}` : shot ? shot.label : ""}
       </p>
     </div>

@@ -16,7 +16,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "bun build --target node --outdir dist --entry-naming [name].js --external e2e --external @e2e-dev/web --external playwright --external playwright-core --external ai-sdk-provider-claude-code src/cli.ts src/daemon.ts && bun run scripts/add-shebang.ts",
+    "build": "bun build --target node --outdir dist --entry-naming [name].js --external e2e --external @e2e-dev/web --external playwright --external playwright-core --external ai-sdk-provider-claude-code --external @faker-js/faker src/cli.ts src/daemon.ts && bun run scripts/add-shebang.ts",
     "jl-e2e": "bun run src/cli.ts",
     "typecheck": "bun x tsc --noEmit -p ../../tsconfig.typecheck.json"
   },
@@ -28,6 +28,7 @@
     "@ai-sdk/provider": "4.0.21",
     "@ai-sdk/xai": "5.0.14",
     "@e2e-dev/web": "0.11.2",
+    "@faker-js/faker": "10.6.0",
     "@jittle-lamp/shared": "workspace:*",
     "@openrouter/ai-sdk-provider": "3.1.0",
     "ai": "7.0.127",

@@ -7,7 +7,9 @@ import { zipSync } from "fflate";
 import {
   macroDefinitionSchema,
   modelProviderEnvNames,
+  type ClaimedExploration,
   type ClaimedRun,
+  type ExplorationResultRequest,
   type FinalizeTestRunRequest,
   type RunReport,
   type RunStepResult,
@@ -23,6 +25,7 @@ import { buildRunReport } from "../report/build";
 import { runTranscript, type RunTranscriptResult } from "../run";
 import { FRAMES_HIDDEN_MARKER } from "../runtime/live";
 import type { StepLogEvent } from "../runtime/step-log";
+import { runExploration } from "../explore";
 import { BackendClient, BackendError } from "./api";
 
 // jl-e2e-runner: registers with a pool, heartbeats, claims runs, executes them with the
@@ -114,7 +117,8 @@ function toOrgConfig(config: Awaited<ReturnType<BackendClient["config"]>>): OrgR
       name: config.environment.name,
       baseUrl: config.environment.baseUrl,
       variables: config.environment.variables,
-      agentInstructions: instructions.length > 0 ? instructions : null
+      agentInstructions: instructions.length > 0 ? instructions : null,
+      dataLocale: config.environment.dataLocale
     },
     credentials: config.credentials,
     model: config.model
@@ -170,6 +174,7 @@ function blockedReport(claimed: ClaimedRun, message: string): RunReport {
     transcript: claimed.transcript,
     config: resolveRunConfig({ env: {} }),
     macros: claimed.macros.map((macro) => macroDefinitionSchema.parse({ ...macro, status: "active" })),
+    cases: claimed.cases,
     previousSteps: claimed.steps
   });
   const now = new Date().toISOString();
@@ -331,6 +336,7 @@ export async function executeClaimedRun(input: {
       org: toOrgConfig(config),
       params: claimed.params,
       macros: claimed.macros.map((macro) => macroDefinitionSchema.parse({ ...macro, status: "active" })),
+      cases: claimed.cases,
       previousSteps: claimed.steps,
       cacheMode: claimed.cacheMode,
       runId: claimed.runId,
@@ -411,6 +417,50 @@ export async function executeClaimedRun(input: {
   }
 }
 
+// Explores one import item and posts the record; the backend writes the transcript.
+// Exported for tests.
+export async function executeClaimedExploration(input: {
+  client: BackendClient;
+  workerToken: string;
+  claimed: ClaimedExploration;
+  workDir: string;
+  headed: boolean;
+  hostEnv: Record<string, string | undefined>;
+  log: (line: string) => void;
+}): Promise<ExplorationResultRequest> {
+  const { client, claimed, log } = input;
+  let result: ExplorationResultRequest;
+  try {
+    const config = await withRetry("exploration config", () => client.explorationConfig(input.workerToken, claimed.explorationId), log);
+    result = await runExploration({
+      explorationId: claimed.explorationId,
+      goal: claimed.goal,
+      maxSteps: claimed.maxSteps,
+      timeoutMs: claimed.timeoutMs,
+      org: {
+        environment: config.environment,
+        credentials: config.credentials,
+        model: config.model
+      },
+      cwd: input.workDir,
+      env: input.hostEnv,
+      headed: input.headed,
+      log: (line) => log(`[${claimed.explorationId}] ${line}`)
+    });
+  } catch (error) {
+    if (error instanceof BackendError && error.status === 409) throw error;
+    result = { status: "failed", explore: null, error: error instanceof Error ? error.message : String(error) };
+  }
+  try {
+    await withRetry("exploration result", () => client.explorationResult(input.workerToken, claimed.explorationId, result), log);
+  } catch (error) {
+    // 409: the lease moved on (expired and re-queued); the other attempt reports.
+    if (!(error instanceof BackendError && error.status === 409)) throw error;
+  }
+  log(`[${claimed.explorationId}] exploration ${result.status}${result.explore ? ` (${result.explore.steps.length} steps, ${result.explore.ended})` : result.error ? `: ${result.error}` : ""}`);
+  return result;
+}
+
 // A second finalize after a lost response is answered 409 by the backend: already done.
 async function finalizeOnce(client: BackendClient, claimed: ClaimedRun, body: FinalizeTestRunRequest): Promise<void> {
   try {
@@ -453,8 +503,11 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         continue;
       }
       let claimed: ClaimedRun | null = null;
+      let exploration: ClaimedExploration | null = null;
       try {
-        claimed = await client.claim(state.workerToken);
+        const work = await client.claimWork(state.workerToken);
+        claimed = work.run;
+        exploration = work.exploration;
       } catch (error) {
         if (error instanceof BackendError && (error.status === 401 || error.status === 403)) {
           // The worker was removed from its pool: stop claiming, let running cases finish.
@@ -464,6 +517,30 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
           continue;
         }
         log(`claim failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!claimed && exploration) {
+        const item = exploration;
+        log(`claimed exploration ${item.explorationId}`);
+        const workDir = join(options.workDir, "explorations");
+        mkdirSync(workDir, { recursive: true });
+        const task = executeClaimedExploration({
+          client,
+          workerToken: state.workerToken,
+          claimed: item,
+          workDir,
+          headed: options.headed ?? false,
+          hostEnv: hostEnvForRuns(options.hostEnv ?? process.env),
+          log
+        })
+          .then(() => undefined)
+          .catch((error: unknown) => log(`exploration ${item.explorationId} crashed: ${error instanceof Error ? error.message : String(error)}`))
+          .finally(() => active.delete(item.explorationId));
+        active.set(item.explorationId, task);
+        if (options.once) {
+          await task;
+          break;
+        }
+        continue;
       }
       if (!claimed) {
         if (options.once && active.size === 0) break;

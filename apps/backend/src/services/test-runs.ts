@@ -3,8 +3,10 @@ import {
 	type ClaimedRun,
 	type CreateTestRunRequest,
 	type CreateTestRunResponse,
+	type LinkedCase,
 	type MacroParam,
 	macroParamSchema,
+	paramDeclarationSchema,
 	runnerInfoSchema,
 	type TestRunBatch,
 	type TestRunDetail,
@@ -13,6 +15,7 @@ import {
 	type TestRunStep,
 	type TestRunSummary,
 	transcriptStepSchema,
+	useCaseKeyArg,
 } from "@jittle-lamp/shared";
 import {
 	and,
@@ -1837,6 +1840,58 @@ export const loadRunMacros = async (
 	}));
 };
 
+const usedCaseKeys = (steps: z.infer<typeof transcriptStepSchema>[]) =>
+	steps.flatMap((step) => {
+		if (step.type !== "use" || step.disabled) return [];
+		const key = useCaseKeyArg(step.args);
+		return key === null ? [] : [key];
+	});
+
+// Cases a run's steps name with [Use: KEY], and the cases those name, at their current
+// version. Nesting stops where expansion does (four levels); a missing key is left for the
+// runner to report.
+export const loadLinkedCases = async (
+	db: BackendDb,
+	orgId: string,
+	steps: z.infer<typeof transcriptStepSchema>[],
+): Promise<LinkedCase[]> => {
+	const found = new Map<string, LinkedCase>();
+	let pending = usedCaseKeys(steps);
+	for (let depth = 0; depth < 4 && pending.length > 0; depth += 1) {
+		const keys = [
+			...new Set(
+				pending
+					.filter((key) => !found.has(key.toLowerCase()))
+					.flatMap((key) => [key, key.toUpperCase()]),
+			),
+		];
+		if (keys.length === 0) break;
+		const rows = await db.query.testCases.findMany({
+			where: and(
+				eq(testCases.orgId, orgId),
+				isNull(testCases.deletedAt),
+				inArray(testCases.key, keys),
+			),
+		});
+		pending = [];
+		for (const row of rows) {
+			found.set(row.key.toLowerCase(), {
+				key: row.key,
+				title: row.title,
+				version: row.transcriptVersion,
+				params: parseJsonColumn(
+					row.paramsSchemaJson,
+					z.array(paramDeclarationSchema),
+					[],
+				),
+				transcript: row.transcript,
+			});
+			pending.push(...usedCaseKeys(caseSteps(row)));
+		}
+	}
+	return [...found.values()];
+};
+
 export const buildClaimedRun = async (
 	db: BackendDb,
 	run: TestRunRow,
@@ -1858,6 +1913,7 @@ export const buildClaimedRun = async (
 		transcriptVersion: run.transcriptVersion,
 		steps,
 		macros: await loadRunMacros(db, run.orgId),
+		cases: await loadLinkedCases(db, run.orgId, steps),
 		environmentId: run.environmentId,
 		params: parseJsonColumn(
 			run.paramsJson,

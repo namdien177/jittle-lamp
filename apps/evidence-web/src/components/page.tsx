@@ -25,7 +25,7 @@ export function PageHeader(props: {
 }): React.JSX.Element | null {
   const slots = React.useContext(PageHeaderSlotContext);
   // Still the page's h1, just sized to sit in the header bar.
-  const title = <h1 className="truncate text-[13px] font-medium leading-normal tracking-normal text-foreground">{props.title}</h1>;
+  const title = <h1 className="truncate text-sm font-medium leading-normal tracking-normal text-foreground">{props.title}</h1>;
   const actions = props.actions ? <div className="flex items-center gap-1.5">{props.actions}</div> : null;
 
   // Outside the workspace shell (public pages) the header renders inline.
@@ -67,7 +67,7 @@ export function PageTabs(props: { items: TabItem[]; className?: string }): React
           end={item.end ?? false}
           className={({ isActive }) =>
             cn(
-              "-mb-px border-b-2 py-2 text-[13px] font-medium transition-colors",
+              "-mb-px border-b-2 py-2 text-sm font-medium transition-colors",
               isActive ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             )
           }
@@ -106,7 +106,7 @@ export function SettingsNav(props: { label: string; groups: readonly SettingsNav
                 end={item.end ?? false}
                 className={({ isActive }) =>
                   cn(
-                    "flex h-7 items-center gap-2 whitespace-nowrap rounded-md px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                    "flex h-7 items-center gap-2 whitespace-nowrap rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
                     isActive && "bg-accent text-foreground"
                   )
                 }

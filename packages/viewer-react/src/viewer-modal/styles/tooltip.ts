@@ -10,7 +10,7 @@ export const tooltipStyles = `
   background: var(--jl-vm-bg, #0f1012);
   color: var(--jl-vm-text, #eeeff1);
   box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.3);
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-weight: 500;
   line-height: 1.35;
   overflow-wrap: anywhere;

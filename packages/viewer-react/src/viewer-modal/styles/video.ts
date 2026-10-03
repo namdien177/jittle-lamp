@@ -201,7 +201,7 @@ export const videoStyles = `
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-weight: 700;
 }
 
@@ -216,7 +216,7 @@ export const videoStyles = `
   width: 42px;
   color: rgba(255, 255, 255, 0.78);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -303,7 +303,7 @@ export const videoStyles = `
     grid-row: 2;
     width: auto;
     min-width: 34px;
-    font-size: 11px;
+    font-size:calc(11px * var(--jl-font-scale, 1));
     text-align: left;
   }
 
@@ -342,7 +342,7 @@ export const videoStyles = `
     min-width: 44px;
     height: 44px;
     padding: 0 6px;
-    font-size: 11px;
+    font-size:calc(11px * var(--jl-font-scale, 1));
   }
 
   .jl-vm-video-inner button.jl-vm-vc-fullscreen {
@@ -391,5 +391,9 @@ export const videoStyles = `
     bottom: max(8px, env(safe-area-inset-bottom));
     left: max(8px, env(safe-area-inset-left));
   }
+}
+
+.jl-vm-video-inner button.jl-vm-vc-skip[data-active="true"] {
+  color: var(--jl-vm-accent, #22c55e);
 }
 `;

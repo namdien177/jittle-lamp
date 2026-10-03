@@ -498,8 +498,13 @@ export const createTestCaseRoutes = (
 				const who = await actor(ctx, true);
 				await requireTestPermission(db, who, "test_case.create");
 				const body = parseInput(createImportRequestSchema, ctx.body);
-				// A Jira import decrypts the organisation's Jira credential and BYOK model key.
-				if (body.sourceKind === "jira") {
+				// A Jira import decrypts the organisation's Jira credential and BYOK model key; an
+				// explored import the environment's login profiles and the model key.
+				if (
+					body.sourceKind === "jira" ||
+					body.sourceKind === "instructions" ||
+					body.explore
+				) {
 					await requireTestPermission(db, who, "test_config.use");
 				}
 				const batch = await createImportBatch(

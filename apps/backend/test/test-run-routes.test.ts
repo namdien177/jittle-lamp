@@ -133,6 +133,7 @@ describe("test run routes and runner contract", () => {
 			baseUrl: "https://uat.example.test",
 			variables: { SCHOOL_CODE: "HQ" },
 			agentInstructions: "Never delete records.",
+			dataLocale: null,
 		});
 		// Only the profile the transcript references is decrypted.
 		expect(config.body.credentials).toEqual([

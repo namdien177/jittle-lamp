@@ -6,13 +6,16 @@ import {
   computeTestCaseFingerprint,
   expandMacros,
   extractStepReferences,
+  isFakeDataToken,
   lintTestCase,
   loginProfileArg,
+  useCaseKeyArg,
   macroDefinitionSchema,
   parseTestCaseTranscript,
   sha256Hex,
   type BlockedReason,
   type ExpandedStep,
+  type LinkedCase,
   type LintFinding,
   type MacroDefinition,
   type ParsedTestCase,
@@ -20,6 +23,7 @@ import {
 } from "@jittle-lamp/shared";
 
 import { isSecretVariable, resolveCredentialProfile, type ResolvedRunConfig } from "./config/resolve";
+import { generateFakeData } from "./fake-data";
 
 // A RunPlan is the transcript resolved against macros and configuration: the steps the engine
 // executes, with variables substituted and secrets replaced by named placeholders the runner fills
@@ -43,6 +47,8 @@ export type RunPlan = {
   baseUrl: string | null;
   agentInstructions: string | null;
   params: Record<string, string>;
+  // Values made up for this run ({person.name} → "Jordan Lee"); also in params.
+  generated: Record<string, string>;
   steps: PlannedStep[];
   lint: LintFinding[];
   missing: string[];
@@ -50,6 +56,8 @@ export type RunPlan = {
   blockedMessage: string | null;
   credentialAliases: Record<string, string>;
   macros: Array<Pick<MacroDefinition, "name" | "version">>;
+  // Cases run inline by [Use: KEY], at the version this run used.
+  cases: Array<Pick<LinkedCase, "key" | "version">>;
 };
 
 const builtinMacroDir = resolve(dirname(fileURLToPath(import.meta.url)), "../macros");
@@ -76,6 +84,22 @@ export function parseMacroFile(text: string): MacroDefinition {
   });
 }
 
+// Transcripts with a `Key:` in a directory, for [Use: KEY] in local runs. Like a macro, a local
+// case's version is derived from its text.
+export function loadCaseDir(dir: string): LinkedCase[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".transcript.md"))
+    .sort()
+    .flatMap((name) => {
+      const transcript = readFileSync(join(dir, name), "utf8");
+      const { testCase } = parseTestCaseTranscript(transcript);
+      const key = testCase.metadata.key;
+      if (!key) return [];
+      return [{ key, title: testCase.title, version: Number.parseInt(sha256Hex(transcript).slice(0, 7), 16) + 1, params: testCase.metadata.params, transcript }];
+    });
+}
+
 export function loadMacroDir(dir: string): MacroDefinition[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
@@ -98,6 +122,7 @@ function renderInstruction(
   step: ExpandedStep,
   config: ResolvedRunConfig,
   aliases: Map<string, string>,
+  extracted: ReadonlySet<string>,
   missing: Set<string>,
   missingKinds: Set<"variable" | "credential">
 ): { instruction: string; secrets: SecretRef[] } {
@@ -124,6 +149,8 @@ function renderInstruction(
       return placeholder;
     }
     const value = config.vars.get(token);
+    // Values read by an earlier [Extract] exist only while the run executes.
+    if (!value && extracted.has(token)) return match;
     if (!value) {
       missing.add(`vars.${token}`);
       missingKinds.add("variable");
@@ -141,12 +168,15 @@ export function buildRunPlan(input: {
   transcript: string;
   config: ResolvedRunConfig;
   macros: readonly MacroDefinition[];
+  cases?: readonly LinkedCase[];
   params?: Readonly<Record<string, string>>;
   previousSteps?: readonly Pick<TranscriptStep, "stepId" | "instructionKey">[];
 }): RunPlan {
   const { testCase, diagnostics } = parseTestCaseTranscript(input.transcript, input.previousSteps ? { previousSteps: input.previousSteps } : {});
+  const cases = input.cases ?? [];
   const lint = lintTestCase(testCase, {
     macros: input.macros,
+    cases,
     environmentVariables: [...input.config.vars.keys()]
   });
 
@@ -157,7 +187,8 @@ export function buildRunPlan(input: {
     environmentName: input.config.environmentName?.value ?? null,
     baseUrl: input.config.baseUrl?.value ?? null,
     agentInstructions: input.config.agentInstructions,
-    macros: input.macros.map((macro) => ({ name: macro.name, version: macro.version }))
+    macros: input.macros.map((macro) => ({ name: macro.name, version: macro.version })),
+    cases: [] as RunPlan["cases"]
   };
 
   const blocking = lint.filter((finding) => finding.severity === "error");
@@ -166,6 +197,7 @@ export function buildRunPlan(input: {
     return {
       ...base,
       params: {},
+      generated: {},
       steps: [],
       lint,
       missing: [],
@@ -175,11 +207,15 @@ export function buildRunPlan(input: {
     };
   }
 
-  const expanded = expandMacros(testCase.steps, input.macros);
+  const expanded = expandMacros(testCase.steps, input.macros, cases);
+  // The cases this run actually runs inline, not every case it could name.
+  const usedKeys = new Set(expanded.steps.filter((step) => step.type === "use" && step.macroVersion !== null).map((step) => useCaseKeyArg(step.args)?.toLowerCase()));
+  base.cases = cases.filter((linked) => usedKeys.has(linked.key.toLowerCase())).map((linked) => ({ key: linked.key, version: linked.version }));
   if (expanded.errors.length > 0) {
     return {
       ...base,
       params: {},
+      generated: {},
       steps: [],
       lint,
       missing: [],
@@ -198,6 +234,15 @@ export function buildRunPlan(input: {
     else if (param.default !== null) params[param.name] = param.default;
   }
   Object.assign(params, input.params ?? {});
+  // Generated values for {person.name} and friends that nothing above defines.
+  const generatedTokens = new Set<string>();
+  for (const step of expanded.steps) {
+    for (const name of extractStepReferences([step.text, ...step.args.map((arg) => arg.value)]).variables) {
+      if (isFakeDataToken(name) && !input.config.vars.has(name) && !Object.prototype.hasOwnProperty.call(params, name)) generatedTokens.add(name);
+    }
+  }
+  const generated = generateFakeData(generatedTokens, { locale: input.config.dataLocale });
+  Object.assign(params, generated);
   const config: ResolvedRunConfig = {
     ...input.config,
     vars: new Map([
@@ -236,10 +281,16 @@ export function buildRunPlan(input: {
     }
   }
 
+  const extracted = new Set<string>();
   const steps: PlannedStep[] = expanded.steps.map((step) => {
     const withParams = { ...step, text: substituteParams(step.text, publicParams), args: step.args.map((arg) => ({ ...arg, value: substituteParams(arg.value, publicParams) })) };
-    const rendered = renderInstruction(withParams, config, aliases, missing, missingKinds);
-    const executes = !(step.type === "macro" || step.type === "login") || step.macroVersion === null;
+    const rendered = renderInstruction(withParams, config, aliases, extracted, missing, missingKinds);
+    if (step.type === "extract" && !step.disabled) {
+      const name = step.args.find((arg) => arg.name === null)?.value;
+      if (name) extracted.add(name);
+    }
+    // Macro, Login and Use calls are group headers; their expanded children execute.
+    const executes = !(step.type === "macro" || step.type === "login" || step.type === "use") || step.macroVersion === null;
     return { ...step, instruction: rendered.instruction, secrets: rendered.secrets, executes };
   });
 
@@ -254,6 +305,7 @@ export function buildRunPlan(input: {
   return {
     ...base,
     params: publicParams,
+    generated,
     steps,
     lint,
     missing: missingList,

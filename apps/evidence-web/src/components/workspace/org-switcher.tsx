@@ -29,7 +29,7 @@ export function OrgAvatar(props: { name: string; className?: string }): React.JS
       aria-hidden
       className={
         props.className ??
-        "grid size-5 shrink-0 place-items-center rounded-[5px] bg-gradient-to-br from-brand-400 to-brand-700 text-[10px] font-semibold text-white"
+        "grid size-5 shrink-0 place-items-center rounded-[5px] bg-gradient-to-br from-brand-400 to-brand-700 text-2xs font-semibold text-white"
       }
     >
       {initialsOf(props.name)}
@@ -57,7 +57,7 @@ export function OrgSwitcher(): React.JSX.Element {
         className="h-8 gap-2 px-1.5 data-[popup-open]:bg-sidebar-accent"
       >
         <OrgAvatar name={activeOrg?.name ?? "?"} />
-        <span className="min-w-0 truncate text-[13px] font-semibold text-foreground">{label}</span>
+        <span className="min-w-0 truncate text-sm font-semibold text-foreground">{label}</span>
         <ChevronDown aria-hidden className="ml-auto size-3.5! opacity-60" />
       </SidebarMenuButton>
       <DropdownMenuContent align="start" className="w-60">

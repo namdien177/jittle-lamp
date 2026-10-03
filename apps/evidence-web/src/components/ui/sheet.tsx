@@ -52,5 +52,5 @@ export function SheetContent({
 }
 
 export function SheetTitle({ className, ...props }: React.ComponentProps<typeof BaseDialog.Title>): React.JSX.Element {
-  return <BaseDialog.Title data-slot="sheet-title" className={cn("text-[15px] font-semibold", className)} {...props} />;
+  return <BaseDialog.Title data-slot="sheet-title" className={cn("text-lg font-semibold", className)} {...props} />;
 }

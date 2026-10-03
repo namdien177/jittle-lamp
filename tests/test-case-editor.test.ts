@@ -249,6 +249,25 @@ describe("pickers", () => {
     expect(typeOptions("lev", [selectLevel]).map((option) => option.tag)).toEqual(["Select level"]);
   });
 
+  test("type picker offers [Use: KEY] for the organisation's cases; the chip names the case", () => {
+    const cases = [
+      { key: "TC-0001", title: "Parent can log in" },
+      { key: "TC-0002", title: "Admin creates an interest" }
+    ];
+    expect(typeOptions("", [], cases).map((option) => option.label)).toContain("Use");
+    expect(typeOptions("", [], cases).some((option) => option.kind === "case")).toBe(false);
+    const forUse = typeOptions("use", [], cases);
+    expect(forUse.map((option) => option.label)).toEqual(["Use", "Use TC-0001", "Use TC-0002"]);
+    expect(forUse[1]?.args).toEqual([{ name: null, value: "TC-0001" }]);
+    expect(typeOptions("log in", [], cases).map((option) => option.label)).toEqual(["Use TC-0001"]);
+    expect(typeOptions("tc-0002", [], cases).map((option) => option.label)).toEqual(["Use TC-0002"]);
+    expect(formatStepChip({ tag: "Use", args: [{ name: null, value: "TC-0001" }, { name: "profile", value: "PCF" }] }, [], cases)).toEqual({
+      tag: "Use",
+      params: "TC-0001 · profile: PCF",
+      hint: "TC-0001 · Parent can log in"
+    });
+  });
+
   test("param fields become args: one first param positional, several named; chips render them", () => {
     const loginParams = typeOptions("", [loginMacro]).find((option) => option.tag === "Login")?.params ?? [];
     const loginArgs = argsFromParamValues(loginParams, { profile: "PCF_HQ_ADMIN" });
@@ -278,10 +297,26 @@ describe("pickers", () => {
       datasetColumns: ["class"],
       extracted
     });
-    expect(options.map((option) => `${option.source}:${option.name}`)).toEqual(["dataset:class", "param:role", "param:student", "extracted:orderId", "env:SCHOOL_CODE"]);
+    expect(options.map((option) => `${option.source}:${option.name}`)).toEqual([
+      "dataset:class",
+      "param:role",
+      "param:student",
+      "extracted:orderId",
+      "env:SCHOOL_CODE",
+      // The common generated values come last until the user types.
+      "generated:person.name",
+      "generated:person.firstName",
+      "generated:person.lastName",
+      "generated:person.email",
+      "generated:person.phone",
+      "generated:location.address"
+    ]);
     expect(variableOptions("tenant", { environmentVariables: [], params: [], datasetColumns: [], extracted: [] })).toEqual([
       { name: "tenant", source: "declare", detail: "declare new param" }
     ]);
+    const typed = variableOptions("mail", { environmentVariables: [], params: [], datasetColumns: [], extracted: [] });
+    expect(typed.map((option) => option.name)).toEqual(["person.email", "internet.email", "mail"]);
+    expect(typed[0]?.detail).toBe("generated · email built from the person's name, e.g. jordan.lee@example.com");
     expect(insertReference("enter {stu now", { kind: "variable", query: "stu", start: 6, end: 10 }, "{student}")).toEqual({ text: "enter {student} now", caret: 15 });
   });
 

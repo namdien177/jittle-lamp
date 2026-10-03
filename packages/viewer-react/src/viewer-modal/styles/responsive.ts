@@ -142,7 +142,7 @@ export const responsiveStyles = `
 
   .jl-vm-pane-count::before {
     content: attr(data-count);
-    font-size: 11px;
+    font-size:calc(11px * var(--jl-font-scale, 1));
   }
 
   .jl-vm-tabs-row {

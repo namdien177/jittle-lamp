@@ -58,7 +58,7 @@ export type AiTrace = {
 };
 
 const e2eApis = new Set(["app.open", "agent.act", "agent.assert", "agent.waitFor", "agent.extract"]);
-const callingTypes = new Set(["open", "act", "assert", "wait", "extract", "login", "macro"]);
+const callingTypes = new Set(["open", "act", "assert", "wait", "extract", "login", "macro", "use"]);
 const agentSideReasons = new Set(["no-entry", "retry", "invalid-entry"]);
 
 function parseUsage(raw: string | Record<string, unknown> | null | undefined): Record<string, unknown> {

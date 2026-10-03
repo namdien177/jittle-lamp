@@ -103,6 +103,8 @@ export type EnvironmentInput = {
   variables: Record<string, string>;
   runnerPool: string;
   agentInstructions: string | null;
+  // Omitted keeps the stored locale (the Variables page saves only variables).
+  dataLocale?: string | null;
   notes: string | null;
 };
 

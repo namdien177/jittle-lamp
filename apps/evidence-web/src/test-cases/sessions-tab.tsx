@@ -18,15 +18,15 @@ export function SessionsTab(props: { detail: TestCaseDetail }): React.JSX.Elemen
   const account = useAccountProfile();
   const me = [account.data?.localUserId, account.data?.userId].filter((value): value is string => typeof value === "string");
 
-  if (runsQuery.isPending) return <p className="py-6 text-[13.5px] text-muted-foreground">Loading test sessions…</p>;
-  if (runsQuery.isError) return <p className="py-6 text-[13.5px] text-destructive">{runsQuery.error instanceof Error ? runsQuery.error.message : "Unable to load runs."}</p>;
-  if (runs.length === 0) return <p className="py-6 text-[13.5px] text-muted-foreground">No runs yet. Press r or use Run to queue the first one.</p>;
+  if (runsQuery.isPending) return <p className="py-6 text-base text-muted-foreground">Loading test sessions…</p>;
+  if (runsQuery.isError) return <p className="py-6 text-base text-destructive">{runsQuery.error instanceof Error ? runsQuery.error.message : "Unable to load runs."}</p>;
+  if (runs.length === 0) return <p className="py-6 text-base text-muted-foreground">No runs yet. Press r or use Run to queue the first one.</p>;
 
   return (
     <div className="jl-scroll overflow-x-auto">
-      <table className="w-full border-collapse text-[13px]" aria-label="Test sessions">
+      <table className="w-full border-collapse text-sm" aria-label="Test sessions">
         <thead>
-          <tr className="border-b border-border text-left text-[11px] text-muted-foreground">
+          <tr className="border-b border-border text-left text-xs text-muted-foreground">
             <th scope="col" className="py-1.5 pr-3 font-medium">Run</th>
             <th scope="col" className="py-1.5 pr-3 font-medium">Status</th>
             <th scope="col" className="py-1.5 pr-3 font-medium">Trigger · pool</th>
@@ -58,12 +58,12 @@ function SessionRow(props: { run: TestRunSummary; me: readonly string[] }): Reac
             {formatRelative(run.queuedAt)} · v{run.transcriptVersion}
           </Link>
           {run.evidenceId ? (
-            <Link to={`/evidence/${encodeURIComponent(run.evidenceId)}`} className="text-[12px] text-primary underline-offset-2 hover:underline" aria-label="Open the run's evidence">
+            <Link to={`/evidence/${encodeURIComponent(run.evidenceId)}`} className="text-xs text-primary underline-offset-2 hover:underline" aria-label="Open the run's evidence">
               evidence
             </Link>
           ) : null}
         </div>
-        <TruncatedText render={<div />} className="text-[12px] text-muted-foreground">
+        <TruncatedText render={<div />} className="text-xs text-muted-foreground">
           {requester}
           {run.environmentName ? ` · ${run.environmentName}` : ""}
         </TruncatedText>
@@ -73,25 +73,25 @@ function SessionRow(props: { run: TestRunSummary; me: readonly string[] }): Reac
           <RunStatusBadge run={run} />
           {run.flaky ? (
             <Hint label="Passed only after a retry">
-              <Badge variant="warning" className="px-1.5 py-0 text-[11px]">flaky</Badge>
+              <Badge variant="warning" className="px-1.5 py-0 text-xs">flaky</Badge>
             </Hint>
           ) : null}
           {others.length > 0 ? (
             <Hint label={`Also waiting: ${others.map((person) => person.name ?? person.userId).join(", ")}`}>
-              <Badge variant="outline" className="px-1.5 py-0 text-[11px]">attached · {others.length}</Badge>
+              <Badge variant="outline" className="px-1.5 py-0 text-xs">attached · {others.length}</Badge>
             </Hint>
           ) : null}
         </div>
-        {pill ? <div className="mt-1 whitespace-nowrap font-mono text-[11.5px] text-muted-foreground">{pill}</div> : null}
-        {run.blockedReason ? <div className="mt-1 font-mono text-[11.5px] text-warning">{run.blockedReason}</div> : null}
+        {pill ? <div className="mt-1 whitespace-nowrap font-mono text-xs text-muted-foreground">{pill}</div> : null}
+        {run.blockedReason ? <div className="mt-1 font-mono text-xs text-warning">{run.blockedReason}</div> : null}
       </td>
       <td className="py-2 pr-3 text-muted-foreground">
         <div>{run.trigger}</div>
-        <TruncatedText render={<div />} className="max-w-[140px] font-mono text-[11.5px]">
+        <TruncatedText render={<div />} className="max-w-[140px] font-mono text-xs">
           {run.runnerPool}
         </TruncatedText>
       </td>
-      <td className="whitespace-nowrap py-2 pr-3 text-right font-mono text-[12.5px] tabular-nums">
+      <td className="whitespace-nowrap py-2 pr-3 text-right font-mono text-sm tabular-nums">
         <div>{formatDuration(duration)}</div>
         <Hint label={`${run.metrics.stepsReplayed} replayed · ${run.metrics.stepsAgent} agent · ${run.metrics.stepsHandoff} hand-off`}>
           <div className="text-muted-foreground">{ratio === null ? "—" : `${Math.round(ratio * 100)}% replayed`}</div>

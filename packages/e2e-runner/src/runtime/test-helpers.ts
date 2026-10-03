@@ -176,7 +176,7 @@ async function runStep(meta: StepMeta, body: () => Promise<unknown>): Promise<vo
       stepId: meta.stepId,
       status: "passed",
       error: null,
-      screenshot: meta.kind === "macro" || meta.kind === "login" ? null : await progressScreenshot(meta.stepId),
+      screenshot: meta.kind === "macro" || meta.kind === "login" || meta.kind === "use" ? null : await progressScreenshot(meta.stepId),
       observed: result && typeof result.summary === "string" ? result.summary : null
     });
   } catch (error) {

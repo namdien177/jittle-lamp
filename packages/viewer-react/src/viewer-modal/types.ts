@@ -92,6 +92,8 @@ export type ViewerModalProps = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoSrc?: string | null;
   videoDurationHintMs?: number;
+  // Video offsets (ms) of the steps; enables Skip gaps in the player. See viewer-core deriveGapMarkers.
+  gapMarkersMs?: readonly number[];
   notesValue: string;
   notesReadOnly: boolean;
   notesSaving: boolean;

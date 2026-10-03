@@ -9,6 +9,8 @@ import {
 import { createUuidV7 } from "../uuid";
 import { organizations } from "./organizations";
 import { testCases } from "./test-cases";
+import { testEnvironments } from "./test-config";
+import { runnerPools } from "./test-runs";
 import { users } from "./users";
 
 // Import batches and their items (design.md §7 "Import pipeline").
@@ -42,6 +44,7 @@ export const testImportBatches = sqliteTable(
 				"xlsx",
 				"jira",
 				"ai-generation",
+				"instructions",
 			],
 		}).notNull(),
 		fileName: text("file_name"),
@@ -109,5 +112,57 @@ export const testImportItems = sqliteTable(
 			table.batchId,
 			table.ordinal,
 		),
+	],
+);
+
+// An import item tried on a browser before review: a runner of the environment's pool runs
+// `e2e explore` with the item's instructions and posts what the agent did.
+export const testExplorations = sqliteTable(
+	"test_explorations",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => createUuidV7()),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		batchId: text("batch_id")
+			.notNull()
+			.references(() => testImportBatches.id, { onDelete: "cascade" }),
+		itemId: text("item_id")
+			.notNull()
+			.references(() => testImportItems.id, { onDelete: "cascade" }),
+		environmentId: text("environment_id").references(
+			() => testEnvironments.id,
+			{ onDelete: "set null" },
+		),
+		// The environment's pool reference; a pool created later adopts the exploration.
+		runnerPool: text("runner_pool").notNull().default("cloud"),
+		runnerPoolId: text("runner_pool_id").references(() => runnerPools.id, {
+			onDelete: "set null",
+		}),
+		title: text("title").notNull(),
+		instructions: text("instructions").notNull(),
+		goal: text("goal").notNull(),
+		status: text("status", {
+			enum: ["queued", "running", "done", "failed"],
+		})
+			.notNull()
+			.default("queued"),
+		attempts: integer("attempts").notNull().default(0),
+		workerId: text("worker_id"),
+		leaseExpiresAt: integer("lease_expires_at"),
+		resultJson: text("result_json"),
+		error: text("error"),
+		...timestamps,
+		finishedAt: integer("finished_at"),
+	},
+	(table) => [
+		index("test_explorations_pool_status_idx").on(
+			table.runnerPoolId,
+			table.status,
+		),
+		uniqueIndex("test_explorations_item_unique").on(table.itemId),
+		index("test_explorations_batch_idx").on(table.batchId),
 	],
 );

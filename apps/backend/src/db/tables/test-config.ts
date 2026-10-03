@@ -75,6 +75,8 @@ export const testEnvironments = sqliteTable(
 		// `cloud`, `self-hosted:<pool name or id>` or a pool id.
 		runnerPool: text("runner_pool").notNull().default("cloud"),
 		agentInstructions: text("agent_instructions"),
+		// Locale of generated values ({person.name}); null means en.
+		dataLocale: text("data_locale"),
 		notes: text("notes"),
 		createdBy: text("created_by").references(() => users.id, {
 			onDelete: "set null",

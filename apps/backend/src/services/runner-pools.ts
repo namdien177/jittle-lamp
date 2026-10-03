@@ -6,7 +6,12 @@ import type {
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { z } from "zod/v4";
 
-import { runnerPools, runnerWorkers, testRuns } from "../db/schema";
+import {
+	runnerPools,
+	runnerWorkers,
+	testExplorations,
+	testRuns,
+} from "../db/schema";
 import { conflict, HttpError, notFound } from "../http/test-http";
 import {
 	ACTIVE_RUN_STATUSES,
@@ -111,7 +116,8 @@ export const getRunnerPoolRow = async (
 	return pool;
 };
 
-// Queued runs whose environment named this pool before it existed now resolve to it.
+// Queued runs and explorations whose environment named this pool before it existed now resolve
+// to it.
 const adoptPendingRuns = async (db: BackendDb, pool: RunnerPoolRow) => {
 	await db
 		.update(testRuns)
@@ -122,6 +128,22 @@ const adoptPendingRuns = async (db: BackendDb, pool: RunnerPoolRow) => {
 				eq(testRuns.status, "queued"),
 				isNull(testRuns.runnerPoolId),
 				inArray(testRuns.runnerPool, [
+					pool.name,
+					pool.id,
+					`self-hosted:${pool.name}`,
+					`self-hosted:${pool.id}`,
+				]),
+			),
+		);
+	await db
+		.update(testExplorations)
+		.set({ runnerPoolId: pool.id, updatedAt: Date.now() })
+		.where(
+			and(
+				eq(testExplorations.orgId, pool.orgId),
+				eq(testExplorations.status, "queued"),
+				isNull(testExplorations.runnerPoolId),
+				inArray(testExplorations.runnerPool, [
 					pool.name,
 					pool.id,
 					`self-hosted:${pool.name}`,
