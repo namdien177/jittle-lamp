@@ -224,7 +224,10 @@ export const createImportRequestSchema = z.object({
   environmentId: id.nullable().optional(),
   // Try each item on a browser in the environment and rewrite it from what the agent did
   // (always for `instructions`; csv and xlsx when asked). Needs an environment.
-  explore: z.boolean().default(false)
+  explore: z.boolean().default(false),
+  // Without it an explored import is refused (409 EXPLORE_NO_RUNNER) while no runner of the
+  // environment's pool is online, rather than queueing silently.
+  queueWithoutRunner: z.boolean().default(false)
 });
 
 export const importItemSchema = z.object({
@@ -490,8 +493,12 @@ export const runnerPoolSchema = z.object({
       currentRunId: id.nullable()
     })
   ),
+  // Runs only.
   queued: z.number().int().nonnegative(),
   running: z.number().int().nonnegative(),
+  // Import items waiting for or in an exploration on this pool (design.md §7 "General instructions").
+  explorationsQueued: z.number().int().nonnegative().default(0),
+  explorationsRunning: z.number().int().nonnegative().default(0),
   createdAt: epochMs
 });
 

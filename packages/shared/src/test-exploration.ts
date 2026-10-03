@@ -70,6 +70,9 @@ export const explorationResultRequestSchema = z.object({
 export const importItemExplorationSchema = z.object({
   status: explorationStatusSchema,
   environmentName: z.string().nullable(),
+  // The pool that serves it, and its online runners while the item is queued (null otherwise).
+  runnerPoolName: z.string().nullable().default(null),
+  runnersOnline: z.number().int().nonnegative().nullable().default(null),
   attempts: z.number().int().nonnegative(),
   error: z.string().nullable(),
   ended: explorationRecordSchema.shape.ended.nullable(),

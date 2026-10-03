@@ -496,6 +496,38 @@ export function runnerPoolValue(pool: { kind: "cloud" | "self-hosted"; id: strin
   return pool.kind === "cloud" ? "cloud" : `self-hosted:${pool.name}`;
 }
 
+type PoolForReadiness = { kind: "cloud" | "self-hosted"; id: string; name: string; workers: Array<{ status: "online" | "offline" }> };
+
+// The pool an environment's reference (`cloud`, `self-hosted:<name or id>`, a bare name or id)
+// is bound to, as the backend resolves it.
+export function poolForEnvironment<T extends PoolForReadiness>(reference: string, pools: readonly T[]): T | null {
+  const ref = reference.trim();
+  if (ref === "" || ref === "cloud") return pools.find((pool) => pool.kind === "cloud") ?? null;
+  const target = ref.startsWith("self-hosted:") ? ref.slice("self-hosted:".length) : ref;
+  return pools.find((pool) => pool.id === target || pool.name === target) ?? null;
+}
+
+// Whether an explored import can start on this environment: its pool and online runners.
+export function explorationReadiness(reference: string, pools: readonly PoolForReadiness[]): { poolName: string; runnersOnline: number } {
+  const pool = poolForEnvironment(reference, pools);
+  return {
+    poolName: pool?.name ?? reference,
+    runnersOnline: pool ? pool.workers.filter((worker) => worker.status === "online").length : 0
+  };
+}
+
+// "2 running · 1 queued", with import explorations next to runs.
+export function poolQueueSummary(pool: { running: number; queued: number; explorationsRunning: number; explorationsQueued: number }): string {
+  const parts = [`${pool.running} running`, `${pool.queued} queued`];
+  const imports = pool.explorationsRunning + pool.explorationsQueued;
+  if (imports > 0) {
+    parts.push(
+      `${imports} import${imports === 1 ? "" : "s"} ${pool.explorationsRunning > 0 ? `exploring (${pool.explorationsRunning} running, ${pool.explorationsQueued} waiting)` : "waiting"}`
+    );
+  }
+  return parts.join(" · ");
+}
+
 // ---------------------------------------------------------------------------------------------
 // Test run settings (design.md §10)
 // ---------------------------------------------------------------------------------------------

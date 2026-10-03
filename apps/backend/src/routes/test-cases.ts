@@ -76,6 +76,7 @@ import {
 	withMetadataKey,
 } from "../services/test-cases";
 import { createTestSecrets, type KeyProvider } from "../services/test-config";
+import { cancelQueuedExplorations } from "../services/test-explorations";
 import {
 	createImportBatch,
 	defaultTextGenerator,
@@ -556,6 +557,32 @@ export const createTestCaseRoutes = (
 				return respond(
 					importBatchSchema,
 					await toImportBatch(db, result.batch),
+				);
+			}),
+		)
+		// Stop waiting for a runner: queued explorations end and their items go to review as
+		// written. Explorations a runner holds carry on.
+		.post("/test-cases/import/:batchId/explorations/cancel", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await actor(ctx, true);
+				await requireTestPermission(db, who, "test_case.create");
+				const batch = await getImportBatchRow(
+					db,
+					who.orgId,
+					String(ctx.params.batchId),
+				);
+				await cancelQueuedExplorations(
+					db,
+					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+					{ batchId: batch.id },
+				);
+				return respond(
+					importBatchSchema,
+					await toImportBatch(
+						db,
+						await getImportBatchRow(db, who.orgId, batch.id),
+					),
 				);
 			}),
 		)
