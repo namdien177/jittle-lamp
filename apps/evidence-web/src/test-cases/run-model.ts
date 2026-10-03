@@ -108,10 +108,15 @@ export function formatQueuePosition(run: { queuePosition: number | null; queueDe
 }
 
 export function formatQueuePill(
-  run: Pick<TestRunSummary, "status" | "queuePosition" | "estimatedStartAt"> & { queueDepth?: number | null | undefined },
+  run: Pick<TestRunSummary, "status" | "queuePosition" | "estimatedStartAt"> & {
+    queueDepth?: number | null | undefined;
+    blockedReason?: TestRunSummary["blockedReason"] | undefined;
+  },
   now = Date.now()
 ): string | null {
   if (run.status !== "queued") return null;
+  // Over the daily model budget the run waits for the next day or a raised budget, not its turn.
+  if (run.blockedReason === "BUDGET_EXCEEDED") return "queued · waiting for the daily model budget";
   const place = formatQueuePosition(run);
   const position = place === null ? "queued" : `queued · ${place}`;
   if (run.estimatedStartAt === null) return position;
