@@ -7,8 +7,15 @@ import {
   tagLabel,
   credentialFieldPattern,
   environmentVariablePattern,
+  formatUsdPerMtok,
   maskedKeyLabel,
   modelFormRequirements,
+  modelPriceHint,
+  modelPriceStatus,
+  priceFormFromRow,
+  priceFromForm,
+  removeOrganizationPrice,
+  upsertOrganizationPrice,
   modelPresets,
   modelSettingsRequest,
   presetForModels,
@@ -133,6 +140,55 @@ describe("settings helpers", () => {
       showJudgeKey: false,
       missing: []
     });
+  });
+
+  const priceRows = [
+    { modelId: "anthropic/claude-sonnet-5-5", inputUsdPerMtok: 2, cachedInputUsdPerMtok: 0.2, outputUsdPerMtok: 10, source: "default" as const },
+    { modelId: "anthropic/claude-opus-5-5", inputUsdPerMtok: 5, cachedInputUsdPerMtok: 0.5, outputUsdPerMtok: 25, source: "organization" as const },
+    { modelId: "openai/gpt-5", inputUsdPerMtok: 1.25, cachedInputUsdPerMtok: 0.125, outputUsdPerMtok: 10, source: "organization" as const }
+  ];
+
+  it("explains how each configured model is costed, including cost unknown", () => {
+    expect(modelPriceStatus(priceRows, "anthropic/claude-sonnet-5-5")).toEqual({
+      kind: "priced",
+      matchedModelId: "anthropic/claude-sonnet-5-5",
+      source: "default",
+      reportsCost: false
+    });
+    // Router ids fall back to the vendor's row; OpenRouter also reports its own cost.
+    expect(modelPriceStatus(priceRows, "openrouter/anthropic/claude-opus-5.5")).toMatchObject({ kind: "priced", matchedModelId: "anthropic/claude-opus-5-5", source: "organization", reportsCost: true });
+    expect(modelPriceHint(priceRows, "openrouter/anthropic/claude-opus-5.5")).toBe(
+      "OpenRouter reports the cost of each call; the price table is only a fallback. Priced from the organisation's table (the price of anthropic/claude-opus-5-5)."
+    );
+    expect(modelPriceHint(priceRows, "gateway/openai/gpt-5")).toBe("Priced from the organisation's table (the price of openai/gpt-5).");
+    expect(modelPriceStatus(priceRows, "openai-compatible/llama-3.3-70b")).toEqual({ kind: "unknown", reportsCost: false });
+    expect(modelPriceHint(priceRows, "openai-compatible/llama-3.3-70b")).toContain("cost unknown until you add a price");
+  });
+
+  it("validates a price form and keeps only organisation rows in the PUT body", () => {
+    expect(priceFromForm({ modelId: " ", input: "-1", cachedInput: "", output: "x" }).errors).toEqual({
+      modelId: "Enter the model id exactly as runs report it.",
+      input: "Enter a price of 0 or more.",
+      output: "Enter a price of 0 or more."
+    });
+    const added = priceFromForm({ modelId: "openai-compatible/llama-3.3-70b", input: "0.59", cachedInput: "", output: "0.79" });
+    expect(added.price).toEqual({ modelId: "openai-compatible/llama-3.3-70b", inputUsdPerMtok: 0.59, cachedInputUsdPerMtok: 0, outputUsdPerMtok: 0.79 });
+    if (!added.price) throw new Error("expected a price");
+    // Defaults are never copied into the organisation's set.
+    expect(upsertOrganizationPrice(priceRows, added.price).map((row) => row.modelId)).toEqual([
+      "anthropic/claude-opus-5-5",
+      "openai-compatible/llama-3.3-70b",
+      "openai/gpt-5"
+    ]);
+    // Editing renames replace the edited row; overriding a default adds an organisation row.
+    const renamed = { ...added.price, modelId: "openai/gpt-5.1" };
+    expect(upsertOrganizationPrice(priceRows, renamed, "openai/gpt-5").map((row) => row.modelId)).toEqual(["anthropic/claude-opus-5-5", "openai/gpt-5.1"]);
+    expect(priceFormFromRow(priceRows[0] ?? null)).toEqual({ modelId: "anthropic/claude-sonnet-5-5", input: "2", cachedInput: "0.2", output: "10" });
+    expect(removeOrganizationPrice(priceRows, "openai/gpt-5")).toEqual([
+      { modelId: "anthropic/claude-opus-5-5", inputUsdPerMtok: 5, cachedInputUsdPerMtok: 0.5, outputUsdPerMtok: 25 }
+    ]);
+    expect(formatUsdPerMtok(0.125)).toBe("$0.125");
+    expect(formatUsdPerMtok(10)).toBe("$10.00");
   });
 
   it("builds the runner start and docker commands with the token quoted", () => {

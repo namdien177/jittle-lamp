@@ -24,6 +24,7 @@ import {
   providerFromModelId,
   type ModelFormState
 } from "../../test-config/config-ui";
+import { ModelPricesCard } from "./model-prices";
 
 // Settings → AI model (design.md §9.3 "Model key"): bring your own key per organisation, for any
 // provider the runner supports. Keys are write-only; the API returns only whether each is
@@ -313,6 +314,7 @@ export function SettingsTestAiModelPage(): React.JSX.Element {
           </form>
         )}
       </AdminCard>
+      <ModelPricesCard canManage={canManage} models={saved ? [saved.actModel, saved.judgeModel] : []} />
       <ConfirmDialog
         open={confirmRemove !== null}
         destructive

@@ -8,7 +8,10 @@ import {
   type LintFinding,
   type MacroDefinition,
   type MacroParam,
-  type ModelSettings
+  type ModelPrice,
+  type ModelPriceRow,
+  type ModelSettings,
+  resolveModelPrice
 } from "@jittle-lamp/shared";
 
 // Pure helpers for Settings → Test cases (design.md §9.3, §10.4, §14). No React, no DOM.
@@ -204,6 +207,79 @@ export function modelSettingsRequest(
 export function maskedKeyLabel(keyConfigured: boolean, keyLast4: string | null): string {
   if (!keyConfigured) return "Not configured";
   return keyLast4 ? `Configured · ••••${keyLast4}` : "Configured";
+}
+
+// ---------------------------------------------------------------------------------------------
+// Model prices (USD per million tokens; PUT /model-prices replaces the organisation's rows)
+// ---------------------------------------------------------------------------------------------
+
+export type ModelPriceStatus =
+  | { kind: "priced"; matchedModelId: string; source: ModelPriceRow["source"]; reportsCost: boolean }
+  | { kind: "unknown"; reportsCost: boolean };
+
+// How a model's cost is worked out: OpenRouter reports it; otherwise the price row it matches
+// (a router id falls back to the vendor's row), or unknown.
+export function modelPriceStatus(rows: readonly ModelPriceRow[], modelId: string): ModelPriceStatus {
+  const reportsCost = Boolean(findModelProvider(modelId)?.reportsCost);
+  const match = resolveModelPrice(rows, modelId.trim());
+  if (!match) return { kind: "unknown", reportsCost };
+  const row = rows.find((entry) => entry.modelId === match.matchedModelId);
+  return { kind: "priced", matchedModelId: match.matchedModelId, source: row?.source ?? "default", reportsCost };
+}
+
+export function modelPriceHint(rows: readonly ModelPriceRow[], modelId: string): string {
+  const status = modelPriceStatus(rows, modelId);
+  const reported = status.reportsCost ? "OpenRouter reports the cost of each call; the price table is only a fallback. " : "";
+  if (status.kind === "unknown") return `${reported}No price for ${modelId}: runs show tokens with the cost unknown until you add a price.`;
+  const via = status.matchedModelId === modelId ? "" : ` (the price of ${status.matchedModelId})`;
+  return `${reported}Priced from the ${status.source === "organization" ? "organisation's" : "default"} table${via}.`;
+}
+
+export type PriceForm = { modelId: string; input: string; cachedInput: string; output: string };
+
+export function priceFormFromRow(row: ModelPrice | null, modelId = ""): PriceForm {
+  if (!row) return { modelId, input: "", cachedInput: "", output: "" };
+  return { modelId: row.modelId, input: String(row.inputUsdPerMtok), cachedInput: String(row.cachedInputUsdPerMtok), output: String(row.outputUsdPerMtok) };
+}
+
+export type PriceFormResult = { price: ModelPrice | null; errors: Partial<Record<keyof PriceForm, string>> };
+
+export function priceFromForm(form: PriceForm): PriceFormResult {
+  const errors: PriceFormResult["errors"] = {};
+  const modelId = form.modelId.trim();
+  if (!modelId) errors.modelId = "Enter the model id exactly as runs report it.";
+  const amount = (value: string, key: "input" | "cachedInput" | "output", optional = false): number => {
+    const text = value.trim();
+    if (text === "" && optional) return 0;
+    const parsed = Number(text);
+    if (text === "" || !Number.isFinite(parsed) || parsed < 0) errors[key] = "Enter a price of 0 or more.";
+    return parsed;
+  };
+  const input = amount(form.input, "input");
+  const cachedInput = amount(form.cachedInput, "cachedInput", true);
+  const output = amount(form.output, "output");
+  if (Object.keys(errors).length > 0) return { price: null, errors };
+  return { price: { modelId, inputUsdPerMtok: input, cachedInputUsdPerMtok: cachedInput, outputUsdPerMtok: output }, errors };
+}
+
+const organizationRows = (rows: readonly ModelPriceRow[]): ModelPrice[] =>
+  rows
+    .filter((row) => row.source === "organization")
+    .map(({ modelId, inputUsdPerMtok, cachedInputUsdPerMtok, outputUsdPerMtok }) => ({ modelId, inputUsdPerMtok, cachedInputUsdPerMtok, outputUsdPerMtok }));
+
+// The organisation's rows with `price` added or replacing the row it was edited from.
+export function upsertOrganizationPrice(rows: readonly ModelPriceRow[], price: ModelPrice, editedModelId: string | null = null): ModelPrice[] {
+  const kept = organizationRows(rows).filter((row) => row.modelId !== price.modelId && row.modelId !== editedModelId);
+  return [...kept, price].sort((a, b) => a.modelId.localeCompare(b.modelId));
+}
+
+// Removing an organisation row restores the default price for that id, if there is one.
+export function removeOrganizationPrice(rows: readonly ModelPriceRow[], modelId: string): ModelPrice[] {
+  return organizationRows(rows).filter((row) => row.modelId !== modelId);
+}
+
+export function formatUsdPerMtok(value: number): string {
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 }
 
 // ---------------------------------------------------------------------------------------------
