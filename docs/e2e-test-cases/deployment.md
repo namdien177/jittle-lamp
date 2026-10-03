@@ -190,6 +190,20 @@ The backend reads `process.env` once at startup (`apps/backend/src/config/env.ts
 
 Without S3, artifacts live in memory. That is only usable for local development.
 
+The browser reads archives and video directly from S3 signed URLs. Configure bucket CORS as well as backend CORS: allow `GET` and `HEAD` from the production web origin and the Preview origins of your Vercel project. For changing Preview URLs, S3 supports one wildcard in an origin, such as `https://<project>-*-<team>.vercel.app`. Keep the rule scoped to your project and team. The JSON below is one rule to append to the existing CORS array; preserve all existing rules.
+
+```json
+{
+  "AllowedOrigins": ["https://app.jittlelamp.example", "https://<project>-*-<team>.vercel.app"],
+  "AllowedMethods": ["GET", "HEAD"],
+  "AllowedHeaders": ["Range"],
+  "ExposeHeaders": ["Accept-Ranges", "Content-Range", "Content-Length", "ETag"],
+  "MaxAgeSeconds": 3600
+}
+```
+
+Signed URLs authorize each read. Changing CORS requires a bucket operator with `s3:GetBucketCORS` and `s3:PutBucketCORS`; the backend's object read/write credential can lack these permissions. Verify a completed run's archive and video in the browser: an upload succeeding does not prove playback works.
+
 ### Secrets master key
 
 | Variable | Required | Default | Example | Notes |
@@ -586,7 +600,8 @@ To limit the feature to one team: deploy cloud runners only for the pilot organi
 | Boot fails: `failed to apply database migrations` | Database unreachable, wrong working directory (no `./drizzle`), or a migration error | Start in `apps/backend`; restore from backup if a migration half-applied |
 | `503 SECRETS_MASTER_KEY_MISSING` on credential or model key save | `JL_SECRETS_MASTER_KEY` unset | Set it and restart |
 | `500 SECRET_DECRYPTION_FAILED` | Data keys wrapped by a key that is not configured (wrong key, copied data, rotation without `JL_SECRETS_MASTER_KEY_PREVIOUS`) | Configure the right key, or re-enter the secrets |
-| Browser shows CORS errors | Web origin missing from `WEB_APP_ORIGIN` and `CLERK_AUTHORIZED_PARTIES` | Add it |
+| Browser shows CORS errors on the backend | Web origin missing from `WEB_APP_ORIGIN` and `CLERK_AUTHORIZED_PARTIES` | Add it |
+| Run passed, but the viewer says `Failed to fetch`; S3 reports `MissingAllowOriginHeader` | Bucket CORS omits the Preview origin | A bucket operator adds the project-scoped `GET`/`HEAD` rule above, preserving existing rules |
 | Webhook URL in settings points at an internal host | `JITTLE_LAMP_API_ORIGIN` unset behind a proxy | Set it and reopen the endpoint |
 | Commit status or Slack delivery fails with `resolves to a private or local address` | Target is internal | Add the host to `JL_OUTBOUND_ALLOW_HOSTS` |
 | Jira import answers `422 JIRA_URL_BLOCKED` | The Jira credential's `base_url` resolves to a private, loopback or link-local address | Use the public Jira URL, or add an internal Jira host to `JL_OUTBOUND_ALLOW_HOSTS` |
