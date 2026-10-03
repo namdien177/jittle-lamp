@@ -47,7 +47,7 @@ function NetworkDetailDrawer(props: DrawerProps): React.JSX.Element | null {
             <Clipboard aria-hidden size={14} strokeWidth={2} />
             Copy cURL
           </button>
-          <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" onClick={props.onClose}>
+          <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" data-tip="Close" onClick={props.onClose}>
             <X aria-hidden size={16} strokeWidth={2} />
           </button>
         </div>
@@ -86,7 +86,7 @@ function ConsoleDetailDrawer(props: DrawerProps): React.JSX.Element | null {
     <div className="jl-vm-drawer">
       <div className="jl-vm-drawer-header">
         <span>Log entry</span>
-        <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" onClick={props.onClose}>
+        <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" data-tip="Close" onClick={props.onClose}>
           <X aria-hidden size={16} strokeWidth={2} />
         </button>
       </div>
@@ -103,7 +103,7 @@ function ActionDetailDrawer(props: DrawerProps): React.JSX.Element {
     <div className="jl-vm-drawer">
       <div className="jl-vm-drawer-header">
         <span>Action</span>
-        <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" onClick={props.onClose}>
+        <button type="button" className="jl-vm-btn jl-vm-btn-icon" aria-label="Close drawer" data-tip="Close" onClick={props.onClose}>
           <X aria-hidden size={16} strokeWidth={2} />
         </button>
       </div>

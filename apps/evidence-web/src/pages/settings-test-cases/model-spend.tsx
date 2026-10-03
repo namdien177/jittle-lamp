@@ -5,6 +5,7 @@ import { cn } from "../../lib/cn";
 import { useAccountProfile } from "../../queries";
 import { useModelCosts } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, StatTile, pressable } from "../../test-cases/admin-ui";
+import { Hint, TruncatedText } from "../../components/ui/tooltip";
 import {
   averagePerRun,
   costPeriodRange,
@@ -28,9 +29,7 @@ function ShareTable(props: { rows: ShareRow[]; label: string; empty: string }): 
       {props.rows.map((row) => (
         <li key={row.key} className="grid gap-1">
           <div className="flex items-baseline justify-between gap-3 text-sm">
-            <span className="min-w-0 truncate font-medium text-foreground" title={row.label}>
-              {row.label}
-            </span>
+            <TruncatedText className="font-medium text-foreground">{row.label}</TruncatedText>
             <span className="shrink-0 tabular-nums text-foreground">{formatUsd(row.costUsd)}</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
@@ -98,12 +97,14 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
                 className="flex h-40 items-end gap-px border-b border-border"
               >
                 {bars.map((bar) => (
-                  <div key={bar.day} className="group relative flex h-full min-w-0 flex-1 items-end" title={bar.label}>
-                    <div
-                      className={cn("w-full rounded-t-sm", bar.costUsd > 0 ? "bg-primary/80 group-hover:bg-primary" : "bg-muted")}
-                      style={{ height: `${bar.costUsd > 0 ? Math.max(bar.ratio * 100, 2) : 1}%` }}
-                    />
-                  </div>
+                  <Hint key={bar.day} label={bar.label}>
+                    <div className="group relative flex h-full min-w-0 flex-1 items-end">
+                      <div
+                        className={cn("w-full rounded-t-sm", bar.costUsd > 0 ? "bg-primary/80 group-hover:bg-primary" : "bg-muted")}
+                        style={{ height: `${bar.costUsd > 0 ? Math.max(bar.ratio * 100, 2) : 1}%` }}
+                      />
+                    </div>
+                  </Hint>
                 ))}
               </div>
               <div className="flex gap-px" aria-hidden>

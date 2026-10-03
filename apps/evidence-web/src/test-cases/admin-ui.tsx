@@ -10,6 +10,7 @@ import { cn } from "../lib/cn";
 import { copyToClipboard } from "../utils";
 import type { KeyValueRow } from "../test-config/config-ui";
 import type { PreviewSegment } from "./duplicate/find-replace";
+import { Hint } from "../components/ui/tooltip";
 
 // Small building blocks shared by the import, review, duplicate and settings screens.
 
@@ -171,9 +172,9 @@ export function ReplacementPreview(props: { segments: readonly PreviewSegment[];
     >
       {props.segments.map((segment, index) =>
         segment.replaced ? (
-          <mark key={index} title={`was “${segment.original}”`} className="rounded-sm bg-primary/20 px-0.5 text-foreground">
-            {segment.text}
-          </mark>
+          <Hint key={index} label={`Was “${segment.original}”`}>
+            <mark className="rounded-sm bg-primary/20 px-0.5 text-foreground">{segment.text}</mark>
+          </Hint>
         ) : (
           <React.Fragment key={index}>{segment.text}</React.Fragment>
         )
@@ -197,15 +198,17 @@ export function CopyBlock(props: { label: string; value: string; secret?: boolea
       <span className="text-xs font-medium text-muted-foreground">{props.label}</span>
       <div className="flex items-start gap-2 overflow-hidden rounded-md border border-border bg-muted py-1 pl-3 pr-1.5 font-mono text-[13px]">
         <code className={cn("min-w-0 flex-1 py-1.5 text-foreground", props.multiline ? "whitespace-pre-wrap break-all" : "truncate")}>{props.value}</code>
-        <button
-          type="button"
-          onClick={onCopy}
-          aria-label={`Copy ${props.label}`}
-          className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-sans text-sm font-medium text-foreground hover:bg-background", pressable)}
-        >
-          {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-          {copied ? "Copied" : "Copy"}
-        </button>
+        <Hint label="Copy">
+          <button
+            type="button"
+            onClick={onCopy}
+            aria-label={`Copy ${props.label}`}
+            className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 font-sans text-sm font-medium text-foreground hover:bg-background", pressable)}
+          >
+            {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </Hint>
       </div>
     </div>
   );
@@ -268,15 +271,17 @@ export function KeyValueEditor(props: {
             disabled={props.disabled}
             onChange={(event) => update(index, { value: event.target.value })}
           />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Remove ${props.keyLabel.toLowerCase()} ${row.key || index + 1}`}
-            disabled={props.disabled}
-            onClick={() => props.onChange(props.rows.filter((_row, rowIndex) => rowIndex !== index))}
-          >
-            <Trash2 aria-hidden />
-          </Button>
+          <Hint label="Remove">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove ${props.keyLabel.toLowerCase()} ${row.key || index + 1}`}
+              disabled={props.disabled}
+              onClick={() => props.onChange(props.rows.filter((_row, rowIndex) => rowIndex !== index))}
+            >
+              <Trash2 aria-hidden />
+            </Button>
+          </Hint>
         </div>
       ))}
       {!props.disabled ? (

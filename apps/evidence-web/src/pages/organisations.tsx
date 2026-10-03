@@ -88,6 +88,7 @@ import {
   useUpdateMemberRole,
 } from "../queries";
 import { useToast } from "../toast";
+import { Hint } from "../components/ui/tooltip";
 
 type SortKey = "name" | "joinedAt" | "role";
 type RoleFilter = "all" | OrganizationRoleKey;
@@ -676,27 +677,31 @@ export function OrgMembersTab(): React.JSX.Element {
           {result.total} member{result.total === 1 ? "" : "s"}
         </span>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Previous page"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-          </Button>
+          <Hint label="Previous page">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Previous page"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft className="size-4" aria-hidden />
+            </Button>
+          </Hint>
           <span className=" text-muted-foreground">
             Page {page} of {pages}
           </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Next page"
-            disabled={page >= pages}
-            onClick={() => setPage(page + 1)}
-          >
-            <ChevronRight className="size-4" aria-hidden />
-          </Button>
+          <Hint label="Next page">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Next page"
+              disabled={page >= pages}
+              onClick={() => setPage(page + 1)}
+            >
+              <ChevronRight className="size-4" aria-hidden />
+            </Button>
+          </Hint>
         </div>
       </div>
     </Card>
@@ -1629,25 +1634,29 @@ export function OrgActivityTab(): React.JSX.Element {
         </TableBody>
       </Table>
       <div className="flex items-center justify-end gap-2 border-t border-border p-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Previous page"
-          disabled={page <= 1}
-          onClick={() => setPage(page - 1)}
-        >
-          <ChevronLeft className="size-4" aria-hidden />
-        </Button>
+        <Hint label="Previous page">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Previous page"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+          </Button>
+        </Hint>
         <span className=" text-muted-foreground">Page {page}</span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Next page"
-          disabled={logs.length < 25}
-          onClick={() => setPage(page + 1)}
-        >
-          <ChevronRight className="size-4" aria-hidden />
-        </Button>
+        <Hint label="Next page">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Next page"
+            disabled={logs.length < 25}
+            onClick={() => setPage(page + 1)}
+          >
+            <ChevronRight className="size-4" aria-hidden />
+          </Button>
+        </Hint>
       </div>
     </Card>
   );
@@ -2197,20 +2206,22 @@ export function OrgLibraryTab(): React.JSX.Element {
                         >
                           Open
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!deletable || deleteEvidence.isPending}
-                          title={
-                            deletable
-                              ? "Delete evidence"
-                              : "Only the creator or evidence managers can delete this evidence"
-                          }
-                          onClick={() => setPendingDelete(evidence)}
+                        <Hint
+                          label="Only the creator or evidence managers can delete this evidence"
+                          disabled={deletable}
                         >
-                          <Trash2 aria-hidden />
-                          Delete
-                        </Button>
+                          <span className="inline-flex">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={!deletable || deleteEvidence.isPending}
+                              onClick={() => setPendingDelete(evidence)}
+                            >
+                              <Trash2 aria-hidden />
+                              Delete
+                            </Button>
+                          </span>
+                        </Hint>
                       </div>
                     </TableCell>
                   </TableRow>

@@ -136,7 +136,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
           type="button"
           className="jl-vm-stream-rail"
           aria-label="Expand Evidence stream"
-          title="Expand Evidence stream"
+          data-tip="Expand" data-tip-side="left"
           onClick={() => setCollapsed(false)}
         >
           <ChevronsLeft aria-hidden size={16} strokeWidth={2} />
@@ -178,7 +178,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
             <span
               className="jl-vm-pane-count"
               data-count={activeCountValue}
-              title={activeCountTitle}
+              data-tip={activeCountTitle}
               aria-label={activeCountTitle}
             >
               {activeCountLabel}
@@ -191,7 +191,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
               type="button"
               className="jl-vm-icon-btn"
               aria-label="Collapse Evidence stream"
-              title="Collapse Evidence stream"
+              data-tip="Collapse"
               onClick={() => setCollapsed(true)}
             >
               <ChevronsRight aria-hidden size={16} strokeWidth={2} />
@@ -242,7 +242,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
                 data-status={step.status}
                 data-step-id={step.stepId}
                 data-active={step.stepId === props.activeStepId ? "true" : "false"}
-                title={`${step.label} · ${step.status}${step.mode ? ` · ${step.mode}` : ""}`}
+                data-tip={`${step.label} · ${step.status}${step.mode ? ` · ${step.mode}` : ""}`}
                 onClick={() => props.onStepSelect?.(step.stepId === props.activeStepId ? null : step.stepId)}
               >
                 {step.ordinal}. {step.label.length > 32 ? `${step.label.slice(0, 31)}…` : step.label}

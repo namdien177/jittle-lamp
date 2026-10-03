@@ -8,6 +8,7 @@ import { EvidencePane } from "./evidence-pane";
 import { injectStyles } from "./inject-styles";
 import { ViewerModalHeader } from "./modal-header";
 import { ViewerNotesPane } from "./notes-pane";
+import { ViewerTooltipLayer } from "./tooltip-layer";
 import { EvidenceVideoPlayer } from "./video-player";
 import type { ViewerModalProps } from "./types";
 
@@ -63,6 +64,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
         <EvidencePane {...props} />
         <ViewerNotesPane {...props} />
       </div>
+      <ViewerTooltipLayer />
       {props.feedback ? (
         <div className="jl-vm-feedback" data-tone={props.feedback.tone}>
           <span>{props.feedback.text}</span>

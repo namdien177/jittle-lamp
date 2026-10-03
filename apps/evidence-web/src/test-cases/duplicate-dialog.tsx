@@ -27,6 +27,7 @@ import {
   type Replacement
 } from "./duplicate/find-replace";
 import { caseEditorHref } from "./review/review-queue-state";
+import { Hint } from "../components/ui/tooltip";
 
 // Duplicate dialog (design.md §7 "Duplicate"). The test-cases page renders it for `?duplicate=<id,id>`
 // (and the `d` key); other screens can render it directly with `caseIds`.
@@ -206,9 +207,11 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
                 <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2">
                   <Input aria-label={`Find ${index + 1}`} placeholder="HQ_ADMIN" value={row.find} className="font-mono text-sm" onChange={(event) => updateRow(index, { find: event.target.value })} />
                   <Input aria-label={`Replace ${index + 1}`} placeholder="BRANCH_ADMIN" value={row.replace} className="font-mono text-sm" onChange={(event) => updateRow(index, { replace: event.target.value })} />
-                  <Button variant="ghost" size="icon-sm" aria-label={`Remove replacement ${index + 1}`} onClick={() => setRows((current) => (current.length === 1 ? [{ find: "", replace: "" }] : current.filter((_row, rowIndex) => rowIndex !== index)))}>
-                    <Trash2 aria-hidden />
-                  </Button>
+                  <Hint label="Remove">
+                    <Button variant="ghost" size="icon-sm" aria-label={`Remove replacement ${index + 1}`} onClick={() => setRows((current) => (current.length === 1 ? [{ find: "", replace: "" }] : current.filter((_row, rowIndex) => rowIndex !== index)))}>
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </Hint>
                 </div>
               ))}
               <div>

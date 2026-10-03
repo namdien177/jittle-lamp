@@ -41,9 +41,8 @@ function HeaderActionButton(props: HeaderActionButtonProps): React.JSX.Element {
       type="button"
       className={getHeaderActionButtonClassName(props)}
       disabled={props.disabled}
-      data-label={props.label}
       aria-label={props.label}
-      title={props.label}
+      data-tip={props.label}
       onClick={props.onClick}
     >
       {props.icon}
@@ -242,7 +241,7 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
         {actions.filter(action => ["copy-share-link", "create-share-link", "download-zip"].includes(String(action.key)))}
         {actions.some(action => ["rename", "copy-evidence", "copy-llm-prompt", "transfer-evidence"].includes(String(action.key))) ? (
           <details className="jl-vm-more">
-            <summary aria-label="More evidence options" title="More evidence options"><MoreHorizontal size={18} aria-hidden /></summary>
+            <summary aria-label="More evidence options" data-tip="More options"><MoreHorizontal size={18} aria-hidden /></summary>
             <div className="jl-vm-more-menu" onClick={event => event.currentTarget.closest("details")?.removeAttribute("open")}>
               {actions.filter(action => ["rename", "copy-evidence", "copy-llm-prompt", "transfer-evidence"].includes(String(action.key)))}
             </div>

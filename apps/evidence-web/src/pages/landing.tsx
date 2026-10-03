@@ -19,6 +19,7 @@ import { Button, buttonVariants } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { cn } from "../lib/cn";
 import { copyToClipboard } from "../utils";
+import { Hint } from "../components/ui/tooltip";
 
 const INSTALL_COMMAND =
   "curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash";
@@ -35,12 +36,9 @@ function CopyInstall(): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 overflow-hidden rounded-md border border-border-strong bg-muted pl-3 pr-1.5 font-mono text-base">
       <Terminal aria-hidden className="size-4 shrink-0 text-primary" />
-      <code
-        className="flex-1 truncate py-2.5 text-muted-foreground"
-        title={INSTALL_COMMAND}
-      >
-        curl ... | bash
-      </code>
+      <Hint label={INSTALL_COMMAND}>
+        <code className="flex-1 truncate py-2.5 text-muted-foreground">curl ... | bash</code>
+      </Hint>
       <button
         type="button"
         onClick={onCopy}

@@ -18,6 +18,7 @@ import { testAdminApi, type MacroInput } from "../../test-cases/admin-api";
 import { testAdminKeys, useTestAdminMutation, useTestMacros, useTestPermissions } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, LintFindingList, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { lintMacroBody } from "../../test-config/config-ui";
+import { Hint } from "../../components/ui/tooltip";
 
 // Testing settings → Actions (design.md §4, §13 "macros"): named, parameterised step sequences such as Login.
 
@@ -56,12 +57,12 @@ export function SettingsTestMacrosPage(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-5">Action</TableHead>
+                <TableHead className="pl-4">Action</TableHead>
                 <TableHead>Parameters</TableHead>
                 <TableHead className="w-24">Version</TableHead>
                 <TableHead className="w-24">Status</TableHead>
                 <TableHead className="w-32">Updated</TableHead>
-                <TableHead className="w-24 pr-5 text-right">
+                <TableHead className="w-24 pr-4 text-right">
                   <span className="sr-only">Actions</span>
                 </TableHead>
               </TableRow>
@@ -69,7 +70,7 @@ export function SettingsTestMacrosPage(): React.JSX.Element {
             <TableBody>
               {(macros.data ?? []).map((macro) => (
                 <TableRow key={macro.id}>
-                  <TableCell className="pl-5 font-mono text-sm font-semibold">[{macro.name}]</TableCell>
+                  <TableCell className="pl-4 font-mono text-sm font-semibold">[{macro.name}]</TableCell>
                   <TableCell className="text-sm">
                     {macro.params.length === 0
                       ? "—"
@@ -88,15 +89,19 @@ export function SettingsTestMacrosPage(): React.JSX.Element {
                     <Badge variant={macro.status === "active" ? "success" : "warning"}>{macro.status}</Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{formatRelativeTime(macro.updatedAt)}</TableCell>
-                  <TableCell className="pr-5 text-right">
+                  <TableCell className="pr-4 text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} action ${macro.name}`} onClick={() => setEditing(macro)}>
-                        {canManage ? <Pencil aria-hidden /> : <Eye aria-hidden />}
-                      </Button>
-                      {canManage ? (
-                        <Button variant="ghost" size="icon-sm" aria-label={`Delete action ${macro.name}`} onClick={() => setDeleting(macro)}>
-                          <Trash2 aria-hidden />
+                      <Hint label={canManage ? "Edit" : "View"}>
+                        <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} action ${macro.name}`} onClick={() => setEditing(macro)}>
+                          {canManage ? <Pencil aria-hidden /> : <Eye aria-hidden />}
                         </Button>
+                      </Hint>
+                      {canManage ? (
+                        <Hint label="Delete">
+                          <Button variant="ghost" size="icon-sm" aria-label={`Delete action ${macro.name}`} onClick={() => setDeleting(macro)}>
+                            <Trash2 aria-hidden />
+                          </Button>
+                        </Hint>
                       ) : null}
                     </div>
                   </TableCell>
@@ -240,9 +245,11 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
                   required
                 </label>
                 <Input aria-label={`Parameter ${param.name || index + 1} default`} value={param.default} onChange={(event) => updateParam(index, { default: event.target.value })} />
-                <Button variant="ghost" size="icon-sm" aria-label={`Remove parameter ${param.name || index + 1}`} onClick={() => setParams((current) => current.filter((_row, rowIndex) => rowIndex !== index))}>
-                  <Trash2 aria-hidden />
-                </Button>
+                <Hint label="Remove parameter">
+                  <Button variant="ghost" size="icon-sm" aria-label={`Remove parameter ${param.name || index + 1}`} onClick={() => setParams((current) => current.filter((_row, rowIndex) => rowIndex !== index))}>
+                    <Trash2 aria-hidden />
+                  </Button>
+                </Hint>
               </div>
             ))}
             {!props.readOnly ? (

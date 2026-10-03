@@ -19,6 +19,7 @@ import { testAdminKeys, useAdminTestCase, useReviewQueue, useSimilarForCase, use
 import { importBatchHref } from "../../notifications/notification-links";
 import { AdminCard, ErrorNote, Kbd, LintBadge, ReadOnlyNotice, TranscriptView, pressable } from "../admin-ui";
 import { approveCleanPrompt, caseEditorHref, cleanCaseIds, initialReviewQueueState, reviewKeyCommand, reviewQueueReducer, type ReviewCommand } from "./review-queue-state";
+import { TruncatedText } from "../../components/ui/tooltip";
 
 // Review queue (design.md §7): imported and AI-generated cases wait in `review` until approved.
 
@@ -201,7 +202,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                     className={cn("flex cursor-pointer items-start justify-between gap-2 rounded-md px-3 py-2", active ? "bg-secondary shadow-soft" : "hover:bg-muted")}
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground" title={item.title}>{item.title || "Untitled"}</span>
+                      <TruncatedText className="text-sm font-medium text-foreground">{item.title || "Untitled"}</TruncatedText>
                       <span className="block font-mono text-xs text-muted-foreground">
                         {item.key} · {item.source} · {item.stepCount} steps
                       </span>

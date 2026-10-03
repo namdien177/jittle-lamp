@@ -15,6 +15,7 @@ import {
   DropdownMenuContent,
 } from "../components/ui/dropdown-menu";
 import { Skeleton } from "../components/ui/skeleton";
+import { Hint } from "../components/ui/tooltip";
 import { CaseStatusBadge, Kbd, OutcomeBadge, TagChip } from "./bits";
 import {
   activeFilterCount,
@@ -117,7 +118,7 @@ export function CaseListPane(props: {
         actions={
           <>
             {props.headerAccessory}
-            <Button size="xs" onClick={props.onQuickCreate} className="jl-tc-press" aria-keyshortcuts="c">
+            <Button size="sm" onClick={props.onQuickCreate} className="jl-tc-press" aria-keyshortcuts="c">
               <Plus aria-hidden /> New case <Kbd>c</Kbd>
             </Button>
           </>
@@ -126,7 +127,7 @@ export function CaseListPane(props: {
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <label className="relative flex min-w-[220px] flex-1 items-center">
-          <Search className="pointer-events-none absolute left-2.5 size-4 text-muted-foreground" aria-hidden />
+          <Search className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground" aria-hidden />
           <input
             ref={props.searchRef}
             type="search"
@@ -139,7 +140,7 @@ export function CaseListPane(props: {
             placeholder="Search key, title, transcript, tags…"
             aria-label="Search test cases"
             aria-keyshortcuts="/"
-            className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-8 text-[13.5px] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring/70 focus-visible:ring-2 focus-visible:ring-ring/30"
+            className="h-7 w-full rounded-md border border-input bg-background pl-8 pr-8 text-[13px] shadow-soft outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/25 dark:bg-input/30"
           />
           <span className="pointer-events-none absolute right-2">
             <Kbd>/</Kbd>
@@ -147,96 +148,98 @@ export function CaseListPane(props: {
         </label>
 
         <DropdownMenu>
-<DropdownMenuTrigger render={<Button size="xs" variant={filterCount > 0 ? "secondary" : "ghost"} className="jl-tc-press" aria-label={`Filters${filterCount > 0 ? `, ${filterCount} active` : ""}`}>
+          <DropdownMenuTrigger render={<Button size="sm" variant={filterCount > 0 ? "secondary" : "ghost"} className="jl-tc-press" aria-label={`Filters${filterCount > 0 ? `, ${filterCount} active` : ""}`}>
               <Filter aria-hidden /> Filters{filterCount > 0 ? ` · ${filterCount}` : ""}
             </Button>} />
-<DropdownMenuContent align="start">
-          <DropdownMenuLabel>Status</DropdownMenuLabel>
-          {(["draft", "review", "active", "archived"] as const).map((status) => (
-            <CheckItem key={status} checked={filters.status.includes(status)} onClick={() => setFilters({ status: toggleValue(filters.status, status) })}>
-              {status}
-            </CheckItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Last outcome</DropdownMenuLabel>
-          {(["passed", "failed", "blocked"] as const).map((outcome) => (
-            <CheckItem key={outcome} checked={filters.lastOutcome.includes(outcome)} onClick={() => setFilters({ lastOutcome: toggleValue(filters.lastOutcome, outcome) })}>
-              {outcome}
-            </CheckItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Source</DropdownMenuLabel>
-          {(["manual", "import", "ai", "duplicate", "recording"] as const).map((source) => (
-            <CheckItem key={source} checked={filters.source.includes(source)} onClick={() => setFilters({ source: toggleValue(filters.source, source) })}>
-              {source}
-            </CheckItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Environment</DropdownMenuLabel>
-          <CheckItem checked={filters.environmentId === null} onClick={() => setFilters({ environmentId: null })}>
-            Any environment
-          </CheckItem>
-          {props.environments.map((environment) => (
-            <CheckItem key={environment.id} checked={filters.environmentId === environment.id} onClick={() => setFilters({ environmentId: environment.id })}>
-              {environment.name}
-            </CheckItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Cache and activity</DropdownMenuLabel>
-          <CheckItem checked={filters.staleCache} onClick={() => setFilters({ staleCache: !filters.staleCache })}>
-            Stale cache
-          </CheckItem>
-          {[7, 30, 90].map((days) => (
-            <CheckItem key={days} checked={filters.noRunsSinceDays === days} onClick={() => setFilters({ noRunsSinceDays: filters.noRunsSinceDays === days ? null : days })}>
-              No runs in {days} days
-            </CheckItem>
-          ))}
-        </DropdownMenuContent>
-</DropdownMenu>
-
-        <DropdownMenu>
-<DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label="Sort">
-              <ArrowDownUp aria-hidden /> {sortLabel(props.sort)}
-            </Button>} />
-<DropdownMenuContent align="end">
-          <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-          {(["updated", "created", "key", "title", "last-run"] as const).map((sort) => (
-            <CheckItem key={sort} checked={props.sort.sort === sort} onClick={() => props.onSortChange({ ...props.sort, sort })}>
-              {sortNames[sort]}
-            </CheckItem>
-          ))}
-          <DropdownMenuSeparator />
-          <CheckItem checked={props.sort.order === "desc"} onClick={() => props.onSortChange({ ...props.sort, order: "desc" })}>
-            Descending
-          </CheckItem>
-          <CheckItem checked={props.sort.order === "asc"} onClick={() => props.onSortChange({ ...props.sort, order: "asc" })}>
-            Ascending
-          </CheckItem>
-        </DropdownMenuContent>
-</DropdownMenu>
-
-        <DropdownMenu>
-<DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label="Columns">
-              <Columns3 aria-hidden />
-            </Button>} />
-<DropdownMenuContent align="end">
-          <DropdownMenuLabel>Columns</DropdownMenuLabel>
-          {listColumnIds
-            .filter((column) => column !== "title")
-            .map((column) => (
-              <CheckItem
-                key={column}
-                checked={columns.includes(column)}
-                onClick={() => {
-                  const next = columns.includes(column) ? columns.filter((candidate) => candidate !== column) : listColumnIds.filter((candidate) => candidate === column || columns.includes(candidate));
-                  props.onColumnsChange(next);
-                }}
-              >
-                {listColumnLabels[column]}
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>Status</DropdownMenuLabel>
+            {(["draft", "review", "active", "archived"] as const).map((status) => (
+              <CheckItem key={status} checked={filters.status.includes(status)} onClick={() => setFilters({ status: toggleValue(filters.status, status) })}>
+                {status}
               </CheckItem>
             ))}
-        </DropdownMenuContent>
-</DropdownMenu>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Last outcome</DropdownMenuLabel>
+            {(["passed", "failed", "blocked"] as const).map((outcome) => (
+              <CheckItem key={outcome} checked={filters.lastOutcome.includes(outcome)} onClick={() => setFilters({ lastOutcome: toggleValue(filters.lastOutcome, outcome) })}>
+                {outcome}
+              </CheckItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Source</DropdownMenuLabel>
+            {(["manual", "import", "ai", "duplicate", "recording"] as const).map((source) => (
+              <CheckItem key={source} checked={filters.source.includes(source)} onClick={() => setFilters({ source: toggleValue(filters.source, source) })}>
+                {source}
+              </CheckItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Environment</DropdownMenuLabel>
+            <CheckItem checked={filters.environmentId === null} onClick={() => setFilters({ environmentId: null })}>
+              Any environment
+            </CheckItem>
+            {props.environments.map((environment) => (
+              <CheckItem key={environment.id} checked={filters.environmentId === environment.id} onClick={() => setFilters({ environmentId: environment.id })}>
+                {environment.name}
+              </CheckItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Cache and activity</DropdownMenuLabel>
+            <CheckItem checked={filters.staleCache} onClick={() => setFilters({ staleCache: !filters.staleCache })}>
+              Stale cache
+            </CheckItem>
+            {[7, 30, 90].map((days) => (
+              <CheckItem key={days} checked={filters.noRunsSinceDays === days} onClick={() => setFilters({ noRunsSinceDays: filters.noRunsSinceDays === days ? null : days })}>
+                No runs in {days} days
+              </CheckItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button size="sm" variant="ghost" className="jl-tc-press" aria-label="Sort">
+              <ArrowDownUp aria-hidden /> {sortLabel(props.sort)}
+            </Button>} />
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+            {(["updated", "created", "key", "title", "last-run"] as const).map((sort) => (
+              <CheckItem key={sort} checked={props.sort.sort === sort} onClick={() => props.onSortChange({ ...props.sort, sort })}>
+                {sortNames[sort]}
+              </CheckItem>
+            ))}
+            <DropdownMenuSeparator />
+            <CheckItem checked={props.sort.order === "desc"} onClick={() => props.onSortChange({ ...props.sort, order: "desc" })}>
+              Descending
+            </CheckItem>
+            <CheckItem checked={props.sort.order === "asc"} onClick={() => props.onSortChange({ ...props.sort, order: "asc" })}>
+              Ascending
+            </CheckItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <Hint label="Columns">
+            <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" className="jl-tc-press" aria-label="Columns" />}>
+              <Columns3 aria-hidden />
+            </DropdownMenuTrigger>
+          </Hint>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Columns</DropdownMenuLabel>
+            {listColumnIds
+              .filter((column) => column !== "title")
+              .map((column) => (
+                <CheckItem
+                  key={column}
+                  checked={columns.includes(column)}
+                  onClick={() => {
+                    const next = columns.includes(column) ? columns.filter((candidate) => candidate !== column) : listColumnIds.filter((candidate) => candidate === column || columns.includes(candidate));
+                    props.onColumnsChange(next);
+                  }}
+                >
+                  {listColumnLabels[column]}
+                </CheckItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {filterCount > 0 ? (
@@ -281,9 +284,11 @@ export function CaseListPane(props: {
               {label}
             </Button>
           ))}
-          <button type="button" className="jl-tc-press ml-auto rounded p-1 text-muted-foreground hover:text-foreground" aria-label="Clear selection" onClick={props.onClearSelection}>
-            <X className="size-4" aria-hidden />
-          </button>
+          <Hint label="Clear selection">
+            <button type="button" className="jl-tc-press ml-auto rounded p-1 text-muted-foreground hover:text-foreground" aria-label="Clear selection" onClick={props.onClearSelection}>
+              <X className="size-4" aria-hidden />
+            </button>
+          </Hint>
         </div>
       ) : null}
 
@@ -410,9 +415,11 @@ function FilterChip(props: { label: string; onRemove: () => void }): React.JSX.E
   return (
     <span className="inline-flex items-center gap-1 rounded border border-border bg-secondary px-1.5 leading-5">
       {props.label}
-      <button type="button" className="jl-tc-press rounded text-muted-foreground hover:text-foreground" aria-label={`Remove filter ${props.label}`} onClick={props.onRemove}>
-        <X className="size-3" aria-hidden />
-      </button>
+      <Hint label="Remove filter">
+        <button type="button" className="jl-tc-press rounded text-muted-foreground hover:text-foreground" aria-label={`Remove filter ${props.label}`} onClick={props.onRemove}>
+          <X className="size-3" aria-hidden />
+        </button>
+      </Hint>
     </span>
   );
 }
@@ -442,9 +449,9 @@ const CaseRow = React.memo(function CaseRow(props: {
             <span className="truncate text-[13.5px] text-foreground">{item.title || "Untitled case"}</span>
             {item.status !== "active" ? <CaseStatusBadge status={item.status} /> : null}
             {item.lintErrors > 0 ? (
-              <span className="shrink-0 text-[11px] text-destructive" title={`${item.lintErrors} lint error(s)`}>
-                ● {item.lintErrors}
-              </span>
+              <Hint label={`${item.lintErrors} lint error${item.lintErrors === 1 ? "" : "s"}`}>
+                <span className="shrink-0 text-[11px] text-destructive">● {item.lintErrors}</span>
+              </Hint>
             ) : null}
             {item.stats.derivedCases > 0 ? <span className="shrink-0 text-[11px] text-muted-foreground">{item.stats.derivedCases} variants</span> : null}
           </span>
@@ -464,9 +471,9 @@ const CaseRow = React.memo(function CaseRow(props: {
         return stale && item.stats.lastOutcome !== "failed" ? (
           <span className="flex items-center gap-1">
             <OutcomeBadge outcome={item.stats.lastOutcome} />
-            <span className="text-[10.5px] text-warning" title={`${item.stats.staleSteps} stale cached step(s)`}>
-              stale
-            </span>
+            <Hint label={`${item.stats.staleSteps} stale cached step${item.stats.staleSteps === 1 ? "" : "s"}`}>
+              <span className="text-[10.5px] text-warning">stale</span>
+            </Hint>
           </span>
         ) : (
           <OutcomeBadge outcome={item.stats.lastOutcome} />

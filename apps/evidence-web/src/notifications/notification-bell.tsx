@@ -11,6 +11,7 @@ import { testAdminApi } from "../test-cases/admin-api";
 import { testAdminKeys, useActiveOrgId, useNotifications, useTestAdminMutation } from "../test-cases/admin-queries";
 import { pressable } from "../test-cases/admin-ui";
 import { bellAccessibleName, notificationHref, unreadBadgeLabel } from "./notification-links";
+import { Hint } from "../components/ui/tooltip";
 
 // In-app notification bell for the workspace header (design.md §10b). Polls every 30 s.
 
@@ -122,15 +123,16 @@ export function NotificationBell(props: {
                         </span>
                       </button>
                       {isUnread ? (
-                        <button
-                          type="button"
-                          aria-label={`Mark “${item.title}” as read`}
-                          title="Mark as read"
-                          className={cn("mt-2 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground", pressable)}
-                          onClick={() => optimisticRead([item.id])}
-                        >
-                          <Check className="size-4" aria-hidden />
-                        </button>
+                        <Hint label="Mark as read" side="left">
+                          <button
+                            type="button"
+                            aria-label={`Mark “${item.title}” as read`}
+                            className={cn("mt-2 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground", pressable)}
+                            onClick={() => optimisticRead([item.id])}
+                          >
+                            <Check className="size-4" aria-hidden />
+                          </button>
+                        </Hint>
                       ) : null}
                     </li>
                   );

@@ -9,6 +9,7 @@ import { useEvidences, useRenameEvidence } from "../../queries";
 import { useToast } from "../../toast";
 import { formatRelativeTime } from "../../utils";
 import { Spinner } from "../ui/spinner";
+import { Hint } from "../ui/tooltip";
 
 const isMac =
   typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -168,14 +169,16 @@ function SearchPalette({
                 className="h-12 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 aria-label="Search evidence"
               />
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close search"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="size-4" aria-hidden />
-              </button>
+              <Hint label="Close">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close search"
+                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
+              </Hint>
             </div>
 
             <div
@@ -202,7 +205,7 @@ function SearchPalette({
                       onMouseEnter={() => setSelected(index)}
                       className={cn(
                         "group flex items-center gap-3 rounded-md px-2.5 py-2",
-                        active && !editing ? "bg-white/[0.06]" : "",
+                        active && !editing ? "bg-accent" : "",
                       )}
                     >
                       <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-primary">
@@ -251,17 +254,19 @@ function SearchPalette({
                           )}
                         </span>
                       ) : (
-                        <button
-                          type="button"
-                          aria-label={`Rename ${evidence.title}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startRename(evidence);
-                          }}
-                          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                        >
-                          <Pencil className="size-3.5" aria-hidden />
-                        </button>
+                        <Hint label="Rename">
+                          <button
+                            type="button"
+                            aria-label={`Rename ${evidence.title}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startRename(evidence);
+                            }}
+                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                          >
+                            <Pencil className="size-3.5" aria-hidden />
+                          </button>
+                        </Hint>
                       )}
                     </div>
                   );

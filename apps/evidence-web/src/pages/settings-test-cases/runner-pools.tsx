@@ -19,6 +19,7 @@ import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestPermissions
 import { AdminCard, CopyBlock, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { testRunHref } from "../../notifications/notification-links";
 import { registrationTokenAction, runnerCommands } from "../../test-config/config-ui";
+import { Hint } from "../../components/ui/tooltip";
 
 // Settings → Runner pools (design.md §5.4, docs/e2e-test-cases/runner-setup.md): pools, workers and
 // registration. The registration token appears once, right after the pool is created.
@@ -139,9 +140,11 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                             </TableCell>
                             <TableCell className="pr-4 text-right">
                               {canManage && pool.kind === "self-hosted" ? (
-                                <Button variant="ghost" size="icon-sm" aria-label={`Remove worker ${worker.hostname}`} onClick={() => setRemoving({ pool, workerId: worker.id, hostname: worker.hostname })}>
-                                  <Trash2 aria-hidden />
-                                </Button>
+                                <Hint label="Remove worker">
+                                  <Button variant="ghost" size="icon-sm" aria-label={`Remove worker ${worker.hostname}`} onClick={() => setRemoving({ pool, workerId: worker.id, hostname: worker.hostname })}>
+                                    <Trash2 aria-hidden />
+                                  </Button>
+                                </Hint>
                               ) : null}
                             </TableCell>
                           </TableRow>

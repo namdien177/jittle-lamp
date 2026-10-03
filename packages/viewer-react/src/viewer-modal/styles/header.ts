@@ -120,11 +120,20 @@ export const headerStyles = `
     justify-content: flex-end;
   }
 
+  /* Icon-only below 1200px: quiet like the "more" button next to them. */
   .jl-vm-actions .jl-vm-btn {
     width: 28px;
     height: 28px;
     padding: 0;
     gap: 0;
+    border-color: transparent;
+    background: transparent;
+    color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
+  }
+
+  .jl-vm-actions .jl-vm-btn:hover {
+    background: var(--jl-vm-surface-2, #171a1b);
+    color: var(--jl-vm-text, #efefef);
   }
 
   .jl-vm-actions .jl-vm-btn-label {
@@ -138,37 +147,6 @@ export const headerStyles = `
     clip-path: inset(50%);
     white-space: nowrap;
     border: 0;
-  }
-
-  .jl-vm-actions .jl-vm-btn::after {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    z-index: 20;
-    max-width: min(240px, 80vw);
-    padding: 6px 8px;
-    border: 1px solid var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16));
-    border-radius: 6px;
-    background: var(--jl-vm-surface-3, #1f2324);
-    color: var(--jl-vm-text, #efefef);
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-    content: attr(data-label);
-    font-size: 11.5px;
-    font-weight: 500;
-    line-height: 1.2;
-    opacity: 0;
-    overflow-wrap: break-word;
-    pointer-events: none;
-    text-align: center;
-    transform: translateY(-2px);
-    transition: opacity 120ms ease, transform 120ms ease;
-    white-space: nowrap;
-  }
-
-  .jl-vm-actions .jl-vm-btn:hover::after,
-  .jl-vm-actions .jl-vm-btn:focus-visible::after {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 `;

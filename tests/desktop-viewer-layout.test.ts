@@ -97,10 +97,12 @@ describe("viewer modal layout CSS", () => {
     expect(css).toContain("@media (max-width: 1199px)");
     expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?padding:\s*0;/);
     expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn-label\s*\{[\s\S]*?clip-path:\s*inset\(50%\);/);
-    expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn::after\s*\{[\s\S]*?content:\s*attr\(data-label\);[\s\S]*?opacity:\s*0;/);
-    expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn:hover::after,\s*\.jl-vm-actions \.jl-vm-btn:focus-visible::after\s*\{[\s\S]*?opacity:\s*1;/);
-    expect(modalHeaderSource).toContain('data-label={props.label}');
+    // The shared tooltip layer shows data-tip labels; no native title tooltips on top of it.
+    expect(css).toMatch(/\.jl-vm-tip\s*\{[\s\S]*?pointer-events:\s*none;/);
+    expect(css).toMatch(/\.jl-vm-tip\[data-visible="true"\]\s*\{[\s\S]*?opacity:\s*1;/);
+    expect(modalHeaderSource).toContain('data-tip={props.label}');
     expect(modalHeaderSource).toContain('aria-label={props.label}');
+    expect(modalHeaderSource).not.toContain('title={props.label}');
     expect(modalHeaderSource).toContain('className="jl-vm-btn-label"');
   });
 
@@ -162,7 +164,7 @@ describe("viewer modal layout CSS", () => {
     expect(css).toMatch(/\.jl-vm-pane-heading \.jl-vm-pane-heading-actions\s*\{[\s\S]*?align-items:\s*center;[\s\S]*?align-self:\s*center;/);
     expect(css).toMatch(/\.jl-vm-pane-count\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?min-height:\s*28px;/);
     expect(css).toMatch(/\.jl-vm-pane-count::before\s*\{[\s\S]*?content:\s*attr\(data-count\);/);
-    expect(evidencePaneSource).toContain("title={activeCountTitle}");
+    expect(evidencePaneSource).toContain("data-tip={activeCountTitle}");
     expect(evidencePaneSource).toContain('"Number of actions"');
   });
 

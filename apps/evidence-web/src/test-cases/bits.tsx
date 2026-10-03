@@ -5,6 +5,7 @@ import { splitTag } from "@jittle-lamp/ui";
 import { cn } from "../lib/cn";
 import { Badge } from "../components/ui/badge";
 import { runLabel, runTone } from "./run-model";
+import { Hint, TruncatedText } from "../components/ui/tooltip";
 
 // Small presentational pieces shared by the test case pages.
 
@@ -73,10 +74,12 @@ export function TagChip(props: { tag: string; color?: string | null; onClick?: (
 
 export function Stat(props: { label: string; value: React.ReactNode; hint?: string | undefined }): React.JSX.Element {
   return (
-    <div className="min-w-0" title={props.hint}>
-      <div className="text-[11px] text-muted-foreground">{props.label}</div>
-      <div className="truncate font-mono text-[13.5px] tabular-nums text-foreground">{props.value}</div>
-    </div>
+    <Hint label={props.hint} disabled={!props.hint}>
+      <div className="min-w-0">
+        <div className="text-[11px] text-muted-foreground">{props.label}</div>
+        <div className="truncate font-mono text-[13.5px] tabular-nums text-foreground">{props.value}</div>
+      </div>
+    </Hint>
   );
 }
 
@@ -84,9 +87,9 @@ export function CopyCommand(props: { command: string; onCopied?: () => void }): 
   const [copied, setCopied] = React.useState(false);
   return (
     <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5">
-      <code className="min-w-0 flex-1 truncate font-mono text-[12.5px]" title={props.command}>
+      <TruncatedText render={<code />} className="flex-1 font-mono text-[12.5px]">
         {props.command}
-      </code>
+      </TruncatedText>
       <button
         type="button"
         className="jl-tc-press shrink-0 rounded px-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground"

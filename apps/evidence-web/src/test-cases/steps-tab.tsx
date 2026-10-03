@@ -202,21 +202,21 @@ function EditorToolbar(props: {
   return (
     <div className="flex items-center gap-2">
       <DropdownMenu>
-<DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label={`Version ${props.version}, show history`}>
+        <DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label={`Version ${props.version}, show history`}>
             <History aria-hidden /> v{props.version}
           </Button>} />
-<DropdownMenuContent align="end">
-        <DropdownMenuLabel>Versions</DropdownMenuLabel>
-        {props.versions.length === 0 ? <DropdownMenuItem disabled>Loading…</DropdownMenuItem> : null}
-        {props.versions.slice(0, 12).map((version) => (
-          <DropdownMenuItem key={version.version} disabled>
-            <span className="font-mono">v{version.version}</span>
-            <span className="text-muted-foreground">{formatRelative(version.createdAt)}</span>
-            {version.changeNote ? <span className="truncate">{version.changeNote}</span> : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-</DropdownMenu>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Versions</DropdownMenuLabel>
+          {props.versions.length === 0 ? <DropdownMenuItem disabled>Loading…</DropdownMenuItem> : null}
+          {props.versions.slice(0, 12).map((version) => (
+            <DropdownMenuItem key={version.version} disabled>
+              <span className="font-mono">v{version.version}</span>
+              <span className="text-muted-foreground">{formatRelative(version.createdAt)}</span>
+              {version.changeNote ? <span className="truncate">{version.changeNote}</span> : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       {props.dirty && !props.readOnly ? (
         <>
           <span className="text-[12px] text-muted-foreground">Unsaved</span>

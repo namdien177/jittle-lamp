@@ -24,6 +24,7 @@ import {
   useWebhooks
 } from "../../test-cases/admin-queries";
 import { AdminCard, CopyBlock, ErrorNote, ReadOnlyNotice, Toggle, pressable } from "../../test-cases/admin-ui";
+import { Hint, TruncatedText } from "../../components/ui/tooltip";
 import {
   credentialKindForProvider,
   deliveryTone,
@@ -121,9 +122,11 @@ export function SettingsTestWebhooksPage(): React.JSX.Element {
                     <Button variant="ghost" size="xs" className={pressable} onClick={() => setRotating(endpoint)}>
                       <RotateCw aria-hidden /> New secret
                     </Button>
-                    <Button variant="ghost" size="icon-sm" aria-label="Delete webhook" onClick={() => setDeleting(endpoint)}>
-                      <Trash2 aria-hidden />
-                    </Button>
+                    <Hint label="Delete">
+                      <Button variant="ghost" size="icon-sm" aria-label="Delete webhook" onClick={() => setDeleting(endpoint)}>
+                        <Trash2 aria-hidden />
+                      </Button>
+                    </Hint>
                   </span>
                 </header>
                 <div className="grid gap-3 px-4 py-3">
@@ -226,13 +229,11 @@ function Deliveries(props: { endpointId: string }): React.JSX.Element {
                 <TableCell className="whitespace-nowrap text-sm">{delivery.eventType}</TableCell>
                 <TableCell className="font-mono text-xs">{shortSha(delivery.triggerRef)}</TableCell>
                                 <TableCell className="max-w-[28rem] text-sm text-muted-foreground">
-                  <span className="block truncate" title={delivery.error ?? undefined}>
-                    {delivery.error ?? (delivery.batchId ? "Suite queued" : "")}
-                  </span>
+                  <TruncatedText>{delivery.error ?? (delivery.batchId ? "Suite queued" : "")}</TruncatedText>
                   {reportSummary(delivery.report) ? (
-                    <Badge variant={reportSummary(delivery.report)?.tone ?? "muted"} className="mt-1 max-w-full truncate" title={reportSummary(delivery.report)?.label}>
+                    <TruncatedText render={<Badge variant={reportSummary(delivery.report)?.tone ?? "muted"} className="mt-1 max-w-full" />}>
                       {reportSummary(delivery.report)?.label}
-                    </Badge>
+                    </TruncatedText>
                   ) : null}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">{formatRelativeTime(delivery.createdAt)}</TableCell>
@@ -462,7 +463,7 @@ function SecretDialog(props: { endpoint: WebhookEndpoint; secret: string; onClos
       </div>
       <CopyBlock label="Endpoint URL" value={props.endpoint.url} />
       <CopyBlock label="Secret" value={props.secret} />
-      <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+      <ol className="list-decimal space-y-1 pl-4 text-sm text-muted-foreground">
         {providerSetup(props.endpoint.provider).map((step) => (
           <li key={step}>{step}</li>
         ))}

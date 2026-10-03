@@ -22,6 +22,7 @@ import {
 import { AdminCard, CopyBlock, ErrorNote, ReadOnlyNotice, Toggle, pressable } from "../../test-cases/admin-ui";
 import { channelFilterSummary, notificationKindLabels, splitList } from "../../test-config/webhook-ui";
 import { isSubscribed, notificationKinds, toggleSubscription, type NotificationSubscriptions } from "../../notifications/subscriptions";
+import { Hint } from "../../components/ui/tooltip";
 
 // Settings → Notifications (design.md §10b, units 1c.5 and 2.2): every run, batch, import and
 // review event goes through one bus. In-app is always on, with per-person subscriptions; Slack and
@@ -126,12 +127,16 @@ export function SettingsTestNotificationsPage(): React.JSX.Element {
                       <Button variant="ghost" size="xs" className={pressable} disabled={test.isPending} onClick={() => void sendTest(channel)}>
                         <Send aria-hidden /> Send test
                       </Button>
-                      <Button variant="ghost" size="icon-sm" aria-label="Edit channel" onClick={() => setEditing(channel)}>
-                        <Pencil aria-hidden />
-                      </Button>
-                      <Button variant="ghost" size="icon-sm" aria-label="Delete channel" onClick={() => setDeleting(channel)}>
-                        <Trash2 aria-hidden />
-                      </Button>
+                      <Hint label="Edit">
+                        <Button variant="ghost" size="icon-sm" aria-label="Edit channel" onClick={() => setEditing(channel)}>
+                          <Pencil aria-hidden />
+                        </Button>
+                      </Hint>
+                      <Hint label="Delete">
+                        <Button variant="ghost" size="icon-sm" aria-label="Delete channel" onClick={() => setDeleting(channel)}>
+                          <Trash2 aria-hidden />
+                        </Button>
+                      </Hint>
                     </span>
                   ) : null
                 }

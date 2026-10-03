@@ -3,6 +3,7 @@ import { Bookmark, ChevronRight, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import { emptyFilters, toggleValue, viewMatches, type ListColumnId, type ListFilters, type ListSort, type SavedView, type TagGroup } from "./list-model";
+import { Hint } from "../components/ui/tooltip";
 
 type QuickView = { id: string; label: string; filters: Partial<ListFilters> };
 
@@ -55,14 +56,16 @@ export function CaseSidebar(props: {
               <Bookmark className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
               <span className="truncate">{view.name}</span>
             </SidebarButton>
-            <button
-              type="button"
-              className="jl-tc-press rounded p-1 text-muted-foreground opacity-0 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-              aria-label={`Delete saved view ${view.name}`}
-              onClick={() => props.onDeleteView(view.id)}
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-            </button>
+            <Hint label="Delete view">
+              <button
+                type="button"
+                className="jl-tc-press rounded p-1 text-muted-foreground opacity-0 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                aria-label={`Delete saved view ${view.name}`}
+                onClick={() => props.onDeleteView(view.id)}
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+              </button>
+            </Hint>
           </div>
         ))}
         {naming ? (

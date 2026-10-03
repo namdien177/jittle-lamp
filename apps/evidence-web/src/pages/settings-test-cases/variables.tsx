@@ -36,6 +36,7 @@ import {
   type VariableRow
 } from "../../test-config/config-ui";
 import { testingSettingsBase } from "./routes";
+import { Hint, TruncatedText } from "../../components/ui/tooltip";
 
 // Testing → Settings → Variables: every environment's variables in one list, modelled on Vercel's
 // environment variables page. A key can hold a different value per environment; values are
@@ -204,9 +205,9 @@ function VariableListRow(props: {
   return (
     <li className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 sm:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)_auto]">
       <div className="min-w-0">
-        <p className="truncate font-mono text-[13px] font-medium text-foreground" title={props.row.key}>
+        <TruncatedText render={<p />} className="font-mono text-[13px] font-medium text-foreground">
           {props.row.key}
-        </p>
+        </TruncatedText>
         <div className="mt-0.5 flex flex-wrap gap-1">
           {props.allEnvironments ? (
             <Badge variant="outline">All environments</Badge>
@@ -220,18 +221,26 @@ function VariableListRow(props: {
         </div>
       </div>
       <div className="col-span-2 flex min-w-0 items-center gap-1 sm:col-span-1">
-        <Button variant="ghost" size="icon-xs" aria-label={revealed ? `Hide ${props.row.key}` : `Show ${props.row.key}`} onClick={() => setRevealed((value) => !value)}>
-          {revealed ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-        </Button>
-        <code className={cn("min-w-0 truncate font-mono text-[13px]", revealed ? "text-foreground" : "tracking-widest text-muted-foreground")} title={revealed ? props.row.value : undefined}>
-          {revealed ? props.row.value || "(empty)" : "••••••••••"}
-        </code>
+        <Hint label={revealed ? "Hide value" : "Show value"}>
+          <Button variant="ghost" size="icon-xs" aria-label={revealed ? `Hide ${props.row.key}` : `Show ${props.row.key}`} onClick={() => setRevealed((value) => !value)}>
+            {revealed ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+          </Button>
+        </Hint>
+        {revealed ? (
+          <TruncatedText render={<code />} className="font-mono text-[13px] text-foreground">
+            {props.row.value || "(empty)"}
+          </TruncatedText>
+        ) : (
+          <code className="min-w-0 truncate font-mono text-[13px] tracking-widest text-muted-foreground">••••••••••</code>
+        )}
       </div>
       <div className="col-start-2 row-start-1 flex items-center gap-2 sm:col-start-3">
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${props.row.key}`} />}>
-            <MoreHorizontal aria-hidden />
-          </DropdownMenuTrigger>
+          <Hint label="More actions">
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${props.row.key}`} />}>
+              <MoreHorizontal aria-hidden />
+            </DropdownMenuTrigger>
+          </Hint>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={props.onCopy}>
               <Copy aria-hidden />
@@ -386,9 +395,11 @@ function AddVariablesCard(props: { environments: readonly TestEnvironment[] }): 
                 className="min-h-8 resize-y font-mono"
                 onChange={(event) => update(index, { value: event.target.value })}
               />
-              <Button variant="ghost" size="icon-sm" aria-label={`Remove row ${index + 1}`} disabled={rows.length === 1 && !row.key && !row.value} onClick={() => setRows((current) => (current.length === 1 ? [emptyRow()] : current.filter((_row, rowIndex) => rowIndex !== index)))}>
-                <X aria-hidden />
-              </Button>
+              <Hint label="Remove row">
+                <Button variant="ghost" size="icon-sm" aria-label={`Remove row ${index + 1}`} disabled={rows.length === 1 && !row.key && !row.value} onClick={() => setRows((current) => (current.length === 1 ? [emptyRow()] : current.filter((_row, rowIndex) => rowIndex !== index)))}>
+                  <X aria-hidden />
+                </Button>
+              </Hint>
             </div>
           ))}
           <div>

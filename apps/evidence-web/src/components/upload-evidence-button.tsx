@@ -14,6 +14,7 @@ import {
 import { useToast } from "../toast";
 import { Button, type ButtonProps } from "./ui/button";
 import { Spinner } from "./ui/spinner";
+import { Hint } from "./ui/tooltip";
 
 const uploadAccept =
   ".zip,.mp4,.webm,.webp,application/zip,application/x-zip-compressed,video/mp4,video/webm,image/webp";
@@ -115,18 +116,19 @@ export function UploadEvidenceButton(
   const label = props.label ?? "Upload";
   return (
     <>
-      <Button
-        variant={props.variant ?? "default"}
-        size={props.size ?? (props.iconOnly ? "icon-sm" : "sm")}
-        className={props.className}
-        disabled={uploading}
-        aria-label={props.iconOnly ? "Upload evidence" : undefined}
-        title={props.iconOnly ? "Upload evidence" : undefined}
-        onClick={pick}
-      >
-        {uploading ? <Spinner /> : <UploadCloud aria-hidden />}
-        {props.iconOnly ? null : uploading ? "Uploading..." : label}
-      </Button>
+      <Hint label="Upload evidence" disabled={!props.iconOnly}>
+        <Button
+          variant={props.variant ?? "default"}
+          size={props.size ?? (props.iconOnly ? "icon-sm" : "sm")}
+          className={props.className}
+          disabled={uploading}
+          aria-label={props.iconOnly ? "Upload evidence" : undefined}
+          onClick={pick}
+        >
+          {uploading ? <Spinner /> : <UploadCloud aria-hidden />}
+          {props.iconOnly ? null : uploading ? "Uploading..." : label}
+        </Button>
+      </Hint>
       {input}
     </>
   );

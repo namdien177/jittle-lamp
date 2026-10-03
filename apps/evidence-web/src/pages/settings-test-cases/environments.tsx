@@ -19,6 +19,7 @@ import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestEnvironment
 import { AdminCard, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { agentInstructionsCounter, environmentNamePattern, isHttpUrl, runnerPoolValue } from "../../test-config/config-ui";
 import { testingSettingsBase } from "./routes";
+import { Hint, TruncatedText } from "../../components/ui/tooltip";
 
 // Settings → Environments (design.md §9.3, §14): base URL, variables, runner pool, agent instructions.
 
@@ -62,12 +63,12 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-5">Name</TableHead>
+                <TableHead className="pl-4">Name</TableHead>
                 <TableHead>Base URL</TableHead>
                 <TableHead>Runner pool</TableHead>
                 <TableHead className="w-24">Variables</TableHead>
                 <TableHead className="w-24 whitespace-nowrap">Used by</TableHead>
-                <TableHead className="w-28 pr-5 text-right">
+                <TableHead className="w-28 pr-4 text-right">
                   <span className="sr-only">Actions</span>
                 </TableHead>
               </TableRow>
@@ -75,12 +76,12 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
             <TableBody>
               {(environments.data ?? []).map((environment) => (
                 <TableRow key={environment.id}>
-                  <TableCell className="pl-5">
+                  <TableCell className="pl-4">
                     <span className="whitespace-nowrap font-mono text-sm font-semibold text-foreground">{environment.name}</span>
                     {environment.agentInstructions ? <span className="block whitespace-nowrap text-xs text-muted-foreground">instructions · {environment.agentInstructions.length.toLocaleString()} chars</span> : null}
                   </TableCell>
-                  <TableCell className="max-w-64 truncate font-mono text-xs" title={environment.baseUrl}>
-                    {environment.baseUrl}
+                  <TableCell className="max-w-64 font-mono text-xs">
+                    <TruncatedText>{environment.baseUrl}</TruncatedText>
                   </TableCell>
                   <TableCell>
                     <Badge variant={environment.runnerPool === "cloud" ? "default" : "outline"}>{runnerPoolLabel(environment.runnerPool, pools.data ?? [])}</Badge>
@@ -93,15 +94,19 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
                   <TableCell className="whitespace-nowrap tabular-nums">
                     {environment.usedByCases} case{environment.usedByCases === 1 ? "" : "s"}
                   </TableCell>
-                  <TableCell className="pr-5 text-right">
+                  <TableCell className="pr-4 text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} ${environment.name}`} onClick={() => setEditing(environment)}>
-                        {canManage ? <Pencil aria-hidden /> : <Eye aria-hidden />}
-                      </Button>
-                      {canManage ? (
-                        <Button variant="ghost" size="icon-sm" aria-label={`Delete ${environment.name}`} onClick={() => setDeleting(environment)}>
-                          <Trash2 aria-hidden />
+                      <Hint label={canManage ? "Edit" : "View"}>
+                        <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} ${environment.name}`} onClick={() => setEditing(environment)}>
+                          {canManage ? <Pencil aria-hidden /> : <Eye aria-hidden />}
                         </Button>
+                      </Hint>
+                      {canManage ? (
+                        <Hint label="Delete">
+                          <Button variant="ghost" size="icon-sm" aria-label={`Delete ${environment.name}`} onClick={() => setDeleting(environment)}>
+                            <Trash2 aria-hidden />
+                          </Button>
+                        </Hint>
                       ) : null}
                     </div>
                   </TableCell>

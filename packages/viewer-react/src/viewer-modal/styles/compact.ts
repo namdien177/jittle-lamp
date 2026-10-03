@@ -57,7 +57,7 @@ export const compactStyles = `
   [data-compact="true"] .jl-vm-actions > .jl-vm-btn .jl-vm-btn-label { display: none; }
   [data-compact="true"] .jl-vm-header .jl-vm-btn, .jl-vm-more summary { min-width: 36px; min-height: 36px; }
   [data-compact="true"] .jl-vm-tabs-row { flex-direction: row; flex-wrap: nowrap; align-items: center; }
-  [data-compact="true"] .jl-vm-search { width: 70px; min-width: 0; min-height: 32px; flex: 1 1 70px; }
+  [data-compact="true"] .jl-vm-search { width: 70px; min-width: 0; height: 36px; min-height: 36px; flex: 1 1 70px; }
   [data-compact="true"] .jl-vm-tabs { --jl-vm-tab-size: 32px; }
   [data-compact="true"] .jl-vm-tab { min-height: 32px; }
 }

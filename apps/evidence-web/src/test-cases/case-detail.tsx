@@ -13,6 +13,7 @@ import { formatTokens } from "./run-model";
 import { ScriptsTab } from "./scripts-tab";
 import { SessionsTab } from "./sessions-tab";
 import { StepsTab } from "./steps-tab";
+import { Hint } from "../components/ui/tooltip";
 
 export type DetailTab = "steps" | "sessions" | "scripts";
 
@@ -74,9 +75,11 @@ export function CaseDetailPane(props: {
             <Button size="xs" className="jl-tc-press" onClick={() => props.onRun(detail)} aria-keyshortcuts="r">
               <Play aria-hidden /> Run <Kbd>r</Kbd>
             </Button>
-            <button type="button" className="jl-tc-press rounded p-1 text-muted-foreground hover:text-foreground" aria-label="Close detail" onClick={props.onClose}>
-              <X className="size-4" aria-hidden />
-            </button>
+            <Hint label="Close">
+              <button type="button" className="jl-tc-press rounded p-1 text-muted-foreground hover:text-foreground" aria-label="Close detail" onClick={props.onClose}>
+                <X className="size-4" aria-hidden />
+              </button>
+            </Hint>
           </span>
         </div>
         <h2 className="text-[19px] font-semibold leading-snug tracking-[-0.01em]">{detail.title || "Untitled case"}</h2>
@@ -85,13 +88,15 @@ export function CaseDetailPane(props: {
           {detail.links.map((link) => {
             const href = safeExternalHref(link.url);
             return href ? (
-              <a key={link.url} href={href} target="_blank" rel="noreferrer" className="jl-tc-press inline-flex items-center gap-1 rounded border border-border px-1.5 text-[12px] leading-5 hover:bg-muted" title={link.url}>
-                {link.label ?? linkLabel(link.url)} <ExternalLink className="size-3" aria-hidden />
-              </a>
+              <Hint key={link.url} label={link.url}>
+                <a href={href} target="_blank" rel="noreferrer" className="jl-tc-press inline-flex items-center gap-1 rounded border border-border px-1.5 text-[12px] leading-5 hover:bg-muted">
+                  {link.label ?? linkLabel(link.url)} <ExternalLink className="size-3" aria-hidden />
+                </a>
+              </Hint>
             ) : (
-              <span key={link.url} className="inline-flex items-center rounded border border-border px-1.5 text-[12px] leading-5 text-muted-foreground" title={link.url}>
-                {link.label ?? link.url}
-              </span>
+              <Hint key={link.url} label={link.url}>
+                <span className="inline-flex items-center rounded border border-border px-1.5 text-[12px] leading-5 text-muted-foreground">{link.label ?? link.url}</span>
+              </Hint>
             );
           })}
           {detail.tags.map((tag) => (
@@ -105,19 +110,19 @@ export function CaseDetailPane(props: {
           <div className="flex flex-wrap items-center gap-1 text-[12px]">
             <span className="text-muted-foreground">Needs</span>
             {[...[...new Set(required.credentials)].map((name) => ({ name, kind: "credential" })), ...[...new Set(required.variables)].map((name) => ({ name, kind: "variable" }))].map((entry) => (
-              <span
-                key={`${entry.kind}:${entry.name}`}
-                className={cn(
-                  "rounded border px-1.5 font-mono leading-5",
-                  unresolved.has(entry.name) ? "border-destructive/50 bg-destructive/10 text-destructive" : "border-border text-muted-foreground"
-                )}
-                title={unresolved.has(entry.name) ? `${entry.name} is not set in ${environment?.name ?? "the environment"}` : `${entry.kind} resolved`}
-              >
-                {entry.kind === "credential" ? "🔒 " : "{"}
-                {entry.name}
-                {entry.kind === "credential" ? "" : "}"}
-                {unresolved.has(entry.name) ? " · missing" : ""}
-              </span>
+              <Hint key={`${entry.kind}:${entry.name}`} label={unresolved.has(entry.name) ? `${entry.name} is not set in ${environment?.name ?? "the environment"}` : `${entry.kind} resolved`}>
+                <span
+                  className={cn(
+                    "rounded border px-1.5 font-mono leading-5",
+                    unresolved.has(entry.name) ? "border-destructive/50 bg-destructive/10 text-destructive" : "border-border text-muted-foreground"
+                  )}
+                >
+                  {entry.kind === "credential" ? "🔒 " : "{"}
+                  {entry.name}
+                  {entry.kind === "credential" ? "" : "}"}
+                  {unresolved.has(entry.name) ? " · missing" : ""}
+                </span>
+              </Hint>
             ))}
           </div>
         ) : null}

@@ -14,6 +14,7 @@ import { testAdminApi, type TagInput } from "../../test-cases/admin-api";
 import { testAdminKeys, useTestAdminMutation, useTestPermissions, useTestTags } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { groupTagsByNamespace, tagColors, tagLabel } from "../../test-config/config-ui";
+import { Hint } from "../../components/ui/tooltip";
 
 // Settings → Tags (design.md §7 "Organising thousands"): namespaced, organisation-managed tags.
 
@@ -53,10 +54,10 @@ export function SettingsTestTagsPage(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-5">Tag</TableHead>
+                <TableHead className="pl-4">Tag</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead className="w-24">Cases</TableHead>
-                <TableHead className="w-24 pr-5 text-right">
+                <TableHead className="w-24 pr-4 text-right">
                   <span className="sr-only">Actions</span>
                 </TableHead>
               </TableRow>
@@ -65,13 +66,13 @@ export function SettingsTestTagsPage(): React.JSX.Element {
               {groups.map((group) => (
                 <React.Fragment key={group.namespace}>
                   <TableRow className="bg-muted/60 hover:bg-muted/60">
-                    <TableCell colSpan={4} className="pl-5 font-mono text-xs font-medium text-muted-foreground">
+                    <TableCell colSpan={4} className="pl-4 font-mono text-xs font-medium text-muted-foreground">
                       {group.namespace || "free tags"} · {group.tags.length}
                     </TableCell>
                   </TableRow>
                   {group.tags.map((tag) => (
                     <TableRow key={tag.id}>
-                      <TableCell className="pl-5">
+                      <TableCell className="pl-4">
                         <span className="inline-flex items-center gap-2 font-mono text-sm">
                           <span className="size-3 rounded-full border border-black/10" style={{ background: tag.color }} aria-hidden />
                           {tagLabel(tag)}
@@ -79,15 +80,19 @@ export function SettingsTestTagsPage(): React.JSX.Element {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{tag.description ?? "—"}</TableCell>
                       <TableCell className="tabular-nums">{tag.count}</TableCell>
-                      <TableCell className="pr-5 text-right">
+                      <TableCell className="pr-4 text-right">
                         {canManage ? (
                           <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon-sm" aria-label={`Edit tag ${tagLabel(tag)}`} onClick={() => setEditing(tag)}>
-                              <Pencil aria-hidden />
-                            </Button>
-                            <Button variant="ghost" size="icon-sm" aria-label={`Delete tag ${tagLabel(tag)}`} onClick={() => setDeleting(tag)}>
-                              <Trash2 aria-hidden />
-                            </Button>
+                            <Hint label="Edit">
+                              <Button variant="ghost" size="icon-sm" aria-label={`Edit tag ${tagLabel(tag)}`} onClick={() => setEditing(tag)}>
+                                <Pencil aria-hidden />
+                              </Button>
+                            </Hint>
+                            <Hint label="Delete">
+                              <Button variant="ghost" size="icon-sm" aria-label={`Delete tag ${tagLabel(tag)}`} onClick={() => setDeleting(tag)}>
+                                <Trash2 aria-hidden />
+                              </Button>
+                            </Hint>
                           </div>
                         ) : null}
                       </TableCell>

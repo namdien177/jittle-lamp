@@ -71,6 +71,7 @@ import { downloadEvidenceAsZip } from "../download-evidence";
 import { ShareDialog } from "../share-dialog";
 import { useToast } from "../toast";
 import { copyToClipboard, formatRelativeTime } from "../utils";
+import { Hint } from "../components/ui/tooltip";
 
 const PAGE_SIZE = 50;
 
@@ -391,67 +392,58 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     deleting: boolean,
   ): React.JSX.Element => (
     <DropdownMenu>
-<DropdownMenuTrigger render={<button
-          type="button"
-          aria-label="More actions"
-          disabled={downloading || deleting}
-          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-        >
-          {downloading || deleting ? (
-            <Spinner />
-          ) : (
-            <MoreHorizontal className="size-4" aria-hidden />
-          )}
-        </button>} />
-<DropdownMenuContent>
-      <DropdownMenuItem
-        onClick={() => navigateToEvidence(evidence)}
-      >
-        <Play aria-hidden />
-        Review
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => setTagTarget(evidence)}>
-        <Tag aria-hidden />
-        Tags
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => setRenameTarget(evidence)}>
-        <Pencil aria-hidden />
-        Rename
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => setShareTarget(evidence)}>
-        <Share2 aria-hidden />
-        Share link
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        onClick={() => setWorkspaceActionTarget({ evidence, action: "copy" })}
-      >
-        <Copy aria-hidden />
-        Copy to workspace
-      </DropdownMenuItem>
-      {isOwnEvidence(evidence) ? (
-        <DropdownMenuItem
-          onClick={() =>
-            setWorkspaceActionTarget({ evidence, action: "transfer" })
+      <Hint label="More actions">
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label="More actions"
+              disabled={downloading || deleting}
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+            >
+              {downloading || deleting ? <Spinner /> : <MoreHorizontal className="size-4" aria-hidden />}
+            </button>
           }
-        >
-          <ArrowRightLeft aria-hidden />
-          Transfer
+        />
+      </Hint>
+      <DropdownMenuContent>
+        <DropdownMenuItem onClick={() => navigateToEvidence(evidence)}>
+          <Play aria-hidden />
+          Review
         </DropdownMenuItem>
-      ) : null}
-      <DropdownMenuItem onClick={() => void handleDownload(evidence)}>
-        <Download aria-hidden />
-        Download ZIP
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem variant="destructive"
-        disabled={!canDelete(evidence)}
-        onClick={() => setPendingDelete(evidence)}
-      >
-        <Trash2 aria-hidden />
-        Delete
-      </DropdownMenuItem>
-    </DropdownMenuContent>
-</DropdownMenu>
+        <DropdownMenuItem onClick={() => setTagTarget(evidence)}>
+          <Tag aria-hidden />
+          Tags
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setRenameTarget(evidence)}>
+          <Pencil aria-hidden />
+          Rename
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setShareTarget(evidence)}>
+          <Share2 aria-hidden />
+          Share link
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setWorkspaceActionTarget({ evidence, action: "copy" })}>
+          <Copy aria-hidden />
+          Copy to workspace
+        </DropdownMenuItem>
+        {isOwnEvidence(evidence) ? (
+          <DropdownMenuItem onClick={() => setWorkspaceActionTarget({ evidence, action: "transfer" })}>
+            <ArrowRightLeft aria-hidden />
+            Transfer
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem onClick={() => void handleDownload(evidence)}>
+          <Download aria-hidden />
+          Download ZIP
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" disabled={!canDelete(evidence)} onClick={() => setPendingDelete(evidence)}>
+          <Trash2 aria-hidden />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const hasFilters = search !== "" || selectedCreatorIds.length > 0 || selectedTagIds.length > 0;
@@ -560,20 +552,20 @@ export function EvidenceLibraryPage(): React.JSX.Element {
               ] as const).map((option) => {
                 const Icon = option.icon;
                 return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-label={option.label}
-                    title={option.label}
-                    aria-pressed={view === option.id}
-                    onClick={() => setParam("view", option.id, "table")}
-                    className={cn(
-                      "inline-flex size-6 items-center justify-center rounded-[5px] transition-colors",
-                      view === option.id ? "bg-background text-foreground shadow-soft dark:bg-accent" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="size-3.5" aria-hidden />
-                  </button>
+                  <Hint key={option.id} label={option.label} side="bottom">
+                    <button
+                      type="button"
+                      aria-label={option.label}
+                      aria-pressed={view === option.id}
+                      onClick={() => setParam("view", option.id, "table")}
+                      className={cn(
+                        "inline-flex size-6 items-center justify-center rounded-[5px] transition-colors",
+                        view === option.id ? "bg-background text-foreground shadow-soft dark:bg-accent" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Icon className="size-3.5" aria-hidden />
+                    </button>
+                  </Hint>
                 );
               })}
             </div>
@@ -605,9 +597,11 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                 <Trash2 aria-hidden />
                 Delete
               </Button>
-              <Button size="icon-sm" variant="ghost" aria-label="Clear selection" onClick={() => setSelectedIds(new Set())} disabled={bulkDownloading || bulkDeleting}>
-                <X aria-hidden />
-              </Button>
+              <Hint label="Clear selection">
+                <Button size="icon-sm" variant="ghost" aria-label="Clear selection" onClick={() => setSelectedIds(new Set())} disabled={bulkDownloading || bulkDeleting}>
+                  <X aria-hidden />
+                </Button>
+              </Hint>
             </div>
           </div>
         ) : null}
@@ -691,10 +685,15 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       </span>
                       <EvidenceStats evidence={evidence} hideDuration />
                     </button>
-                    <Button size="icon-sm" variant="ghost" aria-label={`Share ${evidence.title}`} onClick={() => setShareTarget(evidence)}>
-                      <Share2 aria-hidden />
-                    </Button>
-                    {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
+                    {/* Centred on the title line, not on the three-line text block. */}
+                    <div className="-mt-[5px] flex shrink-0 items-center">
+                      <Hint label="Share">
+                        <Button size="icon-sm" variant="ghost" aria-label={`Share ${evidence.title}`} onClick={() => setShareTarget(evidence)}>
+                          <Share2 aria-hidden />
+                        </Button>
+                      </Hint>
+                      {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
+                    </div>
                   </div>
                 </div>
               );
@@ -761,19 +760,20 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                     </TableCell>
                     <TableCell className="py-1.5 pr-3" onClick={(event) => event.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label={`Copy share link for ${evidence.title}`}
-                          title="Copy share link"
-                          className="transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            void handleShareCopy(evidence);
-                          }}
-                        >
-                          <Link2 aria-hidden />
-                        </Button>
+                        <Hint label="Copy share link">
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={`Copy share link for ${evidence.title}`}
+                            className="transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              void handleShareCopy(evidence);
+                            }}
+                          >
+                            <Link2 aria-hidden />
+                          </Button>
+                        </Hint>
                         {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
                       </div>
                     </TableCell>
@@ -990,21 +990,32 @@ function RecordedByCell(props: {
 }): React.JSX.Element {
   const name = props.member?.displayName ?? props.fallbackName;
   return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        props.onClick();
-      }}
-      className="flex max-w-[200px] items-center gap-2 rounded-md text-left text-[13px] text-foreground hover:text-foreground/80"
-      title={`${name}${props.member?.email ? ` · ${props.member.email}` : ""} · show only their recordings`}
+    <Hint
+      side="bottom"
+      align="start"
+      label={
+        <span className="grid gap-0.5">
+          <span>{name}</span>
+          {props.member?.email ? <span className="font-normal text-muted-foreground">{props.member.email}</span> : null}
+          <span className="font-normal text-muted-foreground">Click to show only their recordings</span>
+        </span>
+      }
     >
-      <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-brand-300">
-        {getInitials(name)}
-      </span>
-      <span className="min-w-0 truncate">{name}</span>
-    </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onClick();
+        }}
+        className="flex max-w-[200px] items-center gap-2 rounded-md text-left text-[13px] text-foreground hover:text-foreground/80"
+      >
+        <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-brand-300">
+          {getInitials(name)}
+        </span>
+        <span className="min-w-0 truncate">{name}</span>
+      </button>
+    </Hint>
   );
 }
 

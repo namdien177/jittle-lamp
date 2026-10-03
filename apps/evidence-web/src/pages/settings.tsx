@@ -71,6 +71,7 @@ import {
 } from "../migration-ui-state";
 import { useToast } from "../toast";
 import { copyToClipboard } from "../utils";
+import { Hint } from "../components/ui/tooltip";
 
 const INSTALL_COMMAND =
 	"curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash";
@@ -370,20 +371,21 @@ function TokenSecret(props: {
 	return (
 		<span
 			className="inline-flex min-w-0 items-center gap-1.5 font-mono"
-			title={value}
 		>
 			<KeyRound className="size-3.5" aria-hidden />
 			<span className="break-all">{value}</span>
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				className="size-7"
-				disabled={!props.token.token}
-				onClick={props.onCopy}
-				aria-label={`Copy ${props.token.label}`}
-			>
-				<Copy aria-hidden />
-			</Button>
+			<Hint label="Copy">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					className="size-7"
+					disabled={!props.token.token}
+					onClick={props.onCopy}
+					aria-label={`Copy ${props.token.label}`}
+				>
+					<Copy aria-hidden />
+				</Button>
+			</Hint>
 		</span>
 	);
 }
@@ -489,12 +491,9 @@ export function SettingsOverviewPage(): React.JSX.Element {
 			>
 				<div className="flex items-center gap-2 overflow-hidden rounded-md border border-border bg-muted pl-3 pr-1.5 font-mono text-base">
 					<Terminal aria-hidden className="size-4 shrink-0 text-primary" />
-					<code
-						className="flex-1 truncate py-2.5 text-muted-foreground"
-						title={INSTALL_COMMAND}
-					>
-						curl ... | bash
-					</code>
+					<Hint label={INSTALL_COMMAND}>
+						<code className="flex-1 truncate py-2.5 text-muted-foreground">curl ... | bash</code>
+					</Hint>
 					<button
 						type="button"
 						onClick={onCopy}

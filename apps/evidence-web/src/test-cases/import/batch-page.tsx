@@ -17,6 +17,7 @@ import { testAdminApi } from "../admin-api";
 import { testAdminKeys, useActiveOrgId, useImportBatch, useTestAdminMutation, useTestPermissions } from "../admin-queries";
 import { AdminCard, ErrorNote, LintBadge, LintFindingList, ReadOnlyNotice, StatTile, TranscriptView, downloadText, pressable } from "../admin-ui";
 import { caseEditorHref } from "../review/review-queue-state";
+import { Hint } from "../../components/ui/tooltip";
 import {
   applyDecisionToSimilar,
   batchOverview,
@@ -282,16 +283,17 @@ function BatchRow(props: {
                 .slice(0, 3)
                 .map((similar) => (
                   <li key={similar.id} className="flex items-center gap-1.5 text-sm">
-                    <Link
-                      to={caseEditorHref(similar.id)}
-                      target="_blank"
-                      className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
-                      aria-label={`Open ${similar.key} ${similar.title} in a new tab`}
-                      title={similar.title}
-                    >
-                      {similar.key}
-                      <ExternalLink className="size-3" aria-hidden />
-                    </Link>
+                    <Hint label={similar.title}>
+                      <Link
+                        to={caseEditorHref(similar.id)}
+                        target="_blank"
+                        className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
+                        aria-label={`Open ${similar.key} ${similar.title} in a new tab`}
+                      >
+                        {similar.key}
+                        <ExternalLink className="size-3" aria-hidden />
+                      </Link>
+                    </Hint>
                     <span className="tabular-nums text-muted-foreground">{Math.round(similar.score * 100)}%</span>
                     {similar.exact ? <Badge variant="warning" className="px-1.5 py-0 text-[11px]">exact</Badge> : null}
                   </li>

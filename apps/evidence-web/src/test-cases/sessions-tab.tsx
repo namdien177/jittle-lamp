@@ -8,6 +8,7 @@ import { formatCost, formatDuration, formatRelative } from "./list-model";
 import { useAccountProfile } from "../queries";
 import { useTestCaseRuns } from "./queries";
 import { cacheHitRatio, formatQueuePill } from "./run-model";
+import { Hint, TruncatedText } from "../components/ui/tooltip";
 
 // Test sessions tab: every run of the case with queue state, attachment, flakiness, cost and the
 // evidence it produced (design.md §7, §10.4).
@@ -62,23 +63,23 @@ function SessionRow(props: { run: TestRunSummary; me: readonly string[] }): Reac
             </Link>
           ) : null}
         </div>
-        <div className="truncate text-[12px] text-muted-foreground" title={`${requester}${run.environmentName ? ` · ${run.environmentName}` : ""}`}>
+        <TruncatedText render={<div />} className="text-[12px] text-muted-foreground">
           {requester}
           {run.environmentName ? ` · ${run.environmentName}` : ""}
-        </div>
+        </TruncatedText>
       </td>
       <td className="py-2 pr-3">
         <div className="flex flex-wrap items-center gap-1">
           <RunStatusBadge run={run} />
           {run.flaky ? (
-            <Badge variant="warning" className="px-1.5 py-0 text-[11px]" title="Passed only after a retry">
-              flaky
-            </Badge>
+            <Hint label="Passed only after a retry">
+              <Badge variant="warning" className="px-1.5 py-0 text-[11px]">flaky</Badge>
+            </Hint>
           ) : null}
           {others.length > 0 ? (
-            <Badge variant="outline" className="px-1.5 py-0 text-[11px]" title={`Also waiting: ${others.map((person) => person.name ?? person.userId).join(", ")}`}>
-              attached · {others.length}
-            </Badge>
+            <Hint label={`Also waiting: ${others.map((person) => person.name ?? person.userId).join(", ")}`}>
+              <Badge variant="outline" className="px-1.5 py-0 text-[11px]">attached · {others.length}</Badge>
+            </Hint>
           ) : null}
         </div>
         {pill ? <div className="mt-1 whitespace-nowrap font-mono text-[11.5px] text-muted-foreground">{pill}</div> : null}
@@ -86,15 +87,15 @@ function SessionRow(props: { run: TestRunSummary; me: readonly string[] }): Reac
       </td>
       <td className="py-2 pr-3 text-muted-foreground">
         <div>{run.trigger}</div>
-        <div className="max-w-[140px] truncate font-mono text-[11.5px]" title={run.runnerPool}>
+        <TruncatedText render={<div />} className="max-w-[140px] font-mono text-[11.5px]">
           {run.runnerPool}
-        </div>
+        </TruncatedText>
       </td>
       <td className="whitespace-nowrap py-2 pr-3 text-right font-mono text-[12.5px] tabular-nums">
         <div>{formatDuration(duration)}</div>
-        <div className="text-muted-foreground" title={`${run.metrics.stepsReplayed} replayed · ${run.metrics.stepsAgent} agent · ${run.metrics.stepsHandoff} hand-off`}>
-          {ratio === null ? "—" : `${Math.round(ratio * 100)}% replayed`}
-        </div>
+        <Hint label={`${run.metrics.stepsReplayed} replayed · ${run.metrics.stepsAgent} agent · ${run.metrics.stepsHandoff} hand-off`}>
+          <div className="text-muted-foreground">{ratio === null ? "—" : `${Math.round(ratio * 100)}% replayed`}</div>
+        </Hint>
         <div className="text-muted-foreground">{formatCost(run.metrics.costUsd)}</div>
       </td>
     </tr>

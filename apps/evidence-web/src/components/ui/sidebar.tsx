@@ -177,20 +177,30 @@ export function SidebarTrigger({ className, onClick, ...props }: React.Component
 export function SidebarRail({ className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>): React.JSX.Element {
   const { toggleSidebar, state } = useSidebar();
   return (
-    <button
-      type="button"
-      data-slot="sidebar-rail"
-      aria-label="Toggle sidebar"
-      tabIndex={-1}
-      title={state === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
-      onClick={toggleSidebar}
-      className={cn(
-        "absolute inset-y-0 -right-2 z-20 hidden w-4 cursor-w-resize transition-colors after:absolute after:inset-y-0 after:left-1/2 after:w-px hover:after:bg-border-strong md:flex",
-        "group-data-[state=collapsed]:cursor-e-resize",
-        className
-      )}
-      {...props}
-    />
+    // The rail is as tall as the window, so the tooltip follows the pointer vertically.
+    <Tooltip trackCursorAxis="y">
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            data-slot="sidebar-rail"
+            aria-label="Toggle sidebar"
+            tabIndex={-1}
+            onClick={toggleSidebar}
+            className={cn(
+              "absolute inset-y-0 -right-2 z-20 hidden w-4 cursor-w-resize transition-colors after:absolute after:inset-y-0 after:left-1/2 after:w-px hover:after:bg-border-strong md:flex",
+              "group-data-[state=collapsed]:cursor-e-resize",
+              className
+            )}
+            {...props}
+          />
+        }
+      />
+      <TooltipContent side="right">
+        {state === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
+        <Kbd>{sidebarShortcutLabel}</Kbd>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

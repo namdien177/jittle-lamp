@@ -101,7 +101,7 @@ export function ShareDialog(props: {
         </Button>
       }
     >
-      <div className="flex items-end gap-2 rounded-lg border border-border bg-black/20 p-3">
+      <div className="flex items-end gap-2 rounded-lg border border-border bg-muted/50 p-3">
         <Field label="Expires after" className="w-44">
           <SimpleSelect
             ariaLabel="Link expiry"
@@ -122,7 +122,7 @@ export function ShareDialog(props: {
             Share URL ready
           </p>
           <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-md bg-black/40 px-2.5 py-2 font-mono text-base text-muted-foreground">
+            <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2.5 py-1.5 font-mono text-[13px] text-muted-foreground">
               {buildShareUrl(createdLink.slug)}
             </code>
             <Button size="sm" onClick={() => void handleCopy(createdLink.slug, "created")}>

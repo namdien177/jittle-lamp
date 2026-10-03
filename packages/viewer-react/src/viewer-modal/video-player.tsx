@@ -342,6 +342,8 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
             type="button"
             className="jl-vm-vc-play"
             aria-label={isPlaying ? "Pause" : "Play"}
+            data-tip={isPlaying ? "Pause" : "Play"}
+            data-tip-side="top"
             onClick={togglePlay}
           >
             {isPlaying ? (
@@ -369,6 +371,8 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
             type="button"
             className="jl-vm-vc-icon jl-vm-vc-mute"
             aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+            data-tip={muted || volume === 0 ? "Unmute" : "Mute"}
+            data-tip-side="top"
             onClick={toggleMute}
           >
             {muted || volume === 0 ? (
@@ -389,7 +393,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
             aria-label="Volume"
           />
 
-          <button type="button" className="jl-vm-vc-rate" aria-label="Playback speed" onClick={cycleRate}>
+          <button type="button" className="jl-vm-vc-rate" aria-label="Playback speed" data-tip="Playback speed" data-tip-side="top" onClick={cycleRate}>
             {rate}×
           </button>
 
@@ -397,6 +401,8 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
             type="button"
             className="jl-vm-vc-icon jl-vm-vc-fullscreen"
             aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+            data-tip={isFullscreen ? "Exit full screen" : "Full screen"}
+            data-tip-side="top"
             onClick={toggleFullscreen}
           >
             {isFullscreen ? <Minimize aria-hidden size={18} /> : <Maximize aria-hidden size={18} />}

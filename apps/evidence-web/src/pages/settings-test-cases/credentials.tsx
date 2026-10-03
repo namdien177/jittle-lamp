@@ -17,6 +17,7 @@ import { testAdminApi, type CredentialInput } from "../../test-cases/admin-api";
 import { testAdminKeys, useTestAdminMutation, useTestCredentials, useTestEnvironments, useTestPermissions } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, KeyValueEditor, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { credentialFieldPattern, recordToRows, rowsToRecord, type KeyValueRow } from "../../test-config/config-ui";
+import { Hint, TruncatedText } from "../../components/ui/tooltip";
 
 // Settings → Credentials (design.md §9.3). Secret fields are write-only: the API returns names only,
 // inputs are password fields, and values live in component state only until the request is sent.
@@ -77,11 +78,11 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-5">Profile</TableHead>
+                <TableHead className="pl-4">Profile</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Fields</TableHead>
                 <TableHead className="w-28 whitespace-nowrap">Last used</TableHead>
-                <TableHead className="w-32 pr-5 text-right">
+                <TableHead className="w-32 pr-4 text-right">
                   <span className="sr-only">Actions</span>
                 </TableHead>
               </TableRow>
@@ -89,7 +90,7 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
             <TableBody>
               {list.map((credential) => (
                 <TableRow key={credential.id}>
-                  <TableCell className="pl-5">
+                  <TableCell className="pl-4">
                     <span className="font-mono text-sm font-semibold text-foreground">{credential.profile}</span>
                     <span className="mt-0.5 block">
                       <Badge variant="outline" className="px-1.5 py-0 text-[11px]">
@@ -103,9 +104,9 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
                       {Object.entries(credential.fields).map(([key, value]) => (
                         <div key={key} className="flex min-w-0 gap-1.5">
                           <dt className="shrink-0 font-mono text-xs leading-5 text-muted-foreground">{key}</dt>
-                          <dd className="min-w-0 truncate text-foreground" title={value}>
+                          <TruncatedText render={<dd />} className="text-foreground">
                             {value}
-                          </dd>
+                          </TruncatedText>
                         </div>
                       ))}
                       {credential.secretFieldNames.map((field) => (
@@ -124,19 +125,25 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
                     </dl>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{credential.lastUsedAt ? formatRelativeTime(credential.lastUsedAt) : "Never"}</TableCell>
-                  <TableCell className="pr-5 text-right">
+                  <TableCell className="pr-4 text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} ${credential.profile}`} onClick={() => setEditing(credential)}>
-                        {canManage ? <Pencil aria-hidden /> : <Eye aria-hidden />}
-                      </Button>
+                      <Hint label={canManage ? "Edit" : "View"}>
+                        <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} ${credential.profile}`} onClick={() => setEditing(credential)}>
+                          {canManage ? <Pencil aria-hidden /> : <Eye aria-hidden />}
+                        </Button>
+                      </Hint>
                       {canManage ? (
                         <>
-                          <Button variant="ghost" size="icon-sm" aria-label={`Rotate secrets of ${credential.profile}`} disabled={credential.secretFieldNames.length === 0} onClick={() => setRotating(credential)}>
-                            <RotateCw aria-hidden />
-                          </Button>
-                          <Button variant="ghost" size="icon-sm" aria-label={`Delete ${credential.profile}`} onClick={() => setDeleting(credential)}>
-                            <Trash2 aria-hidden />
-                          </Button>
+                          <Hint label="Rotate secrets">
+                            <Button variant="ghost" size="icon-sm" aria-label={`Rotate secrets of ${credential.profile}`} disabled={credential.secretFieldNames.length === 0} onClick={() => setRotating(credential)}>
+                              <RotateCw aria-hidden />
+                            </Button>
+                          </Hint>
+                          <Hint label="Delete">
+                            <Button variant="ghost" size="icon-sm" aria-label={`Delete ${credential.profile}`} onClick={() => setDeleting(credential)}>
+                              <Trash2 aria-hidden />
+                            </Button>
+                          </Hint>
                         </>
                       ) : null}
                     </div>
@@ -310,19 +317,23 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
                 {props.readOnly ? (
                   <span />
                 ) : row.stored ? (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={row.remove ? `Keep ${row.name}` : `Remove ${row.name}`}
-                    aria-pressed={row.remove}
-                    onClick={() => updateSecret(index, { remove: !row.remove, value: "" })}
-                  >
-                    {row.remove ? <Undo2 aria-hidden /> : <Trash2 aria-hidden />}
-                  </Button>
+                  <Hint label={row.remove ? "Keep field" : "Remove field"}>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={row.remove ? `Keep ${row.name}` : `Remove ${row.name}`}
+                      aria-pressed={row.remove}
+                      onClick={() => updateSecret(index, { remove: !row.remove, value: "" })}
+                    >
+                      {row.remove ? <Undo2 aria-hidden /> : <Trash2 aria-hidden />}
+                    </Button>
+                  </Hint>
                 ) : (
-                  <Button variant="ghost" size="icon-sm" aria-label={`Remove secret field ${row.name || index + 1}`} onClick={() => setSecrets((current) => current.filter((_row, rowIndex) => rowIndex !== index))}>
-                    <Trash2 aria-hidden />
-                  </Button>
+                  <Hint label="Remove field">
+                    <Button variant="ghost" size="icon-sm" aria-label={`Remove secret field ${row.name || index + 1}`} onClick={() => setSecrets((current) => current.filter((_row, rowIndex) => rowIndex !== index))}>
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </Hint>
                 )}
               </div>
             ))}
