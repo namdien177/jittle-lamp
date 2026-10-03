@@ -135,6 +135,8 @@ export const numericQueryKeys: ReadonlySet<string> = new Set([
 	"noRunsSinceDays",
 	"from",
 	"to",
+	// GET /test-runs/:id/live/control?after=<seq>
+	"after",
 ]);
 export const booleanQueryKeys: ReadonlySet<string> = new Set([
 	"staleCache",

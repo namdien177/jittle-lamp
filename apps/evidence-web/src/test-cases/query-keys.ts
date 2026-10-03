@@ -46,6 +46,10 @@ export const testKeys = {
   runnerPools: (orgId: Org) => [...config(orgId), "runner-pools"] as const,
   notificationSubscriptions: (orgId: Org) => [...config(orgId), "notification-subscriptions"] as const,
   notificationChannels: (orgId: Org) => [...config(orgId), "notification-channels"] as const,
+  webhooks: (orgId: Org) => [...config(orgId), "webhooks"] as const,
+  webhookDeliveries: (orgId: Org, endpointId: string) => [...config(orgId), "webhook-deliveries", endpointId] as const,
+  agentNotes: (orgId: Org) => [...config(orgId), "agent-notes"] as const,
+  suites: (orgId: Org) => [...cases(orgId), "suites"] as const,
 
   notifications: (orgId: Org) => [...org(orgId), "notifications"] as const
 };

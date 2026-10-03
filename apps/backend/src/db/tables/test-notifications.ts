@@ -216,6 +216,8 @@ export const webhookDeliveries = sqliteTable(
 		eventType: text("event_type").notNull(),
 		signatureValid: integer("signature_valid", { mode: "boolean" }).notNull(),
 		payloadSha256: text("payload_sha256").notNull(),
+		// Provider delivery id (X-GitHub-Delivery, X-Gitlab-Event-UUID); used for replay checks.
+		deliveryId: text("delivery_id"),
 		triggerRef: text("trigger_ref"),
 		batchId: text("batch_id"),
 		status: text("status", {
@@ -235,5 +237,48 @@ export const webhookDeliveries = sqliteTable(
 			table.orgId,
 			table.triggerRef,
 		),
+		index("webhook_deliveries_endpoint_payload_idx").on(
+			table.endpointId,
+			table.payloadSha256,
+		),
+	],
+);
+
+// One row per (endpoint, rule, commit SHA): the batch a matching delivery created, so a
+// retriggered pipeline attaches to it, and the outbound report state (commit status, MR note,
+// callback) for that batch.
+export const webhookBatches = sqliteTable(
+	"webhook_batches",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => createUuidV7()),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		endpointId: text("endpoint_id")
+			.notNull()
+			.references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+		// sha256 of the rule JSON; the index is informative only.
+		ruleKey: text("rule_key").notNull(),
+		ruleIndex: integer("rule_index").notNull(),
+		triggerRef: text("trigger_ref").notNull(),
+		batchId: text("batch_id").notNull(),
+		// Normalised event (provider, repository, project, MR/PR, URLs) for outbound reporting.
+		contextJson: text("context_json").notNull().default("{}"),
+		pendingReportedAt: integer("pending_reported_at"),
+		finalReportedAt: integer("final_reported_at"),
+		reportAttempts: integer("report_attempts").notNull().default(0),
+		reportNextAt: integer("report_next_at"),
+		reportError: text("report_error"),
+		...timestamps,
+	},
+	(table) => [
+		uniqueIndex("webhook_batches_rule_ref_unique").on(
+			table.endpointId,
+			table.ruleKey,
+			table.triggerRef,
+		),
+		index("webhook_batches_batch_idx").on(table.batchId),
 	],
 );

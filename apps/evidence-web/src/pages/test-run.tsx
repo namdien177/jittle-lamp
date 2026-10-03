@@ -13,7 +13,9 @@ import { useToast } from "../toast";
 import { EmbeddedEvidenceViewer } from "./evidence-viewer";
 import { RunStatusBadge, Stat } from "../test-cases/bits";
 import { formatDuration, formatRelative } from "../test-cases/list-model";
+import { useTestPermissions } from "../test-cases/admin-queries";
 import { useCancelTestRun, useTestRun } from "../test-cases/queries";
+import { LiveViewPanel } from "../test-runs/live-panel";
 import {
   canCancelRun,
   explainBlockedReason,
@@ -59,7 +61,9 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
   const selected = normalizeRunSteps(run.steps, run.transcript).find((step) => step.stepId === activeStepId) ?? null;
   const progress = runProgress(run.steps, run.transcript);
   const currentUserIds = [account.data?.localUserId, account.data?.userId].filter((value): value is string => typeof value === "string");
-  const mayCancel = currentUserIds.some((id) => canCancelRun(run, id));
+  const permissions = useTestPermissions();
+  const canCancelAny = permissions.can("test_run.cancel_any");
+  const mayCancel = currentUserIds.some((id) => canCancelRun(run, id, canCancelAny));
   const blockedExplanation = explainBlockedReason(run.blockedReason);
   const queuePill = formatQueuePill(run);
   const caseLink = `/test-cases?case=${encodeURIComponent(run.testCaseId)}`;
@@ -190,6 +194,8 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
               stepOffsetsMs={stepOffsetsMs}
               onClose={() => navigate(caseLink)}
             />
+          ) : active && run.status !== "queued" ? (
+            <LiveViewPanel run={run} currentUserIds={currentUserIds} canCancelAny={canCancelAny} fallback={<LivePanel run={run} />} />
           ) : active ? (
             <LivePanel run={run} />
           ) : (

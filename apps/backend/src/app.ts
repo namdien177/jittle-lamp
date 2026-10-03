@@ -26,7 +26,9 @@ import { createRunnerPoolRoutes } from "./routes/runner-pools";
 import { createShareLinkRoutes } from "./routes/share-links";
 import { createTestCaseRoutes } from "./routes/test-cases";
 import { createTestConfigRoutes } from "./routes/test-config";
+import { createTestLiveRoutes } from "./routes/test-live";
 import { createTestRunRoutes } from "./routes/test-runs";
+import { createTestWebhookRoutes } from "./routes/test-webhooks";
 import {
 	type ArtifactStorage,
 	createArtifactStorage,
@@ -40,10 +42,20 @@ import {
 	createHttpMigrationPeerClient,
 	type MigrationPeerClient,
 } from "./services/migration-peer-client";
+import {
+	createSlackChannelAdapter,
+	createWebhookChannelAdapter,
+} from "./services/notification-channels";
+import { registerNotificationAdapter } from "./services/notifications";
 import { createOrganizationMigration } from "./services/organization-migration";
 import { createTaskQueue } from "./services/task-queue";
-import { createEnvKeyProvider, type KeyProvider } from "./services/test-config";
+import {
+	createEnvKeyProvider,
+	createTestSecrets,
+	type KeyProvider,
+} from "./services/test-config";
 import type { TextGenerator } from "./services/test-imports";
+import { createLiveHub, type LiveHub } from "./services/test-live";
 import {
 	normalizeVideoTo720p,
 	type VideoNormalizer,
@@ -60,6 +72,7 @@ export const createApp = (
 		keyProvider?: KeyProvider;
 		generateText?: TextGenerator;
 		fetch?: typeof fetch;
+		liveHub?: LiveHub;
 	} = {},
 ) => {
 	const env = parseEnv(source);
@@ -99,6 +112,9 @@ export const createApp = (
 			previousMasterKey: runtime.secretsMasterKeyPrevious,
 		});
 
+	// Live view state of running runs (one backend instance; see services/test-live.ts).
+	const liveHub = dependencies.liveHub ?? createLiveHub();
+
 	const core = createCorePlugin({
 		runtime,
 		db,
@@ -119,6 +135,17 @@ export const createApp = (
 				directoryConfigured: Boolean(dependencies.clerkDirectory),
 			})
 		: null;
+
+	// Slack and outgoing-webhook channels on the notification bus (design.md §10b).
+	if (db) {
+		const channelDeps = {
+			secrets: createTestSecrets({ db, keyProvider }),
+			fetch: dependencies.fetch ?? fetch,
+			webOrigin: runtime.webAppOrigin ?? null,
+		};
+		registerNotificationAdapter(createSlackChannelAdapter(channelDeps), db);
+		registerNotificationAdapter(createWebhookChannelAdapter(channelDeps), db);
+	}
 
 	const app = new Elysia().use(core);
 
@@ -181,7 +208,14 @@ export const createApp = (
 				...(dependencies.fetch ? { fetchImpl: dependencies.fetch } : {}),
 			}),
 		)
-		.use(createTestRunRoutes(auth))
+		.use(createTestRunRoutes(auth, liveHub))
+		.use(createTestLiveRoutes(auth, liveHub))
+		.use(
+			createTestWebhookRoutes(
+				auth,
+				dependencies.fetch ? { fetchImpl: dependencies.fetch } : {},
+			),
+		)
 		.use(createTestConfigRoutes(auth))
 		.use(createRunnerPoolRoutes(auth))
 		.use(createNotificationRoutes(auth))
@@ -194,7 +228,16 @@ export const createApp = (
 		app.use(createDevArtifactRoutes(core));
 	}
 
-	return { app, runtime, logger, db, artifactStorage, organizationMigration };
+	return {
+		app,
+		runtime,
+		logger,
+		db,
+		artifactStorage,
+		organizationMigration,
+		keyProvider,
+		liveHub,
+	};
 };
 
 export type App = ReturnType<typeof createApp>["app"];

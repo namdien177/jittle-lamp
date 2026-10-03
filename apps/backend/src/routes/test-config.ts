@@ -69,6 +69,9 @@ import {
 
 const idParams = z.object({ id: z.string().min(1) });
 
+// Organisation agent notes, prepended to every run's agent instructions (phase 2 unit 2.4).
+export const AGENT_NOTES_MAX_BYTES = 16_384;
+
 const isUniqueViolation = (error: unknown) =>
 	/UNIQUE constraint failed/i.test(
 		String((error as { cause?: unknown })?.cause ?? error),
@@ -720,9 +723,22 @@ export const createTestConfigRoutes = (auth: ClerkAuthPlugin) =>
 				const who = await resolveTestActor(ctx);
 				await requireTestPermission(db, who, "test_config.manage");
 				const body = parseInput(
-					z.object({ notes: z.string().max(16_384) }),
+					z.object({
+						notes: z
+							.string()
+							.refine(
+								(value) =>
+									new TextEncoder().encode(value).byteLength <=
+									AGENT_NOTES_MAX_BYTES,
+								{ message: "Agent notes must be 16 KB or smaller" },
+							),
+					}),
 					ctx.body,
 				);
+				const previous = await db.query.organizationAgentNotes.findFirst({
+					where: eq(organizationAgentNotes.orgId, who.orgId),
+					columns: { notes: true },
+				});
 				const now = Date.now();
 				await db
 					.insert(organizationAgentNotes)
@@ -736,6 +752,18 @@ export const createTestConfigRoutes = (auth: ClerkAuthPlugin) =>
 						target: organizationAgentNotes.orgId,
 						set: { notes: body.notes, updatedBy: who.userId, updatedAt: now },
 					});
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: "test_config.agent_notes_updated",
+					entity: { type: "organization_agent_notes", id: who.orgId },
+					message: "Updated the agent notes",
+					metadata: {
+						previousLength: previous?.notes.length ?? 0,
+						length: body.notes.length,
+					},
+					ipAddress: getRequestIpAddress(ctx.request),
+				});
 				return respond(agentNotesSchema, {
 					notes: body.notes,
 					updatedBy: who.userId,

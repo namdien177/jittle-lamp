@@ -61,10 +61,12 @@ import {
 	getTestCaseRow,
 	inheritStepScripts,
 	listTestCases,
+	loadCases,
 	parseJsonColumn,
 	parseSingleCase,
 	resolveEnvironmentId,
 	rewriteCaseMetadata,
+	suiteMembers,
 	type TestCaseRow,
 	testCaseFilterConditions,
 	toCaseDetail,
@@ -111,60 +113,11 @@ export type TestCaseRouteOptions = {
 const listQuery = (url: string) =>
 	parseInput(testCaseListQuerySchema, normalizeQuery(url));
 
-const loadCases = async (
-	db: BackendDb,
-	orgId: string,
-	ids: readonly string[],
-): Promise<TestCaseRow[]> => {
-	const rows = await db.query.testCases.findMany({
-		where: and(
-			eq(testCases.orgId, orgId),
-			inArray(testCases.id, [...ids]),
-			isNull(testCases.deletedAt),
-		),
-	});
-	const byId = new Map(rows.map((row) => [row.id, row]));
-	return ids.flatMap((id) => {
-		const row = byId.get(id);
-		return row ? [row] : [];
-	});
-};
-
 const requester = (who: TestActor) => ({
 	userId: who.userId,
 	tokenId: who.tokenId,
 	kind: who.kind,
 });
-
-// Suites: static members plus, for smart suites, every case matching the saved filter.
-const suiteMembers = async (
-	db: BackendDb,
-	orgId: string,
-	suite: typeof testSuites.$inferSelect,
-): Promise<TestCaseRow[]> => {
-	const members = await db.query.testSuiteMembers.findMany({
-		where: eq(testSuiteMembers.suiteId, suite.id),
-		orderBy: asc(testSuiteMembers.position),
-	});
-	const ids = members.map((member) => member.testCaseId);
-	const filter = parseJsonColumn(
-		suite.filterJson,
-		testCaseListQuerySchema.partial().nullable(),
-		null,
-	);
-	if (filter) {
-		const rows = await db
-			.select({ id: testCases.id })
-			.from(testCases)
-			.where(
-				and(...testCaseFilterConditions(orgId, filter, { includeTags: true })),
-			)
-			.orderBy(asc(testCases.key))
-			.limit(1000);
-		for (const row of rows) if (!ids.includes(row.id)) ids.push(row.id);
-	}
-	return loadCases(db, orgId, ids);
-};
 
 const toSuite = async (
 	db: BackendDb,

@@ -262,7 +262,9 @@ export const getCredentialRow = async (
 	return row;
 };
 
-const credentialSubject = (row: Pick<CredentialRow, "id" | "profile">) => ({
+export const credentialSubject = (
+	row: Pick<CredentialRow, "id" | "profile">,
+) => ({
 	kind: "test_credential",
 	id: row.id,
 	label: row.profile,
@@ -909,7 +911,7 @@ export const resolveRunConfig = async (
 	return {
 		environment: {
 			name: environment?.name ?? "default",
-			baseUrl: environment?.baseUrl ?? "",
+			baseUrl: run.baseUrlOverride ?? environment?.baseUrl ?? "",
 			variables,
 			agentInstructions: environment?.agentInstructions ?? null,
 		},

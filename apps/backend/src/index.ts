@@ -8,11 +8,20 @@ import {
 import { createMigrationWorker } from "./services/migration-worker";
 import { cleanupExpiredOrganizationActivityLogs } from "./services/organization-activity";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
+import { createTestSecrets } from "./services/test-config";
 import { createTestRunQueueWorker } from "./services/test-run-queue";
+import { createWebhookReportWorker } from "./services/test-webhooks";
 import { runDatabaseMigrations } from "./startup/run-database-migrations";
 
-const { app, runtime, logger, db, artifactStorage, organizationMigration } =
-	createApp(process.env);
+const {
+	app,
+	runtime,
+	logger,
+	db,
+	artifactStorage,
+	organizationMigration,
+	keyProvider,
+} = createApp(process.env);
 
 if (
 	(runtime.nodeEnv === "production" || runtime.nodeEnv === "staging") &&
@@ -50,6 +59,13 @@ try {
 		// Test run queue: lease expiry, RUNNER_LOST, NO_RUNNER and offline runners.
 		createTestRunQueueWorker({ db }).start();
 		logger.info("test run queue maintenance started");
+		// CI webhooks: pending and final commit statuses, MR notes and callbacks (design.md §10c).
+		createWebhookReportWorker({
+			db,
+			secrets: createTestSecrets({ db, keyProvider }),
+			fetch,
+			webOrigin: runtime.webAppOrigin ?? null,
+		}).start();
 		const runMaintenance = async () => {
 			if (organizationMigration) {
 				try {

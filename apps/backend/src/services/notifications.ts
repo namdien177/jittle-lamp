@@ -17,6 +17,7 @@ import {
 	testCases,
 	testRunSubscribers,
 	type testRuns,
+	testRuns as testRunsTable,
 } from "../db/schema";
 import { getOrganizationRolePermissions } from "./organization-permissions";
 import type { BackendDb } from "./user-provisioning";
@@ -58,12 +59,28 @@ export const inAppChannelAdapter: NotificationChannelAdapter = {
 const adapters = new Map<string, NotificationChannelAdapter>([
 	["in_app", inAppChannelAdapter],
 ]);
+// Adapters that need the app's secrets and fetch (Slack, outgoing webhook) are registered per
+// database handle by createApp, so two apps in one process never share credentials.
+const adaptersByDb = new WeakMap<
+	BackendDb,
+	Map<string, NotificationChannelAdapter>
+>();
 
 export const registerNotificationAdapter = (
 	adapter: NotificationChannelAdapter,
+	db?: BackendDb,
 ) => {
-	adapters.set(adapter.kind, adapter);
+	if (!db) {
+		adapters.set(adapter.kind, adapter);
+		return;
+	}
+	const scoped = adaptersByDb.get(db) ?? new Map();
+	scoped.set(adapter.kind, adapter);
+	adaptersByDb.set(db, scoped);
 };
+
+export const notificationAdapterFor = (db: BackendDb, kind: string) =>
+	adaptersByDb.get(db)?.get(kind) ?? adapters.get(kind);
 
 // Kinds delivered to members holding a permission unless they opted out; every other kind goes
 // to the users the producer names plus members who opted in.
@@ -142,12 +159,68 @@ export const resolveRecipients = async (
 	);
 };
 
-const channelMatches = (channel: NotificationChannelRow, kind: string) => {
-	const filter = z
-		.object({ kinds: z.array(z.string()).default([]) })
-		.catch({ kinds: [] })
-		.parse(JSON.parse(channel.filterJson));
-	return filter.kinds.length === 0 || filter.kinds.includes(kind);
+const channelFilterSchema = z
+	.object({
+		kinds: z.array(z.string()).default([]),
+		tags: z.array(z.string()).default([]),
+	})
+	.catch({ kinds: [], tags: [] });
+
+// Tags of the test cases an event is about: the run's case, or every case of a batch.
+export const eventTags = async (
+	db: BackendDb,
+	event: Pick<
+		NotificationEventRow,
+		"subjectType" | "subjectId" | "payloadJson"
+	>,
+): Promise<string[]> => {
+	const payload = payloadSchema.parse(JSON.parse(event.payloadJson));
+	let caseIds: string[] = [];
+	if (event.subjectType === "test_run") {
+		const caseId =
+			typeof payload.testCaseId === "string" ? payload.testCaseId : null;
+		if (caseId) caseIds = [caseId];
+	} else if (event.subjectType === "test_run_batch") {
+		const runIds = z
+			.array(z.string())
+			.catch([])
+			.parse(payload.runIds ?? []);
+		if (runIds.length > 0) {
+			caseIds = (
+				await db.query.testRuns.findMany({
+					where: inArray(testRunsTable.id, runIds),
+					columns: { testCaseId: true },
+				})
+			).map((run) => run.testCaseId);
+		}
+	}
+	if (caseIds.length === 0) return [];
+	const cases = await db.query.testCases.findMany({
+		where: inArray(testCases.id, [...new Set(caseIds)]),
+		columns: { tagsJson: true },
+	});
+	return [
+		...new Set(
+			cases.flatMap((row) =>
+				z.array(z.string()).catch([]).parse(JSON.parse(row.tagsJson)),
+			),
+		),
+	];
+};
+
+// Kinds and tags each match when empty; tags match when the event's cases carry any of them.
+const channelMatches = async (
+	channel: NotificationChannelRow,
+	event: NotificationEventRow,
+	tagsOf: () => Promise<string[]>,
+) => {
+	const filter = channelFilterSchema.parse(JSON.parse(channel.filterJson));
+	if (filter.kinds.length > 0 && !filter.kinds.includes(event.kind)) {
+		return false;
+	}
+	if (filter.tags.length === 0) return true;
+	const wanted = new Set(filter.tags.map((tag) => tag.toLowerCase()));
+	return (await tagsOf()).some((tag) => wanted.has(tag.toLowerCase()));
 };
 
 const recordOutcomes = async (
@@ -208,7 +281,7 @@ export const dispatchNotificationEvent = async (
 	now = Date.now(),
 ): Promise<void> => {
 	const recipients = await resolveRecipients(db, event);
-	const inApp = adapters.get("in_app") ?? inAppChannelAdapter;
+	const inApp = notificationAdapterFor(db, "in_app") ?? inAppChannelAdapter;
 	await recordOutcomes(
 		db,
 		event,
@@ -222,10 +295,28 @@ export const dispatchNotificationEvent = async (
 			eq(notificationChannels.enabled, true),
 		),
 	});
+	let tags: Promise<string[]> | null = null;
+	const tagsOf = () => {
+		tags ??= eventTags(db, event).catch(() => []);
+		return tags;
+	};
 	for (const channel of channels) {
-		if (channel.kind === "in_app" || !channelMatches(channel, event.kind))
+		if (
+			channel.kind === "in_app" ||
+			!(await channelMatches(channel, event, tagsOf))
+		)
 			continue;
-		const adapter = adapters.get(channel.kind);
+		// A retry never sends again what a channel already delivered.
+		const delivered = await db.query.notificationDeliveries.findFirst({
+			where: and(
+				eq(notificationDeliveries.eventId, event.id),
+				eq(notificationDeliveries.channelId, channel.id),
+				eq(notificationDeliveries.status, "delivered"),
+			),
+			columns: { id: true },
+		});
+		if (delivered) continue;
+		const adapter = notificationAdapterFor(db, channel.kind);
 		let outcomes: DeliveryOutcome[];
 		if (!adapter) {
 			outcomes = [
@@ -362,7 +453,10 @@ export const describeNotification = (
 			return {
 				title: `Run batch finished: ${payload.passed ?? 0} passed, ${payload.failed ?? 0} failed, ${payload.blocked ?? 0} blocked`,
 				body: null,
-				url: `/test-run-batches/${event.subjectId}`,
+				// The web app has no batch page: open the first failing run, else the first run.
+				url: text(payload.focusRunId)
+					? `/test-runs/${text(payload.focusRunId)}`
+					: null,
 			};
 		case "import.finished":
 			return {
@@ -377,7 +471,7 @@ export const describeNotification = (
 			return {
 				title: `${payload.count ?? 0} test case(s) waiting for review`,
 				body: null,
-				url: "/test-cases?status=review",
+				url: "/test-cases/review",
 			};
 		case "runner.offline":
 			return {
@@ -387,7 +481,7 @@ export const describeNotification = (
 						" ",
 					),
 				body: null,
-				url: "/settings/runner-pools",
+				url: "/settings/test-cases/runner-pools",
 			};
 		default:
 			return { title: event.kind, body: null, url: null };

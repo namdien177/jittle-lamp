@@ -70,7 +70,12 @@ export const createTestCaseFixture = async (
 	const qa = await member("qa_engineer");
 	const developer = await member("developer");
 
-	const { app, artifactStorage, runtime } = createApp(
+	const {
+		app,
+		artifactStorage,
+		runtime,
+		db: appDb,
+	} = createApp(
 		{
 			NODE_ENV: "development",
 			DATABASE_URL: databaseUrl,
@@ -136,6 +141,8 @@ export const createTestCaseFixture = async (
 	return {
 		app,
 		db,
+		// The app's own database handle (per-db notification adapters are registered on it).
+		appDb: appDb ?? db,
 		databaseUrl,
 		orgId: org.id,
 		admin,

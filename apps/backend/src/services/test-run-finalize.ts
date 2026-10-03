@@ -263,6 +263,10 @@ export const finalizeRun = async (
 			workerLeaseExpiresAt: null,
 			runTokenHash: null,
 			runTokenExpiresAt: null,
+			// A finished run has no live view; any take-over ends with it.
+			liveTakeoverBy: null,
+			livePaused: false,
+			takeoverRequestedAt: null,
 			updatedAt: now,
 		})
 		.where(and(eq(testRuns.id, run.id), eq(testRuns.status, run.status)))

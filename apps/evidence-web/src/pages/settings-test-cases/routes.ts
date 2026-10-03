@@ -11,5 +11,7 @@ export const testCaseSettingsRoutes: RouteObject[] = [
   { path: "test-cases/model-spend", lazy: async () => ({ Component: (await import("./model-spend")).SettingsTestModelSpendPage }) },
   { path: "test-cases/runner-pools", lazy: async () => ({ Component: (await import("./runner-pools")).SettingsTestRunnerPoolsPage }) },
   { path: "test-cases/test-runs", lazy: async () => ({ Component: (await import("./test-runs")).SettingsTestRunsPage }) },
-  { path: "test-cases/notifications", lazy: async () => ({ Component: (await import("./notifications")).SettingsTestNotificationsPage }) }
+  { path: "test-cases/notifications", lazy: async () => ({ Component: (await import("./notifications")).SettingsTestNotificationsPage }) },
+  { path: "test-cases/webhooks", lazy: async () => ({ Component: (await import("./webhooks")).SettingsTestWebhooksPage }) },
+  { path: "test-cases/agent-notes", lazy: async () => ({ Component: (await import("./agent-notes")).SettingsTestAgentNotesPage }) }
 ];

@@ -43,7 +43,11 @@ export const testAdminKeys = {
   runnerPools: (orgId: string | null) => testKeys.runnerPools(orgId),
   notifications: (orgId: string | null) => testKeys.notifications(orgId),
   notificationSubscriptions: (orgId: string | null) => testKeys.notificationSubscriptions(orgId),
-  notificationChannels: (orgId: string | null) => testKeys.notificationChannels(orgId)
+  notificationChannels: (orgId: string | null) => testKeys.notificationChannels(orgId),
+  webhooks: (orgId: string | null) => testKeys.webhooks(orgId),
+  webhookDeliveries: (orgId: string | null, endpointId: string) => testKeys.webhookDeliveries(orgId, endpointId),
+  suites: (orgId: string | null) => testKeys.suites(orgId),
+  agentNotes: (orgId: string | null) => testKeys.agentNotes(orgId)
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -58,15 +62,17 @@ export type TestPermission =
   | "test_case.approve"
   | "test_case.delete"
   | "test_run.create"
+  | "test_run.cancel"
+  | "test_run.cancel_any"
   | "test_run.view"
   | "test_config.manage"
   | "test_config.use";
 
 const defaultTestGrants: Record<string, readonly TestPermission[]> = {
   developer: ["test_case.view", "test_run.create", "test_run.view", "test_config.use"],
-  qa_engineer: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.view", "test_config.use"],
-  moderator: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.view", "test_config.manage", "test_config.use"],
-  admin: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.view", "test_config.manage", "test_config.use"]
+  qa_engineer: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.cancel", "test_run.cancel_any", "test_run.view", "test_config.use"],
+  moderator: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.cancel", "test_run.cancel_any", "test_run.view", "test_config.manage", "test_config.use"],
+  admin: ["test_case.view", "test_case.create", "test_case.update", "test_case.approve", "test_case.delete", "test_run.create", "test_run.cancel", "test_run.cancel_any", "test_run.view", "test_config.manage", "test_config.use"]
 };
 
 export function useTestPermissions(): { can: (permission: TestPermission) => boolean; loading: boolean } {
@@ -124,6 +130,14 @@ export const useModelSettings = () => useOrgQuery(testAdminKeys.modelSettings, t
 export const useRunnerPools = () => useOrgQuery(testAdminKeys.runnerPools, testAdminApi.listRunnerPools, { refetchInterval: 15_000 });
 export const useNotificationChannels = () => useOrgQuery(testAdminKeys.notificationChannels, testAdminApi.listNotificationChannels, { retry: false });
 export const useNotificationSubscriptions = () => useOrgQuery(testAdminKeys.notificationSubscriptions, testAdminApi.getNotificationSubscriptions);
+export const useWebhooks = () => useOrgQuery(testAdminKeys.webhooks, testAdminApi.listWebhooks);
+export const useWebhookDeliveries = (endpointId: string | null) =>
+  useOrgQuery((orgId) => testAdminKeys.webhookDeliveries(orgId, endpointId ?? "none"), (getToken) => testAdminApi.listWebhookDeliveries(getToken, endpointId ?? ""), {
+    enabled: Boolean(endpointId),
+    refetchInterval: 15_000
+  });
+export const useTestSuites = () => useOrgQuery(testAdminKeys.suites, testAdminApi.listSuites);
+export const useAgentNotes = () => useOrgQuery(testAdminKeys.agentNotes, testAdminApi.getAgentNotes);
 export const useModelCosts = (range: { from: number; to: number }) =>
   useOrgQuery((orgId) => testAdminKeys.modelCosts(orgId, range.from, range.to), (getToken) => testAdminApi.getModelCosts(getToken, range));
 export const useNotifications = () => useOrgQuery(testAdminKeys.notifications, testAdminApi.listNotifications, { refetchInterval: notificationPollMs });

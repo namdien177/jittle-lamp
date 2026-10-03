@@ -49,6 +49,7 @@ import type { ArtifactStorage } from "./artifact-storage";
 import { withBusyRetry } from "./db-busy";
 import { emitNotification, emitRunOutcome } from "./notifications";
 import { caseSteps, parseJsonColumn, type TestCaseRow } from "./test-cases";
+import type { LiveHub } from "./test-live";
 import {
 	createOpaqueToken,
 	hashToken,
@@ -259,6 +260,8 @@ export const computeDedupeKey = (input: {
 	environmentId: string | null;
 	paramsHash: string;
 	cacheMode: string;
+	// Webhook runs against a review app: a different baseUrl is a different run.
+	baseUrlOverride?: string | null;
 }) =>
 	`sha256:${sha256Text(
 		JSON.stringify([
@@ -267,6 +270,7 @@ export const computeDedupeKey = (input: {
 			input.environmentId ?? "",
 			input.paramsHash,
 			input.cacheMode,
+			...(input.baseUrlOverride ? [input.baseUrlOverride] : []),
 		]),
 	)}`;
 
@@ -374,6 +378,7 @@ const insertRun = async (
 		batchId: string | null;
 		now: number;
 		retryOf?: TestRunRow;
+		baseUrlOverride?: string | null;
 	},
 ): Promise<TestRunRow | null> => {
 	const { plan } = input;
@@ -395,6 +400,7 @@ const insertRun = async (
 			requestedByTokenId: input.requester.tokenId,
 			transcriptVersion: plan.row.transcriptVersion,
 			environmentId: plan.environmentId,
+			baseUrlOverride: input.baseUrlOverride ?? null,
 			paramsJson: JSON.stringify(plan.params),
 			paramsHash: input.paramsHash,
 			cacheMode: plan.request.cacheMode,
@@ -491,7 +497,11 @@ export const requestRuns = async (
 			kind: "dataset" | "suite" | "ci";
 			suiteId?: string | null;
 			testCaseId?: string | null;
+			// Webhook batches: the commit SHA (design.md §10c).
+			triggerRef?: string | null;
 		};
+		// Webhook runs against a review app or deployment URL instead of the environment's.
+		baseUrlOverride?: string | null;
 		now?: number;
 	},
 ): Promise<{
@@ -537,6 +547,7 @@ export const requestRuns = async (
 			environmentId: plan.environmentId,
 			paramsHash,
 			cacheMode: plan.request.cacheMode,
+			baseUrlOverride: input.baseUrlOverride ?? null,
 		});
 		const attachTo = await findAttachableRun(db, {
 			orgId: input.orgId,
@@ -604,6 +615,7 @@ export const requestRuns = async (
 					(kind === "dataset" ? (plans[0]?.row.id ?? null) : null),
 				suiteId: input.batch?.suiteId ?? null,
 				trigger: plans[0]?.request.trigger ?? "manual",
+				triggerRef: input.batch?.triggerRef ?? null,
 				status: "queued",
 				total: plans.length,
 				pending: plans.length,
@@ -645,6 +657,7 @@ export const requestRuns = async (
 				paramsHash: entry.paramsHash,
 				batchId,
 				now,
+				baseUrlOverride: input.baseUrlOverride ?? null,
 			});
 			if (run) {
 				created = { runId: run.id, attached: false };
@@ -701,6 +714,7 @@ export const queueRetryRun = async (
 			requestedByTokenId: run.requestedByTokenId,
 			transcriptVersion: run.transcriptVersion,
 			environmentId: run.environmentId,
+			baseUrlOverride: run.baseUrlOverride,
 			paramsJson: run.paramsJson,
 			paramsHash: run.paramsHash,
 			cacheMode: run.cacheMode,
@@ -838,6 +852,14 @@ export const refreshBatch = async (
 				passed,
 				failed,
 				blocked,
+				runIds: runs.map((run) => run.id),
+				// The notification opens this run: the first failing one, else the first.
+				focusRunId:
+					(
+						runs.find(
+							(run) => run.outcome === "failed" || run.outcome === "blocked",
+						) ?? runs[0]
+					)?.id ?? null,
 			},
 		});
 	}
@@ -1178,6 +1200,7 @@ export const toRunDetail = async (
 	artifactStorage: ArtifactStorage,
 	run: TestRunRow,
 	now = Date.now(),
+	liveHub?: LiveHub,
 ): Promise<TestRunDetail> => {
 	const summary = await toRunSummary(db, run, { now });
 	const version = await runTranscriptVersion(db, run);
@@ -1297,17 +1320,38 @@ export const toRunDetail = async (
 		steps,
 		transcript: version?.transcript ?? "",
 		currentStepId: run.currentStepId,
-		live: run.liveAvailable
-			? {
-					available: true,
-					takeoverBy: run.liveTakeoverBy,
-					paused: run.livePaused,
-					frameUrl: run.liveFrameKey
-						? await readUrl(artifactStorage, run.liveFrameKey, "image/jpeg")
-						: null,
-					frameAt: run.liveFrameAt,
-				}
-			: null,
+		live: await liveDetail(run, liveHub),
+	};
+};
+
+// Live view while the run executes and its runner polls the live control (design.md §5.4).
+const liveDetail = async (
+	run: TestRunRow,
+	liveHub: LiveHub | undefined,
+): Promise<TestRunDetail["live"]> => {
+	if (
+		!run.liveAvailable ||
+		!(ACTIVE_RUN_STATUSES as readonly string[]).includes(run.status)
+	) {
+		return null;
+	}
+	const snapshot = liveHub?.snapshot(run.id);
+	const runnerViewport = parseJsonColumn(
+		run.runnerInfoJson,
+		runnerInfoSchema.nullable(),
+		null,
+	)?.viewport;
+	const frameAt = snapshot?.frameAt ?? null;
+	return {
+		available: true,
+		takeoverBy: run.liveTakeoverBy,
+		paused: run.status === "paused" || run.livePaused,
+		frameUrl:
+			frameAt !== null
+				? `/test-runs/${encodeURIComponent(run.id)}/live/frame?at=${frameAt}`
+				: null,
+		frameAt,
+		viewport: snapshot?.viewport ?? runnerViewport ?? null,
 	};
 };
 
@@ -1653,6 +1697,8 @@ export const recordProgress = async (
 					}
 				: {}),
 			blockedReason: null,
+			// The runner reports "paused" while a person holds the take-over.
+			livePaused: status === "paused",
 			...extendLease(now),
 		})
 		.where(
