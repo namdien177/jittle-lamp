@@ -74,6 +74,16 @@ export const parseJsonColumn = <T>(
 	}
 };
 
+// Each stored link is checked on its own: a row written before links were limited to http(s)
+// loses only its bad entries, not the whole list.
+export const parseLinksColumn = (
+	value: string | null | undefined,
+): Array<z.output<typeof testCaseLinkSchema>> =>
+	parseJsonColumn(value, z.array(z.unknown()), []).flatMap((entry) => {
+		const link = testCaseLinkSchema.safeParse(entry);
+		return link.success ? [link.data] : [];
+	});
+
 const stringArray = z.array(z.string());
 const stringRecord = z.record(z.string(), z.string());
 const stepsArray = z.array(transcriptStepSchema);
@@ -366,15 +376,17 @@ export const updateTestCase = async (
 			{ currentVersion: row.transcriptVersion },
 		);
 	}
+	// Any way out of the review queue (active, draft, archived) is an approval decision.
 	if (
-		request.status === "active" &&
 		row.status === "review" &&
+		request.status !== undefined &&
+		request.status !== "review" &&
 		!input.canApprove
 	) {
 		throw new HttpError(
 			403,
 			"TEST_PERMISSION_DENIED",
-			"Approving a case from the review queue needs test_case.approve",
+			"Moving a case out of the review queue needs test_case.approve",
 			{ permission: "test_case.approve" },
 		);
 	}
@@ -762,7 +774,7 @@ export const toCaseDetail = async (
 	return {
 		...toCaseSummary(row, resolvedStats),
 		description: row.description,
-		links: parseJsonColumn(row.linksJson, z.array(testCaseLinkSchema), []),
+		links: parseLinksColumn(row.linksJson),
 		transcript: row.transcript,
 		steps: caseSteps(row),
 		params: parseJsonColumn(

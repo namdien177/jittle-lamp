@@ -251,7 +251,9 @@ export const resolveTestActor = async (
 		kind: authContext.tokenType === "ai" ? "ai" : "session",
 		userId: authContext.localUserId,
 		orgId: authContext.activeOrgId,
-		tokenId: null,
+		// AI tokens (jl_ai_) get their own run-request bucket, like automation tokens.
+		tokenId:
+			authContext.tokenType === "ai" ? (authContext.aiTokenId ?? null) : null,
 	};
 };
 

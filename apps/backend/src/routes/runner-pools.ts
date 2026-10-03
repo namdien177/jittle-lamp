@@ -7,12 +7,13 @@ import {
 	runnerHeartbeatRequestSchema,
 	runnerPoolSchema,
 } from "@jittle-lamp/shared";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { z } from "zod/v4";
 
-import { runnerPools, runnerWorkers } from "../db/schema";
+import { runnerPools } from "../db/schema";
 import {
+	HttpError,
 	handleTestRoute,
 	parseInput,
 	readBearer,
@@ -32,9 +33,14 @@ import {
 	registerWorker,
 	rotateRegistrationToken,
 	toRunnerPool,
+	touchWorker,
 	verifyWorkerToken,
 } from "../services/runner-pools";
-import { claimNextRun, sweepRunQueue } from "../services/test-run-queue";
+import {
+	claimNextRun,
+	revokeRunnerWorker,
+	sweepRunQueue,
+} from "../services/test-run-queue";
 import { buildClaimedRun } from "../services/test-runs";
 
 const poolParams = z.object({ id: z.string().min(1) });
@@ -116,10 +122,7 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 					db,
 					readBearer(ctx.request),
 				);
-				await recordHeartbeat(db, {
-					worker,
-					request: { runId: worker.currentRunId, load: worker.load },
-				});
+				await touchWorker(db, worker);
 				// Expired leases go back to the queue before this worker picks.
 				await sweepRunQueue(db);
 				const claimed = await claimNextRun(db, { pool, workerId: worker.id });
@@ -143,6 +146,15 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 					ctx.body,
 				);
 				const pool = await getRunnerPoolRow(db, who.orgId, id);
+				if (pool.kind === "cloud" && body.maxConcurrentRuns !== undefined) {
+					// The cloud pool runs at the organisation's max_concurrent_runs (design.md §10.1).
+					throw new HttpError(
+						422,
+						"RUNNER_POOL_CLOUD_CONCURRENCY",
+						"The cloud pool's concurrency is the organisation run setting maxConcurrentRuns; change it in the run settings",
+						{ setting: "maxConcurrentRuns" },
+					);
+				}
 				const [updated] = await db
 					.update(runnerPools)
 					.set({
@@ -190,16 +202,10 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 					ctx.params,
 				);
 				const pool = await getRunnerPoolRow(db, who.orgId, id);
-				const revoked = await db
-					.update(runnerWorkers)
-					.set({ revokedAt: Date.now(), updatedAt: Date.now() })
-					.where(
-						and(
-							eq(runnerWorkers.id, workerId),
-							eq(runnerWorkers.poolId, pool.id),
-						),
-					)
-					.returning({ id: runnerWorkers.id });
-				return { revoked: revoked.length > 0 };
+				const result = await revokeRunnerWorker(db, {
+					poolId: pool.id,
+					workerId,
+				});
+				return { revoked: result.revoked };
 			}),
 		);

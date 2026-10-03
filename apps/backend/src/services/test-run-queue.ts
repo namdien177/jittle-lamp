@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { runnerPools, runnerWorkers, testRuns } from "../db/schema";
+import { withBusyRetry } from "./db-busy";
 import {
 	dispatchPendingNotifications,
 	emitNotification,
@@ -20,39 +21,11 @@ import {
 import { createOpaqueToken, hashToken, RUN_TOKEN_PREFIX } from "./test-tokens";
 import type { BackendDb } from "./user-provisioning";
 
+export { withBusyRetry };
+
 // Runner claims (design.md §10.1): one atomic statement picks the first queued run of the pool
 // by priority then queued_at, only while the pool runs fewer than its max_concurrent_runs, and
 // takes a 30 s lease. Same lease pattern as migration-worker.ts.
-
-const isBusyError = (error: unknown): boolean => {
-	let current: unknown = error;
-	for (let depth = 0; depth < 5 && current; depth += 1) {
-		const text = String(
-			(current as { code?: unknown }).code ?? (current as Error).message ?? "",
-		);
-		if (/SQLITE_BUSY|database is locked/i.test(text)) return true;
-		current = (current as { cause?: unknown }).cause;
-	}
-	return false;
-};
-
-// Concurrent writers on separate connections can see SQLITE_BUSY; the statement is atomic, so
-// retrying it is safe.
-export const withBusyRetry = async <T>(
-	operation: () => Promise<T>,
-	attempts = 20,
-): Promise<T> => {
-	for (let attempt = 1; ; attempt += 1) {
-		try {
-			return await operation();
-		} catch (error) {
-			if (!isBusyError(error) || attempt >= attempts) throw error;
-			await new Promise((resolve) =>
-				setTimeout(resolve, 5 + Math.random() * 20 * attempt),
-			);
-		}
-	}
-};
 
 export const claimNextRun = async (
 	db: BackendDb,
@@ -284,6 +257,50 @@ export const sweepRunQueue = async (
 	}
 	await dispatchPendingNotifications(db, now).catch(() => 0);
 	return result;
+};
+
+// Revoking a worker (design.md §10.1) ends its leases at once: the run tokens stop working and
+// the runs it held go through the lost-lease path (requeued with attempts + 1, RUNNER_LOST on
+// the last attempt) instead of waiting for a lease the revoked worker could keep extending.
+export const revokeRunnerWorker = async (
+	db: BackendDb,
+	input: { poolId: string; workerId: string; now?: number },
+): Promise<{ revoked: boolean; sweep: QueueSweepResult | null }> => {
+	const now = input.now ?? Date.now();
+	const revoked = await withBusyRetry(() =>
+		db
+			.update(runnerWorkers)
+			.set({ revokedAt: now, currentRunId: null, updatedAt: now })
+			.where(
+				and(
+					eq(runnerWorkers.id, input.workerId),
+					eq(runnerWorkers.poolId, input.poolId),
+				),
+			)
+			.returning({ id: runnerWorkers.id }),
+	);
+	if (revoked.length === 0) return { revoked: false, sweep: null };
+	const held = await withBusyRetry(() =>
+		db
+			.update(testRuns)
+			.set({
+				runTokenHash: null,
+				runTokenExpiresAt: null,
+				workerLeaseExpiresAt: now - 1,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(testRuns.workerLeaseOwner, input.workerId),
+					inArray(testRuns.status, [...ACTIVE_RUN_STATUSES]),
+				),
+			)
+			.returning({ id: testRuns.id }),
+	);
+	return {
+		revoked: true,
+		sweep: held.length > 0 ? await sweepRunQueue(db, now) : null,
+	};
 };
 
 // A worker is reported offline after two missed lease windows.
