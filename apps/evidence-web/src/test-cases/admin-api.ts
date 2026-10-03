@@ -137,6 +137,9 @@ export const testAdminApi = {
     batchId: string,
     body: { decisions?: Array<{ itemId: string; decision: z.infer<typeof importBatchSchema>["items"][number]["decision"] }>; commit?: boolean }
   ) => request(getToken, `/test-cases/import/${id(batchId)}`, oneOf(importBatchSchema, "batch"), json("PATCH", { decisions: [], commit: false, ...body })),
+  // Ends the batch's queued explorations; their items go to review as written.
+  stopImportExplorations: (getToken: FetchToken, batchId: string) =>
+    request(getToken, `/test-cases/import/${id(batchId)}/explorations/cancel`, oneOf(importBatchSchema, "batch"), json("POST", {})),
   listTestCases: (getToken: FetchToken, query: { status?: TestCaseStatus[]; limit?: number; q?: string }) => {
     const params = new URLSearchParams();
     if (query.status?.length) params.set("status", query.status.join(","));

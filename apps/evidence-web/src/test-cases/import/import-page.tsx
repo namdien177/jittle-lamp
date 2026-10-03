@@ -6,6 +6,7 @@ import { lintTestCase, parseTranscriptDocument, splitInstructions, type CreateIm
 import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
 import { Button, buttonVariants } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
@@ -13,7 +14,9 @@ import { SimpleSelect } from "../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { cn } from "../../lib/cn";
 import { testAdminApi } from "../admin-api";
-import { testAdminKeys, useTestAdminMutation, useTestCredentials, useTestEnvironments, useTestPermissions } from "../admin-queries";
+import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestCredentials, useTestEnvironments, useTestPermissions } from "../admin-queries";
+import { explorationReadiness } from "../../test-config/config-ui";
+import { testingSettingsBase } from "../../pages/settings-test-cases/routes";
 import { AdminCard, ErrorNote, LintBadge, LintFindingList, ReadOnlyNotice, TranscriptView, pressable } from "../admin-ui";
 import { parseTagInput } from "../duplicate/find-replace";
 import { lintCounts } from "./batch-state";
@@ -113,6 +116,9 @@ export function TestCaseImportPage(): React.JSX.Element {
   const [jiraCredentialId, setJiraCredentialId] = useState<string>(NONE);
   const [previewRow, setPreviewRow] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
+  // Explored imports wait for a runner of the environment's pool; with none online the user says so.
+  const [queueWithoutRunner, setQueueWithoutRunner] = useState(false);
+  const pools = useRunnerPools();
 
   const defaultTags = useMemo(() => parseTagInput(tagsInput), [tagsInput]);
   const createImport = useTestAdminMutation((getToken, body: CreateImportRequest) => testAdminApi.createImport(getToken, body), [testAdminKeys.cases]);
@@ -130,6 +136,11 @@ export function TestCaseImportPage(): React.JSX.Element {
   const instructionCases = useMemo(() => (kind === "instructions" ? splitInstructions(text) : []), [kind, text]);
   const explores = kind === "instructions" || kind === "table";
   const exploreCount = kind === "instructions" ? instructionCases.length : (table?.data.records.length ?? 0);
+  const selectedEnvironment = (environments.data ?? []).find((environment) => environment.id === environmentId) ?? null;
+  // Unknown until the pools load (or when the user may not list them); the server checks too.
+  const readiness = explores && selectedEnvironment && pools.data ? explorationReadiness(selectedEnvironment.runnerPool, pools.data) : null;
+  const refusedNoRunner = (createImport.error as { code?: string } | null)?.code === "EXPLORE_NO_RUNNER";
+  const noRunner = explores && (readiness?.runnersOnline === 0 || refusedNoRunner);
 
   const tablePreview = useMemo(() => (table ? previewMappedRows(table.data.records, mapping, { defaultTags, limit: 50 }) : []), [table, mapping, defaultTags]);
 
@@ -172,7 +183,7 @@ export function TestCaseImportPage(): React.JSX.Element {
   const canSubmit =
     canImport &&
     !createImport.isPending &&
-    (!explores || (environmentId !== NONE && exploreCount <= exploreLimit)) &&
+    (!explores || (environmentId !== NONE && exploreCount <= exploreLimit && (!noRunner || queueWithoutRunner))) &&
     (kind === "instructions"
       ? instructionCases.length > 0
       : kind === "table"
@@ -182,7 +193,7 @@ export function TestCaseImportPage(): React.JSX.Element {
         : (documentPreview?.cases.length ?? 0) > 0);
 
   const submit = async () => {
-    const common = { defaultTags, environmentId: environmentId === NONE ? null : environmentId, explore: explores };
+    const common = { defaultTags, environmentId: environmentId === NONE ? null : environmentId, explore: explores, queueWithoutRunner: explores && queueWithoutRunner };
     let body: CreateImportRequest;
     if (kind === "instructions") {
       body = { sourceKind: "instructions", content: text, fileName: fileName ?? "instructions.txt", ...common };
@@ -365,8 +376,35 @@ export function TestCaseImportPage(): React.JSX.Element {
                   label="Environment"
                   hint={explores ? (kind === "table" ? "Required: each row is tried here and rewritten from what the agent did" : "Required: the instructions are tried here") : undefined}
                 >
-                  <SimpleSelect ariaLabel="Environment for imported cases" value={environmentId} onValueChange={setEnvironmentId} options={environmentOptions} />
+                  <SimpleSelect
+                    ariaLabel="Environment for imported cases"
+                    value={environmentId}
+                    onValueChange={(value) => {
+                      setEnvironmentId(value);
+                      setQueueWithoutRunner(false);
+                    }}
+                    options={environmentOptions}
+                  />
                 </Field>
+                {noRunner ? (
+                  <div role="alert" className="grid gap-2 rounded-md border border-warning/50 bg-warning/10 px-3 py-2.5 text-sm">
+                    <p className="font-semibold text-foreground">No runner is online in pool {readiness?.poolName ?? selectedEnvironment?.runnerPool ?? "of this environment"}.</p>
+                    <p className="text-muted-foreground">
+                      The cases cannot be explored until a runner of that pool connects.{" "}
+                      <Link to={`${testingSettingsBase}/runner-pools`} className="font-medium text-foreground underline underline-offset-2">
+                        Runner pools
+                      </Link>
+                    </p>
+                    <label className="flex items-center gap-2 font-medium text-foreground">
+                      <Checkbox checked={queueWithoutRunner} onCheckedChange={(checked) => setQueueWithoutRunner(checked === true)} />
+                      Queue anyway and wait for a runner
+                    </label>
+                  </div>
+                ) : readiness ? (
+                  <p className="text-sm text-muted-foreground">
+                    {readiness.runnersOnline} runner{readiness.runnersOnline === 1 ? "" : "s"} online in pool {readiness.poolName}.
+                  </p>
+                ) : null}
                 {explores && exploreCount > exploreLimit ? (
                   <p className="text-sm text-warning">
                     {exploreCount} cases; an explored import holds at most {exploreLimit}. Split the {kind === "table" ? "file" : "text"}.

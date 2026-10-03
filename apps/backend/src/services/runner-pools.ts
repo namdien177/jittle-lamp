@@ -64,6 +64,21 @@ export const toRunnerPool = async (
 	const running = counts
 		.filter((row) => row.status !== "queued")
 		.reduce((total, row) => total + Number(row.runs), 0);
+	// Import explorations queue on the same pool; counted apart from runs.
+	const explorations = await db
+		.select({ status: testExplorations.status, items: sql<number>`count(*)` })
+		.from(testExplorations)
+		.where(
+			and(
+				eq(testExplorations.runnerPoolId, pool.id),
+				inArray(testExplorations.status, ["queued", "running"]),
+			),
+		)
+		.groupBy(testExplorations.status);
+	const explorationCount = (status: "queued" | "running") =>
+		explorations
+			.filter((row) => row.status === status)
+			.reduce((total, row) => total + Number(row.items), 0);
 	return {
 		id: pool.id,
 		name: pool.name,
@@ -82,6 +97,8 @@ export const toRunnerPool = async (
 		})),
 		queued,
 		running,
+		explorationsQueued: explorationCount("queued"),
+		explorationsRunning: explorationCount("running"),
 		createdAt: pool.createdAt,
 	};
 };

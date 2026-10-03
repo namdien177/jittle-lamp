@@ -13,10 +13,12 @@ import {
 	serializeTestCase,
 	summarizeExploration,
 } from "@jittle-lamp/shared";
-import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 
 import {
+	runnerPools,
+	runnerWorkers,
 	testCredentials,
 	testEnvironments,
 	testExplorations,
@@ -35,7 +37,11 @@ import { parseJsonColumn } from "./test-cases";
 import type { TestSecrets } from "./test-config";
 import { extractTranscript } from "./test-import-parsers";
 import { analyseCandidate, type TextGenerator } from "./test-imports";
-import { type RunnerPoolRow, resolvePoolReference } from "./test-runs";
+import {
+	type RunnerPoolRow,
+	resolvePoolReference,
+	WORKER_LIVE_MS,
+} from "./test-runs";
 import { credentialSubject, resolveModelKeys } from "./test-settings";
 import type { BackendDb } from "./user-provisioning";
 
@@ -50,6 +56,47 @@ export const EXPLORATION_TIMEOUT_MS = 10 * 60_000;
 // One lease covers the whole exploration plus the conversion; e2e stops itself at the timeout.
 export const EXPLORATION_LEASE_MS = EXPLORATION_TIMEOUT_MS + 5 * 60_000;
 export const EXPLORATION_MAX_ATTEMPTS = 2;
+
+// Online runners per pool: a worker whose heartbeat is recent and that is not revoked.
+export const onlineRunnerCounts = async (
+	db: BackendDb,
+	poolIds: string[],
+	now = Date.now(),
+): Promise<Map<string, number>> => {
+	if (poolIds.length === 0) return new Map();
+	const rows = await db
+		.select({ poolId: runnerWorkers.poolId, workers: sql<number>`count(*)` })
+		.from(runnerWorkers)
+		.where(
+			and(
+				inArray(runnerWorkers.poolId, poolIds),
+				isNull(runnerWorkers.revokedAt),
+				gt(runnerWorkers.lastHeartbeatAt, now - WORKER_LIVE_MS),
+			),
+		)
+		.groupBy(runnerWorkers.poolId);
+	return new Map(rows.map((row) => [row.poolId, Number(row.workers)]));
+};
+
+// Before an explored import: the pool its environment is bound to and whether a runner of it
+// is online. A pool that does not exist yet has none.
+export const explorationReadiness = async (
+	db: BackendDb,
+	input: { orgId: string; environmentId: string; now?: number },
+): Promise<{ poolName: string; runnersOnline: number }> => {
+	const environment = await db.query.testEnvironments.findFirst({
+		where: and(
+			eq(testEnvironments.id, input.environmentId),
+			eq(testEnvironments.orgId, input.orgId),
+		),
+		columns: { runnerPool: true },
+	});
+	const reference = environment?.runnerPool ?? "cloud";
+	const pool = await resolvePoolReference(db, input.orgId, reference);
+	if (!pool) return { poolName: reference, runnersOnline: 0 };
+	const online = await onlineRunnerCounts(db, [pool.id], input.now);
+	return { poolName: pool.name, runnersOnline: online.get(pool.id) ?? 0 };
+};
 
 export const queueExploration = async (
 	db: BackendDb,
@@ -497,6 +544,19 @@ export const explorationsForItems = async (
 	const names = new Map(
 		environments.map((environment) => [environment.id, environment.name]),
 	);
+	const poolIds = [
+		...new Set(
+			rows.flatMap((row) => (row.runnerPoolId ? [row.runnerPoolId] : [])),
+		),
+	];
+	const pools = poolIds.length
+		? await db.query.runnerPools.findMany({
+				where: inArray(runnerPools.id, poolIds),
+				columns: { id: true, name: true },
+			})
+		: [];
+	const poolNames = new Map(pools.map((pool) => [pool.id, pool.name]));
+	const online = await onlineRunnerCounts(db, poolIds);
 	return new Map(
 		rows.map((row) => {
 			const record = row.resultJson
@@ -509,6 +569,16 @@ export const explorationsForItems = async (
 					environmentName: row.environmentId
 						? (names.get(row.environmentId) ?? null)
 						: null,
+					runnerPoolName: row.runnerPoolId
+						? (poolNames.get(row.runnerPoolId) ?? row.runnerPool)
+						: row.runnerPool,
+					// Only a queued item waits on runners; say how many could take it.
+					runnersOnline:
+						row.status === "queued"
+							? row.runnerPoolId
+								? (online.get(row.runnerPoolId) ?? 0)
+								: 0
+							: null,
 					attempts: row.attempts,
 					error: row.error,
 					...summarizeExploration(record?.success ? record.data : null),
@@ -516,4 +586,46 @@ export const explorationsForItems = async (
 			];
 		}),
 	);
+};
+
+export const STOPPED_WAITING =
+	"Stopped waiting for a runner; reviewed without exploring";
+
+// "Stop waiting": queued explorations of a batch end without a runner. Their items go to review
+// with the instructions as written; explorations a runner already holds carry on.
+export const cancelQueuedExplorations = async (
+	db: BackendDb,
+	secrets: TestSecrets,
+	input: { batchId: string; now?: number },
+): Promise<number> => {
+	const now = input.now ?? Date.now();
+	const queued = await db.query.testExplorations.findMany({
+		where: and(
+			eq(testExplorations.batchId, input.batchId),
+			eq(testExplorations.status, "queued"),
+		),
+	});
+	let cancelled = 0;
+	for (const row of queued) {
+		// Claimed meanwhile: the runner reports it.
+		const [won] = await db
+			.update(testExplorations)
+			.set({ status: "failed", error: STOPPED_WAITING, updatedAt: now })
+			.where(
+				and(
+					eq(testExplorations.id, row.id),
+					eq(testExplorations.status, "queued"),
+				),
+			)
+			.returning({ id: testExplorations.id });
+		if (!won) continue;
+		cancelled += 1;
+		await completeExploration(db, secrets, {
+			row,
+			request: { status: "failed", explore: null, error: STOPPED_WAITING },
+			generateText: null,
+			now,
+		});
+	}
+	return cancelled;
 };

@@ -18,7 +18,7 @@ import { testAdminApi } from "../../test-cases/admin-api";
 import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestPermissions } from "../../test-cases/admin-queries";
 import { AdminCard, CopyBlock, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { testRunHref } from "../../notifications/notification-links";
-import { registrationTokenAction, runnerCommands } from "../../test-config/config-ui";
+import { poolQueueSummary, registrationTokenAction, runnerCommands } from "../../test-config/config-ui";
 import { Hint } from "../../components/ui/tooltip";
 
 // Settings → Runner pools (design.md §5.4, docs/e2e-test-cases/runner-setup.md): pools, workers and
@@ -74,8 +74,8 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                     <h3 className="font-mono text-sm font-semibold text-foreground">{pool.name}</h3>
                     <Badge variant={pool.kind === "cloud" ? "default" : "outline"}>{pool.kind}</Badge>
                     <span className="text-sm text-muted-foreground">
-                      {online} of {pool.workers.length} online · up to {pool.maxConcurrentRuns} at a time · {pool.running} running ·{" "}
-                      <span className={cn(pool.queued > 0 && online === 0 && "font-semibold text-warning")}>{pool.queued} queued</span>
+                      {online} of {pool.workers.length} online · up to {pool.maxConcurrentRuns} at a time ·{" "}
+                      <span className={cn(pool.queued + pool.explorationsQueued > 0 && online === 0 && "font-semibold text-warning")}>{poolQueueSummary(pool)}</span>
                     </span>
                     {tokenAction ? (
                       <Button
@@ -95,10 +95,14 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                       </Button>
                     ) : null}
                   </header>
-                  {pool.queued > 0 && online === 0 ? (
+                  {pool.queued + pool.explorationsQueued > 0 && online === 0 ? (
                     <p className="flex items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-sm text-warning">
                       <AlertTriangle className="size-4" aria-hidden />
-                      Runs are waiting with NO_RUNNER. Start a worker for this pool.
+                      {pool.queued > 0 && pool.explorationsQueued > 0
+                        ? "Runs and imports are waiting with no runner online. Start a worker for this pool."
+                        : pool.queued > 0
+                          ? "Runs are waiting with NO_RUNNER. Start a worker for this pool."
+                          : "Imports are waiting to be explored with no runner online. Start a worker for this pool."}
                     </p>
                   ) : null}
                   {pool.workers.length === 0 ? (

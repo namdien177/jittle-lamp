@@ -10,7 +10,8 @@ import {
   type ExplorationRecord
 } from "@jittle-lamp/shared";
 
-import { explorationLabel } from "../apps/evidence-web/src/test-cases/import/batch-state";
+import { explorationLabel, poolsWithoutRunner } from "../apps/evidence-web/src/test-cases/import/batch-state";
+import { explorationReadiness, poolForEnvironment, poolQueueSummary } from "../apps/evidence-web/src/test-config/config-ui";
 
 const record: ExplorationRecord = {
   goal: "g",
@@ -70,9 +71,15 @@ describe("general instructions", () => {
   });
 
   it("labels an item's exploration on the batch page", () => {
-    const base = { environmentName: "pcf-uat", attempts: 1, error: null, ended: null, steps: 0, findings: 0 };
+    const base = { environmentName: "pcf-uat", runnerPoolName: "cloud", runnersOnline: null, attempts: 1, error: null, ended: null, steps: 0, findings: 0 };
     expect(explorationLabel({ exploration: null })).toBeNull();
-    expect(explorationLabel({ exploration: { ...base, status: "queued" } })).toEqual({ text: "Waiting for a runner on pcf-uat", tone: "muted" });
+    expect(explorationLabel({ exploration: { ...base, status: "queued", runnersOnline: 2 } })).toEqual({ text: "Waiting for a runner on pcf-uat · 2 online in pool cloud", tone: "muted" });
+    // Production 2026-10-04: a General instructions import on pcf-uat (pool cloud, no worker) read
+    // "Waiting for a runner on pcf-uat" with no hint that nothing could take it.
+    expect(explorationLabel({ exploration: { ...base, status: "queued", runnersOnline: 0 } })).toEqual({
+      text: "No runner online in pool cloud; waits until one connects (environment pcf-uat)",
+      tone: "danger"
+    });
     expect(explorationLabel({ exploration: { ...base, status: "running", attempts: 2 } })?.text).toBe("Trying the instructions on pcf-uat (attempt 2)");
     expect(explorationLabel({ exploration: { ...base, status: "done", ended: "finished", steps: 3, findings: 1 } })).toEqual({
       text: "Explored on pcf-uat: 3 steps · 1 finding",
@@ -82,5 +89,42 @@ describe("general instructions", () => {
       text: "Not explored on pcf-uat: net::ERR_NAME_NOT_RESOLVED",
       tone: "danger"
     });
+  });
+
+  it("names the pools a batch waits on with no runner online", () => {
+    const queued = (runnerPoolName: string, runnersOnline: number) => ({
+      exploration: { status: "queued" as const, environmentName: "pcf-uat", runnerPoolName, runnersOnline, attempts: 0, error: null, ended: null, steps: 0, findings: 0 }
+    });
+    expect(poolsWithoutRunner([queued("cloud", 0), queued("cloud", 0), queued("vpn", 1), { exploration: null }])).toEqual(["cloud"]);
+    expect(poolsWithoutRunner([queued("vpn", 1)])).toEqual([]);
+  });
+});
+
+describe("runner pool readiness and queue accounting", () => {
+  const pools = [
+    { kind: "cloud" as const, id: "p-cloud", name: "cloud", workers: [] as Array<{ status: "online" | "offline" }> },
+    { kind: "self-hosted" as const, id: "p-vpn", name: "vpn", workers: [{ status: "online" as const }, { status: "offline" as const }] }
+  ];
+
+  it("resolves an environment's pool reference the way the backend does", () => {
+    expect(poolForEnvironment("cloud", pools)?.id).toBe("p-cloud");
+    expect(poolForEnvironment("", pools)?.id).toBe("p-cloud");
+    expect(poolForEnvironment("self-hosted:vpn", pools)?.id).toBe("p-vpn");
+    expect(poolForEnvironment("self-hosted:p-vpn", pools)?.id).toBe("p-vpn");
+    expect(poolForEnvironment("self-hosted:gone", pools)).toBeNull();
+  });
+
+  it("counts online runners before an explored import starts", () => {
+    expect(explorationReadiness("cloud", pools)).toEqual({ poolName: "cloud", runnersOnline: 0 });
+    expect(explorationReadiness("self-hosted:vpn", pools)).toEqual({ poolName: "vpn", runnersOnline: 1 });
+    expect(explorationReadiness("self-hosted:gone", pools)).toEqual({ poolName: "self-hosted:gone", runnersOnline: 0 });
+  });
+
+  it("shows waiting imports next to runs instead of '0 queued'", () => {
+    expect(poolQueueSummary({ running: 0, queued: 0, explorationsRunning: 0, explorationsQueued: 0 })).toBe("0 running · 0 queued");
+    expect(poolQueueSummary({ running: 0, queued: 0, explorationsRunning: 0, explorationsQueued: 1 })).toBe("0 running · 0 queued · 1 import waiting");
+    expect(poolQueueSummary({ running: 1, queued: 2, explorationsRunning: 1, explorationsQueued: 2 })).toBe(
+      "1 running · 2 queued · 3 imports exploring (1 running, 2 waiting)"
+    );
   });
 });

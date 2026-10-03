@@ -68,8 +68,11 @@ export function explorationLabel(item: Pick<ImportItem, "exploration">): { text:
   if (!exploration) return null;
   const where = exploration.environmentName ? ` on ${exploration.environmentName}` : "";
   switch (exploration.status) {
-    case "queued":
-      return { text: `Waiting for a runner${where}`, tone: "muted" };
+    case "queued": {
+      const pool = exploration.runnerPoolName ? ` in pool ${exploration.runnerPoolName}` : "";
+      if (exploration.runnersOnline === 0) return { text: `No runner online${pool}; waits until one connects${where ? ` (environment${where.slice(3)})` : ""}`, tone: "danger" };
+      return { text: `Waiting for a runner${where}${exploration.runnersOnline ? ` · ${exploration.runnersOnline} online${pool}` : ""}`, tone: "muted" };
+    }
     case "running":
       return { text: `Trying the instructions${where}${exploration.attempts > 1 ? ` (attempt ${exploration.attempts})` : ""}`, tone: "active" };
     case "done": {
@@ -80,6 +83,17 @@ export function explorationLabel(item: Pick<ImportItem, "exploration">): { text:
     case "failed":
       return { text: `Not explored${where}: ${exploration.error ?? "the runner gave up"}`, tone: "danger" };
   }
+}
+
+// Pools whose queued explorations have no runner online: the batch cannot move until one connects
+// or the user stops waiting.
+export function poolsWithoutRunner(items: readonly Pick<ImportItem, "exploration">[]): string[] {
+  const pools = new Set<string>();
+  for (const item of items) {
+    const exploration = item.exploration;
+    if (exploration?.status === "queued" && exploration.runnersOnline === 0) pools.add(exploration.runnerPoolName ?? "unknown");
+  }
+  return [...pools].sort();
 }
 
 export type BatchOverview = {

@@ -4,8 +4,9 @@ import type {
 	ExplorationConfig,
 	ExplorationRecord,
 	ImportBatch,
+	RunnerPool,
 } from "@jittle-lamp/shared";
-
+import { STOPPED_WAITING } from "../src/services/test-explorations";
 import {
 	createTestCaseFixture,
 	FAKE_MODEL_KEY,
@@ -78,7 +79,8 @@ describe("explored imports", () => {
 			error: { code: "EXPLORE_NEEDS_ENVIRONMENT" },
 		});
 
-		const created = await fixture.call<ImportBatch>("/test-cases/import", {
+		// No runner in the environment's pool yet: refused rather than queued out of sight.
+		const refused = await fixture.call("/test-cases/import", {
 			token: fixture.admin.token,
 			body: {
 				sourceKind: "instructions",
@@ -86,7 +88,26 @@ describe("explored imports", () => {
 				environmentId,
 			},
 		});
+		expect(refused.status).toBe(409);
+		expect(refused.body).toMatchObject({
+			error: { code: "EXPLORE_NO_RUNNER" },
+			pool: "self-hosted:devbox",
+		});
+
+		const created = await fixture.call<ImportBatch>("/test-cases/import", {
+			token: fixture.admin.token,
+			body: {
+				sourceKind: "instructions",
+				content: instructions,
+				environmentId,
+				queueWithoutRunner: true,
+			},
+		});
 		expect(created.status).toBe(201);
+		expect(created.body.items[0]?.exploration).toMatchObject({
+			runnerPoolName: "self-hosted:devbox",
+			runnersOnline: 0,
+		});
 		expect(created.body.status).toBe("parsing");
 		expect(
 			created.body.items.map((item) => [
@@ -114,6 +135,27 @@ describe("explored imports", () => {
 		expect(early.body).toMatchObject({ error: { code: "IMPORT_EXPLORING" } });
 
 		const runner = await registerRunner(fixture);
+		// The new pool adopts the queued explorations; they count on it next to runs.
+		const pools = await fixture.call<{ items: RunnerPool[] }>("/runner-pools", {
+			token: fixture.admin.token,
+		});
+		expect(
+			pools.body.items
+				.filter((pool) => pool.name === "devbox")
+				.map((pool) => [
+					pool.queued,
+					pool.explorationsQueued,
+					pool.explorationsRunning,
+				]),
+		).toEqual([[0, 3, 0]]);
+		const waiting = await fixture.call<ImportBatch>(
+			`/test-cases/import/${batchId}`,
+			{ token: fixture.admin.token },
+		);
+		expect(waiting.body.items[0]?.exploration).toMatchObject({
+			runnerPoolName: "devbox",
+			runnersOnline: 1,
+		});
 		const claim = async () => {
 			const response = await fixture.call<{
 				run: unknown;
@@ -126,6 +168,14 @@ describe("explored imports", () => {
 		};
 
 		const first = await claim();
+		const busy = await fixture.call<{ items: RunnerPool[] }>("/runner-pools", {
+			token: fixture.admin.token,
+		});
+		expect(
+			busy.body.items
+				.filter((pool) => pool.name === "devbox")
+				.map((pool) => [pool.explorationsQueued, pool.explorationsRunning]),
+		).toEqual([[2, 1]]);
 		expect(first.goal).toContain("Admin creates an interest");
 		expect(first.goal).toContain("Sign in as PCF_HQ_ADMIN");
 		expect(first.maxSteps).toBe(8);
@@ -233,5 +283,72 @@ describe("explored imports", () => {
 		);
 		expect(commit.status).toBe(200);
 		expect(commit.body.counts.created).toBe(3);
+	});
+
+	it("stops waiting for a runner: queued items go to review unexplored, a claimed one carries on", async () => {
+		const fixture = await createTestCaseFixture();
+		const { environmentId } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+			modelKey: FAKE_MODEL_KEY,
+		});
+		const created = await fixture.call<ImportBatch>("/test-cases/import", {
+			token: fixture.admin.token,
+			body: {
+				sourceKind: "instructions",
+				content: instructions,
+				environmentId,
+				queueWithoutRunner: true,
+			},
+		});
+		expect(created.status).toBe(201);
+		const batchId = created.body.id;
+		const runner = await registerRunner(fixture);
+		const claimed = await fixture.call<{
+			exploration: ClaimedExploration | null;
+		}>("/runner-pools/claim", { token: runner.workerToken, body: {} });
+		expect(claimed.body.exploration?.goal).toContain(
+			"Admin creates an interest",
+		);
+
+		const stopped = await fixture.call<ImportBatch>(
+			`/test-cases/import/${batchId}/explorations/cancel`,
+			{ token: fixture.admin.token, body: {} },
+		);
+		expect(stopped.status).toBe(200);
+		expect(
+			stopped.body.items.map((item) => [
+				item.state,
+				item.exploration?.status,
+				item.exploration?.error ?? null,
+			]),
+		).toEqual([
+			["pending", "running", null],
+			["ready", "failed", STOPPED_WAITING],
+			["ready", "failed", STOPPED_WAITING],
+		]);
+		// The rows hold the instructions as notes for the reviewer.
+		expect(stopped.body.items[1]?.transcript).toContain(
+			"[Note] Sign out from the account menu.",
+		);
+		// One exploration is still running, so the batch waits for it.
+		expect(stopped.body.status).toBe("parsing");
+
+		await fixture.call(
+			`/test-explorations/${claimed.body.exploration?.explorationId}/result`,
+			{
+				token: runner.workerToken,
+				body: { status: "failed", explore: null, error: "timeout" },
+			},
+		);
+		const after = await fixture.call<ImportBatch>(
+			`/test-cases/import/${batchId}`,
+			{ token: fixture.admin.token },
+		);
+		expect(after.body.status).toBe("ready");
+		// Nothing left to claim.
+		const empty = await fixture.call<{
+			exploration: ClaimedExploration | null;
+		}>("/runner-pools/claim", { token: runner.workerToken, body: {} });
+		expect(empty.body.exploration).toBeNull();
 	});
 });

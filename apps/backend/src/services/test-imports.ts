@@ -42,7 +42,11 @@ import {
 	withMetadataKey,
 } from "./test-cases";
 import type { TestSecrets } from "./test-config";
-import { explorationsForItems, queueExploration } from "./test-explorations";
+import {
+	explorationReadiness,
+	explorationsForItems,
+	queueExploration,
+} from "./test-explorations";
 import {
 	buildCaseDocument,
 	extractTranscript,
@@ -510,6 +514,22 @@ export const createImportBatch = async (
 			"IMPORT_TOO_LARGE",
 			`An explored import holds at most ${EXPLORE_MAX_ITEMS} cases`,
 		);
+	}
+	// Explorations wait for a runner of the environment's pool. With none online the import would
+	// sit in "0 of n explored" with no sign why, so the caller has to opt in.
+	if (explore && environmentId && !request.queueWithoutRunner) {
+		const readiness = await explorationReadiness(db, {
+			orgId: input.orgId,
+			environmentId,
+		});
+		if (readiness.runnersOnline === 0) {
+			throw new HttpError(
+				409,
+				"EXPLORE_NO_RUNNER",
+				`No runner is online in pool ${readiness.poolName}, so the cases cannot be explored yet. Start a runner for that pool (Testing settings → Runner pools), or import with queueWithoutRunner to let them wait`,
+				{ pool: readiness.poolName },
+			);
+		}
 	}
 	const now = Date.now();
 	const [batch] = await db

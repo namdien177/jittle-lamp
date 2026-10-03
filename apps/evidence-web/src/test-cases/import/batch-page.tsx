@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Compass, Download, ExternalLink } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Compass, Download, ExternalLink } from "lucide-react";
 import type { ImportItem } from "@jittle-lamp/shared";
 
 import { PageBody, PageHeader } from "../../components/page";
@@ -18,12 +18,14 @@ import { testAdminKeys, useActiveOrgId, useImportBatch, useTestAdminMutation, us
 import { AdminCard, ErrorNote, LintBadge, LintFindingList, ReadOnlyNotice, StatTile, TranscriptView, downloadText, pressable } from "../admin-ui";
 import { caseEditorHref } from "../review/review-queue-state";
 import { Hint } from "../../components/ui/tooltip";
+import { testingSettingsBase } from "../../pages/settings-test-cases/routes";
 import {
   applyDecisionToSimilar,
   batchOverview,
   bestMatch,
   decisionOptions,
   explorationLabel,
+  poolsWithoutRunner,
   importErrorRows,
   importErrorsCsv,
   itemIsEditable,
@@ -58,6 +60,8 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
   const canEdit = permissions.can("test_case.create");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmCommit, setConfirmCommit] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const stopWaiting = useTestAdminMutation((getToken) => testAdminApi.stopImportExplorations(getToken, batchId), [testAdminKeys.cases]);
 
   const patch = useTestAdminMutation(
     (getToken, body: { decisions?: Array<{ itemId: string; decision: ImportDecision }>; commit?: boolean }) => testAdminApi.patchImportBatch(getToken, batchId, body),
@@ -104,6 +108,8 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
   const editable = canEdit && batch.status === "ready";
   const exactPending = batch.items.filter((item) => itemIsEditable(item) && similarityClass(item) === "exact" && item.decision !== "skip");
   const committable = overview.toCreate + overview.toUpdate + overview.toMerge;
+  const idlePools = poolsWithoutRunner(batch.items);
+  const queuedExplorations = batch.items.filter((item) => item.exploration?.status === "queued").length;
 
   return (
     <>
@@ -118,7 +124,9 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
         actions={
           <>
             <Badge variant={batch.status === "error" ? "danger" : batch.status === "done" ? "success" : "outline"}>
-              {batch.status === "parsing" && overview.exploring > 0 ? `${batch.items.length - overview.exploring} of ${batch.items.length} explored` : (statusLabel[batch.status] ?? batch.status)}
+              {batch.status === "parsing" && overview.exploring > 0
+                ? `${batch.items.length - overview.exploring} of ${batch.items.length} explored${idlePools.length > 0 ? " · no runner" : ""}`
+                : (statusLabel[batch.status] ?? batch.status)}
             </Badge>
             <Button
               variant="outline"
@@ -149,6 +157,31 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
             style={{ width: `${overview.percent}%` }}
           />
         </div>
+
+        {idlePools.length > 0 ? (
+          <div role="alert" className="flex flex-wrap items-start gap-3 rounded-md border border-warning/50 bg-warning/10 px-4 py-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+            <div className="min-w-0 flex-1 text-sm">
+              <p className="font-semibold text-foreground">
+                No runner is online in pool {idlePools.join(", ")}, so {queuedExplorations === 1 ? "this row has" : `${queuedExplorations} rows have`} not started.
+              </p>
+              <p className="text-muted-foreground">
+                Exploring starts as soon as a runner of that pool connects. Or stop waiting: the rows go to review with the instructions as written, unexplored.
+              </p>
+              <ErrorNote error={stopWaiting.error} className="mt-2" />
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Link to={`${testingSettingsBase}/runner-pools`} className="text-sm font-medium text-foreground underline underline-offset-2">
+                Runner pools
+              </Link>
+              {canEdit ? (
+                <Button size="sm" variant="outline" disabled={stopWaiting.isPending} onClick={() => setConfirmStop(true)}>
+                  Stop waiting
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <StatTile label="Created" value={batch.counts.created} tone="success" />
@@ -220,6 +253,18 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
           </Table>
         </AdminCard>
       </PageBody>
+      <ConfirmDialog
+        open={confirmStop}
+        title="Stop waiting for a runner?"
+        description={`${queuedExplorations} queued row${queuedExplorations === 1 ? "" : "s"} will not be explored. They go to review with the instructions as notes; rows a runner already took carry on.`}
+        confirmLabel="Stop waiting"
+        busy={stopWaiting.isPending}
+        onCancel={() => setConfirmStop(false)}
+        onConfirm={() => {
+          setConfirmStop(false);
+          void stopWaiting.mutateAsync(undefined).then((next) => queryClient.setQueryData(testAdminKeys.importBatch(orgId, batchId), next));
+        }}
+      />
       <ConfirmDialog
         open={confirmCommit}
         title={`Commit ${committable} cases?`}
@@ -353,7 +398,7 @@ function BatchRow(props: {
       {props.expanded ? (
         <TableRow className="hover:bg-transparent">
           <TableCell colSpan={5} className="px-5 pb-4">
-            <TranscriptView transcript={item.transcript} findings={item.lint} label={`Transcript of row ${item.ordinal + 1}`} />
+            <TranscriptView transcript={item.transcript} findings={exploring ? [] : item.lint} label={`Transcript of row ${item.ordinal + 1}`} />
           </TableCell>
         </TableRow>
       ) : null}
