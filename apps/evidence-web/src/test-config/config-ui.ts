@@ -1,4 +1,15 @@
-import { lintTestCase, parseTestCaseTranscript, type LintFinding, type MacroDefinition, type MacroParam } from "@jittle-lamp/shared";
+import {
+  findModelProvider,
+  lintTestCase,
+  modelIdProblem,
+  modelProviderOf,
+  parseTestCaseTranscript,
+  supportedModelPrefixes,
+  type LintFinding,
+  type MacroDefinition,
+  type MacroParam,
+  type ModelSettings
+} from "@jittle-lamp/shared";
 
 // Pure helpers for Settings → Test cases (design.md §9.3, §10.4, §14). No React, no DOM.
 
@@ -69,23 +80,125 @@ export function isHttpUrl(value: string): boolean {
 
 export type ProviderHint = { provider: string; tone: "ok" | "warning" | "unknown"; note: string | null };
 
-const providerPrefixes: ReadonlyArray<{ prefix: string; provider: string; tone: ProviderHint["tone"]; note: string | null }> = [
-  { prefix: "openrouter/", provider: "OpenRouter", tone: "ok", note: "Use an OpenRouter key." },
-  { prefix: "openai-compatible/", provider: "OpenAI-compatible", tone: "ok", note: "Self-hosted endpoint; the runner needs its base URL." },
-  { prefix: "anthropic/", provider: "Anthropic", tone: "ok", note: null },
-  { prefix: "openai/", provider: "OpenAI", tone: "ok", note: null },
-  { prefix: "google/", provider: "Google", tone: "ok", note: null },
-  { prefix: "gateway/", provider: "AI Gateway", tone: "ok", note: null },
-  { prefix: "claude-code/", provider: "Claude Code", tone: "warning", note: "Development only. Cloud runs need an organisation key." },
-  { prefix: "mock:", provider: "Mock replay", tone: "warning", note: "Replays recorded turns. For tests only." }
-];
+// Labels and environment names come from the shared provider list the backend validates against.
+const providerNotes: Readonly<Record<string, { tone: ProviderHint["tone"]; note: string | null }>> = {
+  openrouter: { tone: "ok", note: "Use an OpenRouter key. OpenRouter reports the cost of each call." },
+  "openai-compatible": { tone: "ok", note: "Any OpenAI-compatible endpoint: Groq, Together, DeepSeek, Fireworks, vLLM, Ollama, LiteLLM. Needs its base URL." },
+  gateway: { tone: "ok", note: "Use an AI Gateway key; the id after gateway/ is <provider>/<model>." },
+  "claude-code": { tone: "warning", note: "Development only. Cloud runs need an organisation key." },
+  mock: { tone: "warning", note: "Replays recorded turns. For tests only." }
+};
 
 export function providerFromModelId(modelId: string): ProviderHint {
   const id = modelId.trim();
   if (id.length === 0) return { provider: "No model", tone: "unknown", note: null };
-  const match = providerPrefixes.find((entry) => id.startsWith(entry.prefix));
-  if (match) return { provider: match.provider, tone: match.tone, note: match.note };
-  return { provider: "Unknown provider", tone: "unknown", note: "Prefix the id with the provider, e.g. anthropic/claude-sonnet-5-5." };
+  const problem = modelIdProblem(id);
+  const provider = findModelProvider(id);
+  if (problem || !provider) return { provider: "Unknown provider", tone: "unknown", note: problem ?? `Supported prefixes: ${supportedModelPrefixes()}.` };
+  return { provider: provider.label, ...(providerNotes[provider.prefix] ?? { tone: "ok" as const, note: null }) };
+}
+
+// Ready-made pairs for the provider picker. The act model drives the browser; the judge decides
+// asserts, waits and extracts, so a cheaper model often suffices.
+export type ModelPreset = { id: string; label: string; actModel: string; judgeModel: string };
+
+export const modelPresets: readonly ModelPreset[] = [
+  { id: "openrouter", label: "OpenRouter", actModel: "openrouter/anthropic/claude-sonnet-5-5", judgeModel: "openrouter/openai/gpt-5" },
+  { id: "openai-compatible", label: "OpenAI-compatible endpoint", actModel: "openai-compatible/llama-3.3-70b", judgeModel: "openai-compatible/llama-3.3-70b" },
+  { id: "gateway", label: "AI Gateway", actModel: "gateway/anthropic/claude-sonnet-5-5", judgeModel: "gateway/openai/gpt-5" },
+  { id: "openai", label: "OpenAI", actModel: "openai/gpt-5", judgeModel: "openai/gpt-5" },
+  { id: "anthropic", label: "Anthropic", actModel: "anthropic/claude-opus-5-5", judgeModel: "anthropic/claude-sonnet-5-5" },
+  { id: "google", label: "Google", actModel: "google/gemini-2.5-pro", judgeModel: "google/gemini-2.5-pro" },
+  { id: "xai", label: "xAI", actModel: "xai/grok-4", judgeModel: "xai/grok-4" }
+];
+
+// The provider picker shows the act model's provider, or "custom" for anything else.
+export function presetForModels(actModel: string): string {
+  const prefix = modelProviderOf(actModel.trim());
+  return modelPresets.some((preset) => preset.id === prefix) ? prefix : "custom";
+}
+
+export type ModelFormState = {
+  actModel: string;
+  judgeModel: string;
+  baseUrl: string;
+  apiKey: string;
+  judgeApiKey: string;
+};
+
+export type SavedModelSettings = Pick<ModelSettings, "actModel" | "judgeModel" | "keyConfigured" | "judgeKeyConfigured">;
+
+// What the AI model form must show and what it would lose, for the models currently typed in.
+export type ModelFormRequirements = {
+  actProvider: string | null;
+  judgeProvider: string | null;
+  // The act provider takes a key; `keyOptional` for endpoints that may run without one.
+  showKey: boolean;
+  keyOptional: boolean;
+  // The judge uses another provider that takes its own key.
+  showJudgeKey: boolean;
+  judgeKeyOptional: boolean;
+  showBaseUrl: boolean;
+  // A saved key that the server drops on save because its provider changed.
+  keyDropped: boolean;
+  judgeKeyDropped: boolean;
+  errors: { actModel?: string; judgeModel?: string; baseUrl?: string; apiKey?: string; judgeApiKey?: string };
+  // What runs will still be missing after saving: blocked with MODEL_KEY_MISSING until filled in.
+  missing: Array<"key" | "judgeKey">;
+};
+
+export function modelFormRequirements(form: ModelFormState, saved: SavedModelSettings | null): ModelFormRequirements {
+  const act = modelIdProblem(form.actModel) ? null : findModelProvider(form.actModel);
+  const judge = modelIdProblem(form.judgeModel) ? null : findModelProvider(form.judgeModel);
+  const showJudgeKey = Boolean(judge?.keyEnv && judge.prefix !== act?.prefix);
+  const showBaseUrl = Boolean(act?.baseUrlEnv || judge?.baseUrlEnv);
+  const keyDropped = Boolean(saved?.keyConfigured && act && modelProviderOf(saved.actModel) !== act.prefix && form.apiKey.length === 0);
+  const judgeKeyDropped = Boolean(
+    saved?.judgeKeyConfigured && judge && (!showJudgeKey || modelProviderOf(saved.judgeModel) !== judge.prefix) && form.judgeApiKey.length === 0
+  );
+  const errors: ModelFormRequirements["errors"] = {};
+  const actProblem = modelIdProblem(form.actModel);
+  const judgeProblem = modelIdProblem(form.judgeModel);
+  if (actProblem) errors.actModel = actProblem;
+  if (judgeProblem) errors.judgeModel = judgeProblem;
+  const baseUrl = form.baseUrl.trim();
+  if (showBaseUrl && !baseUrl) errors.baseUrl = "openai-compatible/ models need the endpoint's base URL.";
+  else if (showBaseUrl && !isHttpUrl(baseUrl)) errors.baseUrl = "Use an http or https URL.";
+  if (form.apiKey.length > 0 && form.apiKey.length < 8) errors.apiKey = "The key looks too short.";
+  if (form.judgeApiKey.length > 0 && form.judgeApiKey.length < 8) errors.judgeApiKey = "The key looks too short.";
+  const keyStored = Boolean(saved?.keyConfigured) && !keyDropped;
+  const judgeKeyStored = Boolean(saved?.judgeKeyConfigured) && !judgeKeyDropped;
+  const missing: ModelFormRequirements["missing"] = [];
+  if (act?.keyRequired && !keyStored && form.apiKey.length === 0) missing.push("key");
+  if (showJudgeKey && judge?.keyRequired && !judgeKeyStored && form.judgeApiKey.length === 0) missing.push("judgeKey");
+  return {
+    actProvider: act?.label ?? null,
+    judgeProvider: judge?.label ?? null,
+    showKey: Boolean(act?.keyEnv),
+    keyOptional: Boolean(act?.keyEnv && !act.keyRequired),
+    showJudgeKey,
+    judgeKeyOptional: Boolean(judge?.keyEnv && !judge.keyRequired),
+    showBaseUrl,
+    keyDropped,
+    judgeKeyDropped,
+    errors,
+    missing
+  };
+}
+
+// The PUT body: keys only when typed, the base URL only while a model needs it.
+export function modelSettingsRequest(
+  form: ModelFormState,
+  requirements: Pick<ModelFormRequirements, "showBaseUrl" | "showJudgeKey">
+): { actModel: string; judgeModel: string; apiKey?: string; judgeApiKey?: string; baseUrl?: string } {
+  const baseUrl = form.baseUrl.trim();
+  return {
+    actModel: form.actModel.trim(),
+    judgeModel: form.judgeModel.trim(),
+    ...(form.apiKey ? { apiKey: form.apiKey } : {}),
+    ...(requirements.showJudgeKey && form.judgeApiKey ? { judgeApiKey: form.judgeApiKey } : {}),
+    ...(requirements.showBaseUrl && baseUrl ? { baseUrl } : {})
+  };
 }
 
 export function maskedKeyLabel(keyConfigured: boolean, keyLast4: string | null): string {

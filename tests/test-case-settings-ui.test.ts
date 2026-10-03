@@ -8,6 +8,10 @@ import {
   credentialFieldPattern,
   environmentVariablePattern,
   maskedKeyLabel,
+  modelFormRequirements,
+  modelPresets,
+  modelSettingsRequest,
+  presetForModels,
   providerFromModelId,
   rowsToRecord,
   runnerCommands,
@@ -49,6 +53,86 @@ describe("settings helpers", () => {
     expect(providerFromModelId("gpt-5").tone).toBe("unknown");
     expect(maskedKeyLabel(true, "a1b2")).toBe("Configured · ••••a1b2");
     expect(maskedKeyLabel(false, null)).toBe("Not configured");
+  });
+
+  it("hints every supported provider and names the supported prefixes for an unknown one", () => {
+    expect(providerFromModelId("xai/grok-4").provider).toBe("xAI");
+    expect(providerFromModelId("google/gemini-2.5-pro").provider).toBe("Google");
+    expect(providerFromModelId("gateway/openai/gpt-5").provider).toBe("AI Gateway");
+    expect(providerFromModelId("openai-compatible/llama-3.3-70b").note).toContain("base URL");
+    const unknown = providerFromModelId("mistral/large");
+    expect(unknown).toMatchObject({ provider: "Unknown provider", tone: "unknown" });
+    expect(unknown.note).toContain("openrouter/, openai-compatible/, gateway/, openai/, anthropic/, google/, xai/");
+    // Every preset is a valid pair the backend accepts.
+    for (const preset of modelPresets) {
+      expect(providerFromModelId(preset.actModel).tone).toBe("ok");
+      expect(providerFromModelId(preset.judgeModel).tone).toBe("ok");
+      expect(presetForModels(preset.actModel)).toBe(preset.id);
+    }
+    expect(presetForModels("mock:fixture.json")).toBe("custom");
+  });
+
+  const saved = { actModel: "anthropic/claude-opus-5-5", judgeModel: "anthropic/claude-sonnet-5-5", keyConfigured: true, judgeKeyConfigured: false };
+  const form = (patch: Partial<Parameters<typeof modelFormRequirements>[0]> = {}) => ({
+    actModel: "anthropic/claude-opus-5-5",
+    judgeModel: "anthropic/claude-sonnet-5-5",
+    baseUrl: "",
+    apiKey: "",
+    judgeApiKey: "",
+    ...patch
+  });
+
+  it("asks for a base URL only for openai-compatible models and validates it", () => {
+    expect(modelFormRequirements(form(), saved)).toMatchObject({ showBaseUrl: false, showKey: true, showJudgeKey: false, missing: [], errors: {} });
+    const compatible = modelFormRequirements(form({ actModel: "openai-compatible/llama-3.3-70b", judgeModel: "openai-compatible/llama-3.3-70b" }), saved);
+    expect(compatible).toMatchObject({ showBaseUrl: true, keyOptional: true, keyDropped: true, missing: [] });
+    expect(compatible.errors.baseUrl).toContain("base URL");
+    expect(modelFormRequirements(form({ actModel: "openai-compatible/x", judgeModel: "openai-compatible/x", baseUrl: "ftp://host" }), saved).errors.baseUrl).toBe(
+      "Use an http or https URL."
+    );
+    const ok = form({ actModel: "openai-compatible/x", judgeModel: "openai-compatible/x", baseUrl: " https://api.groq.com/openai/v1 " });
+    const requirements = modelFormRequirements(ok, saved);
+    expect(requirements.errors).toEqual({});
+    expect(modelSettingsRequest(ok, requirements)).toEqual({
+      actModel: "openai-compatible/x",
+      judgeModel: "openai-compatible/x",
+      baseUrl: "https://api.groq.com/openai/v1"
+    });
+    // The URL is dropped from the request when no model needs it.
+    expect(modelSettingsRequest(form({ baseUrl: "https://stale.example/v1" }), modelFormRequirements(form(), saved))).toEqual({
+      actModel: "anthropic/claude-opus-5-5",
+      judgeModel: "anthropic/claude-sonnet-5-5"
+    });
+  });
+
+  it("shows a judge key when the judge uses another provider and reports what runs would miss", () => {
+    const mixed = form({ actModel: "openrouter/anthropic/claude-sonnet-5-5", judgeModel: "xai/grok-4" });
+    const requirements = modelFormRequirements(mixed, { ...saved, actModel: "openrouter/anthropic/claude-sonnet-5-5" });
+    expect(requirements).toMatchObject({ actProvider: "OpenRouter", judgeProvider: "xAI", showJudgeKey: true, keyDropped: false, missing: ["judgeKey"] });
+    const typed = { ...mixed, judgeApiKey: "xai-key-123456" };
+    expect(modelFormRequirements(typed, saved).missing).toEqual(["key"]);
+    expect(modelSettingsRequest(typed, modelFormRequirements(typed, saved))).toEqual({
+      actModel: "openrouter/anthropic/claude-sonnet-5-5",
+      judgeModel: "xai/grok-4",
+      judgeApiKey: "xai-key-123456"
+    });
+    // A judge key is never sent while both models share a provider.
+    const same = form({ judgeApiKey: "left-over-key-0000" });
+    expect(modelSettingsRequest(same, modelFormRequirements(same, saved))).not.toHaveProperty("judgeApiKey");
+    // A saved judge key is dropped when the judge moves to the act provider.
+    expect(modelFormRequirements(form(), { ...saved, judgeModel: "xai/grok-4", judgeKeyConfigured: true }).judgeKeyDropped).toBe(true);
+  });
+
+  it("flags unknown prefixes and short keys before saving", () => {
+    const requirements = modelFormRequirements(form({ actModel: "gpt-5", judgeModel: "bedrock/claude", apiKey: "short" }), saved);
+    expect(requirements.errors.actModel).toContain("<provider>/<model>");
+    expect(requirements.errors.judgeModel).toContain('Unknown model provider "bedrock"');
+    expect(requirements.errors.apiKey).toBe("The key looks too short.");
+    expect(modelFormRequirements(form({ actModel: "mock:fixture.json", judgeModel: "mock:fixture.json" }), saved)).toMatchObject({
+      showKey: false,
+      showJudgeKey: false,
+      missing: []
+    });
   });
 
   it("builds the runner start and docker commands with the token quoted", () => {

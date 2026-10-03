@@ -192,7 +192,10 @@ export const testAdminApi = {
   updateRunSettings: (getToken: FetchToken, body: z.infer<typeof testRunSettingsSchema>) =>
     request(getToken, "/test-run-settings", oneOf(testRunSettingsSchema, "settings"), json("PUT", body)),
   getModelSettings: (getToken: FetchToken) => request(getToken, "/test-model-settings", oneOf(modelSettingsSchema, "settings")),
-  updateModelSettings: (getToken: FetchToken, body: { actModel: string; judgeModel: string; apiKey?: string | null }) =>
+  updateModelSettings: (
+    getToken: FetchToken,
+    body: { actModel: string; judgeModel: string; apiKey?: string | null; judgeApiKey?: string | null; baseUrl?: string | null }
+  ) =>
     request(getToken, "/test-model-settings", oneOf(modelSettingsSchema, "settings"), json("PUT", body)),
   getModelCosts: (getToken: FetchToken, range: { from: number; to: number }) =>
     request(getToken, `/test-model-costs?from=${range.from}&to=${range.to}`, oneOf(modelCostReportSchema, "report")),
