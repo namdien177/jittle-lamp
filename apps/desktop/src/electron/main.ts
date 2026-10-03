@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   recordingFileName,
@@ -20,8 +20,9 @@ import {
   type OpenDialogOptions
 } from "electron";
 
+import { desktopApiOrigin } from "../api-origin";
 import { loadResolvedCompanionConfig, saveCompanionConfig } from "../companion/config";
-import { deepLinkScheme, findDeepLinkInArgv, parseDeepLink, type DeepLinkTarget } from "../deep-link";
+import { deepLinkScheme, findDeepLinkInArgv, isExternalHttpUrl, isSameFileUrl, parseDeepLink, type DeepLinkTarget } from "../deep-link";
 import {
   deleteSession,
   getCompanionConfigState,
@@ -53,6 +54,7 @@ import {
 } from "../rpc";
 import {
   buildSessionZip,
+  clearAllTempSessions,
   clearTempSession,
   importZipBundle,
   loadLocalSession,
@@ -81,6 +83,7 @@ const currentFile = fileURLToPath(import.meta.url);
 const currentDir = dirname(currentFile);
 const preloadPath = join(currentDir, "preload.js");
 const mainViewPath = join(currentDir, "..", "views", "mainview", "index.html");
+const mainViewUrl = pathToFileURL(mainViewPath).href;
 const macosDesktopInstallScriptUrl =
   "https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh";
 const latestReleaseApiUrl = "https://api.github.com/repos/namdien177/jittle-lamp/releases/latest";
@@ -274,12 +277,12 @@ const handlers: DesktopHandlerMap = {
       ok: true as const
     };
   },
-  openRemoteEvidence: async (request) => openRemoteEvidence(request),
+  openRemoteEvidence: async (request) => openRemoteEvidence(request, desktopApiOrigin),
   openExternalUrl: async ({ url }) => {
-    const parsedUrl = new URL(url);
-    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+    if (!isExternalHttpUrl(url)) {
       throw new Error("Only HTTP(S) URLs can be opened externally.");
     }
+    const parsedUrl = new URL(url);
 
     await shell.openExternal(parsedUrl.toString());
     return {
@@ -374,6 +377,12 @@ function handleDeepLink(raw: string | null): void {
     return;
   }
   pendingDeepLink = target;
+  // On macOS the app keeps running with no window; a link then opens one, which consumes the
+  // pending target when its renderer mounts.
+  if (!mainWindow && app.isReady()) {
+    createMainWindow();
+    return;
+  }
   sendRendererMessage("deepLinkReceived", {});
   focusMainWindow();
 }
@@ -404,11 +413,39 @@ function startDesktopApp(): void {
       app.quit();
     }
   });
+
+  // ZIP imports and cloud evidence live in temp files for as long as a viewer shows them.
+  let tempSessionsCleared = false;
+  app.on("before-quit", (event) => {
+    if (tempSessionsCleared) return;
+    event.preventDefault();
+    tempSessionsCleared = true;
+    void clearAllTempSessions()
+      .catch(() => undefined)
+      .finally(() => app.quit());
+  });
+}
+
+/** Only the bundled main view may call the desktop RPC; never another frame or a navigated page. */
+function isTrustedSender(frame: Electron.WebFrameMain | null): boolean {
+  if (!frame || !mainWindow || frame !== mainWindow.webContents.mainFrame) return false;
+  return isMainViewUrl(frame.url);
+}
+
+function isMainViewUrl(value: string): boolean {
+  return isSameFileUrl(value, mainViewUrl);
+}
+
+function openExternalHttpUrl(value: string): void {
+  if (isExternalHttpUrl(value)) void shell.openExternal(new URL(value).toString());
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.handle(desktopIpcRequestChannel, async (_event, payload: DesktopRequestPayload) => {
-    if (!payload.name || !(payload.name in handlers)) {
+  ipcMain.handle(desktopIpcRequestChannel, async (event, payload: DesktopRequestPayload) => {
+    if (!isTrustedSender(event.senderFrame)) {
+      throw new Error("Desktop requests are accepted only from the Jittle Lamp window.");
+    }
+    if (!payload || !payload.name || !Object.hasOwn(handlers, payload.name)) {
       throw new Error(`Unknown desktop request: ${payload.name ?? "(missing)"}`);
     }
 
@@ -435,6 +472,19 @@ function createMainWindow(): void {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+
+  // Links (target=_blank, window.open) never open Electron windows: http(s) goes to the system
+  // browser, everything else (file:, javascript:, custom schemes) is dropped.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalHttpUrl(url);
+    return { action: "deny" };
+  });
+  // The renderer stays on the bundled main view; any other navigation opens externally or is dropped.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isMainViewUrl(url)) return;
+    event.preventDefault();
+    openExternalHttpUrl(url);
   });
 
   void mainWindow.loadFile(mainViewPath);

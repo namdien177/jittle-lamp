@@ -1,0 +1,2 @@
+ALTER TABLE `test_runs` ADD `dedupe_exclusive` integer DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `test_runs_org_dedupe_open_unique` ON `test_runs` (`org_id`,`dedupe_key`) WHERE "test_runs"."dedupe_exclusive" = 1 and "test_runs"."status" in ('queued', 'claimed', 'running', 'paused');

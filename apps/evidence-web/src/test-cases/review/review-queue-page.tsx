@@ -1,4 +1,5 @@
 import React, { useEffect, useReducer, useRef, useState } from "react";
+import { safeExternalHref } from "@jittle-lamp/ui";
 import { Link, useNavigate } from "react-router";
 import { Check, ExternalLink, Inbox, Pencil, X } from "lucide-react";
 import type { TestCaseDetail } from "@jittle-lamp/shared";
@@ -6,6 +7,7 @@ import type { TestCaseDetail } from "@jittle-lamp/shared";
 import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { ConfirmDialog } from "../../components/ui/dialog";
 import { Textarea } from "../../components/ui/input";
 import { EmptyState, Skeleton } from "../../components/ui/misc";
 import { cn } from "../../lib/cn";
@@ -15,7 +17,7 @@ import { testAdminApi } from "../admin-api";
 import { testAdminKeys, useAdminTestCase, useReviewQueue, useSimilarForCase, useTestAdminMutation, useTestPermissions } from "../admin-queries";
 import { importBatchHref } from "../../notifications/notification-links";
 import { AdminCard, ErrorNote, Kbd, LintBadge, ReadOnlyNotice, TranscriptView, pressable } from "../admin-ui";
-import { caseEditorHref, cleanCaseIds, initialReviewQueueState, reviewKeyCommand, reviewQueueReducer, type ReviewCommand } from "./review-queue-state";
+import { approveCleanPrompt, caseEditorHref, cleanCaseIds, initialReviewQueueState, reviewKeyCommand, reviewQueueReducer, type ReviewCommand } from "./review-queue-state";
 
 // Review queue (design.md §7): imported and AI-generated cases wait in `review` until approved.
 
@@ -41,12 +43,14 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
   const items = queue.data?.items ?? [];
   const [state, dispatch] = useReducer(reviewQueueReducer, undefined, () => initialReviewQueueState());
   const [reason, setReason] = useState("");
+  const [confirmClean, setConfirmClean] = useState(false);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const detail = useAdminTestCase(state.selectedId);
   const selected = items.find((item) => item.id === state.selectedId) ?? null;
   const similar = useSimilarForCase(state.selectedId, selected?.title ?? null);
   const clean = cleanCaseIds(items);
+  const cleanPrompt = approveCleanPrompt(items);
 
   const itemIds = items.map((item) => item.id).join(",");
   useEffect(() => {
@@ -65,7 +69,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
   const bulk = useTestAdminMutation(
     (getToken, input: { action: "approve" | "reject"; ids: string[]; reason?: string }) =>
       testAdminApi.bulkTestCases(getToken, { action: input.action, ids: input.ids, ...(input.reason ? { reason: input.reason } : {}) }),
-    [testAdminKeys.reviewQueue]
+    [testAdminKeys.cases]
   );
 
   const run = async (action: "approve" | "reject", ids: string[], rejectReason?: string) => {
@@ -97,7 +101,8 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
         if (state.selectedId) void run("approve", [state.selectedId]);
         return;
       case "approve-clean":
-        void run("approve", clean);
+        // A bulk approval always asks first, with the count.
+        if (cleanPrompt) setConfirmClean(true);
         return;
       case "reject":
         dispatch({ type: "start-reject" });
@@ -113,7 +118,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
   executeRef.current = execute;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || bulk.isPending) return;
+      if (event.defaultPrevented || bulk.isPending || confirmClean) return;
       const command = reviewKeyCommand(
         { key: event.key, shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, editableTarget: isEditableTarget(event.target) },
         { canApprove, rejecting: state.rejecting }
@@ -126,7 +131,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canApprove, state.rejecting, bulk.isPending]);
+  }, [canApprove, state.rejecting, bulk.isPending, confirmClean]);
 
   const submitReject = () => {
     if (!state.selectedId || reason.trim().length === 0) return;
@@ -310,12 +315,19 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                           <div>
                             <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Links</dt>
                             <dd className="grid gap-1">
-                              {detail.data.links.map((link) => (
-                                <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all text-primary hover:underline">
-                                  {link.label ?? link.url}
-                                  <ExternalLink className="size-3 shrink-0" aria-hidden />
-                                </a>
-                              ))}
+                              {detail.data.links.map((link) => {
+                                const href = safeExternalHref(link.url);
+                                return href ? (
+                                  <a key={link.url} href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all text-primary hover:underline">
+                                    {link.label ?? link.url}
+                                    <ExternalLink className="size-3 shrink-0" aria-hidden />
+                                  </a>
+                                ) : (
+                                  <span key={link.url} className="break-all text-muted-foreground">
+                                    {link.label ?? link.url}
+                                  </span>
+                                );
+                              })}
                             </dd>
                           </div>
                         ) : null}
@@ -363,6 +375,18 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
           </div>
         )}
       </PageBody>
+      <ConfirmDialog
+        open={confirmClean && cleanPrompt !== null}
+        title={cleanPrompt?.title ?? ""}
+        description={cleanPrompt?.description}
+        confirmLabel={cleanPrompt?.confirmLabel ?? "Approve"}
+        busy={bulk.isPending}
+        onCancel={() => setConfirmClean(false)}
+        onConfirm={() => {
+          setConfirmClean(false);
+          if (cleanPrompt) void run("approve", cleanPrompt.ids);
+        }}
+      />
     </>
   );
 }

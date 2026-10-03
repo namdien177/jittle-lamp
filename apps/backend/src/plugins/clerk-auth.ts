@@ -43,6 +43,8 @@ export type AuthContext = {
 	roles: string[];
 	scopes: string[];
 	tokenType: SessionTokenType;
+	// Set for AI access tokens: the token's own id (per-token run throttle, design.md §10.3).
+	aiTokenId?: string;
 };
 
 /**

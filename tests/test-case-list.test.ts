@@ -13,7 +13,9 @@ import {
   emptyFilters,
   emptySelection,
   filtersToQuery,
+  leavingDetailNeedsConfirm,
   listKeyCommand,
+  listKeyEventIgnored,
   listQuerySearchParams,
   listSelectionReducer,
   loadSavedViews,
@@ -198,5 +200,32 @@ describe("API envelopes", () => {
     expect(parseEnvelope(schema, [{ id: "a" }], ["items"], "x")).toEqual([{ id: "a" }]);
     expect(parseEnvelope(schema, { items: [{ id: "a" }] }, ["items"], "x")).toEqual([{ id: "a" }]);
     expect(() => parseEnvelope(schema, { items: [{ id: 1 }] }, ["items"], "list")).toThrow(/Unexpected list response/);
+  });
+});
+
+describe("list keys and focused controls", () => {
+  test("Enter, Space and arrows stay with a focused button or link; letters still drive the list", () => {
+    const key = (k: string) => listKeyCommand({ key: k, inEditable: false, inInteractive: true });
+    expect([key("Enter"), key(" "), key("ArrowDown"), key("ArrowUp")]).toEqual([null, null, null, null]);
+    expect([key("j"), key("k"), key("x")]).toEqual(["next", "prev", "toggle-select"]);
+    expect(listKeyCommand({ key: "Enter", inEditable: false })).toBe("open");
+  });
+});
+
+describe("list keys after other handlers and with unsaved edits", () => {
+  test("consumed keys and IME composition are ignored", () => {
+    expect(listKeyEventIgnored({ defaultPrevented: true })).toBe(true);
+    expect(listKeyEventIgnored({ defaultPrevented: false, isComposing: true })).toBe(true);
+    expect(listKeyEventIgnored({ defaultPrevented: false, keyCode: 229 })).toBe(true);
+    expect(listKeyEventIgnored({ defaultPrevented: false, isComposing: false })).toBe(false);
+  });
+
+  test("leaving a dirty case or its Steps tab asks first; clean moves do not", () => {
+    const current = { caseId: "a", tab: "steps" };
+    expect(leavingDetailNeedsConfirm({ dirty: true, current, next: { caseId: "b", tab: "steps" } })).toBe(true);
+    expect(leavingDetailNeedsConfirm({ dirty: true, current, next: { caseId: null, tab: "steps" } })).toBe(true);
+    expect(leavingDetailNeedsConfirm({ dirty: true, current, next: { caseId: "a", tab: "sessions" } })).toBe(true);
+    expect(leavingDetailNeedsConfirm({ dirty: true, current, next: { caseId: "a", tab: "steps" } })).toBe(false);
+    expect(leavingDetailNeedsConfirm({ dirty: false, current, next: { caseId: "b", tab: "steps" } })).toBe(false);
   });
 });

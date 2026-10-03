@@ -128,6 +128,24 @@ const listKeys = new Set([
 	"memberIds",
 ]);
 
+// Query parameters that are numbers or booleans in the route schemas. Everything else stays a
+// string, so a search for "true" or a title of "2024" is not turned into a boolean or a number.
+export const numericQueryKeys: ReadonlySet<string> = new Set([
+	"limit",
+	"noRunsSinceDays",
+	"from",
+	"to",
+	// GET /test-runs/:id/live/control?after=<seq>
+	"after",
+]);
+export const booleanQueryKeys: ReadonlySet<string> = new Set([
+	"staleCache",
+	"mine",
+	"unreadOnly",
+	"withSecrets",
+	"all",
+]);
+
 // Query strings carry arrays as repeated keys or comma lists, numbers and booleans as text.
 export const normalizeQuery = (
 	url: string,
@@ -147,8 +165,9 @@ export const normalizeQuery = (
 		}
 		const value = values[0];
 		if (value === undefined) continue;
-		if (value === "true" || value === "false") out[key] = value === "true";
-		else if (/^-?\d+(?:\.\d+)?$/.test(value) && key !== "q" && key !== "cursor")
+		if (booleanQueryKeys.has(key) && (value === "true" || value === "false"))
+			out[key] = value === "true";
+		else if (numericQueryKeys.has(key) && /^-?\d+(?:\.\d+)?$/.test(value))
 			out[key] = Number(value);
 		else out[key] = value;
 	}
@@ -234,7 +253,9 @@ export const resolveTestActor = async (
 		kind: authContext.tokenType === "ai" ? "ai" : "session",
 		userId: authContext.localUserId,
 		orgId: authContext.activeOrgId,
-		tokenId: null,
+		// AI tokens (jl_ai_) get their own run-request bucket, like automation tokens.
+		tokenId:
+			authContext.tokenType === "ai" ? (authContext.aiTokenId ?? null) : null,
 	};
 };
 

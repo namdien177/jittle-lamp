@@ -1,5 +1,7 @@
-export const apiOrigin = (process.env.JITTLE_LAMP_API_ORIGIN?.trim() || "http://127.0.0.1:3001").replace(/\/+$/, "");
-export const webOrigin = (process.env.JITTLE_LAMP_WEB_ORIGIN?.trim() || "http://127.0.0.1:4173").replace(/\/+$/, "");
+import { desktopApiOrigin, desktopWebOrigin } from "../api-origin";
+
+export const apiOrigin = desktopApiOrigin;
+export const webOrigin = desktopWebOrigin;
 
 export type ApiOrganization = {
   id: string;
@@ -120,12 +122,6 @@ export type ApiEvidenceArtifactSummary = {
   uploadStatus: string;
   createdAt: number;
   updatedAt: number;
-};
-
-export type ApiEvidencePlayback = {
-  evidence: ApiEvidenceSummary;
-  artifacts: ApiEvidenceArtifactSummary[];
-  readUrls: Array<{ artifactId: string; url: string; expiresAt: number; renewAfterMs: number }>;
 };
 
 export type ApiShareLinkSummary = {
@@ -355,9 +351,6 @@ export const api = {
       getToken,
       `/evidences/${encodeURIComponent(evidenceId)}/artifacts${orgId ? `?orgId=${encodeURIComponent(orgId)}` : ""}`
     ),
-
-  fetchEvidencePlayback: (getToken: FetchToken, evidenceId: string) =>
-    authedFetch<ApiEvidencePlayback>(getToken, `/evidences/${encodeURIComponent(evidenceId)}/playback`),
 
   listShareLinks: (getToken: FetchToken, evidenceId: string) =>
     authedFetch<{ shareLinks: ApiShareLinkSummary[] }>(

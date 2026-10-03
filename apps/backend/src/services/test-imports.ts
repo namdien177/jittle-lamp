@@ -46,6 +46,7 @@ import {
 } from "./test-import-parsers";
 import { resolveModelKeys } from "./test-settings";
 import type { BackendDb } from "./user-provisioning";
+import { ZipTooLargeError } from "./zip-limits";
 
 // Import pipeline (design.md §7): parse → per-item lint, exact and near-duplicate matches and a
 // default decision → commit creates cases in `review`. Re-importing the same file is idempotent
@@ -210,6 +211,10 @@ const addDefaultTags = (transcript: string, tags: readonly string[]) => {
 	}
 };
 
+// Jira imports generate one transcript per issue with a model call inside the request
+// (design.md §7 plans a background job; until then the request makes at most this many calls).
+export const JIRA_IMPORT_MAX_ISSUES = 20;
+
 const jiraCandidates = async (
 	db: BackendDb,
 	secrets: TestSecrets,
@@ -271,6 +276,7 @@ const jiraCandidates = async (
 			email,
 			apiToken,
 			jql: request.jql,
+			maxResults: JIRA_IMPORT_MAX_ISSUES,
 			...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
 		});
 	} catch (error) {
@@ -286,7 +292,7 @@ const jiraCandidates = async (
 		reason: "import.jira.generate",
 	});
 	const out: Array<ImportCandidate & { error?: string }> = [];
-	for (const issue of issues) {
+	for (const issue of issues.slice(0, JIRA_IMPORT_MAX_ISSUES)) {
 		const base = {
 			title: issue.summary,
 			externalId: issue.key,
@@ -381,6 +387,9 @@ export const createImportBatch = async (
 		}
 	} catch (error) {
 		if (error instanceof HttpError) throw error;
+		if (error instanceof ZipTooLargeError) {
+			throw new HttpError(413, "IMPORT_TOO_LARGE", `.xlsx ${error.message}`);
+		}
 		throw new HttpError(
 			422,
 			"IMPORT_PARSE_FAILED",

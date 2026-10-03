@@ -299,6 +299,20 @@ export const clearNoRunner = async (
 		);
 };
 
+// A claim proves the worker is alive but names no run, so it never extends a lease: leases move
+// only with a heartbeat or progress call for that run.
+export const touchWorker = async (
+	db: BackendDb,
+	worker: RunnerWorkerRow,
+	now = Date.now(),
+): Promise<void> => {
+	await db
+		.update(runnerWorkers)
+		.set({ lastHeartbeatAt: now, offlineNotifiedAt: null, updatedAt: now })
+		.where(eq(runnerWorkers.id, worker.id));
+	await clearNoRunner(db, worker.poolId, now);
+};
+
 export const recordHeartbeat = async (
 	db: BackendDb,
 	input: {

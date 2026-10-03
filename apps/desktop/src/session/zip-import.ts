@@ -15,8 +15,15 @@ export async function importZipBundle(zipBytes: Uint8Array) {
   return strategies.zip.load(zipBytes);
 }
 
-export async function openRemoteEvidence(input: RemoteEvidenceRequest) {
-  return loadRemoteEvidence(input, activeTempSessions);
+export async function openRemoteEvidence(input: RemoteEvidenceRequest, apiOrigin: string) {
+  return loadRemoteEvidence(input, activeTempSessions, { apiOrigin });
+}
+
+/** Removes every temp session file (ZIP imports and cloud evidence); called when the app quits. */
+export async function clearAllTempSessions(): Promise<void> {
+  const entries = [...activeTempSessions.values()];
+  activeTempSessions.clear();
+  await Promise.all(entries.map((entry) => rm(entry.videoPath, { force: true })));
 }
 
 export async function clearTempSession(tempId: string): Promise<void> {

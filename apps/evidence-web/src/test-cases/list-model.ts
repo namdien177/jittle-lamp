@@ -274,6 +274,24 @@ export function listSelectionReducer(state: ListSelection, action: ListAction): 
   }
 }
 
+// A key another handler already consumed (an editor picker's Escape) or an IME composition step
+// never reaches the list map.
+export function listKeyEventIgnored(event: { defaultPrevented: boolean; isComposing?: boolean; keyCode?: number }): boolean {
+  return event.defaultPrevented || event.isComposing === true || event.keyCode === 229;
+}
+
+// Unsaved editor changes live in the Steps tab of the open case; leaving the case or the tab
+// unmounts the editor, so those moves ask first.
+export function leavingDetailNeedsConfirm(input: {
+  dirty: boolean;
+  current: { caseId: string | null; tab: string };
+  next: { caseId: string | null; tab: string };
+}): boolean {
+  if (!input.dirty || input.current.caseId === null) return false;
+  if (input.next.caseId !== input.current.caseId) return true;
+  return input.current.tab === "steps" && input.next.tab !== "steps";
+}
+
 export type ListCommand = "next" | "prev" | "open" | "focus-search" | "toggle-select" | "range-select" | "quick-create" | "duplicate" | "run" | "escape" | "select-all";
 
 export function listKeyCommand(event: {
@@ -284,12 +302,15 @@ export function listKeyCommand(event: {
   altKey?: boolean;
   // The event comes from an input, textarea, select or contenteditable.
   inEditable: boolean;
+  // The event comes from a button, link or menu item: Enter, Space and arrows belong to it.
+  inInteractive?: boolean;
 }): ListCommand | null {
   if (event.metaKey || event.ctrlKey || event.altKey) {
     if ((event.metaKey || event.ctrlKey) && !event.inEditable && (event.key === "a" || event.key === "A")) return "select-all";
     return null;
   }
   if (event.inEditable) return event.key === "Escape" ? "escape" : null;
+  if (event.inInteractive && (event.key === "Enter" || event.key === " " || event.key === "ArrowUp" || event.key === "ArrowDown")) return null;
   switch (event.key) {
     case "j":
     case "ArrowDown":

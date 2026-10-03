@@ -11,8 +11,7 @@ import type {
   SessionRecord,
   ViewerPayload
 } from "../rpc";
-import { api, type FetchToken } from "./api";
-import { selectPlaybackArtifacts } from "./cloud-evidence";
+import type { FetchToken } from "./api";
 import { createDesktopBridge, type DesktopBridge } from "./desktop-bridge";
 import { createDesktopNotesAdapter, createDesktopStorageAdapter } from "./adapters";
 import {
@@ -801,10 +800,10 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
         next.isOpening = true;
       });
       try {
-        const playback = await api.fetchEvidencePlayback(options.getAuthToken, evidenceId);
-        const artifacts = selectPlaybackArtifacts(playback);
-        if (!artifacts) throw new Error("This evidence has no playable recording and session archive yet.");
-        const payload = await bridge.rpc.request.openRemoteEvidence({ evidenceId, ...artifacts });
+        const authToken = await options.getAuthToken();
+        if (!authToken) throw new Error("Sign in to open cloud evidence.");
+        // The main process resolves the playback links itself from the evidence ID.
+        const payload = await bridge.rpc.request.openRemoteEvidence({ evidenceId, authToken });
         const stepId = openOptions.stepId ?? null;
         const step = stepId ? payload.archive.annotations?.find((annotation) => annotation.kind === "step" && annotation.stepId === stepId) : undefined;
         const stepOffset = step && step.kind === "step" ? step.videoOffsetMs : null;

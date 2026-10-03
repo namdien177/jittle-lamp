@@ -1,6 +1,7 @@
 import type { Notification, TestRunDetail, TestRunStatus, TestRunSummary } from "@jittle-lamp/shared";
 
 import { isSafeRunId, parseDeepLink, type DeepLinkTarget } from "../../deep-link";
+import { webUrl } from "./web-links";
 
 // Live progress of one run (design.md §5.4 "Progress while a run executes"): the run detail page
 // polls GET /test-runs/:id every 2 s while the run is queued or executing, backs off on errors and
@@ -111,8 +112,16 @@ export function describeRunState(run: Pick<TestRunSummary, "status" | "outcome" 
 
 const runSubjectTypes = new Set(["test_run", "test-run", "run"]);
 
-/** Where a notification leads in the desktop app; null when it has no desktop page. */
-export function notificationTarget(notification: Pick<Notification, "kind" | "subjectType" | "subjectId" | "url">): DeepLinkTarget | null {
+export type NotificationTarget = DeepLinkTarget | { kind: "web"; url: string };
+
+/**
+ * Where a notification leads: runs open in the desktop run page; batches, imports, the review
+ * queue and runner pools open in the web app; null when there is nowhere to go.
+ */
+export function notificationTarget(
+  notification: Pick<Notification, "kind" | "subjectType" | "subjectId" | "url">,
+  webOrigin: string
+): NotificationTarget | null {
   if (runSubjectTypes.has(notification.subjectType) && isSafeRunId(notification.subjectId)) {
     return { kind: "run", runId: notification.subjectId };
   }
@@ -127,8 +136,19 @@ export function notificationTarget(notification: Pick<Notification, "kind" | "su
     return null;
   }
   const match = /^\/test-runs\/([^/]+)\/?$/.exec(pathname);
-  const runId = match?.[1] ? safeDecode(match[1]) : null;
-  return isSafeRunId(runId) ? { kind: "run", runId } : null;
+  if (match) {
+    const runId = match[1] ? safeDecode(match[1]) : null;
+    return isSafeRunId(runId) ? { kind: "run", runId } : null;
+  }
+  const web = webUrl(webOrigin, url);
+  return web ? { kind: "web", url: web } : null;
+}
+
+/** Run lists refresh every 5 s while any listed run is queued or executing. */
+export const runListRefreshMs = 5_000;
+
+export function runListRefreshInterval(items: ReadonlyArray<Pick<TestRunSummary, "status">> | undefined): number | false {
+  return items?.some((run) => isRunActive(run.status)) ? runListRefreshMs : false;
 }
 
 function safeDecode(value: string): string | null {

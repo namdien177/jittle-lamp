@@ -56,3 +56,25 @@ export function deepLinkTargetPath(target: DeepLinkTarget): string {
 export function buildRunDeepLink(runId: string): string | null {
   return isSafeRunId(runId) ? `${deepLinkScheme}://run?runId=${runId}` : null;
 }
+
+/** True when `value` is the same local file as `expected` (both file: URLs), ignoring query and hash. */
+export function isSameFileUrl(value: string, expected: string): boolean {
+  try {
+    const url = new URL(value);
+    const target = new URL(expected);
+    return url.protocol === "file:" && target.protocol === "file:" && url.host === target.host && url.pathname === target.pathname;
+  } catch {
+    return false;
+  }
+}
+
+/** Only http(s) URLs may leave the app for the system browser. */
+export function isExternalHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}

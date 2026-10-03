@@ -37,7 +37,14 @@ const epochMs = z.number().int().nonnegative();
 export const testCaseStatusSchema = z.enum(["draft", "review", "active", "archived"]);
 export const testCaseSourceSchema = z.enum(["manual", "import", "ai", "duplicate", "recording"]);
 
-export const testCaseLinkSchema = z.object({ url: z.string().url(), label: z.string().nullable().default(null) });
+// Links are opened in a browser by the web and desktop apps: only http(s), never file:, data: or
+// javascript: URLs.
+export const httpUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//i.test(value), "Use an http or https URL.");
+
+export const testCaseLinkSchema = z.object({ url: httpUrlSchema, label: z.string().nullable().default(null) });
 
 export const testCaseStatsSchema = z.object({
   runs: z.number().int().nonnegative(),
@@ -732,7 +739,7 @@ export const webhookRuleSchema = z.object({
   environment: z.union([z.object({ id }), z.object({ fromPayload: z.enum(["review_app_url", "deployment_url"]), baseEnvironmentId: id })]),
   priority: z.number().int().min(0).max(100).default(10),
   report: z
-    .object({ commitStatus: z.boolean().default(true), mrNote: z.boolean().default(false), callbackUrl: z.string().url().nullable().default(null), credentialId: id.nullable().default(null) })
+    .object({ commitStatus: z.boolean().default(true), mrNote: z.boolean().default(false), callbackUrl: httpUrlSchema.nullable().default(null), credentialId: id.nullable().default(null) })
     .default({ commitStatus: true, mrNote: false, callbackUrl: null, credentialId: null })
 });
 

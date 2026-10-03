@@ -9,7 +9,8 @@ import { Select } from "../components/ui/select";
 import { CopyCommand } from "./bits";
 import { cliRunCommand } from "./list-model";
 import { useCreateTestRun } from "./queries";
-import { formatQueuePill } from "./run-model";
+import { formatQueuePosition } from "./run-model";
+import { describeRunRequestError } from "./run-errors";
 
 type CacheMode = "read-write" | "read-only" | "off" | "strict";
 
@@ -49,7 +50,7 @@ export function RunDialog(props: {
       },
       {
         onSuccess: setResult,
-        onError: (failure) => setError(failure instanceof Error ? failure.message : "Run request failed.")
+        onError: (failure) => setError(describeRunRequestError(failure).message)
       }
     );
   };
@@ -98,9 +99,9 @@ export function RunDialog(props: {
             </p>
           ) : (
             <p>
-              <strong>Queued.</strong>{" "}
-              {formatQueuePill({ status: result.status, queuePosition: result.queuePosition, queueDepth: result.queueDepth ?? null, estimatedStartAt: null }) ?? result.status}
-              {result.runIds.length > 1 ? ` · ${result.runIds.length} runs in a dataset batch` : ""}
+              <strong>Queued</strong>
+              {formatQueuePosition({ queuePosition: result.queuePosition, queueDepth: result.queueDepth ?? null }) ? ` · ${formatQueuePosition({ queuePosition: result.queuePosition, queueDepth: result.queueDepth ?? null })} in the queue` : ""}
+              {result.runIds.length > 1 ? ` · ${result.runIds.length} runs in a dataset batch` : ""}. Follow it on the run page.
             </p>
           )}
           <Field label="Same run from a terminal">
@@ -130,7 +131,11 @@ export function RunDialog(props: {
               Run every dataset row as a batch
             </label>
           ) : null}
-          {error ? <p className="text-[13px] text-destructive">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="text-[13px] text-destructive">
+              {error}
+            </p>
+          ) : null}
           <Field label="CLI">
             <CopyCommand command={command} />
           </Field>

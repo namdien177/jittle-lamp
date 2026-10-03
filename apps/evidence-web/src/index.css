@@ -1293,6 +1293,7 @@
 .jl-tc-press { transition: transform 150ms cubic-bezier(.23, 1, .32, 1), background-color 150ms cubic-bezier(.23, 1, .32, 1), color 150ms cubic-bezier(.23, 1, .32, 1), border-color 150ms cubic-bezier(.23, 1, .32, 1); }
 .jl-tc-press:active { transform: scale(0.97); }
 .jl-tc-row { transition: background-color 120ms cubic-bezier(.23, 1, .32, 1); }
+[data-instant="true"] .jl-tc-row { transition: none; }
 .jl-tc-enter { animation: jl-tc-enter 200ms cubic-bezier(.23, 1, .32, 1); }
 .jl-tc-pulse { animation: jl-tc-pulse 1.2s ease-in-out infinite; }
 @keyframes jl-tc-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

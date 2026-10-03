@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { cn } from "../lib/cn";
 import { useAuthToken } from "../queries";
 import { useToast } from "../toast";
+import { useTestOrgId } from "../test-cases/org";
 import { testQueryKeys } from "../test-cases/queries";
 import { liveApi, type LiveFrame } from "./live-api";
 import {
@@ -162,6 +163,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
   const toast = useToast();
   const queryClient = useQueryClient();
   const getToken = useAuthToken();
+  const orgId = useTestOrgId();
   const frame = useLiveFrames(run.id, Boolean(live?.available));
   const now = useNow(500);
   const stageRef = React.useRef<HTMLDivElement | null>(null);
@@ -188,7 +190,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
     try {
       if (action === "stop") flush();
       await liveApi.takeover(getToken, run.id, action);
-      await queryClient.invalidateQueries({ queryKey: testQueryKeys.run(run.id) });
+      await queryClient.invalidateQueries({ queryKey: testQueryKeys.run(orgId, run.id) });
       if (action === "start") window.requestAnimationFrame(() => stageRef.current?.focus());
     } catch (error) {
       toast.error(action === "start" ? "Could not take over" : "Could not release", error instanceof Error ? error.message : undefined);

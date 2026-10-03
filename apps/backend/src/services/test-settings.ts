@@ -8,6 +8,7 @@ import {
 	type ModelSettings,
 	macroParamSchema,
 	parseTestCaseTranscript,
+	resolveCredentialAlias,
 	type TestCredential,
 	type TestEnvironment,
 	type TestMacro,
@@ -849,15 +850,29 @@ export const resolveRunConfig = async (
 	};
 	const credentials: TestRunConfig["credentials"] = [];
 	if (profiles.length > 0) {
-		const rows = await db.query.testCredentials.findMany({
-			where: and(
-				eq(testCredentials.orgId, run.orgId),
-				eq(testCredentials.kind, "login"),
-				inArray(testCredentials.profile, profiles),
-				isNull(testCredentials.deletedAt),
-			),
-		});
-		for (const profile of profiles) {
+		// Usable here: scoped to the run's environment or shared.
+		const rows = (
+			await db.query.testCredentials.findMany({
+				where: and(
+					eq(testCredentials.orgId, run.orgId),
+					eq(testCredentials.kind, "login"),
+					isNull(testCredentials.deletedAt),
+				),
+			})
+		).filter(
+			(row) =>
+				row.environmentId === null || row.environmentId === run.environmentId,
+		);
+		const resolvedProfiles = new Set(
+			profiles.flatMap((name) => {
+				const profile = resolveCredentialAlias(
+					name,
+					new Set(rows.map((row) => row.profile)),
+				);
+				return profile ? [profile] : [];
+			}),
+		);
+		for (const profile of resolvedProfiles) {
 			const candidates = rows.filter((row) => row.profile === profile);
 			const row =
 				candidates.find(

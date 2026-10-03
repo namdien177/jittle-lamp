@@ -1577,3 +1577,12 @@ function insertCheckpointBefore(testCase: ParsedTestCase, stepId: string, title:
 
   return rebuildTestCase({ ...testCase, checkpoints, steps });
 }
+
+// `[Login: PCF]` names a profile; an exact profile wins, otherwise the only `PCF_…` profile does.
+// The runner and the backend resolve names with this one rule.
+export function resolveCredentialAlias(name: string, profiles: Iterable<string>): string | null {
+  const list = [...profiles];
+  if (list.includes(name)) return name;
+  const matches = list.filter((profile) => profile.startsWith(`${name}_`));
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}

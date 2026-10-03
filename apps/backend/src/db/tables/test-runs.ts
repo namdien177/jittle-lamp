@@ -167,6 +167,11 @@ export const testRuns = sqliteTable(
 			.notNull()
 			.default("read-write"),
 		dedupeKey: text("dedupe_key").notNull(),
+		// Set on runs created by a non-forced request: at most one such run per dedupe key is
+		// open at a time (unique index below). Forced runs and retries leave it 0.
+		dedupeExclusive: integer("dedupe_exclusive", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		trigger: text("trigger", {
 			enum: ["manual", "cli", "mcp", "ci", "webhook"],
 		})
@@ -271,6 +276,11 @@ export const testRuns = sqliteTable(
 			table.dedupeKey,
 			table.status,
 		),
+		uniqueIndex("test_runs_org_dedupe_open_unique")
+			.on(table.orgId, table.dedupeKey)
+			.where(
+				sql`${table.dedupeExclusive} = 1 and ${table.status} in ('queued', 'claimed', 'running', 'paused')`,
+			),
 		index("test_runs_case_queued_idx").on(table.testCaseId, table.queuedAt),
 		index("test_runs_batch_idx").on(table.batchId),
 		index("test_runs_evidence_idx").on(table.evidenceId),

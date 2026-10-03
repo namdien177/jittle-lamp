@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9fc74a77-6e62-4d1e-b6f9-067d45bdbb5f",
+  "id": "aa0052c5-1910-40aa-9264-0414c9ec4aca",
   "prevId": "293b69ac-74c1-4966-b974-f8ae6b4c82ca",
   "tables": {
     "ai_access_token_usage_logs": {
@@ -7679,13 +7679,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "base_url_override": {
-          "name": "base_url_override",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "params_json": {
           "name": "params_json",
           "type": "text",
@@ -7715,6 +7708,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "dedupe_exclusive": {
+          "name": "dedupe_exclusive",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "trigger": {
           "name": "trigger",
@@ -8134,6 +8135,15 @@
             "status"
           ],
           "isUnique": false
+        },
+        "test_runs_org_dedupe_open_unique": {
+          "name": "test_runs_org_dedupe_open_unique",
+          "columns": [
+            "org_id",
+            "dedupe_key"
+          ],
+          "isUnique": true,
+          "where": "\"test_runs\".\"dedupe_exclusive\" = 1 and \"test_runs\".\"status\" in ('queued', 'claimed', 'running', 'paused')"
         },
         "test_runs_case_queued_idx": {
           "name": "test_runs_case_queued_idx",
@@ -8803,167 +8813,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "webhook_batches": {
-      "name": "webhook_batches",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "org_id": {
-          "name": "org_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "endpoint_id": {
-          "name": "endpoint_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "rule_key": {
-          "name": "rule_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "rule_index": {
-          "name": "rule_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "trigger_ref": {
-          "name": "trigger_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "batch_id": {
-          "name": "batch_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "context_json": {
-          "name": "context_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
-        },
-        "pending_reported_at": {
-          "name": "pending_reported_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "final_reported_at": {
-          "name": "final_reported_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "report_attempts": {
-          "name": "report_attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "report_next_at": {
-          "name": "report_next_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "report_error": {
-          "name": "report_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "webhook_batches_rule_ref_unique": {
-          "name": "webhook_batches_rule_ref_unique",
-          "columns": [
-            "endpoint_id",
-            "rule_key",
-            "trigger_ref"
-          ],
-          "isUnique": true
-        },
-        "webhook_batches_batch_idx": {
-          "name": "webhook_batches_batch_idx",
-          "columns": [
-            "batch_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "webhook_batches_org_id_organizations_id_fk": {
-          "name": "webhook_batches_org_id_organizations_id_fk",
-          "tableFrom": "webhook_batches",
-          "tableTo": "organizations",
-          "columnsFrom": [
-            "org_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "webhook_batches_endpoint_id_webhook_endpoints_id_fk": {
-          "name": "webhook_batches_endpoint_id_webhook_endpoints_id_fk",
-          "tableFrom": "webhook_batches",
-          "tableTo": "webhook_endpoints",
-          "columnsFrom": [
-            "endpoint_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "webhook_deliveries": {
       "name": "webhook_deliveries",
       "columns": {
@@ -9007,13 +8856,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "delivery_id": {
-          "name": "delivery_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "trigger_ref": {
@@ -9066,14 +8908,6 @@
           "columns": [
             "org_id",
             "trigger_ref"
-          ],
-          "isUnique": false
-        },
-        "webhook_deliveries_endpoint_payload_idx": {
-          "name": "webhook_deliveries_endpoint_payload_idx",
-          "columns": [
-            "endpoint_id",
-            "payload_sha256"
           ],
           "isUnique": false
         }

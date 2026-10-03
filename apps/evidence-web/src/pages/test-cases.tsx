@@ -20,7 +20,9 @@ import {
   defaultSort,
   emptyFilters,
   emptySelection,
+  leavingDetailNeedsConfirm,
   listKeyCommand,
+  listKeyEventIgnored,
   listSelectionReducer,
   loadSavedViews,
   storeSavedViews,
@@ -32,6 +34,8 @@ import {
 } from "../test-cases/list-model";
 import { QuickCreateDialog } from "../test-cases/quick-create";
 import { useBulkTestCases, useTestCaseList, useTestEnvironments, useTestTags } from "../test-cases/queries";
+import { describeRunRequestError } from "../test-cases/run-errors";
+import { DuplicateTestCaseDialog } from "../test-cases/duplicate-dialog";
 import { RunDialog } from "../test-cases/run-dialog";
 
 export type TestCasesPageProps = {
@@ -48,6 +52,11 @@ type BulkDialog = { action: "tag" | "untag" | "set-environment" | "archive"; ids
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.closest("[role='dialog'],[role='menu'],[role='listbox']") !== null;
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.closest("button, a[href], [role='button'], [role='menuitem'], [role='tab'], summary") !== null;
 }
 
 export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element {
@@ -103,7 +112,37 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
     setSearchParams(next, { replace: false });
   };
 
-  const openCase = (id: string) => setParams({ case: id });
+  // Unsaved Steps-tab edits: leaving the case or the tab asks first (and so does closing the page).
+  const [detailDirty, setDetailDirty] = React.useState(false);
+  const [pendingLeave, setPendingLeave] = React.useState<(() => void) | null>(null);
+  const guardDetail = (next: { caseId: string | null; tab: DetailTab }, go: () => void) => {
+    if (leavingDetailNeedsConfirm({ dirty: detailDirty, current: { caseId: openId, tab }, next })) setPendingLeave(() => go);
+    else go();
+  };
+  React.useEffect(() => {
+    if (!detailDirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [detailDirty]);
+  React.useEffect(() => setDetailDirty(false), [openId]);
+
+  const openCase = (id: string) => {
+    if (id === openId) return;
+    guardDetail({ caseId: id, tab: "steps" }, () => setParams({ case: id, tab: null }));
+  };
+  const closeCase = () => guardDetail({ caseId: null, tab: "steps" }, () => setParams({ case: null, tab: null }));
+
+  // Keyboard-driven changes render without motion; a pointer press turns motion back on.
+  const [keyboardDriven, setKeyboardDriven] = React.useState(false);
+  React.useEffect(() => {
+    const onPointerDown = () => setKeyboardDriven(false);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
 
   const onDuplicate = (targetIds: string[]) => {
     if (targetIds.length === 0) return;
@@ -155,7 +194,10 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           }
           if (result.errors.length > 0 && action !== "run") toast.error(`${result.errors.length} failed`, result.errors[0]?.message);
         },
-        onError: (error) => toast.error("Bulk action failed", error instanceof Error ? error.message : undefined)
+        onError: (error) =>
+          action === "run"
+            ? toast.error("Run request failed", describeRunRequestError(error).message)
+            : toast.error("Bulk action failed", error instanceof Error ? error.message : undefined)
       }
     );
   };
@@ -164,19 +206,22 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
   // c quick create, d duplicate, r run. No animation on these: the row simply moves.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (quickCreate || runTarget || bulkDialog || duplicateIds.length > 0) return;
+      if (quickCreate || runTarget || bulkDialog || pendingLeave || duplicateIds.length > 0) return;
+      if (listKeyEventIgnored(event)) return;
       const command = listKeyCommand({
         key: event.key,
         shiftKey: event.shiftKey,
         metaKey: event.metaKey,
         ctrlKey: event.ctrlKey,
         altKey: event.altKey,
-        inEditable: isEditableTarget(event.target)
+        inEditable: isEditableTarget(event.target),
+        inInteractive: isInteractiveTarget(event.target)
       });
       if (!command) return;
-      // Inside the detail pane, only Escape and list moves via j/k stay with the list.
+      // Focus inside the detail pane keeps every key there except Escape.
       const inDetail = event.target instanceof HTMLElement && event.target.closest("[data-pane='detail']") !== null;
       if (inDetail && command !== "escape") return;
+      setKeyboardDriven(true);
       switch (command) {
         case "next":
         case "prev":
@@ -212,7 +257,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
         case "escape":
           if (event.target instanceof HTMLElement && isEditableTarget(event.target)) event.target.blur();
           else if (selection.selected.size > 0) dispatch({ type: "clear" });
-          else if (openId) setParams({ case: null, tab: null });
+          else if (openId) closeCase();
           break;
       }
       event.preventDefault();
@@ -282,6 +327,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           bulkBusy={bulk.isPending}
           onQuickCreate={() => setQuickCreate(true)}
           scrollToCursorToken={scrollToken}
+          instant={keyboardDriven}
         />
       </div>
       {detailOpen ? (
@@ -290,17 +336,48 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
             key={openId}
             caseId={openId}
             tab={tab}
-            onTabChange={(next: DetailTab) => setParams({ tab: next === "steps" ? null : next })}
+            onTabChange={(next: DetailTab) => guardDetail({ caseId: openId, tab: next }, () => setParams({ tab: next === "steps" ? null : next }))}
+            onDirtyChange={setDetailDirty}
             environments={environments}
             tagDefinitions={tagDefinitions}
             onRun={(detail: TestCaseDetail) => runCase(detail, detail.dataset !== null && detail.dataset.rows.length > 0)}
             onDuplicate={onDuplicate}
-            onClose={() => setParams({ case: null, tab: null })}
+            onClose={closeCase}
             onTagClick={(tag) => setFilters((current) => ({ ...current, tags: current.tags.includes(tag) ? current.tags : [...current.tags, tag] }))}
           />
         </div>
       ) : null}
 
+      {pendingLeave ? (
+        <Dialog
+          open
+          onClose={() => setPendingLeave(null)}
+          size="sm"
+          title="Discard unsaved changes?"
+          description="The Steps tab has edits that are not saved yet."
+          footer={
+            <>
+              <Button size="sm" variant="ghost" onClick={() => setPendingLeave(null)} autoFocus>
+                Keep editing
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  const go = pendingLeave;
+                  setPendingLeave(null);
+                  setDetailDirty(false);
+                  go();
+                }}
+              >
+                Discard changes
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[13.5px] text-muted-foreground">Save with ⌘S first to keep them.</p>
+        </Dialog>
+      ) : null}
       {quickCreate ? (
         <QuickCreateDialog
           onClose={() => setQuickCreate(false)}
@@ -336,20 +413,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
       ) : null}
       {duplicateIds.length > 0
         ? props.renderDuplicateDialog?.({ ids: duplicateIds, onClose: () => setParams({ duplicate: null }) }) ?? (
-            <Dialog
-              open
-              onClose={() => setParams({ duplicate: null })}
-              size="sm"
-              title={`Duplicate ${duplicateIds.length} case${duplicateIds.length === 1 ? "" : "s"}`}
-              description="The duplicate dialog (find/replace, variant or copy, inherited scripts) is part of the import and review unit."
-              footer={
-                <Button size="sm" variant="ghost" onClick={() => setParams({ duplicate: null })}>
-                  Close
-                </Button>
-              }
-            >
-              <p className="font-mono text-[12.5px] text-muted-foreground">{duplicateIds.join(", ")}</p>
-            </Dialog>
+            <DuplicateTestCaseDialog key={duplicateIds.join(",")} caseIds={duplicateIds} onClose={() => setParams({ duplicate: null })} />
           )
         : null}
     </div>

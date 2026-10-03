@@ -10,7 +10,8 @@ import {
   type FinalizeTestRunRequest,
   type RunReport,
   type RunStepResult,
-  type TestRunProgressRequest
+  type TestRunProgressRequest,
+  transcriptStepTypeSchema
 } from "@jittle-lamp/shared";
 
 import { resolveRunConfig, type OrgRunConfig } from "../config/resolve";
@@ -47,9 +48,15 @@ export type WorkerOptions = {
 
 // The organisation's configuration comes from the backend; JL_* names and model keys in the
 // daemon's own environment must not override it.
-export function hostEnvForRuns(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
+// With --allow-claude-code (development only) the claude CLI's own login variables pass through.
+const claudeCodeLogin = new Set(["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"]);
+export function hostEnvForRuns(env: Readonly<Record<string, string | undefined>>, options: { allowClaudeCode?: boolean } = {}): Record<string, string | undefined> {
   return Object.fromEntries(
-    Object.entries(env).filter(([name]) => !name.startsWith("JL_") && !/_API_KEY$|^ANTHROPIC_|^OPENAI_|^OPENROUTER_|^AI_GATEWAY_|^E2E_SECRET_|^E2E_USER_/.test(name))
+    Object.entries(env).filter(
+      ([name]) =>
+        (options.allowClaudeCode && claudeCodeLogin.has(name)) ||
+        (!name.startsWith("JL_") && !/_API_KEY$|^ANTHROPIC_|^OPENAI_|^OPENROUTER_|^AI_GATEWAY_|^E2E_SECRET_|^E2E_USER_/.test(name))
+    )
   );
 }
 
@@ -110,7 +117,19 @@ function toOrgConfig(config: Awaited<ReturnType<BackendClient["config"]>>): OrgR
 }
 
 function stepUpdate(event: Extract<StepLogEvent, { type: "step-started" | "step-finished" }>): TestRunProgressRequest["steps"][number] {
-  if (event.type === "step-started") return { stepId: event.stepId, status: "running", startedAt: event.at };
+  if (event.type === "step-started") {
+    // Name the step on its first update: the backend creates the row from this patch.
+    const type = transcriptStepTypeSchema.safeParse(event.kind);
+    return {
+      stepId: event.stepId,
+      parentStepId: event.parentStepId,
+      ordinal: event.ordinal,
+      ...(type.success ? { type: type.data } : {}),
+      label: event.label,
+      status: "running",
+      startedAt: event.at
+    };
+  }
   return {
     stepId: event.stepId,
     status: event.status,
@@ -443,7 +462,7 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         workDir,
         headed: options.headed ?? false,
         allowClaudeCode: options.allowClaudeCode ?? false,
-        hostEnv: hostEnvForRuns(options.hostEnv ?? process.env),
+        hostEnv: hostEnvForRuns(options.hostEnv ?? process.env, { allowClaudeCode: options.allowClaudeCode ?? false }),
         log,
         keepRunDirs: options.keepRunDirs ?? process.env.JL_RUNNER_KEEP_RUNS === "1"
       })

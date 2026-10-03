@@ -226,7 +226,14 @@ describe("MCP test-case tools", () => {
 		expect(requests[0]?.body).toMatchObject({
 			transcript: "# Title\n[Open] /login",
 			source: "ai",
+			status: "review",
 		});
+		const active = await call("create_test_case", {
+			transcript: "# Title\n[Open] /login",
+			status: "active",
+		});
+		expect(active.isError).toBe(true);
+		expect(requests).toHaveLength(1);
 
 		const updated = await call("update_test_case_transcript", {
 			testCaseId: "case-0412",
@@ -236,11 +243,11 @@ describe("MCP test-case tools", () => {
 		expect(updated.isError).toBe(true);
 		expect(updated.data.status).toBe(422);
 		expect(updated.data.lint).toEqual(lint);
-		expect(requests[1]).toMatchObject({
+		expect(requests.at(-1)).toMatchObject({
 			method: "PATCH",
 			body: { transcript: "# Title\n[Bogus] x", expectedVersion: 3 },
 		});
-		expect(requests[1]?.url.pathname).toBe("/test-cases/case-0412");
+		expect(requests.at(-1)?.url.pathname).toBe("/test-cases/case-0412");
 	});
 
 	test("credential tool returns profile and field names only, never values", async () => {
@@ -361,43 +368,64 @@ describe("MCP test-case tools", () => {
 		expect(missing.isError).toBe(true);
 	});
 
-	test("generate goes through the ai-generation import and reports when it is unavailable", async () => {
-		let available = false;
-		const { call, requests } = await setup(({ url, method }) => {
-			if (method === "GET") return Response.json(fixtureTestCaseDetail());
-			if (!available) {
-				return Response.json(
-					{ error: { code: "VALIDATION", message: "sourceKind ai-generation is not supported" } },
-					{ status: 422 },
-				);
-			}
+	test("generate drafts cases from Jira and refuses free text or existing cases without calling the backend", async () => {
+		const { call, requests } = await setup(({ url }) => {
 			expect(url.pathname).toBe("/test-cases/import");
-			return Response.json({
-				id: "batch-2",
-				sourceKind: "ai-generation",
-				status: "parsing",
-				counts: { total: 0, created: 0, updated: 0, skipped: 0, errors: 0 },
-				createdBy: null,
-				createdAt: 1,
-				items: [],
-			});
+			return Response.json(
+				{
+					id: "batch-2",
+					sourceKind: "jira",
+					status: "parsing",
+					counts: { total: 0, created: 0, updated: 0, skipped: 0, errors: 0 },
+					createdBy: null,
+					createdAt: 1,
+					items: [],
+				},
+				{ status: 201 },
+			);
 		});
-		const unavailable = await call("generate_test_cases", {
-			text: "Parents can reset their password from the login page",
+		for (const args of [
+			{ text: "Parents can reset their password from the login page" },
+			{ testCaseId: "case-0412" },
+		]) {
+			const refused = await call("generate_test_cases", args);
+			expect(refused.isError).toBe(true);
+			expect(refused.data.code).toBe("GENERATION_UNSUPPORTED");
+		}
+		const missing = await call("generate_test_cases", { jql: "key = PCF-1" });
+		expect(missing.data.code).toBe("GENERATION_INPUT_REQUIRED");
+		expect(requests).toHaveLength(0);
+
+		const jira = await call("generate_test_cases", {
+			jql: "key = PCF-1234",
+			jiraCredentialId: "cred-jira",
+			defaultTags: ["team:qa-pcf"],
 		});
-		expect(unavailable.isError).toBe(true);
-		expect(unavailable.data.code).toBe("GENERATION_NOT_AVAILABLE");
+		expect(jira.isError).toBe(false);
+		expect(jira.data.sourceKind).toBe("jira");
+		expect(requests[0]?.body).toMatchObject({
+			sourceKind: "jira",
+			jql: "key = PCF-1234",
+			jiraCredentialId: "cred-jira",
+			defaultTags: ["team:qa-pcf"],
+		});
+	});
 
-		available = true;
-		const fromCase = await call("generate_test_cases", { testCaseId: "case-0412" });
-		expect(fromCase.isError).toBe(false);
-		expect(fromCase.data.sourceKind).toBe("ai-generation");
-		const importBody = requests.at(-1)?.body as Record<string, unknown>;
-		expect(importBody.sourceKind).toBe("ai-generation");
-		expect(importBody.content).toContain("[Login: PCF_HQ_ADMIN]");
-
-		const both = await call("generate_test_cases", { text: "x", testCaseId: "case-0412" });
-		expect(both.isError).toBe(true);
+	test("generate passes backend errors through instead of guessing availability", async () => {
+		const { call } = await setup(() =>
+			Response.json(
+				{ error: { code: "NOT_FOUND", message: "Jira credential not found" } },
+				{ status: 404 },
+			),
+		);
+		const result = await call("generate_test_cases", {
+			jql: "key = PCF-1",
+			jiraCredentialId: "cred-missing",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.data.status).toBe(404);
+		expect(result.data.code).toBeUndefined();
+		expect(result.data.error).toMatchObject({ message: "Jira credential not found" });
 	});
 
 	test("run_test_case creates a backend run with the mcp trigger and returns queue state", async () => {
@@ -474,6 +502,52 @@ describe("MCP test-case tools", () => {
 		expect(requests.filter((request) => request.method === "GET")).toHaveLength(3);
 	});
 
+	test("run_test_case wait=true retries failed polls with backoff and stops on lost access", async () => {
+		const sleeps: number[] = [];
+		const created = {
+			runId: "run-1",
+			attached: false,
+			status: "queued",
+			queuePosition: 0,
+			requestedBy: [],
+			batchId: null,
+			runIds: [],
+		};
+		let polls = 0;
+		const { call } = await setup(
+			({ method }) => {
+				if (method === "POST") return Response.json(created);
+				polls += 1;
+				if (polls <= 2) {
+					return Response.json({ error: { message: "upstream" } }, { status: 502 });
+				}
+				return Response.json(fixtureRunDetail({ status: "completed" }));
+			},
+			{ sleeps },
+		);
+		const result = await call("run_test_case", {
+			testCaseId: "case-0412",
+			wait: true,
+			pollIntervalSeconds: 2,
+		});
+		expect(result.isError).toBe(false);
+		expect((result.data.run as { status: string }).status).toBe("completed");
+		expect(sleeps).toEqual([4000, 8000]);
+
+		const lost = await setup(({ method }) =>
+			method === "POST"
+				? Response.json(created)
+				: Response.json({ error: { message: "gone" } }, { status: 403 }),
+		);
+		const denied = await lost.call("run_test_case", {
+			testCaseId: "case-0412",
+			wait: true,
+		});
+		expect(denied.isError).toBe(true);
+		expect(denied.data.pollError).toMatchObject({ status: 403 });
+		expect(lost.requests.filter((request) => request.method === "GET")).toHaveLength(1);
+	});
+
 	test("run_test_case wait=true stops at the timeout and says the run is still going", async () => {
 		const { call } = await setup(({ method }) =>
 			method === "POST"
@@ -512,11 +586,13 @@ describe("MCP test-case tools", () => {
 			"https://web.example.test/evidence/evidence-run-1",
 		);
 		expect(run.data.contractWarning).toBeUndefined();
-		await call("list_test_runs", { testCaseId: "case-0412", status: ["completed"] });
+		await call("list_test_runs", { testCaseId: "case-0412", status: ["queued", "running"] });
 		await call("list_test_runs", {});
-		expect(requests[1]?.url.pathname).toBe("/test-cases/case-0412/runs");
-		expect(requests[1]?.url.searchParams.get("status")).toBe("completed");
+		expect(requests[1]?.url.pathname).toBe("/test-runs");
+		expect(requests[1]?.url.searchParams.get("testCaseId")).toBe("case-0412");
+		expect(requests[1]?.url.searchParams.get("status")).toBe("queued,running");
 		expect(requests[2]?.url.pathname).toBe("/test-runs");
+		expect(requests[2]?.url.searchParams.has("testCaseId")).toBe(false);
 	});
 
 	test("never echoes the token in tool errors", async () => {

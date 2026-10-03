@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router";
-import { FlaskConical, Play, Search } from "lucide-react";
+import { ExternalLink, FlaskConical, Play, Search } from "lucide-react";
 
 import {
   builtinStepTags,
@@ -14,7 +14,9 @@ import {
   type TranscriptStep
 } from "@jittle-lamp/shared";
 
+import { isExternalHttpUrl } from "../../deep-link";
 import { describeRunState } from "../test-runs/live-run";
+import { webPaths } from "../test-runs/web-links";
 import { formatCostUsd, formatPercent, formatStepDuration } from "../test-runs/run-format";
 import {
   testQueryKeys,
@@ -22,6 +24,7 @@ import {
   useTestApi,
   useTestCase,
   useTestCases,
+  useOpenInWeb,
   useTestEnvironments
 } from "../test-runs/test-api-context";
 import { useToast } from "../ui/toast";
@@ -59,6 +62,7 @@ export function TestCasesPage(): React.JSX.Element {
   const status = statusFilters[statusIndex]?.value ?? null;
   const filter = useMemo(() => ({ q, ...(status ? { status } : {}), limit: 200 }), [q, status]);
   const casesQuery = useTestCases(filter);
+  const web = useOpenInWeb();
   const items = casesQuery.data?.items ?? [];
   const selectedId = caseId ?? null;
   const error = casesQuery.error instanceof Error ? casesQuery.error.message : null;
@@ -73,9 +77,19 @@ export function TestCasesPage(): React.JSX.Element {
             recording when it finishes.
           </p>
         </div>
-        <button className="button ghost sm" type="button" onClick={() => void casesQuery.refetch()} disabled={casesQuery.isFetching}>
-          {casesQuery.isFetching ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="button ghost sm button-label-with-icon" type="button" onClick={() => web.openPath(webPaths.reviewQueue())}>
+            <ExternalLink aria-hidden size={13} strokeWidth={2} />
+            Review queue
+          </button>
+          <button className="button ghost sm button-label-with-icon" type="button" onClick={() => web.openPath(webPaths.importCases())}>
+            <ExternalLink aria-hidden size={13} strokeWidth={2} />
+            Import
+          </button>
+          <button className="button ghost sm" type="button" onClick={() => void casesQuery.refetch()} disabled={casesQuery.isFetching}>
+            {casesQuery.isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       <div className="tc-layout">
@@ -176,6 +190,7 @@ function stepText(step: TranscriptStep): string {
 
 export function TestCaseDetailPanel(props: { testCaseId: string }): React.JSX.Element {
   const caseQuery = useTestCase(props.testCaseId);
+  const web = useOpenInWeb();
   const [view, setView] = useState<"steps" | "transcript">("steps");
 
   if (caseQuery.error) {
@@ -192,6 +207,17 @@ export function TestCaseDetailPanel(props: { testCaseId: string }): React.JSX.El
           <span className={`chip ${statusTone[detail.status]}`}>{detail.status}</span>
           <span className="chip neutral">v{detail.transcriptVersion}</span>
           {detail.lintErrors > 0 ? <span className="chip danger">{detail.lintErrors} lint errors</span> : null}
+          <span className="spacer" />
+          {detail.status === "review" ? (
+            <button className="button secondary xs button-label-with-icon" type="button" onClick={() => web.openPath(webPaths.reviewQueue())}>
+              <ExternalLink aria-hidden size={12} strokeWidth={2} />
+              Review in web
+            </button>
+          ) : null}
+          <button className="button secondary xs button-label-with-icon" type="button" onClick={() => web.openPath(webPaths.caseEditor(detail.id))}>
+            <ExternalLink aria-hidden size={12} strokeWidth={2} />
+            Edit in web
+          </button>
         </div>
         <h2 className="tc-detail-title">{detail.title}</h2>
         {detail.description ? <p className="muted tc-detail-description">{detail.description}</p> : null}
@@ -201,11 +227,17 @@ export function TestCaseDetailPanel(props: { testCaseId: string }): React.JSX.El
               {tag}
             </span>
           ))}
-          {detail.links.map((link) => (
-            <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="tc-link">
-              {link.label ?? link.url}
-            </a>
-          ))}
+          {detail.links.map((link) =>
+            isExternalHttpUrl(link.url) ? (
+              <button key={link.url} type="button" className="tc-link" onClick={() => web.openUrl(link.url)} title={link.url}>
+                {link.label ?? link.url}
+              </button>
+            ) : (
+              <span key={link.url} className="tc-link" title={link.url}>
+                {link.label ?? link.url}
+              </span>
+            )
+          )}
         </div>
       </header>
 

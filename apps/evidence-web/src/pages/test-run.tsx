@@ -25,6 +25,7 @@ import {
   formatTokens,
   isRunActive,
   liveScreenshot,
+  normalizeRunSteps,
   runProgress,
   toRunStepListSteps
 } from "../test-cases/run-model";
@@ -50,15 +51,15 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
   const [activeStepId, setActiveStepId] = React.useState<string | null>(null);
   const [expandMacros, setExpandMacros] = React.useState(false);
   const active = isRunActive(run.status);
-  const listSteps = React.useMemo(() => toRunStepListSteps(run.steps), [run.steps]);
+  const listSteps = React.useMemo(() => toRunStepListSteps(run.steps, run.transcript), [run.steps, run.transcript]);
   const stepOffsetsMs = React.useMemo(() => {
     const offsets: Record<string, number> = {};
     for (const step of run.steps) if (step.videoOffsetMs !== null) offsets[step.stepId] = step.videoOffsetMs;
     return offsets;
   }, [run.steps]);
   const failures = failedAsserts(run.steps);
-  const selected = run.steps.find((step) => step.stepId === activeStepId) ?? null;
-  const progress = runProgress(run.steps);
+  const selected = normalizeRunSteps(run.steps, run.transcript).find((step) => step.stepId === activeStepId) ?? null;
+  const progress = runProgress(run.steps, run.transcript);
   const currentUserIds = [account.data?.localUserId, account.data?.userId].filter((value): value is string => typeof value === "string");
   const permissions = useTestPermissions();
   const canCancelAny = permissions.can("test_run.cancel_any");
@@ -252,7 +253,7 @@ function SelectedStep(props: { step: TestRunStep }): React.JSX.Element {
 
 function LivePanel(props: { run: TestRunDetail }): React.JSX.Element {
   const shot = liveScreenshot(props.run);
-  const current = props.run.steps.find((step) => step.stepId === props.run.currentStepId) ?? null;
+  const current = normalizeRunSteps(props.run.steps, props.run.transcript).find((step) => step.stepId === props.run.currentStepId) ?? null;
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-[#0d0e10] p-6 text-white/85">
       {shot ? (

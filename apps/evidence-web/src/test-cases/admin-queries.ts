@@ -6,6 +6,7 @@ import { useAuth } from "../auth";
 import { notificationPollMs } from "../notifications/notification-links";
 import { useAccountProfile, useOrganizationRoles } from "../queries";
 import { testAdminApi } from "./admin-api";
+import { testKeys } from "./query-keys";
 
 // TanStack Query hooks for the test-case admin surfaces. Keys carry the active organisation so a
 // workspace switch never shows another organisation's configuration.
@@ -24,26 +25,29 @@ function useActiveOrg(): { orgId: string | null; role: string | null; ready: boo
   return { orgId: org?.id ?? null, role: org?.role ?? null, ready: auth.isLoaded && Boolean(auth.isSignedIn) && Boolean(org) };
 }
 
+// Org-scoped keys from the shared factory (query-keys.ts), the same keys the case workspace uses.
 export const testAdminKeys = {
-  all: (orgId: string | null) => ["test-admin", orgId ?? "none"] as const,
-  reviewQueue: (orgId: string | null) => [...testAdminKeys.all(orgId), "review-queue"] as const,
-  testCase: (orgId: string | null, caseId: string) => [...testAdminKeys.all(orgId), "test-case", caseId] as const,
-  similar: (orgId: string | null, caseId: string) => [...testAdminKeys.all(orgId), "similar", caseId] as const,
-  importBatch: (orgId: string | null, batchId: string) => [...testAdminKeys.all(orgId), "import", batchId] as const,
-  environments: (orgId: string | null) => [...testAdminKeys.all(orgId), "environments"] as const,
-  credentials: (orgId: string | null) => [...testAdminKeys.all(orgId), "credentials"] as const,
-  macros: (orgId: string | null) => [...testAdminKeys.all(orgId), "macros"] as const,
-  tags: (orgId: string | null) => [...testAdminKeys.all(orgId), "tags"] as const,
-  runSettings: (orgId: string | null) => [...testAdminKeys.all(orgId), "run-settings"] as const,
-  modelSettings: (orgId: string | null) => [...testAdminKeys.all(orgId), "model-settings"] as const,
-  modelCosts: (orgId: string | null, from: number, to: number) => [...testAdminKeys.all(orgId), "model-costs", from, to] as const,
-  runnerPools: (orgId: string | null) => [...testAdminKeys.all(orgId), "runner-pools"] as const,
-  notifications: (orgId: string | null) => [...testAdminKeys.all(orgId), "notifications"] as const,
-  notificationChannels: (orgId: string | null) => [...testAdminKeys.all(orgId), "notification-channels"] as const,
-  webhooks: (orgId: string | null) => [...testAdminKeys.all(orgId), "webhooks"] as const,
-  webhookDeliveries: (orgId: string | null, endpointId: string) => [...testAdminKeys.all(orgId), "webhook-deliveries", endpointId] as const,
-  suites: (orgId: string | null) => [...testAdminKeys.all(orgId), "suites"] as const,
-  agentNotes: (orgId: string | null) => [...testAdminKeys.all(orgId), "agent-notes"] as const
+  all: (orgId: string | null) => testKeys.org(orgId),
+  cases: (orgId: string | null) => testKeys.cases(orgId),
+  reviewQueue: (orgId: string | null) => testKeys.reviewQueue(orgId),
+  testCase: (orgId: string | null, caseId: string) => testKeys.caseDetail(orgId, caseId),
+  similar: (orgId: string | null, title: string, caseId: string) => testKeys.similar(orgId, title, caseId),
+  importBatch: (orgId: string | null, batchId: string) => testKeys.importBatch(orgId, batchId),
+  environments: (orgId: string | null) => testKeys.environments(orgId),
+  credentials: (orgId: string | null) => testKeys.credentials(orgId),
+  macros: (orgId: string | null) => testKeys.macros(orgId),
+  tags: (orgId: string | null) => testKeys.tags(orgId),
+  runSettings: (orgId: string | null) => testKeys.runSettings(orgId),
+  modelSettings: (orgId: string | null) => testKeys.modelSettings(orgId),
+  modelCosts: (orgId: string | null, from: number, to: number) => testKeys.modelCosts(orgId, from, to),
+  runnerPools: (orgId: string | null) => testKeys.runnerPools(orgId),
+  notifications: (orgId: string | null) => testKeys.notifications(orgId),
+  notificationSubscriptions: (orgId: string | null) => testKeys.notificationSubscriptions(orgId),
+  notificationChannels: (orgId: string | null) => testKeys.notificationChannels(orgId),
+  webhooks: (orgId: string | null) => testKeys.webhooks(orgId),
+  webhookDeliveries: (orgId: string | null, endpointId: string) => testKeys.webhookDeliveries(orgId, endpointId),
+  suites: (orgId: string | null) => testKeys.suites(orgId),
+  agentNotes: (orgId: string | null) => testKeys.agentNotes(orgId)
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -83,7 +87,7 @@ export function useTestPermissions(): { can: (permission: TestPermission) => boo
 // Queries
 // ---------------------------------------------------------------------------------------------
 
-function useOrgQuery<T>(key: (orgId: string | null) => QueryKey, fetcher: (getToken: FetchToken) => Promise<T>, options: { enabled?: boolean; refetchInterval?: number | false | ((data: T | undefined) => number | false) } = {}) {
+function useOrgQuery<T>(key: (orgId: string | null) => QueryKey, fetcher: (getToken: FetchToken) => Promise<T>, options: { enabled?: boolean; retry?: false; refetchInterval?: number | false | ((data: T | undefined) => number | false) } = {}) {
   const { orgId, ready } = useActiveOrg();
   const getToken = useTokenGetter();
   const interval = options.refetchInterval;
@@ -91,6 +95,7 @@ function useOrgQuery<T>(key: (orgId: string | null) => QueryKey, fetcher: (getTo
     queryKey: key(orgId),
     queryFn: () => fetcher(getToken),
     enabled: ready && (options.enabled ?? true),
+    ...(options.retry === false ? { retry: false } : {}),
     ...(interval === undefined ? {} : { refetchInterval: typeof interval === "function" ? (query) => interval(query.state.data) : interval })
   });
 }
@@ -105,7 +110,7 @@ export const useAdminTestCase = (caseId: string | null) =>
 
 export const useSimilarForCase = (caseId: string | null, title: string | null) =>
   useOrgQuery(
-    (orgId) => testAdminKeys.similar(orgId, caseId ?? "none"),
+    (orgId) => testAdminKeys.similar(orgId, title ?? "", caseId ?? "none"),
     (getToken) => testAdminApi.similarTestCases(getToken, { title: title ?? "", excludeId: caseId ?? "" }),
     { enabled: Boolean(caseId && title) }
   );
@@ -123,7 +128,8 @@ export const useTestTags = () => useOrgQuery(testAdminKeys.tags, testAdminApi.li
 export const useTestRunSettings = () => useOrgQuery(testAdminKeys.runSettings, testAdminApi.getRunSettings);
 export const useModelSettings = () => useOrgQuery(testAdminKeys.modelSettings, testAdminApi.getModelSettings);
 export const useRunnerPools = () => useOrgQuery(testAdminKeys.runnerPools, testAdminApi.listRunnerPools, { refetchInterval: 15_000 });
-export const useNotificationChannels = () => useOrgQuery(testAdminKeys.notificationChannels, testAdminApi.listNotificationChannels);
+export const useNotificationChannels = () => useOrgQuery(testAdminKeys.notificationChannels, testAdminApi.listNotificationChannels, { retry: false });
+export const useNotificationSubscriptions = () => useOrgQuery(testAdminKeys.notificationSubscriptions, testAdminApi.getNotificationSubscriptions);
 export const useWebhooks = () => useOrgQuery(testAdminKeys.webhooks, testAdminApi.listWebhooks);
 export const useWebhookDeliveries = (endpointId: string | null) =>
   useOrgQuery((orgId) => testAdminKeys.webhookDeliveries(orgId, endpointId ?? "none"), (getToken) => testAdminApi.listWebhookDeliveries(getToken, endpointId ?? ""), {

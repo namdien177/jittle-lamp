@@ -6,7 +6,7 @@ import {
 	sessionArchiveFileName,
 } from "@jittle-lamp/shared";
 import { and, eq } from "drizzle-orm";
-import { strFromU8, unzipSync } from "fflate";
+import { strFromU8 } from "fflate";
 
 import {
 	desktopRecordingSessions,
@@ -22,9 +22,14 @@ import {
 	evidenceActivityEntity,
 	recordOrganizationActivity,
 } from "./organization-activity";
-import { linkRunEvidence } from "./test-run-finalize";
+import { linkRunEvidence, TEST_RUN_SOURCE_TYPE } from "./test-run-finalize";
 import type { TestRunRow } from "./test-runs";
 import type { BackendDb } from "./user-provisioning";
+import {
+	MAX_EVIDENCE_ZIP_UNCOMPRESSED_BYTES,
+	unzipBounded,
+	ZipTooLargeError,
+} from "./zip-limits";
 
 // Evidence upload by run token (design.md §5.3, ADR 0002 decision 4): one ZIP with the
 // recording, the v4 session archive and run-report.json (+ screenshots/*.png) becomes a normal
@@ -32,7 +37,7 @@ import type { BackendDb } from "./user-provisioning";
 
 export const MAX_RUN_EVIDENCE_ZIP_BYTES = 64 * 1024 * 1024;
 export const RUN_REPORT_FILE_NAME = "run-report.json";
-export const TEST_RUN_SOURCE_TYPE = "test-run";
+export { TEST_RUN_SOURCE_TYPE };
 
 const sha256Hex = async (payload: Uint8Array): Promise<string> => {
 	const copy = new Uint8Array(payload.byteLength);
@@ -44,25 +49,34 @@ const sha256Hex = async (payload: Uint8Array): Promise<string> => {
 const screenshotPattern = /^screenshots\/([^/]+)\.(png|jpe?g)$/i;
 
 export const validateRunEvidenceZip = (bytes: Uint8Array, runId: string) => {
+	const isExpected = (name: string) =>
+		[sessionArchiveFileName, recordingFileName, RUN_REPORT_FILE_NAME].includes(
+			name,
+		) || screenshotPattern.test(name);
 	let files: Record<string, Uint8Array>;
+	let names: string[];
 	try {
-		files = unzipSync(bytes);
-	} catch {
+		const unzipped = unzipBounded(bytes, {
+			maxUncompressedBytes: MAX_EVIDENCE_ZIP_UNCOMPRESSED_BYTES,
+			include: isExpected,
+		});
+		files = unzipped.files;
+		names = unzipped.names.filter((name) => !name.endsWith("/"));
+	} catch (error) {
+		if (error instanceof ZipTooLargeError) {
+			throw new HttpError(
+				413,
+				"TEST_RUN_EVIDENCE_ZIP_TOO_LARGE",
+				`Evidence ${error.message}`,
+			);
+		}
 		throw new HttpError(
 			400,
 			"TEST_RUN_EVIDENCE_ZIP_INVALID",
 			"Upload body must be a readable ZIP archive",
 		);
 	}
-	const names = Object.keys(files).filter((name) => !name.endsWith("/"));
-	const unexpected = names.filter(
-		(name) =>
-			![
-				sessionArchiveFileName,
-				recordingFileName,
-				RUN_REPORT_FILE_NAME,
-			].includes(name) && !screenshotPattern.test(name),
-	);
+	const unexpected = names.filter((name) => !isExpected(name));
 	if (unexpected.length > 0) {
 		throw new HttpError(
 			400,

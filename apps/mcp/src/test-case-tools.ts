@@ -70,6 +70,10 @@ const updateAnnotations: ToolAnnotations = {
 };
 
 const finishedRunStatuses = new Set(["completed", "failed", "cancelled"]);
+// run_test_case wait=true: polling survives transient failures, not lost access.
+const finalPollStatuses = new Set([400, 401, 403, 404]);
+const maxPollErrors = 5;
+const maxPollBackoffMs = 60_000;
 
 export type TestCaseToolOptions = {
 	webOrigin: string;
@@ -210,29 +214,21 @@ function evidenceLinks(
 	};
 }
 
-const notAvailableStatuses = new Set([404, 405, 501]);
-
-function isGenerationUnavailable(result: CallToolResult): boolean {
-	if (!result.isError) return false;
-	const payload = data(result);
-	const status = typeof payload.status === "number" ? payload.status : null;
-	if (status !== null && notAvailableStatuses.has(status)) return true;
-	if (status !== 400 && status !== 422) return false;
-	return /ai-generation|sourceKind|not (?:available|supported|implemented)/i.test(
-		JSON.stringify(payload),
-	);
-}
-
-const generationUnavailable = (status: unknown) =>
+// The backend generates cases only from Jira issues (sourceKind "jira"). Its "ai-generation"
+// import kind parses the content as a transcript document, so free text or an existing case
+// cannot be sent there as a generation request.
+const generationUnsupported = () =>
 	toolResult(
 		{
 			error:
-				"AI test-case generation is not available on this Jittle Lamp backend yet. Write the transcript yourself and submit it with import_test_cases or create_test_case.",
-			code: "GENERATION_NOT_AVAILABLE",
-			...(typeof status === "number" ? { status } : {}),
+				"Generating test cases from free text or an existing case is not supported by the Jittle Lamp backend yet. Generate from Jira issues with jql and jiraCredentialId, or write the transcript yourself and submit it with import_test_cases or create_test_case.",
+			code: "GENERATION_UNSUPPORTED",
 		},
 		true,
 	);
+
+const jiraCredentialHint =
+	"A credential profile of kind jira (see list_test_credentials).";
 
 export function registerTestCaseTools(
 	server: McpServer,
@@ -326,10 +322,9 @@ export function registerTestCaseTools(
 		"create_test_case",
 		{
 			description:
-				"Create one test case from a one-case transcript document. Run find_similar_test_cases first to avoid near-copies. The response carries server-side lint findings as data; fix errors with update_test_case_transcript. Requires test_case.create.",
+				"Create one test case from a one-case transcript document. Agent-created cases always land in the review queue (status review) until a person approves them. Run find_similar_test_cases first to avoid near-copies. The response carries server-side lint findings as data; fix errors with update_test_case_transcript. Requires test_case.create.",
 			inputSchema: z.strictObject({
 				transcript,
-				status: z.enum(["draft", "review", "active"]).optional(),
 				environmentId: identifier.nullable().optional(),
 				sourceRef: z.string().max(500).optional(),
 			}),
@@ -338,7 +333,11 @@ export function registerTestCaseTools(
 		async (input) =>
 			checked(
 				await request("POST", "/test-cases", {
-					body: createTestCaseRequestSchema.parse({ ...input, source: "ai" }),
+					body: createTestCaseRequestSchema.parse({
+						...input,
+						source: "ai",
+						status: "review",
+					}),
 				}),
 				testCaseDetailSchema,
 			),
@@ -520,47 +519,45 @@ export function registerTestCaseTools(
 		"generate_test_cases",
 		{
 			description:
-				"Ask the backend's AI generation to draft cases from a feature description or from an existing case. Generated cases land in an import batch with lint and similarity and stay in review until a person approves them. Returns GENERATION_NOT_AVAILABLE when the backend has no generation support.",
-			inputSchema: z
-				.strictObject({
-					text: z.string().min(1).max(100_000).optional(),
-					testCaseId: testCaseId.optional(),
-					defaultTags: tagList.optional(),
-					environmentId: identifier.nullable().optional(),
-				})
-				.refine(
-					(input) => Boolean(input.text) !== Boolean(input.testCaseId),
-					"Supply either text or testCaseId.",
-				),
+				"Draft test cases with the backend's AI generation from Jira issues selected by JQL. The backend reads the issues with the organisation's Jira credential, asks the model for transcripts, and returns an import batch with lint and similarity per case. Generated cases stay in review until a person approves them. Free text and existing-case inputs return GENERATION_UNSUPPORTED until the backend supports them.",
+			inputSchema: z.strictObject({
+				jql: z
+					.string()
+					.min(1)
+					.max(2000)
+					.optional()
+					.describe("Jira JQL, for example `key = PCF-1234` or `project = PCF AND labels = regression`."),
+				jiraCredentialId: identifier.optional().describe(jiraCredentialHint),
+				text: z.string().min(1).max(100_000).optional(),
+				testCaseId: testCaseId.optional(),
+				defaultTags: tagList.optional(),
+				environmentId: identifier.nullable().optional(),
+			}),
 			annotations: createAnnotations,
 		},
-		async ({ text, testCaseId, defaultTags, environmentId }) => {
-			let content = text;
-			if (testCaseId) {
-				const source = await request("GET", `/test-cases/${testCaseId}`);
-				if (source.isError) return source;
-				const sourceTranscript = data(source).transcript;
-				if (typeof sourceTranscript !== "string" || !sourceTranscript) {
-					return toolResult(
-						{ error: "The source test case has no transcript." },
-						true,
-					);
-				}
-				content = sourceTranscript;
+		async ({ jql, jiraCredentialId, text, testCaseId, defaultTags, environmentId }) => {
+			if (text !== undefined || testCaseId !== undefined) {
+				return generationUnsupported();
 			}
-			const result = await request("POST", "/test-cases/import", {
-				body: createImportRequestSchema.parse({
-					sourceKind: "ai-generation",
-					content,
-					...(defaultTags ? { defaultTags } : {}),
-					...(environmentId !== undefined ? { environmentId } : {}),
-				}),
-			});
-			if (isGenerationUnavailable(result)) {
-				return generationUnavailable(data(result).status);
+			if (!jql || !jiraCredentialId) {
+				return toolResult(
+					{
+						error: "Supply jql and jiraCredentialId to generate cases from Jira issues.",
+						code: "GENERATION_INPUT_REQUIRED",
+					},
+					true,
+				);
 			}
 			return checked(
-				result,
+				await request("POST", "/test-cases/import", {
+					body: createImportRequestSchema.parse({
+						sourceKind: "jira",
+						jql,
+						jiraCredentialId,
+						...(defaultTags ? { defaultTags } : {}),
+						...(environmentId !== undefined ? { environmentId } : {}),
+					}),
+				}),
 				z.object({ batch: importBatchSchema }).or(importBatchSchema),
 			);
 		},
@@ -607,34 +604,51 @@ export function registerTestCaseTools(
 			const deadline = now() + (timeoutSeconds ?? 300) * 1000;
 			const interval = (pollIntervalSeconds ?? 5) * 1000;
 			let last: Record<string, unknown> | null = null;
+			let consecutiveErrors = 0;
+			let lastPollError: Record<string, unknown> | null = null;
 			while (true) {
 				const polled = await request("GET", `/test-runs/${id}`);
+				let delay = interval;
 				if (polled.isError) {
-					return toolResult(
-						{ ...createdData, ...links, pollError: data(polled) },
-						true,
-					);
+					// Network blips and 5xx are retried with backoff; access errors are final.
+					lastPollError = data(polled);
+					consecutiveErrors += 1;
+					const status = lastPollError.status;
+					if (
+						(typeof status === "number" && finalPollStatuses.has(status)) ||
+						consecutiveErrors > maxPollErrors
+					) {
+						return toolResult(
+							{ ...createdData, ...links, ...(last ? { run: last } : {}), pollError: lastPollError },
+							true,
+						);
+					}
+					delay = Math.min(interval * 2 ** consecutiveErrors, maxPollBackoffMs);
+				} else {
+					consecutiveErrors = 0;
+					lastPollError = null;
+					last = data(checked(polled, testRunDetailSchema));
+					const status = last.status;
+					if (typeof status === "string" && finishedRunStatuses.has(status)) {
+						return toolResult({
+							...createdData,
+							run: last,
+							timedOut: false,
+							...evidenceLinks(last, options.webOrigin),
+						});
+					}
 				}
-				last = data(checked(polled, testRunDetailSchema));
-				const status = last.status;
-				if (typeof status === "string" && finishedRunStatuses.has(status)) {
+				if (now() + delay > deadline) {
 					return toolResult({
 						...createdData,
-						run: last,
-						timedOut: false,
-						...evidenceLinks(last, options.webOrigin),
-					});
-				}
-				if (now() + interval > deadline) {
-					return toolResult({
-						...createdData,
-						run: last,
+						...(last ? { run: last } : {}),
 						timedOut: true,
 						note: "The run is still in progress. Call get_test_run later.",
+						...(lastPollError ? { lastPollError } : {}),
 						...links,
 					});
 				}
-				await sleep(interval);
+				await sleep(delay);
 			}
 		},
 	);
@@ -674,13 +688,11 @@ export function registerTestCaseTools(
 			}),
 			annotations: readAnnotations,
 		},
-		async ({ testCaseId, status, ...query }) =>
+		async ({ status, ...query }) =>
 			checked(
-				await request(
-					"GET",
-					testCaseId ? `/test-cases/${testCaseId}/runs` : "/test-runs",
-					{ query: { ...query, status: status?.join(",") } },
-				),
+				await request("GET", "/test-runs", {
+					query: { ...query, status: status?.join(",") },
+				}),
 				testRunListResponseSchema,
 			),
 	);
