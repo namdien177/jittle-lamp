@@ -122,7 +122,8 @@ const decodeMasterKey = (value: string, name: string): Uint8Array => {
 };
 
 // Master key from the environment. The previous key, when set, only unwraps; re-wrapping with
-// rewrapDataKeys moves every organisation to the current key.
+// rewrapAllDataKeys (bun run --cwd apps/backend secrets:rewrap) moves every organisation to the
+// current key.
 export const createEnvKeyProvider = (input: {
 	masterKey: string | undefined;
 	previousMasterKey?: string | undefined;
