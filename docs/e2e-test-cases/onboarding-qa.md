@@ -8,8 +8,26 @@ Ask an organisation admin for these (Settings → Test cases):
 
 - **An environment** for the app you test, for example `pcf-uat`. It has the base URL, shared variables such as `PARENT_URL`, the runner pool that can reach it, and agent instructions such as "never delete existing records".
 - **A credential profile** for each account you log in with, for example `PCF_HQ_ADMIN`. You only ever see the profile name and the username. Passwords are typed into the page by the runner itself; you and the AI never see them.
-- **A model key** (Settings → AI model). Runs are blocked until one is configured.
+- **A model and its key** (Settings → AI model). Any supported provider works; see [Choosing a model provider](#choosing-a-model-provider). Runs are blocked with `MODEL_KEY_MISSING` until the key is configured.
 - **A role** with the test-case permissions (QA Engineer by default).
+
+### Choosing a model provider
+
+An admin picks two models in Settings → AI model: the **act** model drives the browser, the **judge** model decides asserts, waits and extracts. A model id is `<prefix>/<model>`, and the prefix picks the provider. Act and judge can use different providers; the judge then needs its own key.
+
+| Prefix | Example | Key (runner variable) | Notes |
+| --- | --- | --- | --- |
+| `openrouter/` | `openrouter/anthropic/claude-sonnet-5-5`, `openrouter/openai/gpt-5` | `OPENROUTER_API_KEY` | Hundreds of models behind one key. The id after the prefix must be in OpenRouter's model list, or the run is blocked with `MODEL_UNAVAILABLE` |
+| `openai-compatible/` | `openai-compatible/llama-3.3-70b` | `OPENAI_COMPATIBLE_API_KEY` (optional) | Any OpenAI-compatible endpoint: Groq, Together, DeepSeek, Fireworks, vLLM, Ollama, LiteLLM, Google's OpenAI-compatible endpoint. Also needs the **base URL** (`OPENAI_COMPATIBLE_BASE_URL`), e.g. `https://api.groq.com/openai/v1`. A private or local host must be listed in `JL_OUTBOUND_ALLOW_HOSTS` on the API server, and the runner must be able to reach it |
+| `gateway/` | `gateway/openai/gpt-5` | `AI_GATEWAY_API_KEY` | Vercel AI Gateway; the rest of the id is `<provider>/<model>` |
+| `openai/` | `openai/gpt-5` | `OPENAI_API_KEY` | |
+| `anthropic/` | `anthropic/claude-sonnet-5-5` | `ANTHROPIC_API_KEY` | The defaults (`anthropic/claude-opus-5-5`, `anthropic/claude-sonnet-5-5`) are only defaults |
+| `google/` | `google/gemini-2.5-pro` | `GOOGLE_GENERATIVE_AI_API_KEY` | |
+| `xai/` | `xai/grok-4` | `XAI_API_KEY` | |
+
+Any other prefix is refused when the settings are saved. `claude-code/` (a local Claude Code login, `--allow-claude-code`) and `mock:<fixture.json>` (recorded turns) are for development and tests only.
+
+**Cost.** Each run shows model calls, tokens and cost. OpenRouter reports the cost of every call, and that number is used as is. For other providers the cost comes from the organisation's price table (Settings → Model spend); a model without a price row, which includes most OpenAI-compatible models, shows its tokens with the cost as unknown until an admin adds a row for its exact id.
 
 ## 2. Write a case
 
