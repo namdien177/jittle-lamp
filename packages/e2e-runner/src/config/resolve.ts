@@ -86,6 +86,9 @@ function lookup(layers: readonly Layer[], name: string): { value: string; source
   return null;
 }
 
+// Fields that stand in for `username` when a profile has none, in this order.
+export const loginIdentifierAliases = ["email", "login", "user"] as const;
+
 export function parseCredentialEnvName(name: string): { profile: string; field: string } | null {
   const match = /^JL_CRED_([A-Z0-9_]+)_([A-Z0-9]+)$/.exec(name);
   if (!match?.[1] || !match[2]) return null;
@@ -149,6 +152,15 @@ export function resolveRunConfig(input: {
         setCredential(credential.profile, field.toLowerCase(), { value, source: orgSource(org.environment.name), secret: true });
       }
     }
+  }
+
+  // Every profile gets a login identifier under `username`, which [Login] (`{cred:P.username}`)
+  // and the e2e credential inventory read. A profile that stores its email or login instead
+  // uses that value, with its own source and secrecy.
+  for (const fields of credentials.values()) {
+    if (fields.has("username")) continue;
+    const identifier = loginIdentifierAliases.map((field) => fields.get(field)).find((value) => value !== undefined && value.value !== "");
+    if (identifier) fields.set("username", identifier);
   }
 
   const resolved = (name: string, fallback?: { value: string; source: ConfigSource } | null, secret = false): ResolvedValue | null => {

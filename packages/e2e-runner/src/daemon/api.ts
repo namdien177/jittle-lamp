@@ -48,7 +48,8 @@ export class BackendClient {
     token: string,
     schema: S | null,
     body?: unknown,
-    contentType = "application/json"
+    contentType = "application/json",
+    timeoutOverrideMs?: number
   ): Promise<z.infer<S>> {
     const headers: Record<string, string> = { authorization: `Bearer ${token}`, "user-agent": this.options.userAgent ?? "jl-e2e" };
     let payload: BodyInit | undefined;
@@ -60,7 +61,7 @@ export class BackendClient {
       payload = JSON.stringify(body);
     }
     // A hung request must not hold the lease keep-alive chain; uploads get longer.
-    const timeoutMs = body instanceof Uint8Array ? 300_000 : 30_000;
+    const timeoutMs = timeoutOverrideMs ?? (body instanceof Uint8Array ? 300_000 : 30_000);
     const response = await this.fetchImpl(new URL(path, this.options.origin), {
       method,
       headers,
@@ -106,7 +107,8 @@ export class BackendClient {
   }
 
   async explorationResult(workerToken: string, explorationId: string, body: ExplorationResultRequest): Promise<void> {
-    await this.request("POST", `/test-explorations/${encodeURIComponent(explorationId)}/result`, workerToken, null, body);
+    // The backend writes the transcript before it answers, retrying a rate-limited model once.
+    await this.request("POST", `/test-explorations/${encodeURIComponent(explorationId)}/result`, workerToken, null, body, "application/json", 120_000);
   }
 
   config(runId: string, runToken: string): Promise<TestRunConfig> {

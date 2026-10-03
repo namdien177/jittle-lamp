@@ -361,25 +361,27 @@ export const recordHeartbeat = async (
 	},
 ): Promise<void> => {
 	const now = input.now ?? Date.now();
+	// Only a run this worker holds is its current run: runners up to c21e872 also report the id
+	// of an import exploration here, which Runner pools then linked as /test-runs/<id>.
+	const run = input.request.runId
+		? await db.query.testRuns.findFirst({
+				where: and(
+					eq(testRuns.id, input.request.runId),
+					eq(testRuns.workerLeaseOwner, input.worker.id),
+				),
+				columns: { id: true },
+			})
+		: undefined;
 	await db
 		.update(runnerWorkers)
 		.set({
 			lastHeartbeatAt: now,
 			load: input.request.load,
-			currentRunId: input.request.runId,
+			currentRunId: run?.id ?? null,
 			offlineNotifiedAt: null,
 			updatedAt: now,
 		})
 		.where(eq(runnerWorkers.id, input.worker.id));
 	await clearNoRunner(db, input.worker.poolId, now);
-	if (input.request.runId) {
-		const run = await db.query.testRuns.findFirst({
-			where: and(
-				eq(testRuns.id, input.request.runId),
-				eq(testRuns.workerLeaseOwner, input.worker.id),
-			),
-			columns: { id: true },
-		});
-		if (run) await extendRunLease(db, run.id, now);
-	}
+	if (run) await extendRunLease(db, run.id, now);
 };

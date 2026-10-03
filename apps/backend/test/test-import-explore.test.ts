@@ -40,6 +40,7 @@ const record = (goal: string): ExplorationRecord => ({
 			instruction: "Sign in as the HQ admin",
 			status: "passed",
 			summary: "Dashboard shown",
+			errorCode: null,
 		},
 		{
 			index: 2,
@@ -47,6 +48,7 @@ const record = (goal: string): ExplorationRecord => ({
 			instruction: "Open Interests and click New interest",
 			status: "passed",
 			summary: null,
+			errorCode: null,
 		},
 	],
 	findings: [],
@@ -264,11 +266,21 @@ describe("explored imports", () => {
 			"[Act] Open Interests and click New interest",
 		);
 		expect(signOut?.exploration?.error).toContain("model down");
-		// The runner could not explore: the item keeps its notes for the reviewer.
+		// The runner could not explore: the item keeps its notes for the reviewer, is skipped by
+		// default and says why.
 		expect(report?.exploration).toMatchObject({
 			status: "failed",
 			error: "net::ERR_NAME_NOT_RESOLVED",
 		});
+		expect(report?.decision).toBe("skip");
+		expect(report?.error).toBe(
+			"Not explored: net::ERR_NAME_NOT_RESOLVED. Review the instructions before creating a case",
+		);
+		// [Login: PCF_HQ_ADMIN] uses the runner's built-in macro; lint knows it.
+		expect(interest?.transcript).toContain("[Login: PCF_HQ_ADMIN]");
+		expect(
+			interest?.lint.filter((finding) => finding.ruleId === "unknown-macro"),
+		).toEqual([]);
 		expect(report?.transcript).toContain(
 			"[Note] Open Reports and print the attendance report.",
 		);
@@ -282,7 +294,189 @@ describe("explored imports", () => {
 			},
 		);
 		expect(commit.status).toBe(200);
-		expect(commit.body.counts.created).toBe(3);
+		expect(commit.body.counts).toMatchObject({ created: 2, skipped: 1 });
+	});
+
+	it("never writes a blocked exploration as a test; rejects ungrounded transcripts; waits out a short 429", async () => {
+		const calls: string[] = [];
+		let rateLimited = false;
+		const fixture = await createTestCaseFixture({
+			dependencies: {
+				generateText: async ({ prompt }) => {
+					const title = /Title: (.*)/.exec(prompt)?.[1] ?? "";
+					calls.push(title);
+					if (title === "Retried after a rate limit" && !rateLimited) {
+						rateLimited = true;
+						// What the production gateway answered (alibaba/qwen3.7-flash, 5 RPM).
+						throw Object.assign(
+							new Error("429 Too Many Requests: 5RPM per region Retry after1s"),
+							{ statusCode: 429 },
+						);
+					}
+					if (title === "Hallucinated macro") {
+						return "# X\n\n[Signin: PCF_HQ_ADMIN]\n## Checkpoint: c\n[Assert] the dashboard is shown";
+					}
+					return "# X\n\n[Login: PCF_HQ_ADMIN]\n## Checkpoint: c\n[Assert] the dashboard shows the navigation menu";
+				},
+			},
+		});
+		const { environmentId } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+			modelKey: FAKE_MODEL_KEY,
+		});
+		const created = await fixture.call<ImportBatch>("/test-cases/import", {
+			token: fixture.admin.token,
+			body: {
+				sourceKind: "instructions",
+				content: [
+					"# ILHAM - Đăng nhập thành công",
+					"Đăng nhập bằng PCF_HQ_ADMIN. Kiểm tra trang chính hiển thị menu điều hướng.",
+					"",
+					"# Hallucinated macro",
+					"Sign in as PCF_HQ_ADMIN and check the dashboard.",
+					"",
+					"# Retried after a rate limit",
+					"Sign in as PCF_HQ_ADMIN and check the dashboard.",
+					"",
+					"# Unknown profile",
+					"Sign in as PCF_ALL_ACCESS_ACCOUNT and check the dashboard.",
+				].join("\n"),
+				environmentId,
+				queueWithoutRunner: true,
+			},
+		});
+		expect(created.status).toBe(201);
+		const runner = await registerRunner(fixture);
+		const claim = async () => {
+			const response = await fixture.call<{
+				exploration: ClaimedExploration | null;
+			}>("/runner-pools/claim", { token: runner.workerToken, body: {} });
+			if (!response.body.exploration)
+				throw new Error("Expected an exploration");
+			return response.body.exploration;
+		};
+		const passed = (goal: string): ExplorationRecord => ({
+			goal,
+			ended: "finished",
+			summary: "The dashboard shows the navigation menu.",
+			steps: [
+				{
+					index: 1,
+					title: "Sign in",
+					instruction: "Sign in as the HQ admin",
+					status: "passed",
+					summary: null,
+					errorCode: null,
+				},
+			],
+			findings: [],
+		});
+
+		// 1. Production ILHAM shape: `finished`, but the sign-in step blocked.
+		const blocked = await claim();
+		const blockedResult = await fixture.call(
+			`/test-explorations/${blocked.explorationId}/result`,
+			{
+				token: runner.workerToken,
+				body: {
+					status: "done",
+					explore: {
+						goal: blocked.goal,
+						ended: "finished",
+						summary: "Login failed: the goal was not achieved.",
+						steps: [
+							{
+								index: 1,
+								title: "Sign in",
+								instruction: "Sign in with the account",
+								status: "blocked",
+								summary: "username is empty",
+								errorCode: "AUTH_CREDENTIAL_UNAVAILABLE",
+							},
+						],
+						findings: [],
+					},
+				},
+			},
+		);
+		expect(blockedResult.status).toBe(200);
+		// 2. The model invents a macro: rejected, the explored steps are listed instead.
+		const hallucinated = await claim();
+		await fixture.call(
+			`/test-explorations/${hallucinated.explorationId}/result`,
+			{
+				token: runner.workerToken,
+				body: { status: "done", explore: passed(hallucinated.goal) },
+			},
+		);
+		// 3. The model is rate limited once with a short Retry-After: tried again.
+		const retried = await claim();
+		const started = Date.now();
+		await fixture.call(`/test-explorations/${retried.explorationId}/result`, {
+			token: runner.workerToken,
+			body: { status: "done", explore: passed(retried.goal) },
+		});
+		expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+		// 4. A profile the organisation lacks is named; the runner is told before exploring.
+		const unknown = await claim();
+		const config = await fixture.call<ExplorationConfig>(
+			`/test-explorations/${unknown.explorationId}/config`,
+			{ token: runner.workerToken },
+		);
+		expect(config.body.missingProfiles).toEqual(["PCF_ALL_ACCESS_ACCOUNT"]);
+		expect(config.body.credentials).toEqual([]);
+
+		// The model was never asked about the blocked exploration.
+		expect(calls).toEqual([
+			"Hallucinated macro",
+			"Retried after a rate limit",
+			"Retried after a rate limit",
+		]);
+		const batch = await fixture.call<ImportBatch>(
+			`/test-cases/import/${created.body.id}`,
+			{ token: fixture.admin.token },
+		);
+		const [ilham, invented, rateLimitedItem] = batch.body.items;
+		expect(ilham?.exploration).toMatchObject({
+			status: "done",
+			outcome: "blocked",
+		});
+		expect(ilham?.decision).toBe("skip");
+		expect(ilham?.error).toBe(
+			'Exploration blocked at step 1 "Sign in" blocked (AUTH_CREDENTIAL_UNAVAILABLE); the instructions were kept, not written as a test',
+		);
+		// Nothing replayable, and no Assert that the login failed.
+		expect(ilham?.transcript).not.toContain("[Act]");
+		expect(ilham?.transcript).not.toContain("[Assert]");
+		expect(ilham?.transcript).not.toContain("Login failed");
+		expect(ilham?.transcript).toContain(
+			"[Note] Đăng nhập bằng PCF_HQ_ADMIN. Kiểm tra trang chính hiển thị menu điều hướng.",
+		);
+		expect(invented?.transcript).not.toContain("Signin");
+		expect(invented?.transcript).toContain("[Act] Sign in as the HQ admin");
+		expect(invented?.exploration?.error).toContain(
+			'invalid transcript: line 3: No macro named "Signin".',
+		);
+		expect(invented?.decision).toBe("create");
+		expect(rateLimitedItem?.transcript).toContain("[Login: PCF_HQ_ADMIN]");
+		expect(rateLimitedItem?.exploration).toMatchObject({
+			outcome: "passed",
+			error: null,
+		});
+
+		// A heartbeat naming an exploration does not make it the worker's current run.
+		await fixture.call("/runner-pools/heartbeat", {
+			token: runner.workerToken,
+			body: { runId: unknown.explorationId, load: 1 },
+		});
+		const pools = await fixture.call<{ items: RunnerPool[] }>("/runner-pools", {
+			token: fixture.admin.token,
+		});
+		expect(
+			pools.body.items
+				.flatMap((pool) => pool.workers)
+				.map((worker) => worker.currentRunId),
+		).toEqual([null]);
 	});
 
 	it("stops waiting for a runner: queued items go to review unexplored, a claimed one carries on", async () => {

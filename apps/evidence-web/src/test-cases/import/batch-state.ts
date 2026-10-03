@@ -76,6 +76,10 @@ export function explorationLabel(item: Pick<ImportItem, "exploration">): { text:
     case "running":
       return { text: `Trying the instructions${where}${exploration.attempts > 1 ? ` (attempt ${exploration.attempts})` : ""}`, tone: "active" };
     case "done": {
+      // Ran, but did not show the instructions work: the row was not written as a test.
+      if (exploration.outcome && exploration.outcome !== "passed") {
+        return { text: `Exploration ${exploration.outcome}${where}; not written as a test`, tone: "danger" };
+      }
       const findings = exploration.findings > 0 ? ` · ${exploration.findings} finding${exploration.findings === 1 ? "" : "s"}` : "";
       const note = exploration.error ? ` · ${exploration.error}` : "";
       return { text: `Explored${where}: ${exploration.steps} step${exploration.steps === 1 ? "" : "s"}${findings}${note}`, tone: exploration.error ? "danger" : "muted" };
