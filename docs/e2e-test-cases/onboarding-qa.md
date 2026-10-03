@@ -11,6 +11,8 @@ Ask an organisation admin for these (Settings → Test cases):
 - **A model and its key** (Settings → AI model). Any supported provider works; see [Choosing a model provider](#choosing-a-model-provider). Runs are blocked with `MODEL_KEY_MISSING` until the key is configured.
 - **A role** with the test-case permissions (QA Engineer by default).
 
+Admins and operators setting up the backend, runners and integrations: see [deployment.md](deployment.md).
+
 ### Choosing a model provider
 
 An admin picks two models in Settings → AI model: the **act** model drives the browser, the **judge** model decides asserts, waits and extracts. A model id is `<prefix>/<model>`, and the prefix picks the provider. Act and judge can use different providers; the judge then needs its own key.

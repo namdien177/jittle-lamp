@@ -7,6 +7,8 @@ A runner executes test-case runs: it claims a run from the organisation's queue,
 
 Background: design.md §5.4 (hosts and pools), §9 (configuration and secrets) and §10 (queue). Decisions: ADR 0002 (3, 9, 12).
 
+Operators standing up the backend, staging and production, or the cloud pool for an organisation: see [deployment.md](deployment.md).
+
 ## Pools
 
 | Pool | Where it runs | Takes |
@@ -22,7 +24,9 @@ If no worker of the pool has sent a heartbeat recently, a run stays `queued` wit
 
 Go to Settings → Runner pools → New pool. Pick a name and a concurrency (runs at a time across the pool). The registration token appears **once**, so copy it.
 
-A worker uses the token only when it has no stored credential. It then gets its own worker credential and stores it with mode 600 in `~/.config/jittle-lamp/runner/<api host>-<host name>.json`, or in the path given with `--state`. Later starts reuse the stored credential, and the token can stay configured. To revoke a host, delete the worker from the pool page. A revoked worker stops claiming and finishes its current run.
+The page offers **New token** only for self-hosted pools. The `cloud` pool's token is issued through the API (deployment.md, section 6).
+
+A worker uses the token only when it has no stored credential. It then gets its own worker credential and stores it with mode 600 in `~/.config/jittle-lamp/runner/<api host>-<host name>.json`, or in the path given with `--state`. Later starts reuse the stored credential, and the token can stay configured. To revoke a host, delete the worker from the pool page. Its credential and the run token of the run it holds stop working at once, and that run goes back to the queue with one attempt used (`apps/backend/src/services/test-run-queue.ts`, `revokeRunnerWorker`).
 
 ## 2. Install a runner
 

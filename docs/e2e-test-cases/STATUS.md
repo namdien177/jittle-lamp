@@ -42,6 +42,7 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 | ops.5 | `docs/mcp.md` updated | done | 7e920da | Tools, permissions, automation-token and AI-token access, Jira-only generation. |
 | ops.6 | QA engineer onboarding guide | done | cbb8c75 | `docs/e2e-test-cases/onboarding-qa.md`. |
 | ops.7 | `.env.sample` updated | done | (this commit) | Backend `JL_SECRETS_MASTER_KEY*`; runner and CLI section (`JL_API_ORIGIN`, `JL_API_TOKEN`, `JL_RUNNER_*`, `JL_MODEL`, `JL_JUDGE_MODEL`, `JL_SECRET_NAMES`, `JL_ALLOW_CLAUDE_CODE`). |
+| ops.8 | Deployment and environment guide | done | (this commit) | docs/e2e-test-cases/deployment.md |
 
 ## Beta definition of done (handover §6)
 
