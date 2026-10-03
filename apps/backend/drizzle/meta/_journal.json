@@ -225,6 +225,13 @@
       "when": 1791018941171,
       "tag": "0031_gateway_model_prices",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1791051974820,
+      "tag": "0032_environment_data_locale",
+      "breakpoints": true
     }
   ]
 }

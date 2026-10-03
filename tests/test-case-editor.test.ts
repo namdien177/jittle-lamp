@@ -278,10 +278,26 @@ describe("pickers", () => {
       datasetColumns: ["class"],
       extracted
     });
-    expect(options.map((option) => `${option.source}:${option.name}`)).toEqual(["dataset:class", "param:role", "param:student", "extracted:orderId", "env:SCHOOL_CODE"]);
+    expect(options.map((option) => `${option.source}:${option.name}`)).toEqual([
+      "dataset:class",
+      "param:role",
+      "param:student",
+      "extracted:orderId",
+      "env:SCHOOL_CODE",
+      // The common generated values come last until the user types.
+      "generated:person.name",
+      "generated:person.firstName",
+      "generated:person.lastName",
+      "generated:person.email",
+      "generated:person.phone",
+      "generated:location.address"
+    ]);
     expect(variableOptions("tenant", { environmentVariables: [], params: [], datasetColumns: [], extracted: [] })).toEqual([
       { name: "tenant", source: "declare", detail: "declare new param" }
     ]);
+    const typed = variableOptions("mail", { environmentVariables: [], params: [], datasetColumns: [], extracted: [] });
+    expect(typed.map((option) => option.name)).toEqual(["person.email", "internet.email", "mail"]);
+    expect(typed[0]?.detail).toBe("generated · email built from the person's name, e.g. jordan.lee@example.com");
     expect(insertReference("enter {stu now", { kind: "variable", query: "stu", start: 6, end: 10 }, "{student}")).toEqual({ text: "enter {student} now", caret: 15 });
   });
 

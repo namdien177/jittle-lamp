@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { isFakeDataLocale } from "./fake-data";
 import {
   lintFindingSchema,
   macroParamSchema,
@@ -540,7 +541,9 @@ export const testRunConfigSchema = z.object({
     name: z.string().min(1),
     baseUrl: z.string(),
     variables: z.record(z.string(), z.string()),
-    agentInstructions: z.string().nullable()
+    agentInstructions: z.string().nullable(),
+    // Locale of generated values ({person.name}); null means en.
+    dataLocale: z.string().nullable().default(null)
   }),
   credentials: z.array(
     z.object({
@@ -567,6 +570,7 @@ export const testEnvironmentSchema = z.object({
   variables: z.record(z.string(), z.string()),
   runnerPool: z.string().min(1),
   agentInstructions: z.string().max(16_384).nullable(),
+  dataLocale: z.string().nullable().default(null),
   notes: z.string().nullable(),
   usedByCases: z.number().int().nonnegative(),
   createdAt: epochMs,
@@ -578,6 +582,11 @@ export const upsertTestEnvironmentRequestSchema = z.object({
   variables: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string()).default({}),
   runnerPool: z.string().min(1).default("cloud"),
   agentInstructions: z.string().max(16_384).nullable().optional(),
+  dataLocale: z
+    .string()
+    .refine(isFakeDataLocale, "Unknown data locale")
+    .nullable()
+    .optional(),
   notes: z.string().max(2000).nullable().optional()
 });
 

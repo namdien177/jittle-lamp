@@ -114,7 +114,11 @@ tag         := Open | Act | Assert | Login | Wait | Screenshot | Extract | Note 
 | `[Note] <text>` | Not executed; shown in reports | n/a | no |
 | `[<Macro>: <arg>]` | Any other tag resolves to an org macro of that name | per macro step | only on hand-off |
 
-Variables: `{name}` is substituted from run params, then environment variables. Values never enter the cache key, so `{email}` can vary per run while the step still replays. Secrets are never written in transcripts; `[Login: PCF]` references a credential profile and the runner fills the password without sending it to the model.
+Variables: `{name}` is substituted from run params, then environment variables. Values never enter the cache key, so `{email}` can vary per run while the step still replays. A value read by `[Extract: x]` fills `{x}` in later steps while the run executes.
+
+Generated values: `{person.name}`, `{person.email}`, `{phone.number}`, `{location.address}`, `{company.name}`, `{date.birthdate}`, `{lorem.sentence}` and the other fields in `packages/shared/src/fake-data.ts` resolve to realistic fake data (faker) when no param, dataset column or variable has that name. The runner draws one value per token per run in the environment's data locale (Settings → Environments, default English; `JL_DATA_LOCALE` locally). Fields of one person agree: `{person.email}` is built from `{person.firstName}` and `{person.lastName}`, and `{internet.email}` is the same value. A number after the group is another entity: `{person2.name}` and `{person2.email}` belong to a second person. Emails use `example.com`. Step labels in the run show the drawn values, and the run report lists them under `params`. The editor's `{` picker offers them, and lint names the fields of a mistyped one (`{person.nmae}`).
+
+Secrets are never written in transcripts; `[Login: PCF]` references a credential profile and the runner fills the password without sending it to the model.
 
 Step identity: each step gets a stable `stepId` when the transcript is saved. On edit, the parser re-matches steps by `instructionKey = sha256(type, arg, normalisedText)` so unchanged lines keep their id, cache and run history. A changed line is a new step with an empty cache.
 
@@ -398,6 +402,7 @@ The same test case must run against a cloud-configured environment and against a
 | `{SCHOOL_CODE}` | `vars.SCHOOL_CODE` | environment variable (non-secret) |
 | `[Login: PCF_HQ_ADMIN]` | `credential('PCF_HQ_ADMIN').username`, `secret('PCF_HQ_ADMIN.password')` | credential profile; secret fields are filled by the runner and masked everywhere |
 | `{student}` with `--var student=...` | `params.student` | run parameter |
+| `{person.name}` (nothing else of that name) | `vars["person.name"]` | value generated for this run in the environment's data locale (§4) |
 
 `secret()` never returns a string to the agent or to the report. The runner fills it into the page directly and registers the value for redaction in snapshots, console, network bodies and video banners (the extension's redaction rules already cover input events).
 
@@ -410,6 +415,7 @@ For each name the runner checks, in order, and stops at the first hit:
    - `JL_ENV_BASE_URL`, `JL_ENV_NAME`
    - `JL_VAR_<KEY>` → `vars.KEY`
    - `JL_CRED_<PROFILE>_<FIELD>` → `credential('PROFILE').FIELD`, e.g. `JL_CRED_PCF_HQ_ADMIN_PASSWORD`
+   - `JL_DATA_LOCALE` (locale of generated values such as `vi` or `en_GB`)
    - `JL_MODEL`, `JL_JUDGE_MODEL`, the provider key the model ids need (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `XAI_API_KEY`, `AI_GATEWAY_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`), `OPENAI_COMPATIBLE_BASE_URL` (not a secret), `JL_CACHE_MODE`, `JL_CACHE_DIR`
 3. **Desktop secret store** (`safeStorage`), desktop host only.
 4. **Organisation configuration on the backend**: the selected `test_environment` and the `test_credentials` it references, fetched with the user's session (desktop) or a per-run token (cloud worker).

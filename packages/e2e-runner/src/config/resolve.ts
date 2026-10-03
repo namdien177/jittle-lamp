@@ -20,6 +20,8 @@ export type OrgRunConfig = {
     baseUrl: string;
     variables: Record<string, string>;
     agentInstructions?: string | null;
+    // Locale of generated values ({person.name}); null means en.
+    dataLocale?: string | null;
   };
   credentials: Array<{
     profile: string;
@@ -33,6 +35,7 @@ export type ResolvedRunConfig = {
   environmentName: ResolvedValue | null;
   baseUrl: ResolvedValue | null;
   agentInstructions: string | null;
+  dataLocale: string | null;
   vars: Map<string, ResolvedValue>;
   credentials: Map<string, Map<string, ResolvedValue>>;
   actModel: ResolvedValue | null;
@@ -175,6 +178,7 @@ export function resolveRunConfig(input: {
     environmentName: resolved("JL_ENV_NAME", org && orgEnv ? { value: org.environment.name, source: orgEnv.source } : null),
     baseUrl: resolved("JL_ENV_BASE_URL", org && orgEnv ? { value: org.environment.baseUrl, source: orgEnv.source } : null),
     agentInstructions: lookup(layers, "JL_AGENT_INSTRUCTIONS")?.value ?? org?.environment.agentInstructions ?? null,
+    dataLocale: lookup(layers, "JL_DATA_LOCALE")?.value ?? org?.environment.dataLocale ?? null,
     vars,
     credentials,
     actModel,

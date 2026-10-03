@@ -1,4 +1,6 @@
 import {
+  defaultFakeDataLocale,
+  fakeDataLocales,
   findModelProvider,
   lintTestCase,
   modelIdProblem,
@@ -57,6 +59,25 @@ export function rowsToRecord(rows: readonly KeyValueRow[], pattern: RegExp, labe
 
 export const agentInstructionsLimit = 16_384;
 export const environmentNamePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+// "vi" → "Vietnamese", "en_GB" → "British English"; codes Intl cannot name stay as they are.
+export function dataLocaleLabel(code: string): string {
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(code.replace(/_/g, "-"));
+    return name && name.toLowerCase() !== code.toLowerCase().replace(/_/g, "-") ? name : code;
+  } catch {
+    return code;
+  }
+}
+
+// Locales for generated values ({person.name}); the empty value is the English default.
+export function dataLocaleOptions(): Array<{ label: string; value: string }> {
+  const options = fakeDataLocales
+    .filter((code) => code !== defaultFakeDataLocale)
+    .map((code) => ({ label: dataLocaleLabel(code) === code ? code : `${dataLocaleLabel(code)} · ${code}`, value: code as string }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  return [{ label: `${dataLocaleLabel(defaultFakeDataLocale)} · ${defaultFakeDataLocale} (default)`, value: "" }, ...options];
+}
 
 export function agentInstructionsCounter(text: string): { used: number; limit: number; over: boolean; label: string } {
   const used = text.length;

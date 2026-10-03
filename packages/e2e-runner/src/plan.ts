@@ -6,6 +6,7 @@ import {
   computeTestCaseFingerprint,
   expandMacros,
   extractStepReferences,
+  isFakeDataToken,
   lintTestCase,
   loginProfileArg,
   macroDefinitionSchema,
@@ -20,6 +21,7 @@ import {
 } from "@jittle-lamp/shared";
 
 import { isSecretVariable, resolveCredentialProfile, type ResolvedRunConfig } from "./config/resolve";
+import { generateFakeData } from "./fake-data";
 
 // A RunPlan is the transcript resolved against macros and configuration: the steps the engine
 // executes, with variables substituted and secrets replaced by named placeholders the runner fills
@@ -43,6 +45,8 @@ export type RunPlan = {
   baseUrl: string | null;
   agentInstructions: string | null;
   params: Record<string, string>;
+  // Values made up for this run ({person.name} → "Jordan Lee"); also in params.
+  generated: Record<string, string>;
   steps: PlannedStep[];
   lint: LintFinding[];
   missing: string[];
@@ -98,6 +102,7 @@ function renderInstruction(
   step: ExpandedStep,
   config: ResolvedRunConfig,
   aliases: Map<string, string>,
+  extracted: ReadonlySet<string>,
   missing: Set<string>,
   missingKinds: Set<"variable" | "credential">
 ): { instruction: string; secrets: SecretRef[] } {
@@ -124,6 +129,8 @@ function renderInstruction(
       return placeholder;
     }
     const value = config.vars.get(token);
+    // Values read by an earlier [Extract] exist only while the run executes.
+    if (!value && extracted.has(token)) return match;
     if (!value) {
       missing.add(`vars.${token}`);
       missingKinds.add("variable");
@@ -166,6 +173,7 @@ export function buildRunPlan(input: {
     return {
       ...base,
       params: {},
+      generated: {},
       steps: [],
       lint,
       missing: [],
@@ -180,6 +188,7 @@ export function buildRunPlan(input: {
     return {
       ...base,
       params: {},
+      generated: {},
       steps: [],
       lint,
       missing: [],
@@ -198,6 +207,15 @@ export function buildRunPlan(input: {
     else if (param.default !== null) params[param.name] = param.default;
   }
   Object.assign(params, input.params ?? {});
+  // Generated values for {person.name} and friends that nothing above defines.
+  const generatedTokens = new Set<string>();
+  for (const step of expanded.steps) {
+    for (const name of extractStepReferences([step.text, ...step.args.map((arg) => arg.value)]).variables) {
+      if (isFakeDataToken(name) && !input.config.vars.has(name) && !Object.prototype.hasOwnProperty.call(params, name)) generatedTokens.add(name);
+    }
+  }
+  const generated = generateFakeData(generatedTokens, { locale: input.config.dataLocale });
+  Object.assign(params, generated);
   const config: ResolvedRunConfig = {
     ...input.config,
     vars: new Map([
@@ -236,9 +254,14 @@ export function buildRunPlan(input: {
     }
   }
 
+  const extracted = new Set<string>();
   const steps: PlannedStep[] = expanded.steps.map((step) => {
     const withParams = { ...step, text: substituteParams(step.text, publicParams), args: step.args.map((arg) => ({ ...arg, value: substituteParams(arg.value, publicParams) })) };
-    const rendered = renderInstruction(withParams, config, aliases, missing, missingKinds);
+    const rendered = renderInstruction(withParams, config, aliases, extracted, missing, missingKinds);
+    if (step.type === "extract" && !step.disabled) {
+      const name = step.args.find((arg) => arg.name === null)?.value;
+      if (name) extracted.add(name);
+    }
     const executes = !(step.type === "macro" || step.type === "login") || step.macroVersion === null;
     return { ...step, instruction: rendered.instruction, secrets: rendered.secrets, executes };
   });
@@ -254,6 +277,7 @@ export function buildRunPlan(input: {
   return {
     ...base,
     params: publicParams,
+    generated,
     steps,
     lint,
     missing: missingList,

@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { fakeDataFieldsOf, fakeDataGroupOf, isFakeDataToken } from "./fake-data";
 import { sha256Hex } from "./sha256";
 
 // Transcript model for AI-driven E2E test cases (design.md §4 and §7, ADR 0002 decisions 1, 7, 13).
@@ -1445,7 +1446,8 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
     id: "undeclared-variable",
     severity: "warning",
     source: "design §7",
-    description: "Every {variable} is a case param, dataset column, extracted value or environment variable.",
+    description:
+      "Every {variable} is a case param, dataset column, extracted value, environment variable or generated value ({person.name}).",
     check: (testCase, context) => {
       const known = new Set<string>([
         ...testCase.metadata.params.map((param) => param.name),
@@ -1456,9 +1458,18 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
       const findings: Omit<LintFinding, "ruleId" | "severity">[] = [];
       for (const step of activeSteps(testCase)) {
         for (const name of step.variables) {
-          if (known.has(name) || reported.has(name)) continue;
+          if (known.has(name) || reported.has(name) || isFakeDataToken(name)) continue;
           reported.add(name);
-          findings.push(stepFinding(step, `Undeclared variable {${name}}.`, { kind: "declare-param", name }));
+          const generated = fakeDataGroupOf(name);
+          if (generated) {
+            const fields = fakeDataFieldsOf(generated.group).join(", ");
+            findings.push(stepFinding(step, `{${name}} is not a generated value. ${generated.group} has: ${fields}.`));
+          } else if (argNamePattern.test(name)) {
+            findings.push(stepFinding(step, `Undeclared variable {${name}}.`, { kind: "declare-param", name }));
+          } else {
+            // Params cannot have dots, so there is nothing to declare.
+            findings.push(stepFinding(step, `Undeclared variable {${name}}.`));
+          }
         }
         if (step.type === "extract") {
           const name = step.args.find((arg) => arg.name === null)?.value;

@@ -114,7 +114,8 @@ function toOrgConfig(config: Awaited<ReturnType<BackendClient["config"]>>): OrgR
       name: config.environment.name,
       baseUrl: config.environment.baseUrl,
       variables: config.environment.variables,
-      agentInstructions: instructions.length > 0 ? instructions : null
+      agentInstructions: instructions.length > 0 ? instructions : null,
+      dataLocale: config.environment.dataLocale
     },
     credentials: config.credentials,
     model: config.model

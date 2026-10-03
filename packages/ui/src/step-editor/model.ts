@@ -1,5 +1,6 @@
 import {
   applyLintFix,
+  fakeDataFields,
   emptyTranscriptMetadata,
   loginProfileArg,
   parseStepLine,
@@ -600,7 +601,7 @@ export function applyTypePick(text: string, trigger: EditorTrigger): string {
 
 export type VariableOption = {
   name: string;
-  source: "env" | "param" | "dataset" | "extracted" | "declare";
+  source: "env" | "param" | "dataset" | "extracted" | "generated" | "declare";
   detail: string;
 };
 
@@ -630,6 +631,13 @@ export function variableOptions(query: string, sources: VariableSources): Variab
     push({ name, source: "env", detail: sources.environmentName ? `env · ${sources.environmentName}` : "environment variable" });
   }
   const filtered = needle.length === 0 ? options : options.filter((option) => option.name.toLowerCase().includes(needle));
+  // Generated values after the case's own names; the common few until the user types.
+  for (const field of fakeDataFields) {
+    const name = `${field.group}.${field.field}`;
+    if (seen.has(name) || (needle.length === 0 ? !field.common : !name.toLowerCase().includes(needle))) continue;
+    seen.add(name);
+    filtered.push({ name, source: "generated", detail: `generated · ${field.description.charAt(0).toLowerCase()}${field.description.slice(1)}, e.g. ${field.example}` });
+  }
   if (/^[A-Za-z_][\w-]*$/.test(query) && !seen.has(query)) {
     filtered.push({ name: query, source: "declare", detail: "declare new param" });
   }

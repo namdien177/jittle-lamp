@@ -5,6 +5,7 @@ export * from "./migration";
 
 export * from "./session-io";
 export * from "./test-case";
+export * from "./fake-data";
 export { sha256Hex } from "./sha256";
 export * from "./test-run";
 export * from "./test-api";

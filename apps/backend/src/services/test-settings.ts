@@ -93,6 +93,7 @@ export const toEnvironment = (
 	variables: parseJsonColumn(row.variablesJson, stringRecord, {}),
 	runnerPool: row.runnerPool,
 	agentInstructions: row.agentInstructions,
+	dataLocale: row.dataLocale,
 	notes: row.notes,
 	usedByCases,
 	createdAt: row.createdAt,
@@ -177,6 +178,9 @@ export const saveEnvironment = async (
 		runnerPool: input.request.runnerPool,
 		...(input.request.agentInstructions !== undefined
 			? { agentInstructions: input.request.agentInstructions }
+			: {}),
+		...(input.request.dataLocale !== undefined
+			? { dataLocale: input.request.dataLocale }
 			: {}),
 		...(input.request.notes !== undefined
 			? { notes: input.request.notes }
@@ -1124,6 +1128,7 @@ export const resolveRunConfig = async (
 			baseUrl: run.baseUrlOverride ?? environment?.baseUrl ?? "",
 			variables,
 			agentInstructions: environment?.agentInstructions ?? null,
+			dataLocale: environment?.dataLocale ?? null,
 		},
 		credentials,
 		model: { act: model.act, judge: model.judge, apiKeys: model.apiKeys },

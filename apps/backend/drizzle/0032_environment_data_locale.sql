@@ -1,0 +1,1 @@
+ALTER TABLE `test_environments` ADD `data_locale` text;
