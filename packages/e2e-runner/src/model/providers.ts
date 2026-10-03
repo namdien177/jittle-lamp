@@ -1,13 +1,17 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
+import { modelProviderOf, modelProviders, supportedModelPrefixes } from "@jittle-lamp/shared";
 
 import { MockReplayModel, recordingModel } from "./mock";
 import { promptedToolCalling } from "./prompted-tools";
 
 // The organisation's act and judge models are AI SDK ids; the prefix picks the provider package
-// (design.md §5.1, ADR 0002 decisions 5 and 14).
+// (design.md §5.1, ADR 0002 decisions 5 and 14). The prefixes and environment names come from
+// `modelProviders` in @jittle-lamp/shared, which the backend and web settings validate against.
 //
 //   anthropic/<model>                 @ai-sdk/anthropic          ANTHROPIC_API_KEY
 //   openai/<model>                    @ai-sdk/openai             OPENAI_API_KEY
+//   google/<model>                    @ai-sdk/google             GOOGLE_GENERATIVE_AI_API_KEY
+//   xai/<model>                       @ai-sdk/xai                XAI_API_KEY
 //   openrouter/<vendor>/<model>       @openrouter/ai-sdk-provider OPENROUTER_API_KEY (id checked against /api/v1/models)
 //   openai-compatible/<model>         @ai-sdk/openai-compatible  OPENAI_COMPATIBLE_BASE_URL (+ _API_KEY)
 //   gateway/<provider>/<model>        AI Gateway                 AI_GATEWAY_API_KEY
@@ -36,6 +40,8 @@ export type ModelResolveOptions = {
   keys: ProviderKeys;
   // Append every turn of the real model to this fixture, for later `mock:` replays.
   recordFixture?: string;
+  // Used for every provider request and the OpenRouter model list (the backend passes an
+  // SSRF-guarded fetch; tests pass a fake).
   fetch?: typeof fetch;
   // Allow the development-only claude-code provider (never on the cloud pool).
   allowClaudeCode?: boolean;
@@ -47,10 +53,14 @@ const requireKey = (keys: ProviderKeys, name: string, id: string): string => {
   return value;
 };
 
-export function providerOf(id: string): string {
-  if (id.startsWith("mock:")) return "mock";
-  return id.split("/")[0] ?? id;
-}
+// The environment name of a provider's key or endpoint, from the shared provider list.
+const envName = (prefix: string, field: "keyEnv" | "baseUrlEnv"): string => {
+  const name = modelProviders.find((provider) => provider.prefix === prefix)?.[field];
+  if (!name) throw new Error(`No ${field} for model provider ${prefix}`);
+  return name;
+};
+
+export const providerOf = modelProviderOf;
 
 export async function resolveModel(id: string, options: ModelResolveOptions): Promise<ResolvedModel> {
   const model = await instantiate(id, options);
@@ -70,30 +80,43 @@ async function instantiate(id: string, options: ModelResolveOptions): Promise<La
     throw new ModelResolutionError("MODEL_UNAVAILABLE", `Model id "${id}" must look like <provider>/<model>.`);
   }
 
+  const custom = options.fetch ? { fetch: options.fetch } : {};
+  const key = (provider: string) => requireKey(options.keys, envName(provider, "keyEnv"), id);
   switch (prefix) {
     case "anthropic": {
       const { createAnthropic } = await import("@ai-sdk/anthropic");
-      return createAnthropic({ apiKey: requireKey(options.keys, "ANTHROPIC_API_KEY", id) })(modelId) as LanguageModelV4;
+      return createAnthropic({ apiKey: key(prefix), ...custom })(modelId) as LanguageModelV4;
     }
     case "openai": {
       const { createOpenAI } = await import("@ai-sdk/openai");
-      return createOpenAI({ apiKey: requireKey(options.keys, "OPENAI_API_KEY", id) })(modelId) as LanguageModelV4;
+      return createOpenAI({ apiKey: key(prefix), ...custom })(modelId) as LanguageModelV4;
+    }
+    case "google": {
+      const { createGoogle } = await import("@ai-sdk/google");
+      return createGoogle({ apiKey: key(prefix), ...custom })(modelId) as LanguageModelV4;
+    }
+    case "xai": {
+      const { createXai } = await import("@ai-sdk/xai");
+      return createXai({ apiKey: key(prefix), ...custom })(modelId) as LanguageModelV4;
     }
     case "openrouter": {
-      const apiKey = requireKey(options.keys, "OPENROUTER_API_KEY", id);
+      const apiKey = key(prefix);
       await assertOpenRouterModel(modelId, options.fetch ?? fetch);
       const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
-      return createOpenRouter({ apiKey })(modelId) as unknown as LanguageModelV4;
+      return createOpenRouter({ apiKey, ...custom })(modelId) as unknown as LanguageModelV4;
     }
     case "openai-compatible": {
-      const baseURL = requireKey(options.keys, "OPENAI_COMPATIBLE_BASE_URL", id);
+      const baseURL = requireKey(options.keys, envName(prefix, "baseUrlEnv"), id);
+      if (!/^https?:\/\//i.test(baseURL)) {
+        throw new ModelResolutionError("MODEL_UNAVAILABLE", `${envName(prefix, "baseUrlEnv")} must be an http(s) URL.`);
+      }
       const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-      const apiKey = options.keys.OPENAI_COMPATIBLE_API_KEY;
-      return createOpenAICompatible({ name: "openai-compatible", baseURL, ...(apiKey ? { apiKey } : {}) })(modelId) as LanguageModelV4;
+      const apiKey = options.keys[envName(prefix, "keyEnv")];
+      return createOpenAICompatible({ name: "openai-compatible", baseURL, ...(apiKey ? { apiKey } : {}), ...custom })(modelId) as LanguageModelV4;
     }
     case "gateway": {
       const { createGateway } = await import("ai");
-      return createGateway({ apiKey: requireKey(options.keys, "AI_GATEWAY_API_KEY", id) })(modelId) as LanguageModelV4;
+      return createGateway({ apiKey: key(prefix), ...custom })(modelId) as LanguageModelV4;
     }
     case "claude-code": {
       if (!options.allowClaudeCode) {
@@ -132,7 +155,7 @@ async function instantiate(id: string, options: ModelResolveOptions): Promise<La
       }
     }
     default:
-      throw new ModelResolutionError("MODEL_UNAVAILABLE", `Unknown model provider "${prefix}" in "${id}".`);
+      throw new ModelResolutionError("MODEL_UNAVAILABLE", `Unknown model provider "${prefix}" in "${id}". Supported prefixes: ${supportedModelPrefixes()}.`);
   }
 }
 

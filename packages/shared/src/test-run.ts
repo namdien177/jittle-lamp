@@ -205,11 +205,42 @@ export const defaultModelPrices: ModelPrice[] = anthropicPrices.flatMap(([model,
   }));
 });
 
-// Model ids in usage records may carry a provider prefix ("claude-code:sonnet"); match either form.
-export function findModelPrice(prices: readonly ModelPrice[], modelId: string | null): ModelPrice | null {
+// Ids a price row may be stored under for one model id, most specific first:
+//   - the id itself, and the slash form of "claude-code:sonnet";
+//   - for a router id (`openrouter/<vendor>/<model>`, `gateway/<vendor>/<model>`), the vendor's
+//     own id `<vendor>/<model>`, so `openrouter/anthropic/claude-sonnet-5-5` is priced like
+//     `anthropic/claude-sonnet-5-5` unless the organisation priced the router id itself;
+//   - each of those with dotted versions dashed (OpenRouter lists `claude-sonnet-5.5`).
+const routerPrefixes = ["openrouter/", "gateway/"];
+
+export function modelPriceCandidates(modelId: string): string[] {
+  const ids: string[] = [];
+  const add = (id: string) => {
+    if (id && !ids.includes(id)) ids.push(id);
+  };
+  const base = [modelId, modelId.replace(/^([a-z-]+):/, "$1/")];
+  for (const id of base) add(id);
+  for (const id of base) {
+    const router = routerPrefixes.find((prefix) => id.startsWith(prefix));
+    const vendorId = router ? id.slice(router.length) : null;
+    if (vendorId && vendorId.includes("/")) add(vendorId);
+  }
+  for (const id of [...ids]) add(id.replace(/(\d)\.(\d)/g, "$1-$2"));
+  return ids;
+}
+
+// The price row a model id is charged at and the id it was found under, or null (cost unknown).
+export function resolveModelPrice(prices: readonly ModelPrice[], modelId: string | null): { price: ModelPrice; matchedModelId: string } | null {
   if (!modelId) return null;
-  const normalized = modelId.replace(/^([a-z-]+):/, "$1/");
-  return prices.find((price) => price.modelId === modelId || price.modelId === normalized) ?? null;
+  for (const candidate of modelPriceCandidates(modelId)) {
+    const price = prices.find((entry) => entry.modelId === candidate);
+    if (price) return { price, matchedModelId: candidate };
+  }
+  return null;
+}
+
+export function findModelPrice(prices: readonly ModelPrice[], modelId: string | null): ModelPrice | null {
+  return resolveModelPrice(prices, modelId)?.price ?? null;
 }
 
 // Reasoning tokens bill as output tokens.

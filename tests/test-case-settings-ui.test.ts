@@ -7,7 +7,18 @@ import {
   tagLabel,
   credentialFieldPattern,
   environmentVariablePattern,
+  formatUsdPerMtok,
   maskedKeyLabel,
+  modelFormRequirements,
+  modelPriceHint,
+  modelPriceStatus,
+  priceFormFromRow,
+  priceFromForm,
+  removeOrganizationPrice,
+  upsertOrganizationPrice,
+  modelPresets,
+  modelSettingsRequest,
+  presetForModels,
   providerFromModelId,
   rowsToRecord,
   runnerCommands,
@@ -49,6 +60,135 @@ describe("settings helpers", () => {
     expect(providerFromModelId("gpt-5").tone).toBe("unknown");
     expect(maskedKeyLabel(true, "a1b2")).toBe("Configured · ••••a1b2");
     expect(maskedKeyLabel(false, null)).toBe("Not configured");
+  });
+
+  it("hints every supported provider and names the supported prefixes for an unknown one", () => {
+    expect(providerFromModelId("xai/grok-4").provider).toBe("xAI");
+    expect(providerFromModelId("google/gemini-2.5-pro").provider).toBe("Google");
+    expect(providerFromModelId("gateway/openai/gpt-5").provider).toBe("AI Gateway");
+    expect(providerFromModelId("openai-compatible/llama-3.3-70b").note).toContain("base URL");
+    const unknown = providerFromModelId("mistral/large");
+    expect(unknown).toMatchObject({ provider: "Unknown provider", tone: "unknown" });
+    expect(unknown.note).toContain("openrouter/, openai-compatible/, gateway/, openai/, anthropic/, google/, xai/");
+    // Every preset is a valid pair the backend accepts.
+    for (const preset of modelPresets) {
+      expect(providerFromModelId(preset.actModel).tone).toBe("ok");
+      expect(providerFromModelId(preset.judgeModel).tone).toBe("ok");
+      expect(presetForModels(preset.actModel)).toBe(preset.id);
+    }
+    expect(presetForModels("mock:fixture.json")).toBe("custom");
+  });
+
+  const saved = { actModel: "anthropic/claude-opus-5-5", judgeModel: "anthropic/claude-sonnet-5-5", keyConfigured: true, judgeKeyConfigured: false };
+  const form = (patch: Partial<Parameters<typeof modelFormRequirements>[0]> = {}) => ({
+    actModel: "anthropic/claude-opus-5-5",
+    judgeModel: "anthropic/claude-sonnet-5-5",
+    baseUrl: "",
+    apiKey: "",
+    judgeApiKey: "",
+    ...patch
+  });
+
+  it("asks for a base URL only for openai-compatible models and validates it", () => {
+    expect(modelFormRequirements(form(), saved)).toMatchObject({ showBaseUrl: false, showKey: true, showJudgeKey: false, missing: [], errors: {} });
+    const compatible = modelFormRequirements(form({ actModel: "openai-compatible/llama-3.3-70b", judgeModel: "openai-compatible/llama-3.3-70b" }), saved);
+    expect(compatible).toMatchObject({ showBaseUrl: true, keyOptional: true, keyDropped: true, missing: [] });
+    expect(compatible.errors.baseUrl).toContain("base URL");
+    expect(modelFormRequirements(form({ actModel: "openai-compatible/x", judgeModel: "openai-compatible/x", baseUrl: "ftp://host" }), saved).errors.baseUrl).toBe(
+      "Use an http or https URL."
+    );
+    const ok = form({ actModel: "openai-compatible/x", judgeModel: "openai-compatible/x", baseUrl: " https://api.groq.com/openai/v1 " });
+    const requirements = modelFormRequirements(ok, saved);
+    expect(requirements.errors).toEqual({});
+    expect(modelSettingsRequest(ok, requirements)).toEqual({
+      actModel: "openai-compatible/x",
+      judgeModel: "openai-compatible/x",
+      baseUrl: "https://api.groq.com/openai/v1"
+    });
+    // The URL is dropped from the request when no model needs it.
+    expect(modelSettingsRequest(form({ baseUrl: "https://stale.example/v1" }), modelFormRequirements(form(), saved))).toEqual({
+      actModel: "anthropic/claude-opus-5-5",
+      judgeModel: "anthropic/claude-sonnet-5-5"
+    });
+  });
+
+  it("shows a judge key when the judge uses another provider and reports what runs would miss", () => {
+    const mixed = form({ actModel: "openrouter/anthropic/claude-sonnet-5-5", judgeModel: "xai/grok-4" });
+    const requirements = modelFormRequirements(mixed, { ...saved, actModel: "openrouter/anthropic/claude-sonnet-5-5" });
+    expect(requirements).toMatchObject({ actProvider: "OpenRouter", judgeProvider: "xAI", showJudgeKey: true, keyDropped: false, missing: ["judgeKey"] });
+    const typed = { ...mixed, judgeApiKey: "xai-key-123456" };
+    expect(modelFormRequirements(typed, saved).missing).toEqual(["key"]);
+    expect(modelSettingsRequest(typed, modelFormRequirements(typed, saved))).toEqual({
+      actModel: "openrouter/anthropic/claude-sonnet-5-5",
+      judgeModel: "xai/grok-4",
+      judgeApiKey: "xai-key-123456"
+    });
+    // A judge key is never sent while both models share a provider.
+    const same = form({ judgeApiKey: "left-over-key-0000" });
+    expect(modelSettingsRequest(same, modelFormRequirements(same, saved))).not.toHaveProperty("judgeApiKey");
+    // A saved judge key is dropped when the judge moves to the act provider.
+    expect(modelFormRequirements(form(), { ...saved, judgeModel: "xai/grok-4", judgeKeyConfigured: true }).judgeKeyDropped).toBe(true);
+  });
+
+  it("flags unknown prefixes and short keys before saving", () => {
+    const requirements = modelFormRequirements(form({ actModel: "gpt-5", judgeModel: "bedrock/claude", apiKey: "short" }), saved);
+    expect(requirements.errors.actModel).toContain("<provider>/<model>");
+    expect(requirements.errors.judgeModel).toContain('Unknown model provider "bedrock"');
+    expect(requirements.errors.apiKey).toBe("The key looks too short.");
+    expect(modelFormRequirements(form({ actModel: "mock:fixture.json", judgeModel: "mock:fixture.json" }), saved)).toMatchObject({
+      showKey: false,
+      showJudgeKey: false,
+      missing: []
+    });
+  });
+
+  const priceRows = [
+    { modelId: "anthropic/claude-sonnet-5-5", inputUsdPerMtok: 2, cachedInputUsdPerMtok: 0.2, outputUsdPerMtok: 10, source: "default" as const },
+    { modelId: "anthropic/claude-opus-5-5", inputUsdPerMtok: 5, cachedInputUsdPerMtok: 0.5, outputUsdPerMtok: 25, source: "organization" as const },
+    { modelId: "openai/gpt-5", inputUsdPerMtok: 1.25, cachedInputUsdPerMtok: 0.125, outputUsdPerMtok: 10, source: "organization" as const }
+  ];
+
+  it("explains how each configured model is costed, including cost unknown", () => {
+    expect(modelPriceStatus(priceRows, "anthropic/claude-sonnet-5-5")).toEqual({
+      kind: "priced",
+      matchedModelId: "anthropic/claude-sonnet-5-5",
+      source: "default",
+      reportsCost: false
+    });
+    // Router ids fall back to the vendor's row; OpenRouter also reports its own cost.
+    expect(modelPriceStatus(priceRows, "openrouter/anthropic/claude-opus-5.5")).toMatchObject({ kind: "priced", matchedModelId: "anthropic/claude-opus-5-5", source: "organization", reportsCost: true });
+    expect(modelPriceHint(priceRows, "openrouter/anthropic/claude-opus-5.5")).toBe(
+      "OpenRouter reports the cost of each call; the price table is only a fallback. Priced from the organisation's table (the price of anthropic/claude-opus-5-5)."
+    );
+    expect(modelPriceHint(priceRows, "gateway/openai/gpt-5")).toBe("Priced from the organisation's table (the price of openai/gpt-5).");
+    expect(modelPriceStatus(priceRows, "openai-compatible/llama-3.3-70b")).toEqual({ kind: "unknown", reportsCost: false });
+    expect(modelPriceHint(priceRows, "openai-compatible/llama-3.3-70b")).toContain("cost unknown until you add a price");
+  });
+
+  it("validates a price form and keeps only organisation rows in the PUT body", () => {
+    expect(priceFromForm({ modelId: " ", input: "-1", cachedInput: "", output: "x" }).errors).toEqual({
+      modelId: "Enter the model id exactly as runs report it.",
+      input: "Enter a price of 0 or more.",
+      output: "Enter a price of 0 or more."
+    });
+    const added = priceFromForm({ modelId: "openai-compatible/llama-3.3-70b", input: "0.59", cachedInput: "", output: "0.79" });
+    expect(added.price).toEqual({ modelId: "openai-compatible/llama-3.3-70b", inputUsdPerMtok: 0.59, cachedInputUsdPerMtok: 0, outputUsdPerMtok: 0.79 });
+    if (!added.price) throw new Error("expected a price");
+    // Defaults are never copied into the organisation's set.
+    expect(upsertOrganizationPrice(priceRows, added.price).map((row) => row.modelId)).toEqual([
+      "anthropic/claude-opus-5-5",
+      "openai-compatible/llama-3.3-70b",
+      "openai/gpt-5"
+    ]);
+    // Editing renames replace the edited row; overriding a default adds an organisation row.
+    const renamed = { ...added.price, modelId: "openai/gpt-5.1" };
+    expect(upsertOrganizationPrice(priceRows, renamed, "openai/gpt-5").map((row) => row.modelId)).toEqual(["anthropic/claude-opus-5-5", "openai/gpt-5.1"]);
+    expect(priceFormFromRow(priceRows[0] ?? null)).toEqual({ modelId: "anthropic/claude-sonnet-5-5", input: "2", cachedInput: "0.2", output: "10" });
+    expect(removeOrganizationPrice(priceRows, "openai/gpt-5")).toEqual([
+      { modelId: "anthropic/claude-opus-5-5", inputUsdPerMtok: 5, cachedInputUsdPerMtok: 0.5, outputUsdPerMtok: 25 }
+    ]);
+    expect(formatUsdPerMtok(0.125)).toBe("$0.125");
+    expect(formatUsdPerMtok(10)).toBe("$10.00");
   });
 
   it("builds the runner start and docker commands with the token quoted", () => {

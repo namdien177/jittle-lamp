@@ -85,3 +85,13 @@ Reference products: Tester Army (`tester.army`, open-source `tester-army/e2e`) a
 - `packages/e2e-runner` carries Playwright, Tester Army `e2e` and the AI SDK with provider packages, and is deployed as the cloud pool and as self-hosted runners (Node 22.12 or newer). The desktop app gains no runner dependency.
 - `apps/mcp` gains test-case and run tools so coding agents can author and trigger tests.
 - The evidence-web `test-cases` placeholder route becomes real.
+
+## Amendments
+
+### 2026-10-03: one key per provider, not one key per organisation (decision 14)
+
+Decision 14 says the organisation stores one provider key. Decision 5 makes the provider a per-organisation setting for the act and judge models separately, so the two can use different providers (for example act on OpenRouter, judge on xAI). One key cannot serve both, and copying the act key into the judge provider's variable would send it to a provider that did not issue it.
+
+Amended: the organisation stores the key for the act model's provider and, only when the judge model uses another provider, a second write-only key for the judge's provider. Each key is filled in only under its own provider's environment name. A stored key is dropped when its provider changes. Saving without a needed key is allowed; the settings report it as missing and runs are blocked with `MODEL_KEY_MISSING`. An `openai-compatible/` model also needs the endpoint's base URL, stored with the model settings (not a secret) and checked with the outbound address guard. Still no per-user keys in the beta, and spend is still attributed to the requesting user. Rows saved before the amendment read as the single act key; a judge on the same provider keeps using it.
+
+Decisions 5 and 14 are otherwise unchanged; neither requires Anthropic. The supported prefixes are listed once in `packages/shared/src/model-providers.ts` and checked at save time.

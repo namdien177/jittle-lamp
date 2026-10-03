@@ -11,7 +11,7 @@
 #                         .e2e/cache in strict mode (a stale script fails instead of calling the model).
 #
 # Variables: JL_RUNNER_IMAGE, JL_API_ORIGIN, JL_WEB_ORIGIN, JL_SUITE_ID, JL_ENVIRONMENT_ID, JL_MODE.
-# Secrets: JL_API_TOKEN (automation token); local mode also the JL_CRED_* values and the model key.
+# Secrets: JL_API_TOKEN (automation token); local mode also the JL_CRED_* values and the provider key(s).
 name: Jittle Lamp E2E
 
 on:
@@ -60,7 +60,16 @@ jobs:
       JL_ENV_NAME: ${{ vars.JL_ENV_NAME }}
       JL_ENV_BASE_URL: ${{ vars.JL_ENV_BASE_URL }}
       JL_MODEL: ${{ vars.JL_MODEL }}
+      JL_JUDGE_MODEL: ${{ vars.JL_JUDGE_MODEL }}
+      # The key of each provider JL_MODEL / JL_JUDGE_MODEL use; unset secrets stay empty.
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      OPENAI_COMPATIBLE_BASE_URL: ${{ vars.OPENAI_COMPATIBLE_BASE_URL }}
+      OPENAI_COMPATIBLE_API_KEY: ${{ secrets.OPENAI_COMPATIBLE_API_KEY }}
       JL_API_ORIGIN: ${{ vars.JL_API_ORIGIN }}
       JL_WEB_ORIGIN: ${{ vars.JL_WEB_ORIGIN }}
       JL_API_TOKEN: ${{ secrets.JL_API_TOKEN }}

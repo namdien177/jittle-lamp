@@ -2,15 +2,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 
+import { modelProviderEnvNames } from "@jittle-lamp/shared";
+
 // Names the runner reads from env files. Anything else in a `.env` (database URLs, cloud keys of the
 // host app) is ignored so it can never reach the browser child process or a report.
-const runnerKeyPattern =
-  /^(?:JL_[A-Z0-9_]+|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|AI_GATEWAY_API_KEY|XAI_API_KEY|OPENAI_COMPATIBLE_BASE_URL|OPENAI_COMPATIBLE_API_KEY|E2E_TELEMETRY_DISABLED)$/;
+// Model provider keys and endpoints come from the shared provider list (`modelProviders`).
+const runnerKeyPattern = /^(?:JL_[A-Z0-9_]+|E2E_TELEMETRY_DISABLED)$/;
+const providerEnvNames = new Set(modelProviderEnvNames);
 
 export type EnvFile = { path: string; values: Record<string, string> };
 
 export function isRunnerEnvKey(name: string): boolean {
-  return runnerKeyPattern.test(name);
+  return runnerKeyPattern.test(name) || providerEnvNames.has(name);
 }
 
 export function readEnvFile(path: string): EnvFile | null {

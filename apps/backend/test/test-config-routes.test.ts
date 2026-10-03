@@ -171,8 +171,14 @@ describe("test configuration routes", () => {
 			actModel: "anthropic/claude-opus-5-5",
 			judgeModel: "anthropic/claude-sonnet-5-5",
 			provider: "anthropic",
+			judgeProvider: "anthropic",
 			keyConfigured: false,
 			keyLast4: null,
+			judgeKeyRequired: false,
+			judgeKeyConfigured: false,
+			judgeKeyLast4: null,
+			baseUrl: null,
+			missing: ["key"],
 		});
 		const saved = await fixture.call<ModelSettings>("/test-model-settings", {
 			method: "PUT",
@@ -187,8 +193,14 @@ describe("test configuration routes", () => {
 			actModel: "openrouter/anthropic/claude-opus-5.5",
 			judgeModel: "openrouter/anthropic/claude-sonnet-5.5",
 			provider: "openrouter",
+			judgeProvider: "openrouter",
 			keyConfigured: true,
 			keyLast4: "0000",
+			judgeKeyRequired: false,
+			judgeKeyConfigured: false,
+			judgeKeyLast4: null,
+			baseUrl: null,
+			missing: [],
 		});
 		expect(JSON.stringify(saved.body)).not.toContain(FAKE_MODEL_KEY);
 		// The key credential is internal and does not show up as a profile.
