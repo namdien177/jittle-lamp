@@ -279,7 +279,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
   const sheetRef = React.useRef<HTMLDivElement | null>(null);
 
   return (
-    <div className="jl-tc-scope grid h-full min-h-0 grid-cols-1 lg:grid-cols-[208px_minmax(0,1fr)]">
+    <div className="jl-tc-scope grid h-full min-h-0 grid-cols-1 lg:grid-cols-[232px_minmax(0,1fr)]">
       <div className="hidden min-h-0 lg:flex">
         <CaseSidebar
           filters={filters}
