@@ -504,7 +504,7 @@ export const requestRuns = async (
 		orgId: input.orgId,
 		bucketKey:
 			input.requester.tokenId !== null
-				? `token:${input.requester.tokenId}`
+				? `${input.requester.kind === "ai" ? "ai-token" : "token"}:${input.requester.tokenId}`
 				: `user:${input.requester.userId}`,
 		settings,
 		now,

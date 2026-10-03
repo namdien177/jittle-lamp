@@ -13,6 +13,7 @@ import { z } from "zod/v4";
 
 import { runnerPools } from "../db/schema";
 import {
+	HttpError,
 	handleTestRoute,
 	parseInput,
 	readBearer,
@@ -145,6 +146,15 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 					ctx.body,
 				);
 				const pool = await getRunnerPoolRow(db, who.orgId, id);
+				if (pool.kind === "cloud" && body.maxConcurrentRuns !== undefined) {
+					// The cloud pool runs at the organisation's max_concurrent_runs (design.md §10.1).
+					throw new HttpError(
+						422,
+						"RUNNER_POOL_CLOUD_CONCURRENCY",
+						"The cloud pool's concurrency is the organisation run setting maxConcurrentRuns; change it in the run settings",
+						{ setting: "maxConcurrentRuns" },
+					);
+				}
 				const [updated] = await db
 					.update(runnerPools)
 					.set({

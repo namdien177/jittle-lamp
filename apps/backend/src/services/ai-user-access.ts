@@ -230,6 +230,7 @@ export const verifyAiUserAccess = async (
 				"org:read",
 			],
 			tokenType: "ai",
+			aiTokenId: token.id,
 		},
 	};
 };
