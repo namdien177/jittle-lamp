@@ -124,7 +124,7 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 				);
 				await touchWorker(db, worker);
 				// Expired leases go back to the queue before this worker picks.
-				await sweepRunQueue(db);
+				await sweepRunQueue(db, Date.now(), { logger: ctx.logger });
 				const claimed = await claimNextRun(db, { pool, workerId: worker.id });
 				return respond(claimRunResponseSchema, {
 					run: claimed

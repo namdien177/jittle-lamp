@@ -331,6 +331,8 @@ export const createNotificationRoutes = (auth: ClerkAuthPlugin) =>
 						createdAt: now,
 						dispatchedAt: null,
 						channelsDispatchedAt: null,
+						channelsLeaseOwner: null,
+						channelsLeaseExpiresAt: null,
 					},
 				});
 				const failure = outcomes.find(

@@ -3,7 +3,7 @@ import {
 	type NotificationKind,
 	notificationKindSchema,
 } from "@jittle-lamp/shared";
-import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 
 import {
@@ -19,7 +19,9 @@ import {
 	type testRuns,
 	testRuns as testRunsTable,
 } from "../db/schema";
+import { withBusyRetry } from "./db-busy";
 import { getOrganizationRolePermissions } from "./organization-permissions";
+import type { WorkerLogger } from "./test-webhooks";
 import type { BackendDb } from "./user-provisioning";
 
 // Notification bus (design.md §10b, ADR 0002 decision 16). Producers only call
@@ -306,6 +308,7 @@ export const dispatchChannels = async (
 	db: BackendDb,
 	event: NotificationEventRow,
 	now = Date.now(),
+	logger?: WorkerLogger,
 ): Promise<void> => {
 	const channels = await db.query.notificationChannels.findMany({
 		where: and(
@@ -366,6 +369,19 @@ export const dispatchChannels = async (
 			}
 		}
 		await recordOutcomes(db, event, channel, outcomes, now);
+		for (const outcome of outcomes) {
+			if (outcome.status !== "failed") continue;
+			// Adapter errors never carry the channel URL (notification-channels.ts).
+			logger?.warn(
+				{
+					eventId: event.id,
+					channelId: channel.id,
+					channelKind: channel.kind,
+					error: outcome.error ?? null,
+				},
+				"notification channel delivery failed; retrying later",
+			);
+		}
 	}
 	await db
 		.update(notificationEvents)
@@ -426,11 +442,73 @@ export const emitNotification = async (
 	}
 };
 
+// An event's channel delivery holds the event for this long; each adapter call times out after
+// 10 s.
+export const CHANNEL_LEASE_MS = 120_000;
+
+// Several backend instances run the channel worker. One atomic UPDATE … RETURNING takes the event
+// only while no unexpired lease is held, like the run queue's claim, so one Slack message is
+// never sent twice at the same time.
+export const claimEventChannels = async (
+	db: BackendDb,
+	eventId: string,
+	owner: string,
+	now = Date.now(),
+): Promise<NotificationEventRow | null> => {
+	const [row] = await withBusyRetry(() =>
+		db
+			.update(notificationEvents)
+			.set({
+				channelsLeaseOwner: owner,
+				channelsLeaseExpiresAt: now + CHANNEL_LEASE_MS,
+			})
+			.where(
+				and(
+					eq(notificationEvents.id, eventId),
+					or(
+						isNull(notificationEvents.channelsLeaseExpiresAt),
+						lte(notificationEvents.channelsLeaseExpiresAt, now),
+					),
+				),
+			)
+			.returning(),
+	);
+	return row ?? null;
+};
+
+const dispatchChannelsWithLease = async (
+	db: BackendDb,
+	eventId: string,
+	now: number,
+	logger: WorkerLogger | undefined,
+): Promise<boolean> => {
+	const owner = crypto.randomUUID();
+	const event = await claimEventChannels(db, eventId, owner, now);
+	if (!event) return false;
+	try {
+		await dispatchChannels(db, event, now, logger);
+	} finally {
+		await withBusyRetry(() =>
+			db
+				.update(notificationEvents)
+				.set({ channelsLeaseOwner: null, channelsLeaseExpiresAt: null })
+				.where(
+					and(
+						eq(notificationEvents.id, eventId),
+						eq(notificationEvents.channelsLeaseOwner, owner),
+					),
+				),
+		).catch(() => undefined);
+	}
+	return true;
+};
+
 // Worker step: in-app delivery that did not happen inline, channel delivery of new events, and
 // failed channel deliveries whose next attempt is due.
 export const dispatchPendingNotifications = async (
 	db: BackendDb,
 	now = Date.now(),
+	logger?: WorkerLogger,
 ): Promise<number> => {
 	const pendingInApp = await db.query.notificationEvents.findMany({
 		where: isNull(notificationEvents.dispatchedAt),
@@ -443,7 +521,9 @@ export const dispatchPendingNotifications = async (
 		orderBy: asc(notificationEvents.createdAt),
 		limit: 200,
 	});
-	for (const event of pendingChannels) await dispatchChannels(db, event, now);
+	for (const event of pendingChannels) {
+		await dispatchChannelsWithLease(db, event.id, now, logger);
+	}
 	const failed = await db.query.notificationDeliveries.findMany({
 		where: and(
 			eq(notificationDeliveries.status, "failed"),
@@ -456,10 +536,7 @@ export const dispatchPendingNotifications = async (
 	for (const delivery of failed) {
 		if (retried.has(delivery.eventId)) continue;
 		retried.add(delivery.eventId);
-		const event = await db.query.notificationEvents.findFirst({
-			where: eq(notificationEvents.id, delivery.eventId),
-		});
-		if (event) await dispatchChannels(db, event, now);
+		await dispatchChannelsWithLease(db, delivery.eventId, now, logger);
 	}
 	return pendingInApp.length + retried.size;
 };

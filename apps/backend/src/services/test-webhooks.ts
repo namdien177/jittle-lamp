@@ -42,6 +42,7 @@ import {
 } from "../db/schema";
 import { createUuidV7 } from "../db/uuid";
 import { HttpError, notFound } from "../http/test-http";
+import { withBusyRetry } from "./db-busy";
 import { guardedFetch, type OutboundPolicy } from "./outbound-http";
 import { parseJsonColumn, suiteMembers } from "./test-cases";
 import type { TestSecrets } from "./test-config";
@@ -867,6 +868,13 @@ export type WebhookReportDeps = {
 	outbound: OutboundPolicy;
 	// Links in commit statuses and notes point at the web app.
 	webOrigin: string | null;
+	// Worker errors; a failed report is also recorded on its row.
+	logger?: WorkerLogger;
+};
+
+export type WorkerLogger = {
+	warn(object: Record<string, unknown>, message: string): void;
+	error(object: Record<string, unknown>, message: string): void;
 };
 
 type BatchContext = {
@@ -1164,7 +1172,7 @@ export const handleWebhookDelivery = async (
 	});
 	// The pending commit status goes out now; the worker retries it if the provider is down.
 	for (const link of created) {
-		await runReport(deps, link, now).catch(() => undefined);
+		await reportWithLease(deps, link.id, now).catch(() => undefined);
 	}
 	return {
 		status: status === "matched" ? 202 : 200,
@@ -1802,6 +1810,69 @@ const runReport = async (
 	return stage;
 };
 
+// A report holds its row for this long: up to three outbound calls of at most 10 s each.
+export const WEBHOOK_REPORT_LEASE_MS = 120_000;
+
+// Several backend instances (and the delivery request that sends the pending status) may pick
+// the same row. One atomic UPDATE … RETURNING takes it only while no unexpired lease is held,
+// like the run queue's claim, so a status or note is never posted twice at the same time.
+export const claimWebhookReport = async (
+	db: BackendDb,
+	linkId: string,
+	owner: string,
+	now = Date.now(),
+): Promise<WebhookBatchRow | null> => {
+	const [row] = await withBusyRetry(() =>
+		db
+			.update(webhookBatches)
+			.set({
+				reportLeaseOwner: owner,
+				reportLeaseExpiresAt: now + WEBHOOK_REPORT_LEASE_MS,
+			})
+			.where(
+				and(
+					eq(webhookBatches.id, linkId),
+					isNull(webhookBatches.finalReportedAt),
+					or(
+						isNull(webhookBatches.reportLeaseExpiresAt),
+						lte(webhookBatches.reportLeaseExpiresAt, now),
+					),
+				),
+			)
+			.returning(),
+	);
+	return row ?? null;
+};
+
+const releaseWebhookReport = (db: BackendDb, linkId: string, owner: string) =>
+	withBusyRetry(() =>
+		db
+			.update(webhookBatches)
+			.set({ reportLeaseOwner: null, reportLeaseExpiresAt: null })
+			.where(
+				and(
+					eq(webhookBatches.id, linkId),
+					eq(webhookBatches.reportLeaseOwner, owner),
+				),
+			),
+	);
+
+// Claims the row, reports from its current state and releases it. null: another worker holds it.
+const reportWithLease = async (
+	deps: WebhookReportDeps,
+	linkId: string,
+	now: number,
+): Promise<Stage | null> => {
+	const owner = createUuidV7();
+	const claimed = await claimWebhookReport(deps.db, linkId, owner, now);
+	if (!claimed) return null;
+	try {
+		return await runReport(deps, claimed, now);
+	} finally {
+		await releaseWebhookReport(deps.db, linkId, owner).catch(() => undefined);
+	}
+};
+
 // Worker step: pending statuses not sent yet, and final reports of finished batches.
 export const processWebhookReports = async (
 	deps: WebhookReportDeps,
@@ -1841,10 +1912,18 @@ export const processWebhookReports = async (
 	let sent = 0;
 	for (const { link } of rows) {
 		try {
-			await runReport(deps, link, now);
-			sent += 1;
-		} catch {
-			// Recorded on the row and retried with backoff.
+			if ((await reportWithLease(deps, link.id, now)) !== null) sent += 1;
+		} catch (error) {
+			// Recorded on the row and retried with backoff. Only the message is logged: it is the
+			// same text the settings page shows.
+			deps.logger?.warn(
+				{
+					webhookBatchId: link.id,
+					batchId: link.batchId,
+					error: error instanceof Error ? error.message : String(error),
+				},
+				"webhook report failed; retrying with backoff",
+			);
 		}
 	}
 	return sent;
@@ -1858,7 +1937,10 @@ export const createWebhookReportWorker = (
 		let stopped = false;
 		const loop = async () => {
 			while (!stopped) {
-				await processWebhookReports(deps).catch(() => 0);
+				await processWebhookReports(deps).catch((err: unknown) => {
+					deps.logger?.error({ err }, "webhook report worker failed");
+					return 0;
+				});
 				await new Promise<void>((resolve) => {
 					const timer = setTimeout(resolve, deps.intervalMs ?? 5_000);
 					timer.unref();

@@ -11,6 +11,7 @@ import type {
 import { webhookRuleSchema } from "@jittle-lamp/shared";
 import { and, count, eq } from "drizzle-orm";
 
+import { createDb } from "../src/db";
 import {
 	organizationActivityLogs,
 	testRuns,
@@ -22,6 +23,7 @@ import {
 	createTestSecrets,
 } from "../src/services/test-config";
 import {
+	claimWebhookReport,
 	globToRegExp,
 	matchRule,
 	mergeEventContext,
@@ -30,6 +32,7 @@ import {
 	processWebhookReports,
 	signBody,
 	verifyWebhookSignature,
+	WEBHOOK_REPORT_LEASE_MS,
 	type WebhookEvent,
 } from "../src/services/test-webhooks";
 import {
@@ -1551,5 +1554,105 @@ describe("webhook review fixes", () => {
 			where: eq(testRuns.batchId, batchId),
 		});
 		expect(runs.map((run) => run.testCaseId)).toEqual([testCase.id]);
+	});
+});
+
+describe("webhook report leases", () => {
+	it("lets exactly one of two concurrent claims take a report row until its lease expires", async () => {
+		const { fixture, suiteId, environmentId } = await setup();
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({ suiteId, environmentId, report: noReport }),
+		]);
+		const opened = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			pullRequest("opened", { sha: "6".repeat(40) }),
+		);
+		const link = await linkOf(fixture, opened.body.batches?.[0]?.batchId ?? "");
+		if (!link) throw new Error("Expected a webhook batch row");
+		// Separate connections to the same database, as separate backend instances would use.
+		const connections = Array.from({ length: 2 }, () => {
+			const db = createDb(fixture.databaseUrl);
+			if (!db) throw new Error("Expected database");
+			return db;
+		});
+		const now = Date.now();
+		const claims = await Promise.all(
+			connections.map((db, index) =>
+				claimWebhookReport(db, link.id, `instance-${index}`, now),
+			),
+		);
+		const winners = claims.filter((claim) => claim !== null);
+		expect(winners).toHaveLength(1);
+		expect(winners[0]?.reportLeaseExpiresAt).toBe(
+			now + WEBHOOK_REPORT_LEASE_MS,
+		);
+		// Still held a moment later; free once the lease expired.
+		expect(
+			await claimWebhookReport(fixture.db, link.id, "late", now + 1_000),
+		).toBeNull();
+		expect(
+			await claimWebhookReport(
+				fixture.db,
+				link.id,
+				"after-expiry",
+				now + WEBHOOK_REPORT_LEASE_MS,
+			),
+		).toMatchObject({ reportLeaseOwner: "after-expiry" });
+	});
+
+	it("posts the final status once when two workers report the same batch at the same time", async () => {
+		const { fixture, suiteId, environmentId, reportDeps } = await setup();
+		const credentialId = await credential(
+			fixture,
+			"github_app",
+			FAKE_GITHUB_TOKEN,
+		);
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({
+				suiteId,
+				environmentId,
+				report: {
+					commitStatus: true,
+					mrNote: true,
+					callbackUrl: null,
+					credentialId,
+				},
+			}),
+		]);
+		const sha = "7".repeat(40);
+		const opened = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			pullRequest("opened", { sha }),
+		);
+		const batchId = opened.body.batches?.[0]?.batchId ?? "";
+		await finishBatchRuns(fixture, batchId);
+		const before = provider.requests.length;
+		const now = Date.now();
+		const sent = await Promise.all([
+			processWebhookReports(reportDeps(), now),
+			processWebhookReports(reportDeps(), now),
+		]);
+		expect(sent.reduce((total, count) => total + count, 0)).toBe(1);
+		const calls = provider.requests
+			.slice(before)
+			.filter(
+				(call) =>
+					call.path === `/repos/acme/shop/statuses/${sha}` ||
+					call.path === "/repos/acme/shop/issues/42/comments",
+			);
+		expect(calls.map((call) => call.path)).toEqual([
+			`/repos/acme/shop/statuses/${sha}`,
+			"/repos/acme/shop/issues/42/comments",
+		]);
+		const done = await linkOf(fixture, batchId);
+		expect(done?.finalReportedAt).toBeNumber();
+		expect(done?.reportLeaseOwner).toBeNull();
+		expect(done?.reportLeaseExpiresAt).toBeNull();
 	});
 });
