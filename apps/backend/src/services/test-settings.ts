@@ -572,8 +572,8 @@ export const saveRunSettings = async (
 		.onConflictDoUpdate({ target: testRunSettings.orgId, set: values });
 };
 
-export const DEFAULT_ACT_MODEL = "anthropic/claude-opus-5-5";
-export const DEFAULT_JUDGE_MODEL = "anthropic/claude-sonnet-5-5";
+export const DEFAULT_ACT_MODEL = "gateway/alibaba/qwen3.7-flash";
+export const DEFAULT_JUDGE_MODEL = DEFAULT_ACT_MODEL;
 // BYOK keys live in `model_key` credentials with these profiles (design.md §9.3): one for the act
 // model's provider and, when the judge uses another provider, one for the judge's.
 export const MODEL_KEY_PROFILE = "JL_MODEL_KEY";
@@ -917,20 +917,22 @@ export const ensureGlobalModelPrices = async (db: BackendDb) => {
 		columns: { id: true },
 	});
 	if (existing) return;
-	for (const price of defaultModelPrices) {
-		await db
-			.insert(testModelPrices)
-			.values({
+	// One statement publishes the whole version atomically, so concurrent readers cannot
+	// mistake a partially seeded table for a complete version.
+	await db
+		.insert(testModelPrices)
+		.values(
+			defaultModelPrices.map((price) => ({
 				orgId: null,
 				modelId: price.modelId,
 				inputUsdPerMtok: price.inputUsdPerMtok,
 				cachedInputUsdPerMtok: price.cachedInputUsdPerMtok,
 				outputUsdPerMtok: price.outputUsdPerMtok,
 				version: defaultPriceTableVersion,
-				effectiveFrom: 0,
-			})
-			.onConflictDoNothing();
-	}
+				effectiveFrom: Date.UTC(2026, 9, 3),
+			})),
+		)
+		.onConflictDoNothing();
 };
 
 export const resolvePriceTable = async (

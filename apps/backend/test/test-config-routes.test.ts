@@ -168,10 +168,10 @@ describe("test configuration routes", () => {
 			token: fixture.qa.token,
 		});
 		expect(defaults.body).toEqual({
-			actModel: "anthropic/claude-opus-5-5",
-			judgeModel: "anthropic/claude-sonnet-5-5",
-			provider: "anthropic",
-			judgeProvider: "anthropic",
+			actModel: "gateway/alibaba/qwen3.7-flash",
+			judgeModel: "gateway/alibaba/qwen3.7-flash",
+			provider: "gateway",
+			judgeProvider: "gateway",
 			keyConfigured: false,
 			keyLast4: null,
 			judgeKeyRequired: false,

@@ -322,7 +322,7 @@ describe("test run routes and runner contract", () => {
 			outputTokens: 140,
 			reasoningTokens: 50,
 			costUsd: 0.0091,
-			priceTableVersion: "seed-2026-09-25",
+			priceTableVersion: "seed-2026-10-03",
 			durationMs: 10_000,
 			stepsTotal: 5,
 			stepsAgent: 1,

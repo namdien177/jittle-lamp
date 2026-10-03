@@ -64,6 +64,40 @@ const runConfig = async (fixture: Fixture, testCaseId: string) => {
 };
 
 describe("provider-neutral model settings", () => {
+	it("defaults a new organisation to Qwen Flash through Gateway and supplies its own key and price to the runner", async () => {
+		const fixture = await createTestCaseFixture();
+		const initial = await fixture.call<ModelSettings>("/test-model-settings", {
+			token: fixture.admin.token,
+		});
+		expect(initial.body).toMatchObject({
+			actModel: "gateway/alibaba/qwen3.7-flash",
+			judgeModel: "gateway/alibaba/qwen3.7-flash",
+			provider: "gateway",
+			keyConfigured: false,
+			missing: ["key"],
+		});
+		const { testCase } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+		});
+		const saved = await putModel(fixture, {
+			actModel: initial.body.actModel,
+			judgeModel: initial.body.judgeModel,
+			apiKey: FAKE_MODEL_KEY,
+		});
+		expect(saved.status).toBe(200);
+		const config = await runConfig(fixture, testCase.id);
+		expect(config.model).toEqual({
+			act: "gateway/alibaba/qwen3.7-flash",
+			judge: "gateway/alibaba/qwen3.7-flash",
+			apiKeys: { AI_GATEWAY_API_KEY: FAKE_MODEL_KEY },
+		});
+		expect(config.prices).toContainEqual({
+			modelId: "alibaba/qwen3.7-flash",
+			inputUsdPerMtok: 0.03,
+			cachedInputUsdPerMtok: 0.006,
+			outputUsdPerMtok: 0.13,
+		});
+	});
 	it("stores an OpenAI-compatible base URL and hands it to the runner as OPENAI_COMPATIBLE_BASE_URL", async () => {
 		const fixture = await createTestCaseFixture({
 			env: { JL_OUTBOUND_ALLOW_HOSTS: "vllm.internal" },
@@ -310,7 +344,7 @@ describe("provider-neutral model settings", () => {
 		const current = await fixture.call<ModelSettings>("/test-model-settings", {
 			token: fixture.admin.token,
 		});
-		expect(current.body.actModel).toBe("anthropic/claude-opus-5-5");
+		expect(current.body.actModel).toBe("gateway/alibaba/qwen3.7-flash");
 		for (const accepted of [
 			"google/gemini-2.5-pro",
 			"gateway/openai/gpt-5",

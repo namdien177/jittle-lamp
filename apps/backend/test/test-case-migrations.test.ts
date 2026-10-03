@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { defaultModelPrices } from "@jittle-lamp/shared";
+import {
+	defaultModelPrices,
+	defaultPriceTableVersion,
+} from "@jittle-lamp/shared";
 import { createClient } from "@libsql/client";
-import { eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { createDb } from "../src/db";
 import { testCases, testModelPrices } from "../src/db/schema";
@@ -75,10 +78,45 @@ describe("test case platform migrations", () => {
 		if (!db) throw new Error("Expected database");
 
 		const prices = await db.query.testModelPrices.findMany({
-			where: isNull(testModelPrices.orgId),
+			where: and(
+				isNull(testModelPrices.orgId),
+				eq(testModelPrices.version, defaultPriceTableVersion),
+			),
 		});
-		expect(prices.map((price) => price.modelId).sort()).toEqual(
-			defaultModelPrices.map((price) => price.modelId).sort(),
+		const priceValues = (rows: typeof prices) =>
+			rows
+				.map((price) => ({
+					modelId: price.modelId,
+					inputUsdPerMtok: price.inputUsdPerMtok,
+					cachedInputUsdPerMtok: price.cachedInputUsdPerMtok,
+					outputUsdPerMtok: price.outputUsdPerMtok,
+				}))
+				.sort((a, b) => a.modelId.localeCompare(b.modelId));
+		expect(priceValues(prices)).toEqual(
+			[...defaultModelPrices].sort((a, b) =>
+				a.modelId.localeCompare(b.modelId),
+			),
+		);
+		expect(
+			prices.every((price) => price.effectiveFrom === Date.UTC(2026, 9, 3)),
+		).toBe(true);
+		const legacyPrices = await db.query.testModelPrices.findMany({
+			where: and(
+				isNull(testModelPrices.orgId),
+				eq(testModelPrices.version, "seed-2026-09-25"),
+			),
+		});
+		expect(priceValues(legacyPrices)).toEqual(
+			defaultModelPrices
+				.filter((price) =>
+					/^(anthropic|gateway\/anthropic|claude-code)\//.test(price.modelId),
+				)
+				.sort((a, b) => a.modelId.localeCompare(b.modelId)),
+		);
+		expect(legacyPrices.every((price) => price.effectiveFrom === 0)).toBe(true);
+		await applyMigrations(databaseUrl);
+		expect(await db.query.testModelPrices.findMany()).toHaveLength(
+			prices.length + legacyPrices.length,
 		);
 
 		const owner = await ensureUserAndPersonalOrganization(db, {

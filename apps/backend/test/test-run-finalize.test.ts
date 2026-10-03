@@ -204,7 +204,7 @@ describe("run finalisation", () => {
 		// Act at the org rate: (1000 × 10 + 500 × 1 + 150 × 50) / 1e6 = 0.018; asserts at the seed rate.
 		expect(priced.body.metrics.costUsd).toBe(0.02);
 		expect(priced.body.metrics.priceTableVersion).toBe(
-			"org:negotiated-2026+seed-2026-09-25",
+			"org:negotiated-2026+seed-2026-10-03",
 		);
 		expect(priced.body.metrics.stepsReplayed).toBe(1);
 		expect(priced.body.metrics.stepsHandoff).toBe(1);

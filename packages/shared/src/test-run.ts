@@ -187,7 +187,7 @@ export const modelPriceSchema = z.object({
 });
 export type ModelPrice = z.infer<typeof modelPriceSchema>;
 
-export const defaultPriceTableVersion = "seed-2026-09-25";
+export const defaultPriceTableVersion = "seed-2026-10-03";
 
 const anthropicPrices: Array<[string, number, number, number]> = [
   ["claude-opus-5-5", 4, 0.2, 20],
@@ -203,7 +203,19 @@ export const defaultModelPrices: ModelPrice[] = anthropicPrices.flatMap(([model,
     cachedInputUsdPerMtok: cached,
     outputUsdPerMtok: output
   }));
-});
+}).concat([{
+  // AI Gateway model catalog, checked 2026-10-03 (USD per million tokens).
+  modelId: "zai/glm-5.3-flash",
+  inputUsdPerMtok: 0.15,
+  cachedInputUsdPerMtok: 0.03,
+  outputUsdPerMtok: 0.50
+}, {
+  // Base tier up to 32k context tokens; Gateway-reported cost wins over this estimate.
+  modelId: "alibaba/qwen3.7-flash",
+  inputUsdPerMtok: 0.03,
+  cachedInputUsdPerMtok: 0.006,
+  outputUsdPerMtok: 0.13
+}]);
 
 // Ids a price row may be stored under for one model id, most specific first:
 //   - the id itself, and the slash form of "claude-code:sonnet";

@@ -42,7 +42,12 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 | ops.5 | `docs/mcp.md` updated | done | 7e920da | Tools, permissions, automation-token and AI-token access, Jira-only generation. |
 | ops.6 | QA engineer onboarding guide | done | cbb8c75 | `docs/e2e-test-cases/onboarding-qa.md`. |
 | ops.7 | `.env.sample` updated | done | (this commit) | Backend `JL_SECRETS_MASTER_KEY*`; runner and CLI section (`JL_API_ORIGIN`, `JL_API_TOKEN`, `JL_RUNNER_*`, `JL_MODEL`, `JL_JUDGE_MODEL`, `JL_SECRET_NAMES`, `JL_ALLOW_CLAUDE_CODE`). |
-| ops.8 | Deployment and environment guide | done | (this commit) | docs/e2e-test-cases/deployment.md |
+| ops.8 | Deployment and environment guide | done | (this commit) | `deployment.md`; Coolify/Turso preprod and Vercel Preview configured; Qwen Gateway defaults and migration 0031. Evidence and remaining operator setup below. |
+
+## Current environment setup evidence
+
+- 2026-10-03: ops.8 Gateway and environment setup: new organisations use `gateway/alibaba/qwen3.7-flash` for act and judge; saved settings remain unchanged. Both supplied environment keys returned `OK` through the runner resolver and AI SDK (132 preprod / 138 production tokens). Migration 0031 publishes all 14 current prices atomically and preserves 12 historical prices; clean-DB, rates, effective-date, repeat-migration, encrypted-key routing and override contracts pass. Independent review has no blockers. Local checks: workspace/backend typecheck, backend lint, version sync, full build, 567 unit tests, 236 backend tests and 20 browser tests (including secret-leak grep). Evidence: `evidence/ops-qwen-gateway-default.png` is the local, unsaved Gateway preset; `ops-vercel-preview-ready.png` shows Ready for c37c239; `ops-coolify-preprod-running.png` shows the preprod service. GitLab MR !5 and GitHub PR #40 track the same branch; hosted checks for the latest pushed head are linked there.
+- 2026-10-03: ops.8 live infrastructure: preprod uses a separate Turso database and app/master secrets, Clerk test keys, runtime-only Gateway key, and `S3_KEY_PREFIX=preprod`. HTTPS health 200, version 1.8.2/staging, immutable Preview preflight 204 and unauthenticated `/protected/me` 401 with matching CORS. The storage account denied creating another bucket, so the shared bucket/credential has prefix isolation only. Production env and main source are saved; production has not been deployed. Remaining operator setup: authenticate in Clerk test and identify the target organisations, then save encrypted org BYOK keys and register/start the preprod runner; host Gateway env alone does not configure org BYOK.
 
 ## Beta definition of done (handover §6)
 

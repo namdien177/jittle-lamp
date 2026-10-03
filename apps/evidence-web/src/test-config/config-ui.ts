@@ -108,7 +108,7 @@ export type ModelPreset = { id: string; label: string; actModel: string; judgeMo
 export const modelPresets: readonly ModelPreset[] = [
   { id: "openrouter", label: "OpenRouter", actModel: "openrouter/anthropic/claude-sonnet-5-5", judgeModel: "openrouter/openai/gpt-5" },
   { id: "openai-compatible", label: "OpenAI-compatible endpoint", actModel: "openai-compatible/llama-3.3-70b", judgeModel: "openai-compatible/llama-3.3-70b" },
-  { id: "gateway", label: "AI Gateway", actModel: "gateway/anthropic/claude-sonnet-5-5", judgeModel: "gateway/openai/gpt-5" },
+  { id: "gateway", label: "AI Gateway", actModel: "gateway/alibaba/qwen3.7-flash", judgeModel: "gateway/alibaba/qwen3.7-flash" },
   { id: "openai", label: "OpenAI", actModel: "openai/gpt-5", judgeModel: "openai/gpt-5" },
   { id: "anthropic", label: "Anthropic", actModel: "anthropic/claude-opus-5-5", judgeModel: "anthropic/claude-sonnet-5-5" },
   { id: "google", label: "Google", actModel: "google/gemini-2.5-pro", judgeModel: "google/gemini-2.5-pro" },

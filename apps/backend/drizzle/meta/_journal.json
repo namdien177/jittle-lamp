@@ -218,6 +218,13 @@
       "when": 1791005437534,
       "tag": "0030_worker_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1791018941171,
+      "tag": "0031_gateway_model_prices",
+      "breakpoints": true
     }
   ]
 }

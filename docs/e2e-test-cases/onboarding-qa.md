@@ -21,15 +21,15 @@ An admin picks two models in Settings → AI model: the **act** model drives the
 | --- | --- | --- | --- |
 | `openrouter/` | `openrouter/anthropic/claude-sonnet-5-5`, `openrouter/openai/gpt-5` | `OPENROUTER_API_KEY` | Hundreds of models behind one key. The id after the prefix must be in OpenRouter's model list, or the run is blocked with `MODEL_UNAVAILABLE` |
 | `openai-compatible/` | `openai-compatible/llama-3.3-70b` | `OPENAI_COMPATIBLE_API_KEY` (optional) | Any OpenAI-compatible endpoint: Groq, Together, DeepSeek, Fireworks, vLLM, Ollama, LiteLLM, Google's OpenAI-compatible endpoint. Also needs the **base URL** (`OPENAI_COMPATIBLE_BASE_URL`), e.g. `https://api.groq.com/openai/v1`. A private or local host must be listed in `JL_OUTBOUND_ALLOW_HOSTS` on the API server, and the runner must be able to reach it |
-| `gateway/` | `gateway/openai/gpt-5` | `AI_GATEWAY_API_KEY` | Vercel AI Gateway; the rest of the id is `<provider>/<model>` |
+| `gateway/` | `gateway/alibaba/qwen3.7-flash` | `AI_GATEWAY_API_KEY` | Default for both act and judge on new organisations. Supports AI Gateway free credits; account quota still applies |
 | `openai/` | `openai/gpt-5` | `OPENAI_API_KEY` | |
-| `anthropic/` | `anthropic/claude-sonnet-5-5` | `ANTHROPIC_API_KEY` | The defaults (`anthropic/claude-opus-5-5`, `anthropic/claude-sonnet-5-5`) are only defaults |
+| `anthropic/` | `anthropic/claude-sonnet-5-5` | `ANTHROPIC_API_KEY` | Optional direct Anthropic provider |
 | `google/` | `google/gemini-2.5-pro` | `GOOGLE_GENERATIVE_AI_API_KEY` | |
 | `xai/` | `xai/grok-4` | `XAI_API_KEY` | |
 
 Any other prefix is refused when the settings are saved. `claude-code/` (a local Claude Code login, `--allow-claude-code`) and `mock:<fixture.json>` (recorded turns) are for development and tests only.
 
-**Cost.** Each run shows model calls, tokens and cost. OpenRouter reports the cost of every call, and that number is used as is. Otherwise the cost comes from the price table in Settings → AI model → Model prices, which says for each configured model how it is priced. Defaults cover the Anthropic models; `openrouter/<vendor>/<model>` and `gateway/<vendor>/<model>` use the `<vendor>/<model>` row when they have none of their own. A model without a price row, which includes most OpenAI-compatible models, shows its tokens with the cost as unknown until an admin adds a row for its id there.
+**Cost.** Each run shows model calls, tokens and cost. OpenRouter reports the cost of every call, and that number is used as is. Otherwise the cost comes from the price table in Settings → AI model → Model prices, which says for each configured model how it is priced. Defaults cover Qwen Flash, GLM-5.3-Flash and the Anthropic models; `openrouter/<vendor>/<model>` and `gateway/<vendor>/<model>` use the `<vendor>/<model>` row when they have none of their own. A model without a price row, which includes most OpenAI-compatible models, shows its tokens with the cost as unknown until an admin adds a row for its id there.
 
 ## 2. Write a case
 
