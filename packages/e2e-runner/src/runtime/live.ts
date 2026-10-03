@@ -88,7 +88,7 @@ export async function waitWhileTakenOver(getPage: () => Page | null, pollMs = 20
   const stepId = globalThis.__jlCurrentStepId ?? null;
   if (stepId) takeoverSteps().add(stepId);
   writeStepLog({ type: "takeover", at: new Date().toISOString(), action: "start", stepId });
-  while (readControl().takeover) {
+  const replayNewInputs = async () => {
     const page = getPage();
     for (const event of readNewInputs()) {
       if (!page) continue;
@@ -99,11 +99,13 @@ export async function waitWhileTakenOver(getPage: () => Page | null, pollMs = 20
         writeStepLog({ type: "takeover-input", at: new Date().toISOString(), stepId, kind: event.kind, detail: `failed: ${error instanceof Error ? error.message : String(error)}` });
       }
     }
+  };
+  while (readControl().takeover) {
+    await replayNewInputs();
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
-  // Input that arrived as the take-over ended still belongs to it.
-  const page = getPage();
-  for (const event of readNewInputs()) if (page) await dispatch(page, event).catch(() => undefined);
+  // Input that arrived as the take-over ended still belongs to it, and is logged like the rest.
+  await replayNewInputs();
   writeStepLog({ type: "takeover", at: new Date().toISOString(), action: "end", stepId });
 }
 
