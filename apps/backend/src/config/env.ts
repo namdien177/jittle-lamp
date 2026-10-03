@@ -18,6 +18,10 @@ const optionalUrlString = z.preprocess(
 	z.string().url().optional(),
 );
 
+const isBase64Key = (value: string): boolean =>
+	/^[A-Za-z0-9+/]+={0,2}$/.test(value.trim()) &&
+	Buffer.from(value.trim(), "base64").byteLength === 32;
+
 const envSchema = z
 	.object({
 		NODE_ENV: nodeEnvSchema.default("local"),
@@ -29,6 +33,12 @@ const envSchema = z
 		RUN_DB_MIGRATIONS: z.string().optional(),
 		TURSO_AUTH_TOKEN: optionalNonEmptyString,
 		S3_BUCKET: optionalNonEmptyString,
+		S3_KEY_PREFIX: optionalNonEmptyString.pipe(
+			z
+				.string()
+				.regex(/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/)
+				.optional(),
+		),
 		S3_REGION: optionalNonEmptyString,
 		S3_ENDPOINT: optionalUrlString,
 		S3_ACCESS_KEY_ID: optionalNonEmptyString,
@@ -55,10 +65,42 @@ const envSchema = z
 		CLERK_JWT_KEY: optionalNonEmptyString,
 		CLERK_AUDIENCE: optionalNonEmptyString,
 		CLERK_AUTHORIZED_PARTIES: optionalNonEmptyString,
+		VERCEL_PREVIEW_PROJECT: optionalNonEmptyString.pipe(
+			z
+				.string()
+				.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+				.optional(),
+		),
+		VERCEL_PREVIEW_TEAM: optionalNonEmptyString.pipe(
+			z
+				.string()
+				.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+				.optional(),
+		),
 		WEB_APP_ORIGIN: optionalUrlString,
 		JITTLE_LAMP_API_ORIGIN: optionalUrlString,
+		JITTLE_LAMP_DEV_AUTH_ENABLED: z.string().optional(),
+		// Base64 of 32 random bytes; wraps the per-organisation data keys of test credential
+		// secrets. Optional at startup: only credential reads and writes need it.
+		JL_SECRETS_MASTER_KEY: optionalNonEmptyString,
+		// The previous master key while data keys are re-wrapped after a master key rotation.
+		JL_SECRETS_MASTER_KEY_PREVIOUS: optionalNonEmptyString,
 	})
 	.superRefine((env, ctx) => {
+		for (const key of [
+			"JL_SECRETS_MASTER_KEY",
+			"JL_SECRETS_MASTER_KEY_PREVIOUS",
+		] as const) {
+			const value = env[key];
+			if (value !== undefined && !isBase64Key(value)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: [key],
+					message: `${key} must be base64 of exactly 32 bytes (generate with: openssl rand -base64 32)`,
+				});
+			}
+		}
+
 		if (env.NODE_ENV === "production" && !env.APP_SECRET) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
@@ -105,6 +147,24 @@ const envSchema = z
 				path: ["S3_BUCKET"],
 				message: "S3_BUCKET is required in production",
 			});
+		}
+
+		if (env.VERCEL_PREVIEW_PROJECT || env.VERCEL_PREVIEW_TEAM) {
+			if (
+				env.NODE_ENV !== "staging" ||
+				!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_") ||
+				(env.CLERK_SECRET_KEY !== undefined &&
+					!env.CLERK_SECRET_KEY.startsWith("sk_test_")) ||
+				!env.VERCEL_PREVIEW_PROJECT ||
+				!env.VERCEL_PREVIEW_TEAM
+			) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["VERCEL_PREVIEW_PROJECT"],
+					message:
+						"Vercel preview origins require staging, a Clerk test instance, and both VERCEL_PREVIEW_PROJECT and VERCEL_PREVIEW_TEAM",
+				});
+			}
 		}
 
 		const clerkConfigured = Boolean(

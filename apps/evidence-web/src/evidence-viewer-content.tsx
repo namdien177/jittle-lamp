@@ -4,6 +4,7 @@ import {
   buildSectionTimeline,
   findActiveIndex,
   formatOffset,
+  getStepAnnotations,
   type SessionArchive,
   type TimelineItem,
   type TimelineSection,
@@ -11,6 +12,7 @@ import {
 } from "@jittle-lamp/shared";
 import {
   createMergeGroup,
+  filterTimelineByStep,
   getContiguousMergeableSelection,
   selectActionRange,
   selectSingleAction,
@@ -21,6 +23,7 @@ import {
   ViewerModal,
   seekVideo,
   buildCurl,
+  buildViewerStepChips,
   getResponseBodyString,
   type ViewerContextMenuState,
   type ViewerEvidenceTag,
@@ -71,6 +74,12 @@ export type EvidenceViewerContentProps = {
   renamingEvidence?: boolean;
   copyingLlmPrompt?: boolean;
   recordedBy?: { displayName: string; email: string | null } | null;
+  // Controlled step filter (run detail page): the host owns the selected step, the viewer filters
+  // the timeline by `step:<id>` and seeks the video to the step's offset whenever it changes.
+  activeStepId?: string | null;
+  onActiveStepIdChange?: (stepId: string | null) => void;
+  // Video offsets from the run's steps; used before the archive's step annotations.
+  stepOffsetsMs?: Readonly<Record<string, number>>;
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -147,7 +156,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     onTransferEvidence,
     renamingEvidence = false,
     copyingLlmPrompt = false,
-    recordedBy = null
+    recordedBy = null,
+    stepOffsetsMs
   } = props;
 
   const appTheme = useAppTheme();
@@ -168,6 +178,18 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [recordingBytes, setRecordingBytes] = useState<Uint8Array | null>(recordingBytesInitial);
+  const [localStepId, setLocalStepId] = useState<string | null>(null);
+  const stepControlled = props.activeStepId !== undefined;
+  const activeStepId = stepControlled ? (props.activeStepId ?? null) : localStepId;
+  const onActiveStepIdChange = props.onActiveStepIdChange;
+  const setActiveStepId = useCallback(
+    (stepId: string | null) => {
+      if (!stepControlled) setLocalStepId(stepId);
+      onActiveStepIdChange?.(stepId);
+    },
+    [stepControlled, onActiveStepIdChange]
+  );
+  const seekedStepIdRef = useRef<string | null>(null);
 
   const archive = useMemo(
     () => buildReviewedArchive({ archive: loadedArchive, mergeGroups }),
@@ -183,8 +205,34 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     [loadedArchive, loadedTimeline]
   );
 
+  const stepAnnotations = useMemo(() => getStepAnnotations(archive), [archive]);
+  const stepChips = useMemo(() => buildViewerStepChips(archive), [archive]);
+
+  const seekToStep = useCallback(
+    (stepId: string | null) => {
+      seekedStepIdRef.current = stepId;
+      if (stepId === null) return;
+      const offsetMs = stepOffsetsMs?.[stepId] ?? stepAnnotations.find((candidate) => candidate.stepId === stepId)?.videoOffsetMs;
+      const video = videoRef.current;
+      if (offsetMs !== undefined && video) void seekVideo(video, offsetMs / 1000).catch(() => onVideoError(video));
+    },
+    [stepOffsetsMs, stepAnnotations, onVideoError]
+  );
+
+  // A step chosen outside the viewer (the run step list) seeks like a chip click.
+  useEffect(() => {
+    if (!stepControlled || activeStepId === seekedStepIdRef.current) return;
+    setActiveIndex(-1);
+    setNetworkDetailIndex(null);
+    setSelectedActionIds(new Set());
+    setAnchorActionId(null);
+    seekToStep(activeStepId);
+  }, [stepControlled, activeStepId, seekToStep]);
+
   const sectionItems = useMemo<SectionItem[]>(() => {
-    const baseItems = buildSectionTimeline(archive, activeSection, networkSubtypeFilter, networkSearchQuery);
+    const sectionTimeline = buildSectionTimeline(archive, activeSection, networkSubtypeFilter, networkSearchQuery);
+    const baseItems =
+      activeStepId === null ? sectionTimeline : filterTimelineByStep(sectionTimeline, stepAnnotations, activeStepId);
     if (activeSection !== "actions") return baseItems;
 
     const itemsById = new Map(baseItems.map((item) => [item.id, item]));
@@ -219,7 +267,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== undefined);
-  }, [archive, activeSection, networkSubtypeFilter, networkSearchQuery, mergeGroups]);
+  }, [archive, activeSection, networkSubtypeFilter, networkSearchQuery, mergeGroups, activeStepId, stepAnnotations]);
 
   const showFeedback = (text: string, tone: FeedbackTone): void => setFeedback({ text, tone });
   const dismissFeedback = (): void => setFeedback(null);
@@ -508,6 +556,16 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
         setNetworkDetailIndex(null);
       }}
       rows={rows}
+      steps={stepChips}
+      activeStepId={activeStepId}
+      onStepSelect={(stepId) => {
+        setActiveStepId(stepId);
+        setActiveIndex(-1);
+        setNetworkDetailIndex(null);
+        setSelectedActionIds(new Set());
+        setAnchorActionId(null);
+        seekToStep(stepId);
+      }}
       activeItemId={activeItemId}
       autoFollow={autoFollow}
       onItemClick={(row, event) => {

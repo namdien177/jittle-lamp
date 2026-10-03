@@ -13,6 +13,7 @@ export type DesktopBridge = {
   onContextMenuClicked: (
     handler: (data: DesktopRendererMessageMap["contextMenuClicked"]) => void
   ) => () => void;
+  onDeepLinkReceived: (handler: () => void) => () => void;
 };
 
 type DesktopPreloadApi = {
@@ -23,12 +24,14 @@ type DesktopPreloadApi = {
   onContextMenuClicked(
     handler: (data: DesktopRendererMessageMap["contextMenuClicked"]) => void
   ): () => void;
+  onDeepLinkReceived?(handler: () => void): () => void;
 };
 
 const requestNames = [
   "addSessionTag",
   "chooseOutputDirectory",
   "clearTempSession",
+  "consumeDeepLink",
   "deleteSession",
   "exitApp",
   "exportSessionZip",
@@ -45,6 +48,7 @@ const requestNames = [
   "loadLibrarySession",
   "openLocalSession",
   "openPath",
+  "openRemoteEvidence",
   "openExternalUrl",
   "markSessionRemoteSynced",
   "prepareSessionUpload",
@@ -74,7 +78,8 @@ export function createDesktopBridge(): DesktopBridge | null {
     rpc: {
       request
     },
-    onContextMenuClicked: desktopApi.onContextMenuClicked
+    onContextMenuClicked: desktopApi.onContextMenuClicked,
+    onDeepLinkReceived: desktopApi.onDeepLinkReceived ?? (() => () => undefined)
   };
 }
 

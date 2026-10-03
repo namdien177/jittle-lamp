@@ -1,0 +1,8 @@
+ID,Title,Precondition,Steps,Expected,Module
+PCF-101,Login as HQ admin,"[Open] /login
+[Login: PCF_HQ_ADMIN] sign in as HQ admin","1. Open the account menu 2. Click ""Đăng xuất""",The login form is shown with an empty Email field,admin
+PCF-102,Reset password with expired link,[Open] /forgot-password,"Enter the email of a parent
+Submit the form
+Open the expired link from the fixture mailbox",A message says the link has expired,auth; prio:p2
+PCF-103,Export fee report,"[Open] /finance/reports",Click #export-btn and choose CSV,The CSV download starts,finance
+PCF-104,,,,,

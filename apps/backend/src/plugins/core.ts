@@ -1,11 +1,13 @@
 import { cors } from "@elysia/cors";
 import { Elysia, NotFound, ParseError, ValidationError } from "elysia";
 import type { Logger } from "pino";
+import { isVercelPreviewOrigin } from "../config/preview-origins";
 
 import type { RuntimeConfig } from "../config/runtime";
 import { createApiError } from "../http/api-error";
 import type { ArtifactStorage } from "../services/artifact-storage";
 import type { TaskQueue } from "../services/task-queue";
+import type { KeyProvider } from "../services/test-config";
 import type { BackendDb } from "../services/user-provisioning";
 import type { VideoNormalizer } from "../services/video-normalizer";
 
@@ -16,6 +18,7 @@ type CorePluginParams = {
 	artifactStorage: ArtifactStorage;
 	videoNormalizationQueue: TaskQueue;
 	videoNormalizer: VideoNormalizer;
+	keyProvider: KeyProvider;
 };
 
 const getRequestId = (
@@ -69,7 +72,10 @@ const isAllowedCorsOrigin = (runtime: RuntimeConfig, origin: string) => {
 		return true;
 	}
 
-	return isDevelopmentRuntime(runtime) && localWebOrigins.has(normalizedOrigin);
+	return (
+		isVercelPreviewOrigin(runtime, normalizedOrigin) ||
+		(isDevelopmentRuntime(runtime) && localWebOrigins.has(normalizedOrigin))
+	);
 };
 
 export const createCorePlugin = ({
@@ -79,6 +85,7 @@ export const createCorePlugin = ({
 	artifactStorage,
 	videoNormalizationQueue,
 	videoNormalizer,
+	keyProvider,
 }: CorePluginParams) =>
 	new Elysia({ name: "backend-core" })
 		.decorate({
@@ -88,6 +95,7 @@ export const createCorePlugin = ({
 			artifactStorage,
 			videoNormalizationQueue,
 			videoNormalizer,
+			keyProvider,
 		})
 		.use(
 			// Official CORS plugin handles preflight (204), Vary, and origin

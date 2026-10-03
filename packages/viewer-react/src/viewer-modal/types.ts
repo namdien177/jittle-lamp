@@ -1,6 +1,6 @@
 import type * as React from "react";
 
-import type { ArchiveRecorderInfo, NetworkSubtype, TimelineItem, TimelineSection } from "@jittle-lamp/shared";
+import type { ArchiveRecorder, NetworkSubtype, TimelineItem, TimelineSection } from "@jittle-lamp/shared";
 
 export type ViewerModalRow = {
   id: string;
@@ -17,6 +17,14 @@ export type ViewerModalRow = {
   method?: string | null;
   url?: string | null;
   durationMs?: number | null;
+};
+
+export type ViewerStepChip = {
+  stepId: string;
+  ordinal: number;
+  label: string;
+  status: "running" | "passed" | "failed" | "blocked" | "skipped";
+  mode: "agent" | "replayed" | "handoff" | "deterministic" | null;
 };
 
 export type ViewerSource = "local" | "zip" | "cloud" | "share";
@@ -62,7 +70,7 @@ export type ViewerModalProps = {
 
   title: string;
   titleMeta?: string | null;
-  aboutEvidence: ArchiveRecorderInfo;
+  aboutEvidence: ArchiveRecorder;
   /** The person who recorded/uploaded this evidence, when the host app knows it. */
   recordedBy?: { displayName: string; email?: string | null } | null;
   tags: string[];
@@ -113,6 +121,10 @@ export type ViewerModalProps = {
   subtypeFilter: NetworkSubtype | "all";
   onSubtypeFilterChange: (v: NetworkSubtype | "all") => void;
   rows: ViewerModalRow[];
+  /** Test-run steps (archive v4). Selecting one filters the stream to `step:<id>` and seeks the video. */
+  steps?: ViewerStepChip[];
+  activeStepId?: string | null;
+  onStepSelect?: (stepId: string | null) => void;
   activeItemId: string | null;
   autoFollow: boolean;
   onItemClick: (row: ViewerModalRow, event: React.MouseEvent<HTMLButtonElement>) => void;

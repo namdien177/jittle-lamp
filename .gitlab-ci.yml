@@ -27,7 +27,25 @@ verify:
     - bun run typecheck
     - bun test tests --timeout=15000
     - bun test apps/mcp/test --timeout=15000
+    - bun test packages/e2e-runner/test --timeout=15000
     - bun run build
+
+# jl-e2e against the fixture app in real Chromium with the mock model (no key, no network).
+runner-browser:
+  stage: verify
+  image: mcr.microsoft.com/playwright:v1.63.0-noble
+  tags:
+    - v2-nonprod
+  variables:
+    E2E_TELEMETRY_DISABLED: "1"
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends unzip
+    - curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"
+    - export PATH="$HOME/.bun/bin:$PATH"
+    - bun install --frozen-lockfile
+    # The engine child runs under Node and resolves @jittle-lamp/shared to its dist/.
+    - bun run --cwd packages/shared build:js
+    - bun test packages/e2e-runner/browser --timeout=300000
 
 build_backend_image:
   stage: containerize
@@ -57,6 +75,38 @@ build_backend_image:
         --output type=oci,dest=/tmp/jittle-lamp-backend.oci.tar
     - test -s /tmp/jittle-lamp-backend.oci.tar
     - rm /tmp/jittle-lamp-backend.oci.tar
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+
+build_runner_image:
+  stage: containerize
+  image: moby/buildkit:v0.29.0
+  tags:
+    - v2-nonprod
+  services:
+    - name: moby/buildkit:v0.29.0
+      alias: buildkitd
+      entrypoint:
+        - buildkitd
+      command:
+        - --addr
+        - tcp://0.0.0.0:1234
+        - --oci-worker-snapshotter=overlayfs
+  variables:
+    BUILDKIT_HOST: tcp://buildkitd:1234
+  needs:
+    - verify
+  script:
+    - |
+      buildctl build \
+        --frontend dockerfile.v0 \
+        --local context="$CI_PROJECT_DIR" \
+        --local dockerfile="$CI_PROJECT_DIR/deploy/runner" \
+        --opt filename=Dockerfile \
+        --output type=oci,dest=/tmp/jittle-lamp-e2e-runner.oci.tar
+    - test -s /tmp/jittle-lamp-e2e-runner.oci.tar
+    - rm /tmp/jittle-lamp-e2e-runner.oci.tar
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'

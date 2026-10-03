@@ -1,0 +1,124 @@
+{
+  "environments": [
+    {
+      "name": "qa-preschool-sg-uat",
+      "baseUrl": "https://qa-preschool-sg.shared.uat.sv.littlelives.com",
+      "variables": {
+        "OTP_CODE": "<secret>"
+      },
+      "runnerPool": "self-hosted:devbox",
+      "agentInstructions": "UAT shared with people. Never delete or bulk-edit existing records; create new test records with the E2E prefix; do not change tenant settings.",
+      "note": "Default tenant for browser E2E; built for testing, no routine cleanup needed."
+    },
+    {
+      "name": "pcf-uat",
+      "baseUrl": "https://uat.pcf.sv.littlelives.com",
+      "variables": {
+        "PARENT_URL": "https://parent.uat.pcf.sv.littlelives.com",
+        "OTP_CODE": "<secret>"
+      },
+      "runnerPool": "self-hosted:devbox",
+      "agentInstructions": "UAT shared with people. Never delete or bulk-edit existing records; create new test records with the E2E prefix; do not change tenant settings.",
+      "note": ""
+    },
+    {
+      "name": "ilham-uat",
+      "baseUrl": "https://uat.ilham.sv.littlelives.com",
+      "variables": {
+        "PARENT_URL": "https://parent.uat.ilham.sv.littlelives.com",
+        "OTP_CODE": "<secret>"
+      },
+      "runnerPool": "self-hosted:devbox",
+      "agentInstructions": "UAT shared with people. Never delete or bulk-edit existing records; create new test records with the E2E prefix; do not change tenant settings.",
+      "note": "Card payment guidance in the skill applies only here."
+    },
+    {
+      "name": "happyschool-uat",
+      "baseUrl": "https://happy-school.shared.uat.sv.littlelives.com",
+      "variables": {
+        "PARENT_URL": "https://happy-school.parent.shared.uat.sv.littlelives.com",
+        "OTP_CODE": "<secret>"
+      },
+      "runnerPool": "self-hosted:devbox",
+      "agentInstructions": "UAT shared with people. Never delete or bulk-edit existing records; create new test records with the E2E prefix; do not change tenant settings.",
+      "note": ""
+    },
+    {
+      "name": "newlife-uat",
+      "baseUrl": "https://migrate-nlp.shared.uat.sv.littlelives.com",
+      "variables": {
+        "OTP_CODE": "<secret>"
+      },
+      "runnerPool": "self-hosted:devbox",
+      "agentInstructions": "UAT shared with people. Never delete or bulk-edit existing records; create new test records with the E2E prefix; do not change tenant settings.",
+      "note": ""
+    }
+  ],
+  "credentials": [
+    {
+      "profile": "QA_PRESCHOOL_ADMIN",
+      "environment": "qa-preschool-sg-uat",
+      "fields": {
+        "username": "qa-preschool-sg@littlelives.com"
+      },
+      "secretFields": [
+        "password"
+      ]
+    },
+    {
+      "profile": "PCF_HQ_ADMIN",
+      "environment": "pcf-uat",
+      "fields": {
+        "username": "adminmanager@littlelives.com"
+      },
+      "secretFields": [
+        "password"
+      ]
+    },
+    {
+      "profile": "ILHAM_CENTRE_ADMIN",
+      "environment": "ilham-uat",
+      "fields": {
+        "username": "nam.do_staff@ll.com"
+      },
+      "secretFields": [
+        "password"
+      ]
+    },
+    {
+      "profile": "ILHAM_HQ_OPS_ADMIN",
+      "environment": "ilham-uat",
+      "fields": {
+        "username": "opsadmin10@ilham.com"
+      },
+      "secretFields": [
+        "password"
+      ]
+    },
+    {
+      "profile": "HAPPYSCHOOL_ADMIN",
+      "environment": "happyschool-uat",
+      "fields": {
+        "username": "namdohappy@littlelives.com"
+      },
+      "secretFields": [
+        "password"
+      ]
+    },
+    {
+      "profile": "NEWLIFE_ADMIN",
+      "environment": "newlife-uat",
+      "fields": {
+        "username": "nam.do_nl@littlelives.com"
+      },
+      "secretFields": [
+        "password"
+      ]
+    }
+  ],
+  "notes": [
+    "OTP for every OTP input on UAT is a fixed test code; stored as JL_VAR_OTP_CODE in the local env files and treated as a redacted value by the runner.",
+    "Parent portals: log in with the primary applicant email.",
+    "Secrets live outside the repo in ~/.config/jittle-lamp/e2e/<env>.env (chmod 600); the backend copy goes into test_credentials via Settings → Credentials."
+  ]
+}

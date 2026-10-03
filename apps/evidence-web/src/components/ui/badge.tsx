@@ -4,17 +4,19 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/cn";
 
 export const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium leading-tight whitespace-nowrap [&_svg]:size-3.5",
+  "inline-flex w-fit shrink-0 items-center gap-1 whitespace-nowrap rounded-sm border px-1.5 py-px text-xs font-medium leading-[1.4] [&_svg]:pointer-events-none [&_svg]:size-3",
   {
     variants: {
       variant: {
-        default: "border-border-strong bg-secondary text-secondary-foreground",
-        brand: "border-primary/35 bg-primary/12 text-brand-300",
-        outline: "border-border-strong bg-transparent text-muted-foreground",
-        success: "border-primary/35 bg-primary/12 text-brand-300",
-        warning: "border-warning/35 bg-warning/12 text-warning",
-        danger: "border-destructive/40 bg-destructive/12 text-destructive",
-        muted: "border-transparent bg-white/[0.06] text-muted-foreground",
+        default: "border-transparent bg-secondary text-secondary-foreground",
+        secondary: "border-transparent bg-secondary text-secondary-foreground",
+        outline: "border-border text-muted-foreground",
+        brand: "border-primary/25 bg-primary/10 text-brand-300",
+        success: "border-primary/25 bg-primary/10 text-brand-300",
+        warning: "border-warning/30 bg-warning/10 text-warning",
+        destructive: "border-destructive/30 bg-destructive/10 text-destructive",
+        danger: "border-destructive/30 bg-destructive/10 text-destructive",
+        muted: "border-transparent bg-muted text-muted-foreground",
       },
     },
     defaultVariants: { variant: "default" },
@@ -30,6 +32,10 @@ export function Badge({
   ...props
 }: BadgeProps): React.JSX.Element {
   return (
-    <span className={cn(badgeVariants({ variant }), className)} {...props} />
+    <span
+      data-slot="badge"
+      className={cn(badgeVariants({ variant }), className)}
+      {...props}
+    />
   );
 }

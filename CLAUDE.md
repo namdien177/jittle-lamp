@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`jittle-lamp` is a QA evidence manager: capture browser sessions, review them, upload, and share via links. It is a **Bun workspace** (`bun@1.3.11`) with strict TypeScript ESM throughout. The end-to-end flow is the key mental model:
+`jittle-lamp` is a QA evidence manager: capture browser sessions, review them, upload, and share via links. It is a **Bun workspace** (`bun@1.4.2`) with strict TypeScript ESM throughout. The end-to-end flow is the key mental model:
 
 ```
 extension (record)  →  desktop companion server (intake, local save)  →  desktop renderer (review)

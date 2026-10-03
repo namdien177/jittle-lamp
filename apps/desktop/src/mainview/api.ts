@@ -1,5 +1,7 @@
-export const apiOrigin = (process.env.JITTLE_LAMP_API_ORIGIN?.trim() || "http://127.0.0.1:3001").replace(/\/+$/, "");
-export const webOrigin = (process.env.JITTLE_LAMP_WEB_ORIGIN?.trim() || "http://127.0.0.1:4173").replace(/\/+$/, "");
+import { desktopApiOrigin, desktopWebOrigin } from "../api-origin";
+
+export const apiOrigin = desktopApiOrigin;
+export const webOrigin = desktopWebOrigin;
 
 export type ApiOrganization = {
   id: string;

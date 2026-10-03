@@ -1,0 +1,1336 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jittle Lamp · E2E test cases · plan viewer</title>
+<style>
+  /* ---------- tokens (mirrors apps/evidence-web/src/index.css) ---------- */
+  :root {
+    --bg: #f2f1ed;
+    --surface: #e6e5e0;
+    --surface-raised: #f7f7f4;
+    --fg: #26251e;
+    --muted-text: rgba(38, 37, 30, 0.74);
+    --meta: rgba(38, 37, 30, 0.62);
+    --border: rgba(38, 37, 30, 0.1);
+    --border-strong: rgba(38, 37, 30, 0.18);
+    --accent: #22c55e;
+    --accent-on: #06120a;
+    --accent-fade: rgba(34, 197, 94, 0.1);
+    --accent-fg: #14532d;
+    --success: #1f8a65;
+    --warn: #d49a06;
+    --warn-fade: rgba(234, 179, 8, 0.14);
+    --danger: #cf2d56;
+    --danger-fade: rgba(207, 45, 86, 0.1);
+    --info: #2563eb;
+    --info-fade: rgba(37, 99, 235, 0.1);
+    --shadow-soft: 0 1px 0 rgba(38,37,30,0.04), 0 0 0 1px rgba(38,37,30,0.06);
+    --shadow-pop: 0 20px 48px rgba(38,37,30,0.14), 0 0 0 1px rgba(38,37,30,0.08);
+    --font-display: "CursorGothic", system-ui, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-body: "jjannon", "Iowan Old Style", "Palatino Linotype", P052, ui-serif, Georgia, serif;
+    --font-ui: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "berkeleyMono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --sidebar-w: 236px;
+  }
+  .dark {
+    --bg: #0a0a0a;
+    --surface: #131313;
+    --surface-raised: #181818;
+    --fg: #efefef;
+    --muted-text: rgba(239,239,239,0.7);
+    --meta: rgba(239,239,239,0.55);
+    --border: rgba(239,239,239,0.1);
+    --border-strong: rgba(239,239,239,0.18);
+    --accent-fade: rgba(34,197,94,0.16);
+    --accent-fg: #b6f3cf;
+    --warn-fade: rgba(234,179,8,0.18);
+    --danger-fade: rgba(207,45,86,0.18);
+    --info-fade: rgba(96,165,250,0.16);
+    --shadow-soft: 0 0 0 1px rgba(239,239,239,0.06);
+    --shadow-pop: 0 28px 70px rgba(0,0,0,0.5), 0 0 0 1px rgba(239,239,239,0.1);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+  h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; line-height: 1.1; margin: 0; font-weight: 600; }
+  h1 { font-size: 30px; }
+  h2 { font-size: 22px; }
+  h3 { font-size: 16px; }
+  p { margin: 0 0 12px; }
+  code, pre, .mono { font-family: var(--font-mono); font-size: 13px; }
+  code { background: var(--surface); padding: 1px 5px; border-radius: 5px; }
+  pre { background: var(--surface); border-radius: var(--radius-md); padding: 14px 16px; overflow: auto; margin: 0 0 14px; line-height: 1.55; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; }
+
+  /* ---------- shell ---------- */
+  .shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+  .sidebar {
+    position: sticky; top: 0; height: 100vh;
+    background: var(--surface-raised);
+    border-right: 1px solid var(--border);
+    padding: 20px 14px;
+    display: flex; flex-direction: column; gap: 6px;
+    font-family: var(--font-ui);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; }
+  .brand .lamp { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-fade); }
+  .brand b { font-family: var(--font-display); font-size: 15px; letter-spacing: -0.01em; }
+  .brand small { display: block; font-size: 11px; color: var(--meta); }
+  .nav button {
+    width: 100%; text-align: left; display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border: 0; background: transparent; border-radius: var(--radius-sm);
+    font-size: 14px; cursor: pointer;
+    transition: background-color 120ms ease, transform 160ms var(--ease-out);
+  }
+  .nav button kbd { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--meta); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
+  .nav button[aria-current="true"] { background: var(--surface); }
+  .nav button:active { transform: scale(0.98); }
+  @media (hover: hover) and (pointer: fine) { .nav button:hover { background: var(--surface); } }
+  .sidebar .foot { margin-top: auto; font-size: 12px; color: var(--meta); padding: 0 8px; }
+  .theme-toggle {
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--surface-raised); cursor: pointer; font-size: 12px;
+    transition: transform 160ms var(--ease-out), background-color 120ms ease;
+  }
+  .theme-toggle:active { transform: scale(0.97); }
+  .theme-toggle .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--fg); }
+
+  main { padding: 36px 48px 80px; max-width: 1180px; }
+  section[data-view] { display: none; }
+  section[data-view].is-active { display: block; }
+  .view-head { margin-bottom: 26px; }
+  .view-head .eyebrow { font-family: var(--font-ui); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--meta); margin-bottom: 8px; }
+  .view-head p { color: var(--muted-text); max-width: 68ch; font-size: 17px; }
+
+  /* entering content: stagger, from scale(0.98)+opacity, never scale(0) */
+  .reveal > * { opacity: 0; transform: translateY(6px); animation: reveal 260ms var(--ease-out) forwards; }
+  .reveal > *:nth-child(1) { animation-delay: 0ms; }
+  .reveal > *:nth-child(2) { animation-delay: 40ms; }
+  .reveal > *:nth-child(3) { animation-delay: 80ms; }
+  .reveal > *:nth-child(4) { animation-delay: 120ms; }
+  .reveal > *:nth-child(5) { animation-delay: 160ms; }
+  .reveal > *:nth-child(n+6) { animation-delay: 200ms; }
+  @keyframes reveal { to { opacity: 1; transform: translateY(0); } }
+
+  .grid { display: grid; gap: 14px; }
+  .grid.c2 { grid-template-columns: 1fr 1fr; }
+  .grid.c3 { grid-template-columns: repeat(3, 1fr); }
+  .card {
+    background: var(--surface-raised); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft);
+    padding: 18px 20px;
+  }
+  .card h3 { margin-bottom: 8px; }
+  .card p, .card li { color: var(--muted-text); font-size: 15px; }
+  .card ul { margin: 0; padding-left: 18px; }
+  .card ul li + li { margin-top: 4px; }
+  .kicker { font-family: var(--font-ui); font-size: 12px; color: var(--meta); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+
+  /* ---------- pills, chips ---------- */
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-ui); font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; line-height: 18px; white-space: nowrap; }
+  .pill.open     { background: var(--info-fade); color: var(--info); }
+  .pill.act      { background: var(--surface); color: var(--fg); }
+  .pill.assert   { background: var(--accent-fade); color: var(--accent-fg); }
+  .pill.login    { background: var(--warn-fade); color: #8a6508; }
+  .dark .pill.login { color: #f5d26b; }
+  .pill.macro    { background: var(--warn-fade); color: #8a6508; }
+  .dark .pill.macro { color: #f5d26b; }
+  .pill.wait, .pill.extract { background: var(--info-fade); color: var(--info); }
+  .pill.screenshot, .pill.note { background: var(--surface); color: var(--meta); }
+  .pill.passed  { background: var(--accent-fade); color: var(--accent-fg); }
+  .pill.failed  { background: var(--danger-fade); color: var(--danger); }
+  .pill.blocked { background: var(--warn-fade); color: #8a6508; }
+  .dark .pill.blocked { color: #f5d26b; }
+  .pill.running { background: var(--info-fade); color: var(--info); }
+  .pill.queued, .pill.skipped { background: var(--surface); color: var(--meta); }
+  .pill .ring { width: 8px; height: 8px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 600ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mode { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
+  .mode.replayed { color: var(--success); }
+  .mode.handoff { color: var(--warn); }
+
+  /* ---------- flow diagram ---------- */
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: stretch; font-family: var(--font-ui); }
+  .flow .node { position: relative; background: var(--surface-raised); border-radius: var(--radius-md); box-shadow: var(--shadow-soft); padding: 14px; cursor: default; transition: transform 200ms var(--ease-out), box-shadow 200ms ease; }
+  .flow .node b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .flow .node span { font-size: 12px; color: var(--meta); }
+  .flow .node .where { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--accent-fg); }
+  @media (hover: hover) and (pointer: fine) { .flow .node:hover { transform: translateY(-2px); box-shadow: var(--shadow-pop); } }
+  .flow .node + .node::before { content: "→"; position: absolute; left: -12px; top: 50%; transform: translateY(-50%); color: var(--meta); font-size: 14px; }
+
+  /* ---------- transcript playground ---------- */
+  .playground { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  textarea.transcript {
+    width: 100%; min-height: 360px; resize: vertical; border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+    background: var(--surface-raised); color: var(--fg); padding: 14px 16px; font-family: var(--font-mono); font-size: 13px; line-height: 1.7;
+    outline: none; transition: box-shadow 120ms ease, border-color 120ms ease;
+  }
+  textarea.transcript:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-fade); }
+  .steps { display: flex; flex-direction: column; gap: 6px; font-family: var(--font-ui); }
+  .step {
+    display: grid; grid-template-columns: 24px auto 1fr auto; gap: 10px; align-items: center;
+    background: var(--surface-raised); border-radius: var(--radius-sm); box-shadow: var(--shadow-soft); padding: 8px 10px; font-size: 14px;
+    transition: background-color 120ms ease, transform 200ms var(--ease-out), opacity 200ms ease;
+  }
+  .step .n { font-family: var(--font-mono); font-size: 11px; color: var(--meta); text-align: right; }
+  .step .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step .txt em { font-style: normal; color: var(--info); font-family: var(--font-mono); font-size: 12px; }
+  .step .cache { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
+  .step.lint { outline: 1px solid var(--warn); }
+  .checkpoint { font-family: var(--font-display); font-size: 13px; color: var(--muted-text); padding: 10px 2px 2px; display: flex; align-items: center; gap: 8px; }
+  .checkpoint::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+  .lints { margin-top: 10px; font-family: var(--font-ui); font-size: 13px; color: var(--muted-text); }
+  .lints li { margin: 2px 0; }
+  .lints .w { color: var(--warn); font-weight: 600; }
+
+  /* ---------- run simulation ---------- */
+  .sim-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-family: var(--font-ui); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; border-radius: var(--radius-sm);
+    border: 1px solid transparent; background: var(--surface); color: var(--fg); font-family: var(--font-ui); font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: transform 160ms var(--ease-out), background-color 120ms ease, filter 160ms ease;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn.primary { background: var(--accent); color: var(--accent-on); }
+  .btn.ghost { background: transparent; border-color: var(--border-strong); }
+  .btn[disabled] { opacity: 0.5; cursor: default; }
+  @media (hover: hover) and (pointer: fine) { .btn:hover { filter: brightness(0.96); } .dark .btn:hover { filter: brightness(1.12); } }
+  .sim { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; align-items: start; }
+  .sim .code { position: relative; }
+  .sim .code pre { min-height: 200px; margin: 0; }
+  .sim .code .tag { display: block; margin-bottom: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--meta); text-align: right; }
+  .sim-stats { display: flex; gap: 18px; font-family: var(--font-ui); font-size: 13px; color: var(--muted-text); margin-top: 10px; }
+  .sim-stats b { color: var(--fg); font-family: var(--font-mono); }
+  .step.is-current { background: var(--accent-fade); }
+  .step .status { justify-self: end; }
+
+  /* ---------- data model ---------- */
+  table.model { width: 100%; border-collapse: collapse; font-family: var(--font-ui); font-size: 13.5px; }
+  table.model th, table.model td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.model th { font-weight: 600; color: var(--meta); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.model td:first-child { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; }
+  table.model td code { font-size: 12px; }
+  table.model.tags td:first-child { white-space: normal; width: 38%; }
+
+  /* ---------- UI samples (mock of the product) ---------- */
+  .mock {
+    background: var(--surface-raised); border-radius: 14px; box-shadow: var(--shadow-pop); overflow: hidden; font-family: var(--font-ui);
+    border: 1px solid var(--border);
+  }
+  .mock .mock-top { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .mock .crumbs { font-size: 13px; color: var(--meta); }
+  .mock .crumbs b { color: var(--fg); font-weight: 600; }
+  .mock .mock-body { display: grid; grid-template-columns: 1fr 320px; }
+  .mock .mock-main { padding: 18px 20px; border-right: 1px solid var(--border); }
+  .mock .mock-side { padding: 18px 16px; background: var(--surface-raised); }
+  .mock h2 { font-size: 22px; margin-bottom: 4px; }
+  .mock .desc { font-family: var(--font-body); color: var(--muted-text); font-size: 15px; margin-bottom: 12px; }
+  .mock .links { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .mock .link { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--muted-text); text-decoration: none; }
+
+  /* tabs with clip-path copy: the active colour never crossfades, it is clipped */
+  .tabs { position: relative; display: inline-flex; background: var(--surface); border-radius: 999px; padding: 3px; margin-bottom: 16px; }
+  .tabs .list { display: flex; }
+  .tabs .list button { position: relative; border: 0; background: transparent; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--muted-text); cursor: pointer; transition: transform 160ms var(--ease-out); }
+  .tabs .list button:active { transform: scale(0.97); }
+  .tabs .copy { position: absolute; inset: 3px; display: flex; pointer-events: none; clip-path: inset(0 100% 0 0 round 999px); transition: clip-path 220ms var(--ease-out); background: var(--surface-raised); border-radius: 999px; }
+  .tabs .copy span { padding: 6px 14px; font-size: 13px; font-weight: 600; color: var(--fg); white-space: nowrap; }
+
+  .panel { display: none; }
+  .panel.is-active { display: block; }
+  .mock .editor { display: grid; grid-template-columns: 1fr 230px; gap: 12px; }
+  .mock .lines { background: var(--bg); border-radius: var(--radius-md); border: 1px solid var(--border); padding: 12px 0; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.75; }
+  .mock .line { display: grid; grid-template-columns: 34px 1fr; padding: 0 12px; }
+  .mock .line .ln { color: var(--meta); text-align: right; padding-right: 10px; }
+  .mock .line .t-open { color: var(--info); } .mock .line .t-assert { color: var(--accent-fg); } .mock .line .t-login, .mock .line .t-macro { color: #8a6508; } .dark .mock .line .t-login { color: #f5d26b; }
+  .mock .line .h { color: var(--meta); }
+  .mock .line.cur { background: var(--accent-fade); }
+  .mock .stepmeta { font-size: 12px; }
+  .mock .stepmeta .row { display: flex; justify-content: space-between; padding: 7px 4px; border-bottom: 1px solid var(--border); }
+  .mock .stepmeta .row .k { color: var(--meta); }
+  .mock .stepmeta .row .v.ok { color: var(--success); font-family: var(--font-mono); }
+  .mock .stepmeta .row .v.stale { color: var(--warn); font-family: var(--font-mono); }
+
+  table.sessions { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.sessions th { text-align: left; color: var(--meta); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  table.sessions td { padding: 9px 8px; border-bottom: 1px solid var(--border); }
+  table.sessions tr { transition: background-color 120ms ease; cursor: pointer; }
+  @media (hover: hover) and (pointer: fine) { table.sessions tbody tr:hover { background: var(--surface); } }
+  .bar { display: inline-block; height: 6px; width: 80px; background: var(--surface); border-radius: 3px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+  .run { display: grid; grid-template-columns: 300px 1fr; gap: 0; }
+  .run .steplist { border-right: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow: auto; }
+  .run .srow { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; padding: 7px 8px; border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; transition: background-color 120ms ease, transform 160ms var(--ease-out); }
+  .run .srow:active { transform: scale(0.99); }
+  .run .srow.sel { background: var(--accent-fade); }
+  @media (hover: hover) and (pointer: fine) { .run .srow:hover { background: var(--surface); } }
+  .run .srow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .run .srow .dot.failed { background: var(--danger); } .run .srow .dot.blocked { background: var(--warn); } .run .srow .dot.skipped { background: var(--border-strong); }
+  .run .srow .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run .srow .ms { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
+  .run .viewer { padding: 14px; }
+  .run .video { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius-md); background: linear-gradient(180deg, #1b1b19, #0d0d0c); overflow: hidden; }
+  .dark .run .video { background: linear-gradient(180deg, #202020, #0a0a0a); }
+  .run .video .frame { position: absolute; inset: 10% 14%; background: #f7f7f4; border-radius: 6px; opacity: 0.92; }
+  .run .video .frame::before { content: ""; position: absolute; left: 14%; right: 14%; top: 26%; height: 10px; background: #e1e0db; border-radius: 3px; }
+  .run .video .frame::after { content: ""; position: absolute; left: 14%; right: 14%; top: 44%; height: 10px; background: #e1e0db; border-radius: 3px; }
+  .run .video .banner { position: absolute; top: 12px; right: 12px; background: #111827; color: #fff; font-size: 11px; padding: 6px 9px; border-radius: 6px; max-width: 60%; white-space: pre-wrap; font-family: var(--font-ui); transition: opacity 180ms ease, transform 180ms var(--ease-out); }
+  .run .video .cursor { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 6px var(--accent-fade); transition: left 400ms var(--ease-in-out), top 400ms var(--ease-in-out); }
+  .run .timeline { margin-top: 10px; position: relative; height: 30px; background: var(--surface); border-radius: 6px; overflow: hidden; }
+  .run .timeline .seg { position: absolute; top: 0; bottom: 0; background: var(--border-strong); opacity: 0.35; transition: opacity 160ms ease, background-color 160ms ease; }
+  .run .timeline .seg.sel { background: var(--accent); opacity: 0.9; }
+  .run .timeline .head { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); transition: left 240ms var(--ease-out); }
+  .run .events { margin-top: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--muted-text); display: flex; flex-direction: column; gap: 3px; }
+  .run .events .ev { display: grid; grid-template-columns: 54px 70px 1fr; gap: 10px; padding: 3px 6px; border-radius: 4px; }
+  .run .events .ev .k { color: var(--meta); }
+  .run .events .ev.net .k { color: var(--info); }
+  .run .events .ev.assert .k { color: var(--accent-fg); }
+
+  /* ---------- authoring at scale ---------- */
+  .lib { display: grid; grid-template-columns: 1fr 360px; min-height: 520px; }
+  .lib .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .lib .search { flex: 1; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg); font-size: 13px; }
+  .lib .search input { flex: 1; border: 0; background: transparent; color: var(--fg); font: inherit; outline: none; }
+  .lib .search kbd { font-family: var(--font-mono); font-size: 11px; color: var(--meta); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .lib .chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface-raised); cursor: pointer; transition: transform 160ms var(--ease-out), background-color 120ms ease; }
+  .lib .chip:active { transform: scale(0.97); }
+  .lib .chip.on { background: var(--accent-fade); border-color: transparent; color: var(--accent-fg); }
+  .lib .bulk { display: none; align-items: center; gap: 8px; padding: 8px 12px; background: var(--accent-fade); border-bottom: 1px solid var(--border); font-size: 13px; }
+  .lib .bulk.on { display: flex; }
+  .lib .bulk b { font-family: var(--font-mono); }
+  .lib .rows { max-height: 440px; overflow: auto; }
+  .lib .row { display: grid; grid-template-columns: 26px 72px 1fr 150px 120px 90px; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer; transition: background-color 120ms ease; }
+  @media (hover: hover) and (pointer: fine) { .lib .row:hover { background: var(--surface); } }
+  .lib .row.sel { background: var(--accent-fade); }
+  .lib .row.checked .box { background: var(--accent); border-color: var(--accent); }
+  .lib .row .box { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--border-strong); transition: background-color 120ms ease, border-color 120ms ease; }
+  .lib .row .key { font-family: var(--font-mono); font-size: 12px; color: var(--meta); }
+  .lib .row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib .row .title small { color: var(--meta); margin-left: 6px; }
+  .lib .row .folder { font-size: 12px; color: var(--meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib .row .tags { display: flex; gap: 4px; overflow: hidden; }
+  .lib .row .tags span { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--surface); color: var(--muted-text); white-space: nowrap; }
+  .lib .foot { padding: 8px 12px; font-size: 12px; color: var(--meta); display: flex; gap: 16px; border-top: 1px solid var(--border); }
+  .lib .foot kbd { font-family: var(--font-mono); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  .lib .detail { border-left: 1px solid var(--border); padding: 14px 16px; font-size: 13px; }
+  .lib .detail h3 { font-size: 15px; margin-bottom: 4px; }
+  .lib .detail .similar { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--warn-fade); font-size: 12.5px; }
+  .lib .detail .similar b { font-family: var(--font-mono); font-weight: 600; }
+  .lib .detail .mini { margin-top: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7; white-space: pre-wrap; color: var(--muted-text); }
+  .wizard { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stepper { display: flex; gap: 6px; align-items: center; font-family: var(--font-ui); font-size: 12px; color: var(--meta); margin-bottom: 10px; }
+  .stepper span { padding: 3px 9px; border-radius: 999px; background: var(--surface); }
+  .stepper span.on { background: var(--accent-fade); color: var(--accent-fg); font-weight: 600; }
+  table.imp { width: 100%; border-collapse: collapse; font-family: var(--font-ui); font-size: 12.5px; }
+  table.imp th { text-align: left; color: var(--meta); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  table.imp td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.imp select { font: inherit; font-size: 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-raised); color: var(--fg); padding: 2px 6px; }
+  .dialog { background: var(--surface-raised); border-radius: 14px; box-shadow: var(--shadow-pop); padding: 18px 20px; font-family: var(--font-ui); font-size: 13px; max-width: 520px; }
+  .dialog h3 { font-size: 16px; margin-bottom: 10px; }
+  .dialog .f { display: grid; grid-template-columns: 120px 1fr; gap: 8px 12px; align-items: center; margin-bottom: 8px; }
+  .dialog .f label { color: var(--meta); font-size: 12px; }
+  .dialog .f .in { height: 30px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg); padding: 0 10px; display: flex; align-items: center; font-family: var(--font-mono); font-size: 12px; }
+  .dialog .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 12px; font-size: 12.5px; }
+  .dialog .checks span::before { content: "☑ "; color: var(--accent-fg); }
+  .dialog .checks span.off::before { content: "☐ "; color: var(--meta); }
+  .dialog .note { font-size: 12px; color: var(--muted-text); padding: 8px 10px; background: var(--accent-fade); border-radius: 6px; margin-bottom: 12px; }
+  .review { display: grid; grid-template-columns: 240px 1fr 1fr; gap: 0; }
+  .review .q { border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .review .qi { padding: 7px 8px; border-radius: 6px; font-size: 12.5px; display: flex; justify-content: space-between; gap: 6px; }
+  .review .qi.sel { background: var(--accent-fade); }
+  .review .pane { padding: 12px 14px; font-size: 13px; }
+  .review .pane + .pane { border-left: 1px solid var(--border); }
+  .review .src { font-family: var(--font-body); color: var(--muted-text); font-size: 14px; }
+  .review .acts { display: flex; gap: 6px; margin-top: 12px; }
+
+  /* ---------- structured step editor mock ---------- */
+  .se { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 6px 0; font-family: var(--font-ui); font-size: 13px; }
+  .se .hd { display: flex; align-items: center; gap: 8px; padding: 6px 12px 8px; color: var(--meta); font-size: 12px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .se .hd .tog { margin-left: auto; display: inline-flex; background: var(--surface); border-radius: 999px; padding: 2px; }
+  .se .hd .tog span { padding: 2px 10px; border-radius: 999px; font-weight: 600; }
+  .se .hd .tog span.on { background: var(--surface-raised); color: var(--fg); }
+  .se .cp { display: flex; align-items: center; gap: 8px; padding: 8px 12px 2px; font-family: var(--font-display); font-size: 12.5px; color: var(--muted-text); }
+  .se .cp::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+  .se .r { position: relative; display: grid; grid-template-columns: 14px 22px auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 12px; border-radius: 6px; margin: 0 6px; transition: background-color 120ms ease; }
+  @media (hover: hover) and (pointer: fine) { .se .r:hover { background: var(--surface); } }
+  .se .r.ed { background: var(--surface-raised); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-fade); }
+  .se .r .h { color: var(--border-strong); font-size: 14px; cursor: grab; }
+  .se .r .n { font-family: var(--font-mono); font-size: 11px; color: var(--meta); text-align: right; }
+  .se .r .ins { display: block; min-height: 22px; line-height: 24px; word-spacing: 1px; }
+  .se .r .ins .caret { display: inline-block; width: 1.5px; height: 16px; background: var(--fg); vertical-align: middle; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .se .tok { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; margin: 0 2px; border-radius: 5px; font-family: var(--font-mono); font-size: 11.5px; vertical-align: middle; }
+  .se .tok.var { background: var(--info-fade); color: var(--info); }
+  .se .tok.cred { background: var(--warn-fade); color: #8a6508; }
+  .dark .se .tok.cred { color: #f5d26b; }
+  .se .tok.macro { background: var(--warn-fade); color: #8a6508; }
+  .dark .se .tok.macro { color: #f5d26b; }
+  .se .tok.el { background: var(--surface); color: var(--muted-text); border: 1px dashed var(--border-strong); }
+  .se .r .st { display: flex; gap: 6px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
+  .se .r .st .ok { color: var(--success); } .se .r .st .warn { color: var(--warn); }
+  .se .r.lint .ins u { text-decoration: underline wavy var(--warn); text-underline-offset: 3px; }
+  .se .fix { display: inline-flex; align-items: center; gap: 6px; margin: 2px 12px 4px 56px; font-size: 12px; color: var(--muted-text); }
+  .se .fix button { height: 20px; padding: 0 8px; font-size: 11px; border-radius: 5px; border: 1px solid var(--border-strong); background: var(--surface-raised); cursor: pointer; }
+  .se .macroexp { margin: 0 12px 4px 56px; padding: 6px 10px; border-left: 2px solid var(--warn); font-family: var(--font-mono); font-size: 11.5px; color: var(--meta); line-height: 1.6; }
+  .se .pop { position: absolute; left: 180px; bottom: 100%; z-index: 5; margin-bottom: 6px; width: 320px; background: var(--surface-raised); border-radius: var(--radius-md); box-shadow: var(--shadow-pop); padding: 6px; transform-origin: bottom left; animation: popin 160ms var(--ease-out); }
+  @keyframes popin { from { opacity: 0; transform: scale(0.96); } }
+  .se .pop .ph { padding: 4px 8px 6px; font-size: 11px; color: var(--meta); text-transform: uppercase; letter-spacing: 0.05em; }
+  .se .pop .pi { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 12.5px; }
+  .se .pop .pi.on { background: var(--accent-fade); }
+  .se .pop .pi .k { font-family: var(--font-mono); font-size: 11.5px; }
+  .se .pop .pi .d { color: var(--meta); font-size: 11.5px; }
+  .se .add { margin: 4px 12px 2px 56px; color: var(--meta); font-size: 12px; }
+  .se .add kbd { font-family: var(--font-mono); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  .meta-form { font-size: 12px; }
+  .meta-form .row { display: grid; grid-template-columns: 70px 1fr; gap: 8px; align-items: center; padding: 5px 4px; border-bottom: 1px solid var(--border); }
+  .meta-form .row .k { color: var(--meta); }
+  .meta-form .in { min-height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding: 2px 8px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12px; }
+  .meta-form .in .t { background: var(--surface); border-radius: 999px; padding: 0 7px; font-size: 11px; }
+
+  /* ---------- roadmap ---------- */
+  .phases { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; font-family: var(--font-ui); }
+  .phase { background: var(--surface-raised); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .phase .num { font-family: var(--font-mono); font-size: 11px; color: var(--meta); }
+  .phase h3 { font-size: 16px; }
+  .phase ul { margin: 0; padding-left: 16px; font-size: 13px; color: var(--muted-text); }
+  .phase .exit { margin-top: auto; padding-top: 10px; border-top: 1px dashed var(--border-strong); font-size: 12.5px; }
+  .phase .exit b { color: var(--accent-fg); font-weight: 600; }
+  details { border-top: 1px solid var(--border); padding: 10px 0; }
+  details summary { cursor: pointer; font-family: var(--font-ui); font-weight: 600; font-size: 14px; list-style: none; display: flex; align-items: center; gap: 8px; }
+  details summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--meta); border-bottom: 1.5px solid var(--meta); transform: rotate(-45deg); transition: transform 180ms var(--ease-out); }
+  details[open] summary::before { transform: rotate(45deg); }
+  details p { color: var(--muted-text); font-size: 15px; margin-top: 8px; }
+
+  .decisions li { margin-bottom: 8px; }
+  .decisions b { font-family: var(--font-ui); font-size: 14px; }
+  .decisions span { color: var(--muted-text); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    .reveal > * { opacity: 1; transform: none; }
+  }
+  @media (max-width: 1000px) {
+    .shell { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; }
+    .playground, .sim, .grid.c2, .grid.c3, .mock .mock-body, .run, .phases { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; } .flow .node + .node::before { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="lamp"></div>
+      <div><b>Jittle Lamp</b><small>E2E test cases · plan</small></div>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-go="overview" aria-current="true">Tổng quan <kbd>1</kbd></button>
+      <button data-go="transcript">Transcript <kbd>2</kbd></button>
+      <button data-go="runloop">Run &amp; cache <kbd>3</kbd></button>
+      <button data-go="model">Kiến trúc &amp; data <kbd>4</kbd></button>
+      <button data-go="ui">UI mẫu <kbd>5</kbd></button>
+      <button data-go="authoring">Tạo &amp; import <kbd>6</kbd></button>
+      <button data-go="roadmap">Roadmap <kbd>7</kbd></button>
+    </nav>
+    <div class="foot">
+      <button class="theme-toggle" id="theme"><span class="dot"></span> Dark mode</button>
+      <p style="margin-top:14px">Nguồn: <code>docs/e2e-test-cases/design.md</code>, ADR 0002, <code>handover.md</code> cho người implement. Cập nhật 2026-10-03.</p>
+    </div>
+  </aside>
+
+  <main>
+    <!-- ================= OVERVIEW ================= -->
+    <section data-view="overview" class="is-active">
+      <div class="view-head">
+        <div class="eyebrow">Feature proposal</div>
+        <h1>Biến Jittle Lamp thành nền tảng E2E có AI dẫn dắt</h1>
+        <p>Test case là một transcript. Agent đọc transcript, mở Chrome thật, làm từng bước như một tester, ghi lại evidence. Mỗi bước đã chạy đúng được giữ lại thành script; lần sau replay script trước, chỉ gọi model khi app thay đổi.</p>
+      </div>
+      <div class="reveal">
+        <div class="flow" style="margin-bottom:22px">
+          <div class="node"><b>Transcript</b><span>[Act], [Assert], [Login: PCF], checkpoint headings. Nguồn sự thật.</span><em class="where">packages/shared/test-case.ts</em></div>
+          <div class="node"><b>Runner</b><span>Tester Army e2e + AI SDK + Playwright. Daemon trong cloud pool, self-hosted pool trên devbox, hoặc CLI local.</span><em class="where">packages/e2e-runner</em></div>
+          <div class="node"><b>Evidence</b><span>recording.webm + archive v4 + run-report.json. Viewer, share link, MCP dùng lại.</span><em class="where">sourceType: test-run</em></div>
+          <div class="node"><b>Step scripts</b><span>Action record (role/name/testId/context) render ra Playwright. Replay, hand-off, re-record.</span><em class="where">test_step_scripts</em></div>
+          <div class="node"><b>Test sessions</b><span>Mỗi run có verdict 2 tầng, step results, video offset, cost.</span><em class="where">test_runs / test_run_steps</em></div>
+        </div>
+
+        <div class="grid c2">
+          <div class="card">
+            <div class="kicker">Tại sao làm</div>
+            <h3>Recording hiện tại không tái hiện được</h3>
+            <ul>
+              <li>Recording tách rời test case, ticket, tài liệu.</li>
+              <li>Instruction viết tay hoặc quá chi tiết, hoặc sai; không ai chạy lại được.</li>
+              <li>Flow thủ công đã có: Claude Code + <code>record-flow.mjs</code> + <code>jl-evidence.mjs</code>. Feature này đưa flow đó vào sản phẩm.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="kicker">Học từ reference</div>
+            <h3>Tester Army cho mô hình, Browserbase cho đối chiếu</h3>
+            <ul>
+              <li>Tester Army: step types act/assert/login, verdict tách execution và outcome, cache là action record có end-state check, hand-off khi drift.</li>
+              <li>Stagehand v4 bỏ Playwright và đưa cache lên server của Browserbase. Không dùng làm nền; giữ làm candidate sau interface step.</li>
+              <li>Khác biệt của mình: mọi instruction đều có code đọc được, assert cũng cache deterministic check.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <div class="kicker">So sánh thư viện cho execution core · đánh giá 2026-10-03</div>
+          <table class="model">
+            <thead><tr><th>Tiêu chí</th><th>Tester Army e2e 0.16 · Apache-2.0</th><th>Stagehand v3 / v4 · MIT</th><th>Tự viết loop trên AI SDK</th></tr></thead>
+            <tbody>
+              <tr><td>Step semantics</td><td>act / assert / waitFor / extract; verdict passed, failed, blocked với error code. Khớp 1:1</td><td>act / observe / extract / agent. Không có assert, không có blocked</td><td>Tự định nghĩa</td></tr>
+              <tr><td>Replay cache</td><td>Record theo role/name/testId/context + end-state, lý do hand-off, mode read-write/read-only/off/strict, <code>cache.store</code> cắm được vào backend</td><td>v3: cacheDir local, replay bằng xpath đã ghi, đóng. v4: chỉ server Browserbase</td><td>Viết từ đầu, có thể copy format record</td></tr>
+              <tr><td>Model</td><td>AI SDK instance, model và judge riêng, mọi provider + local qua openai-compatible</td><td>Chuỗi model riêng, có CUA</td><td>AI SDK ToolLoopAgent</td></tr>
+              <tr><td>Evidence</td><td>Video Playwright, trace (network, console, screenshot, action) đã redact, <code>artifacts.store</code></td><td>Replay chỉ trên Browserbase; v4 CDP-only</td><td>Port capture của extension</td></tr>
+              <tr><td>Programmatic</td><td><b>Không.</b> Chỉ CLI <code>e2e run</code> trên file <code>*.e2e.ts</code>; token per step chỉ có trong <code>ai-trace.json</code></td><td>Có</td><td>Có</td></tr>
+              <tr><td>Rủi ro</td><td>Pre-1.0, Node ≥ 22.12, engine version nằm trong cache key</td><td>Hướng đi v4 rời Playwright</td><td>Tự bảo trì toàn bộ</td></tr>
+            </tbody>
+          </table>
+          <p style="font-size:14px; margin-top:10px"><b>Chọn:</b> e2e làm core, <code>packages/e2e-runner</code> bọc ngoài: transcript → <code>case.e2e.ts</code> + <code>e2e.config.ts</code>, <code>cache.store</code> trỏ vào <code>test_step_scripts</code>, Reporter stream step events, parse <code>ai-trace.json</code> lấy token, trace → archive v4. <b>Gate cuối phase 0:</b> đổi sang loop riêng trên AI SDK nếu route file sinh không diễn đạt được transcript, token per step không tin được, trace thiếu dữ liệu viewer cần, hoặc e2e đổi contract 2 lần trong spike.</p>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <div class="kicker">ADR 0002 · đã chốt</div>
+          <ol class="decisions" style="margin:6px 0 0; padding-left:20px">
+            <li><b>Transcript là nguồn sự thật.</b> <span>Code sinh ra là cache gắn vào step, không sửa tay.</span></li>
+            <li><b>Cache là action record, không phải selector thô.</b> <span>Render ra Playwright TS để đọc và export; replay bằng nhiều chiến lược locator; hand-off cho agent khi mất target hoặc sai end-state.</span></li>
+            <li><b>Runner là daemon riêng; cloud pool trước, self-hosted pool cho mạng cloud không tới được, desktop chỉ là client.</b> <span>Sửa 2026-10-03. Một binary vừa là CLI <code>jl-e2e</code> vừa là daemon <code>jl-e2e-runner</code>, đăng ký vào pool bằng token, claim run bằng lease. Environment gắn với pool, nên UAT sau VPN chạy trên runner đặt ở devbox. Desktop app trigger run và review evidence, không điều khiển browser.</span></li>
+            <li><b>Run là evidence.</b> <span><code>sourceType: "test-run"</code>, action tag <code>step:&lt;id&gt;</code>, annotation <code>step</code>.</span></li>
+            <li><b>Model đi qua Vercel AI SDK, không gắn vendor SDK.</b> <span>Sửa 2026-10-03, trước đó là Anthropic SDK. Org cấu hình <code>model</code> (act) và <code>judge</code> (assert/wait/extract) là AI SDK id, mặc định <code>anthropic/claude-opus-5-5</code> và <code>anthropic/claude-sonnet-5-5</code>; provider option (adaptive thinking, effort) đi qua <code>providerOptions</code>.</span></li>
+            <li><b>Verdict 2 tầng.</b> <span>status: queued/running/completed/failed/cancelled. outcome: passed/failed/blocked. Lỗi setup là blocked, không bao giờ là failed.</span></li>
+            <li><b>Macro có tham số đặt tên.</b> <span><code>[Login: profile=PCF, tenant=HQ]</code>. Người tạo, code seed, hoặc agent đề xuất qua MCP (draft cho tới khi duyệt).</span></li>
+            <li><b>Archive schema v4.</b> <span><code>recorder.kind</code> thêm <code>e2e-runner</code>; parser nâng v3 trong bộ nhớ.</span></li>
+            <li><b>Mỗi run và mỗi step lưu đủ metrics.</b> <span>model id (act và judge), provider, model calls, input / cached / output / reasoning tokens, duration, cost. AI SDK trả token, không trả tiền, nên cost tính từ <code>test_model_prices</code> của org lúc finalise và stamp version bảng giá vào run. Test case hiện trung bình 10 run gần nhất.</span></li>
+            <li><b>Execution core là Tester Army <code>e2e</code>, có gate cuối phase 0.</b> <span>Step semantics, replay cache (pluggable <code>cache.store</code>), AI SDK contract, video + trace khớp thiết kế. Không có API programmatic nên runner sinh <code>case.e2e.ts</code> + config rồi spawn <code>e2e run</code>. Stagehand loại: cache theo xpath, không có verdict, v4 bỏ Playwright.</span></li>
+            <li><b>Run trên cloud là headless với tiến độ step trực tiếp; headed và khoá input là tính năng của CLI local; live view kèm take-over để phase 2.</b> <span>Runner báo mỗi step xong kèm screenshot thu nhỏ, video gắn lúc kết thúc. <code>jl-e2e run --headed</code> giữ shield, phát hiện input thật thì pause. Take-over: pause, action tag <code>user:takeover</code>, không cache.</span></li>
+            <li><b>Một queue mỗi org, dedupe và throttle.</b> <span><code>max_concurrent_runs</code> mặc định 1 cho cloud pool. Cùng <code>dedupe_key</code> (case, version, env, params, cache mode) thì attach vào run đang chờ hoặc vừa xong trong dedupe window; <code>force</code> mới tạo run mới. Queue cap theo org và case, token bucket theo user.</span></li>
+            <li><b>Authoring cho hàng ngàn case, một document format cho mọi đường vào.</b> <span>Người dùng nhập tay bằng step editor có cấu trúc (chip, picker <code>/</code> <code>{</code> <code>@</code>, lint sửa được), markdown chỉ là format lưu trữ và trao đổi. AI, Jira, Gherkin, CSV/XLSX, TestRail đều ra transcript document; lint và phát hiện trùng chạy một lần. Import và AI vào review queue. Case gần giống là case có dataset; duplicate thật ghi lineage và kế thừa step scripts. Folders, tags, suites, saved views trên FTS, key <code>TC-0412</code>.</span></li>
+            <li><b>BYOK theo org.</b> <span>Org lưu một provider key và model id cho act/judge; mọi run dùng key đó, chi phí quy về user yêu cầu qua metrics. Beta không có key cá nhân.</span></li>
+            <li><b>Test case scope theo org, nhóm bằng tag có namespace.</b> <span><code>team:</code>, <code>feature:</code>, <code>module:</code>, <code>prio:</code> do org quản lý; sidebar nhóm theo namespace. Không folder, không team scope. Suite và saved view xây trên tag.</span></li>
+            <li><b>Notification qua bus theo channel; beta chỉ có in-app.</b> <span>Producer ghi <code>notification_events</code>; channel in-app giao ngay, Slack và email là adapter thêm sau, không đụng producer.</span></li>
+            <li><b>Trigger từ GitLab/GitHub là webhook, thiết kế bây giờ, giao ở phase 2.</b> <span>Endpoint có chữ ký, rule map event sang suite + environment (review-app URL vào baseUrl), dedupe theo commit SHA, báo lại bằng commit status, MR note hoặc callback URL. Beta dùng CLI trong pipeline.</span></li>
+            <li><b>Một chuỗi resolve cho variables và credentials.</b> <span>Code chỉ gọi tên: <code>env.baseUrl</code>, <code>vars.KEY</code>, <code>secret('PROFILE.field')</code>. Runner resolve theo thứ tự run params → process env (<code>JL_ENV_*</code>, <code>JL_VAR_*</code>, <code>JL_CRED_*</code> từ <code>.env</code>) → desktop keychain → org config trên backend. Cloud worker bơm org config vào env của runner, nên cloud và local chạy cùng một đường.</span></li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TRANSCRIPT ================= -->
+    <section data-view="transcript">
+      <div class="view-head">
+        <div class="eyebrow">Format</div>
+        <h1>Transcript playground</h1>
+        <p>Sửa bên trái, parser thật chạy bên phải. Đây là <b>Text view</b> và format lưu trữ, không phải cách người dùng nhập tay: editor chính là step editor có cấu trúc (xem UI mẫu). Cùng grammar sẽ nằm trong <code>packages/shared</code>: dòng <code>[Tag: args] text</code>, heading <code>## Checkpoint:</code> gom các bước, text trần là Act, tag lạ tra macro của org.</p>
+      </div>
+      <div class="playground reveal">
+        <div>
+          <textarea class="transcript" id="tx" spellcheck="false"># HQ admin logout returns a clean login form
+
+[Open] /login
+[Login: PCF] đăng nhập tài khoản HQ_ADMIN PCF
+[Assert] dashboard hiện tên trường và menu điều hướng chính
+[Act] mở menu tài khoản ở góc trên bên phải và chọn "Đăng xuất"
+
+## Checkpoint: Logout returns to the login page
+[Assert] trang hiện lại form đăng nhập với ô Email và Mật khẩu
+[Assert] input text Email phải trống
+[Screenshot] login form after logout
+
+## Checkpoint: Session is really gone
+[Open] /dashboard
+[Assert] hệ thống chuyển hướng về trang đăng nhập, không hiện dashboard
+[CreateStudent: name={student}, class=1A] tạo học sinh mới cho lớp 1A
+[Note] Covers PCF-1234. Email autofill regression reported by school admins.</textarea>
+          <ul class="lints" id="lints"></ul>
+        </div>
+        <div>
+          <div class="kicker">Parsed steps · <span id="stepcount"></span></div>
+          <div class="steps" id="parsed"></div>
+          <div class="card" style="margin-top:14px">
+            <div class="kicker">Tags</div>
+            <table class="model tags">
+              <tr><td>[Open]</td><td>Điều hướng. Path resolve theo base URL của environment. Không cần cache.</td></tr>
+              <tr><td>[Act] / text trần</td><td>Một ý định của user. Cache action record. Model chỉ gọi khi hand-off.</td></tr>
+              <tr><td>[Assert]</td><td>Checkpoint. Không được mutate data. Cache deterministic check, model phán khi check fail.</td></tr>
+              <tr><td>[Login: profile]</td><td>Macro Login với credential profile. Runner điền password, model không thấy.</td></tr>
+              <tr><td>[Wait] [Extract: var] [Screenshot] [Note]</td><td>Poll điều kiện; trích giá trị vào <code>{var}</code>; chụp màn hình; ghi chú không chạy.</td></tr>
+              <tr><td>[&lt;Macro&gt;: a=1, b=2]</td><td>Tag lạ tra macro của org theo tên. Giá trị đầu không tên điền param đầu tiên.</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RUN LOOP ================= -->
+    <section data-view="runloop">
+      <div class="view-head">
+        <div class="eyebrow">Execution</div>
+        <h1>Run loop và cache</h1>
+        <p>Chạy lần 1: agent làm từng bước, ghi action record. Chạy lần 2: replay từ record, không gọi model cho Act. Chạy lần 3: app đổi label nút, replay hụt target, agent nhận hand-off rồi ghi lại record v2.</p>
+      </div>
+      <div class="reveal">
+        <div class="sim-head">
+          <button class="btn primary" id="run1">Run #1 · agent</button>
+          <button class="btn" id="run2" disabled>Run #2 · replay</button>
+          <button class="btn" id="run3" disabled>Run #3 · app changed</button>
+          <button class="btn ghost" id="reset">Reset</button>
+          <span class="mode" id="simlabel"></span>
+        </div>
+        <div class="sim">
+          <div>
+            <div class="steps" id="simsteps"></div>
+            <div class="sim-stats"><span>Model calls <b id="st-calls">0</b></span><span>Replayed <b id="st-replay">0</b></span><span>Hand-off <b id="st-handoff">0</b></span><span>Est. cost <b id="st-cost">$0.00</b></span></div>
+          </div>
+          <div class="code">
+            <span class="tag" id="codetag">chọn một step</span>
+            <pre id="code">// Rendered Playwright cho step được chọn.
+// Record gốc là JSON (role, name, testId, text, within, endState).
+// Code này là view để đọc và export, không phải nguồn replay.</pre>
+            <div class="card" style="margin-top:12px">
+              <div class="kicker">Replay stop reasons</div>
+              <p style="font-size:14px"><code>no-entry</code> chưa có record · <code>wrong-context</code> route khác lúc ghi · <code>target-not-found</code> · <code>target-ambiguous</code> · <code>end-mismatch</code> end-state không về · <code>action-failed</code>.<br>Dừng trước action nào là <em>miss</em>; dừng giữa chừng là <em>hand-off</em>, agent tiếp tục với trace replay. Record stale được giữ kèm lý do để UI hiện "re-generated on run #3".</p>
+              <div class="kicker" style="margin-top:10px">Cache modes</div>
+              <p style="font-size:14px"><code>read-write</code> desktop mặc định · <code>read-only</code> · <code>off</code> ép agent · <code>strict</code> CI: record stale thì fail <code>REPLAY_STALE</code>, không gọi model.</p>
+            </div>
+            <div class="card" style="margin-top:12px">
+              <div class="kicker">Queue · dedupe · throttle (một agent cho cả org)</div>
+              <div class="steps" style="margin-bottom:10px">
+                <div class="step" style="grid-template-columns:70px 1fr auto"><span class="mono" style="font-size:11px;color:var(--meta)">09:41:02</span><span class="txt">Linh · UI · logout case · pcf-uat</span><span class="pill running"><i class="ring"></i> running</span></div>
+                <div class="step" style="grid-template-columns:70px 1fr auto"><span class="mono" style="font-size:11px;color:var(--meta)">09:41:15</span><span class="txt" style="white-space:normal">Nam · MCP · logout case · pcf-uat <em>same dedupe_key</em></span><span class="pill queued">attached → #12</span></div>
+                <div class="step" style="grid-template-columns:70px 1fr auto"><span class="mono" style="font-size:11px;color:var(--meta)">09:41:20</span><span class="txt">CI · enrol case · pcf-uat</span><span class="pill queued">queued · #1 of 1 · ~2m</span></div>
+                <div class="step" style="grid-template-columns:70px 1fr auto"><span class="mono" style="font-size:11px;color:var(--meta)">09:41:21</span><span class="txt" style="white-space:normal">Nam · UI · logout case · pcf-uat <em>click lần 3 trong 10s</em></span><span class="pill failed">429 RATE_LIMITED</span></div>
+              </div>
+              <p style="font-size:14px; margin:0">Backend giữ queue trong <code>test_runs</code>, runner claim bằng lease như <code>migration-worker.ts</code>. <code>max_concurrent_runs</code> mặc định 1 cho cloud pool; run trên desktop dùng máy của tester nên không chiếm slot nhưng vẫn dedupe. Dedupe window 120s sau khi run xong; <code>force: true</code> bỏ qua. Cap: 20 queued mỗi org, 3 mỗi case, 30 request mỗi 10 phút mỗi user. Ngân sách model theo ngày ở phase 2.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= MODEL ================= -->
+    <section data-view="model">
+      <div class="view-head">
+        <div class="eyebrow">Architecture</div>
+        <h1>Kiến trúc và data model</h1>
+        <p>Code mới đặt theo ranh giới sẵn có của workspace. Backend không mở browser ở phase 1.</p>
+      </div>
+      <div class="reveal">
+        <div class="grid c3" style="margin-bottom:16px">
+          <div class="card"><div class="kicker">packages/shared</div><h3>test-case.ts, archive v4</h3><p>Zod cho TranscriptStep, StepScript, RunReport, RunStepResult; parser; <code>recorder.kind</code> và annotation <code>step</code>. viewer-core đọc annotation để lọc timeline theo step.</p></div>
+          <div class="card"><div class="kicker">packages/e2e-runner</div><h3>plan · browser · capture · observe · agent · replay · cache · report · cli</h3><p><code>playwright-core</code> channel chrome, <code>@anthropic-ai/sdk</code>. Capture port từ extension: CDP network, console, DOM listeners. Không import React/Electron.</p></div>
+          <div class="card"><div class="kicker">apps/*</div><h3>backend routes, desktop host, web pages, mcp tools</h3><p><code>routes/test-cases.ts</code>, <code>routes/test-runs.ts</code>, permissions <code>test_case.*</code>, allowlist AI token. Desktop và web là client của queue, hiện tiến độ step trực tiếp. Web thay ComingSoon ở route <code>test-cases</code>.</p></div>
+        </div>
+        <div class="card">
+          <div class="kicker">Tables · apps/backend/src/db/tables</div>
+          <table class="model">
+            <thead><tr><th>Table</th><th>Key columns</th><th>Ghi chú</th></tr></thead>
+            <tbody>
+              <tr><td>test_cases</td><td>org_id, title, description, links_json, tags_json, environment_id, transcript, steps_json, transcript_version, status</td><td>Sửa transcript thì re-parse, giữ stepId theo instructionKey, bump version.</td></tr>
+              <tr><td>test_step_scripts</td><td>test_case_id, step_id, instruction_key, environment_id, version, actions_json, end_state_json, rendered_code, recorded_from_run_id, status, stale_reason</td><td>Một entry active mỗi step + environment. Giữ lịch sử version.</td></tr>
+              <tr><td>test_runs</td><td>test_case_id, transcript_version, environment_id, params_hash, dedupe_key, trigger, priority, runner_affinity, runner_info_json, status (queued/claimed/running/paused/completed/failed/cancelled), outcome, blocked_reason, queued_at, started_at, finished_at, evidence_id<br><b>metrics:</b> model_id, judge_model_id, provider, model_calls, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, cost_usd, price_table_version, duration_ms, steps_total/replayed/agent/handoff<br><b>lease:</b> worker_lease_owner, worker_lease_expires_at, worker_heartbeat_at, attempts</td><td>Test session. Queue và lease từ phase 1.</td></tr>
+              <tr><td>test_run_steps</td><td>run_id, step_id, ordinal, type, status, mode, cache_reason, duration_ms, video_offset_ms, observed, error, screenshot_artifact_id, script_version<br><b>metrics:</b> model_id, model_calls, actions, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, cost_usd, vision_input</td><td>Click step trong UI seek video tới offset. Token lấy từ AI SDK usage per step.</td></tr>
+              <tr><td>test_run_subscribers</td><td>run_id, user_id, trigger</td><td>Ai đã request và bị dedupe vào run này; dùng cho badge "attached" và notify.</td></tr>
+              <tr><td>test_model_prices</td><td>org_id?, model_id, input/cached/output usd per Mtok, effective_from</td><td>AI SDK trả token, không trả tiền. Cost tính lúc finalise, stamp version vào run.</td></tr>
+              <tr><td>test_macros</td><td>org_id, name, params_json, transcript, steps_json, version, status (draft/active)</td><td>Agent tạo qua MCP ở trạng thái draft.</td></tr>
+              <tr><td>test_environments</td><td>org_id, name, base_url, variables_json</td><td>pcf-uat, ilham-uat…</td></tr>
+              <tr><td>test_credentials</td><td>org_id, profile, environment_id, username, secret_ref</td><td>Phase 1 secret ở local store; phase 2 mã hoá server.</td></tr>
+              <tr><td>test_case_evidences</td><td>test_case_id, evidence_id, run_id, relation (run/import)</td><td>Cho phase 3: import recording cũ làm evidence của case.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="kicker">Config · cloud và local chạy cùng một đường</div>
+          <div class="grid c2" style="gap:18px">
+            <div>
+              <h3 style="margin-bottom:6px">Cloud</h3>
+              <ul style="margin:0; padding-left:18px; font-size:14px; color:var(--muted-text)">
+                <li>Settings → Environments: name, base URL, variables (plaintext).</li>
+                <li>Settings → Credentials: profile, public fields, secret fields mã hoá AES-256-GCM, data key theo org, master key server (provider pluggable, rotate bằng <code>key_version</code>).</li>
+                <li>Permission <code>test_config.manage</code> / <code>test_config.use</code>; mỗi lần đọc secret ghi activity log kèm run id.</li>
+                <li>Runner pool: <code>jl-e2e-runner start --token</code> đăng ký worker vào pool (cloud hoặc self-hosted); environment gắn pool. Worker claim run → <code>config-token</code> → <code>GET /test-runs/:id/config</code> → bơm thành <code>JL_*</code> env cho runner con. Không route nào trả secret về browser.</li><li>Model key BYOK theo org lưu như credential <code>kind: model_key</code>.</li>
+              </ul>
+            </div>
+            <div>
+              <h3 style="margin-bottom:6px">Local</h3>
+<pre style="margin:0 0 8px">e2e/
+  jl-e2e.config.ts
+  cases/*.transcript.md
+  macros/*.transcript.md
+  .env.e2e        # JL_ENV_BASE_URL, JL_VAR_*, JL_CRED_* (gitignored)
+  .e2e/cache/     # step scripts, commit để CI replay</pre>
+<pre style="margin:0">jl-e2e run cases/logout.transcript.md --env-file .env.e2e
+jl-e2e env pull pcf-uat            # base URL + vars + JL_CRED_* trống
+jl-e2e env pull pcf-uat --with-secrets
+jl-e2e config                      # bảng resolved, masked, có cột source
+jl-e2e export --case &lt;id&gt; ./e2e/cases   ·   jl-e2e push ./e2e/cases/x.md</pre>
+            </div>
+          </div>
+          <table class="model" style="margin-top:14px">
+            <thead><tr><th>Trong transcript</th><th>Trong code</th><th>Resolve theo thứ tự</th></tr></thead>
+            <tbody>
+              <tr><td>[Open] /login</td><td><code>env.baseUrl + '/login'</code></td><td rowspan="3">1. run params (<code>--var</code>, dialog, API)<br>2. process env + <code>.env</code> (<code>JL_ENV_*</code>, <code>JL_VAR_*</code>, <code>JL_CRED_*</code>)<br>3. desktop keychain<br>4. org environment + credentials trên backend<br><br>Thiếu tên → run <code>blocked</code>, liệt kê tên, không bao giờ in giá trị. Giá trị không vào cache key; environment identity thì có.</td></tr>
+              <tr><td>{SCHOOL_CODE}</td><td><code>vars.SCHOOL_CODE</code></td></tr>
+              <tr><td>[Login: PCF_HQ_ADMIN]</td><td><code>credential('PCF_HQ_ADMIN').username</code><br><code>secret('PCF_HQ_ADMIN.password')</code> → runner điền thẳng, mask ở snapshot/log/video</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="kicker">API</div>
+          <pre>GET/POST   /test-cases                      list, create from transcript
+GET/PATCH  /test-cases/:id                  edit re-parses, bumps transcript_version
+GET/DELETE /test-cases/:id/scripts[/:step]  cached scripts, clear
+POST       /test-cases/:id/runs             { environmentId, params, cacheMode, runner } → runId
+GET        /test-cases/:id/runs             test sessions
+GET/PATCH  /test-runs/:id                   progress, step results, finalise with evidenceId
+POST       /test-runs/:id/cancel
+GET/POST/PATCH /test-environments /test-credentials  secret fields write-only
+POST       /test-credentials/:id/rotate
+GET        /test-cases/:id/required-config?environmentId=   names only
+POST       /test-runs/:id/config-token · GET /test-runs/:id/config   cloud worker, lease-bound
+GET/POST   /test-macros</pre>
+          <div class="kicker">MCP tools (apps/mcp)</div>
+          <p style="font-size:14px"><code>list_test_cases</code> <code>get_test_case</code> <code>create_test_case</code> <code>update_test_case_transcript</code> <code>create_test_macro</code> <code>run_test_case</code> <code>get_test_run</code> <code>list_test_runs</code>. <code>run_test_case</code> gọi companion local <code>127.0.0.1:48115/api/test-runs</code> với bearer token do desktop cấp, hoặc trả về lệnh CLI khi desktop chưa chạy.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= UI SAMPLES ================= -->
+    <section data-view="ui">
+      <div class="view-head">
+        <div class="eyebrow">Design direction</div>
+        <h1>UI mẫu</h1>
+        <p>Giữ nguyên ngôn ngữ hiện có của evidence-web: nền giấy ấm, chữ serif cho nội dung, sans cho chrome, mono cho transcript, một màu accent. Chuyển động ngắn (dưới 250ms, ease-out), nút lún 0.97 khi bấm, tab đổi màu bằng clip-path thay vì crossfade.</p>
+      </div>
+      <div class="reveal">
+        <div class="mock" style="margin-bottom:22px">
+          <div class="mock-top">
+            <div class="crumbs">Test cases / <b>HQ admin logout returns a clean login form</b></div>
+            <div style="display:flex; gap:8px">
+              <span class="pill passed">last run passed</span>
+              <button class="btn primary" style="height:28px">Run on desktop</button>
+            </div>
+          </div>
+          <div class="mock-body">
+            <div class="mock-main">
+              <h2>HQ admin logout returns a clean login form</h2>
+              <div class="desc">After an HQ admin signs out, the login form must not keep the previous email. Reported by two school admins after the autofill change.</div>
+              <div class="links"><a class="link" href="#">Jira PCF-1234</a><a class="link" href="#">Google Doc · Login spec</a><span class="link">pcf-uat</span><span class="link">#regression</span></div>
+
+              <div class="tabs" id="mocktabs">
+                <div class="list">
+                  <button data-tab="transcript" aria-selected="true">Steps</button>
+                  <button data-tab="sessions">Test sessions</button>
+                  <button data-tab="scripts">Scripts</button>
+                </div>
+                <div class="copy" aria-hidden="true"><span>Steps</span><span>Test sessions</span><span>Scripts</span></div>
+              </div>
+
+              <div class="panel is-active" data-panel="transcript">
+                <div class="editor" style="grid-template-columns: 1fr 210px">
+                  <div class="se">
+                    <div class="hd"><span>7 steps · 2 checkpoints · 6 cached</span><span class="tog"><span class="on">Steps</span><span>Text</span></span></div>
+                    <div class="r"><span class="h">⋮⋮</span><span class="n">1</span><span class="pill open">Open</span><span class="ins">/login</span><span class="st"><span class="ok">—</span></span></div>
+                    <div class="r"><span class="h">⋮⋮</span><span class="n">2</span><span class="pill login">Login</span><span class="ins"><span class="tok macro">Login</span><span class="tok cred">🔒 profile = PCF_HQ_ADMIN</span> đăng nhập tài khoản HQ admin</span><span class="st"><span class="ok">v2 · replayed 6×</span></span></div>
+                    <div class="macroexp">↳ 3 steps from macro Login: fill Email · fill Mật khẩu (secret) · click Đăng nhập · expect /dashboard</div>
+                    <div class="r"><span class="h">⋮⋮</span><span class="n">3</span><span class="pill assert">Assert</span><span class="ins">dashboard hiện tên trường <span class="tok el">heading · Trường Mầm non Hoa Sen</span> và menu điều hướng</span><span class="st"><span class="ok">det. check</span></span></div>
+                    <div class="r"><span class="h">⋮⋮</span><span class="n">4</span><span class="pill act">Act</span><span class="ins">mở menu tài khoản <span class="tok el">button · Account menu</span> và chọn <span class="tok el">menuitem · Đăng xuất</span></span><span class="st"><span class="ok">v2 · replayed 6×</span></span></div>
+                    <div class="cp">Logout returns to the login page</div>
+                    <div class="r"><span class="h">⋮⋮</span><span class="n">5</span><span class="pill assert">Assert</span><span class="ins">trang hiện lại form đăng nhập với ô Email và Mật khẩu</span><span class="st"><span class="ok">det. check</span></span></div>
+                    <div class="r lint"><span class="h">⋮⋮</span><span class="n">6</span><span class="pill assert">Assert</span><span class="ins"><u>input #email</u> phải trống</span><span class="st"><span class="warn">stale · target-not-found</span></span></div>
+                    <div class="fix"><span class="warn" style="color:var(--warn)">lint</span> selector trong instruction <button>Dùng label "textbox · Email"</button></div>
+                    <div class="r ed"><span class="h">⋮⋮</span><span class="n">7</span><span class="pill act">Act</span><span class="ins">tạo học sinh mới tên <span class="tok var">{student}</span> cho lớp <span class="tok var">{</span><span class="caret"></span></span><span class="st"></span>
+                      <div class="pop">
+                        <div class="ph">Variables · gõ để lọc</div>
+                        <div class="pi on"><span class="k">{class}</span><span class="d">dataset column · 1A, 2B</span></div>
+                        <div class="pi"><span class="k">{student}</span><span class="d">param · default "E2E Student"</span></div>
+                        <div class="pi"><span class="k">{SCHOOL_CODE}</span><span class="d">env · pcf-uat</span></div>
+                        <div class="pi"><span class="k">{invoiceNo}</span><span class="d">extracted · step 9 của case khác</span></div>
+                        <div class="pi"><span class="k">+ declare new param</span><span class="d">thêm vào Params</span></div>
+                      </div>
+                    </div>
+                    <div class="add"><kbd>⏎</kbd> step mới cùng loại · <kbd>/</kbd> <kbd>[</kbd> loại / macro · <kbd>{</kbd> biến · <kbd>@</kbd> credential, file · <kbd>#</kbd> checkpoint · <kbd>⌘⏎</kbd> run · <kbd>⌥⏎</kbd> run từ step này</div>
+                  </div>
+                  <div class="meta-form">
+                    <div class="kicker">Case</div>
+                    <div class="row"><span class="k">Key</span><span class="in mono">TC-0412</span></div>
+                    <div class="row"><span class="k">Tags</span><span class="in"><span class="t">team:qa-pcf</span><span class="t">module:admin</span><span class="t">feature:login</span><span class="t">regression</span>+</span></div>
+                    <div class="row"><span class="k">Env</span><span class="in">pcf-uat ▾</span></div>
+                    <div class="row"><span class="k">Links</span><span class="in"><span class="t">PCF-1234 · In QA</span>+</span></div>
+                    <div class="kicker" style="margin-top:12px">Params</div>
+                    <div class="row"><span class="k mono">student</span><span class="in mono">"E2E Student"</span></div>
+                    <div class="row"><span class="k mono">role</span><span class="in mono">HQ_ADMIN</span></div>
+                    <div class="kicker" style="margin-top:12px">Dataset · 2 rows</div>
+                    <div class="row"><span class="k mono">class</span><span class="in mono">1A · 2B</span></div>
+                    <div style="margin-top:12px; display:flex; gap:6px">
+                      <button class="btn ghost" style="height:26px; font-size:12px; padding:0 10px">Similar: 3</button>
+                      <button class="btn ghost" style="height:26px; font-size:12px; padding:0 10px">Clear cache</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel" data-panel="sessions">
+                <table class="sessions">
+                  <thead><tr><th>Run</th><th>Outcome</th><th>Trigger</th><th>Model</th><th>Cache</th><th>Tokens</th><th>Duration</th><th>Cost</th><th>Evidence</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mono">#8</td><td><span class="pill queued">queued · #1</span></td><td>mcp · claude-code <span class="mode">attached: Linh</span></td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">~1:10</td><td class="mono">—</td><td class="mono">—</td></tr>
+                    <tr><td class="mono">#7</td><td><span class="pill running"><i class="ring"></i> running</span></td><td>desktop · donam</td><td class="mono">opus-5-5 / sonnet-5-5</td><td><span class="bar"><i style="width:60%"></i></span>6/10</td><td class="mono">9.4k / 0.6k</td><td class="mono">0:48</td><td class="mono">$0.03</td><td class="mono">—</td></tr>
+                    <tr><td class="mono">#6</td><td><span class="pill passed">passed</span></td><td>mcp · claude-code</td><td class="mono">opus-5-5 / sonnet-5-5</td><td><span class="bar"><i style="width:100%"></i></span>10/10</td><td class="mono">6.1k / 0.3k</td><td class="mono">1:12</td><td class="mono">$0.02</td><td class="mono">ev_01J9…</td></tr>
+                    <tr><td class="mono">#5</td><td><span class="pill failed">failed</span></td><td>desktop · donam</td><td class="mono">opus-5-5 / sonnet-5-5</td><td><span class="bar"><i style="width:70%"></i></span>7/10</td><td class="mono">31k / 2.1k</td><td class="mono">2:04</td><td class="mono">$0.18</td><td class="mono">ev_01J8…</td></tr>
+                    <tr><td class="mono">#4</td><td><span class="pill blocked">blocked</span></td><td>cli</td><td class="mono">opus-5-5</td><td><span class="bar"><i style="width:10%"></i></span>1/10</td><td class="mono">2.0k / 0.1k</td><td class="mono">0:21</td><td class="mono">$0.01</td><td class="mono">ev_01J7…</td></tr>
+                    <tr><td class="mono">#3</td><td><span class="pill passed">passed</span></td><td>desktop · donam</td><td class="mono">opus-5-5 / sonnet-5-5</td><td><span class="bar"><i style="width:40%"></i></span>4/10 · re-recorded 3</td><td class="mono">74k / 5.8k</td><td class="mono">3:40</td><td class="mono">$0.41</td><td class="mono">ev_01J6…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="panel" data-panel="scripts">
+                <div class="kicker">Step 4 · v2 · recorded from run #3</div>
+<pre>await page.getByRole('banner').getByRole('button', { name: 'Account menu' }).click();
+await page.getByRole('menuitem', { name: 'Đăng xuất' }).click();
+// end state
+await expect(page).toHaveURL(/\/login/);
+await expect(page.getByRole('textbox', { name: 'Email' })).toBeVisible();</pre>
+                <div class="kicker">Step 7 · v1 · stale (target-not-found on run #5)</div>
+<pre>await expect(page.getByRole('textbox', { name: 'Email' })).toHaveValue('');</pre>
+              </div>
+            </div>
+            <div class="mock-side">
+              <div class="kicker">Environment</div>
+              <div class="stepmeta">
+                <div class="row"><span class="k">Base URL</span><span class="v mono">pcf-uat.littlelives.io</span></div>
+                <div class="row"><span class="k">Credential</span><span class="v mono">PCF_HQ_ADMIN</span></div>
+                <div class="row"><span class="k">Viewport</span><span class="v mono">1440×900</span></div>
+                <div class="row"><span class="k">Model · act</span><span class="v mono">anthropic/claude-opus-5-5</span></div>
+                <div class="row"><span class="k">Model · judge</span><span class="v mono">anthropic/claude-sonnet-5-5</span></div>
+                <div class="row"><span class="k">Avg · 10 runs</span><span class="v mono">1:38 · $0.11 · 68% replay</span></div>
+              </div>
+              <div class="kicker" style="margin-top:18px">Macros used</div>
+              <div class="stepmeta">
+                <div class="row"><span class="k">Login</span><span class="v mono">profile</span></div>
+              </div>
+              <div class="kicker" style="margin-top:18px">Linked evidence</div>
+              <div class="stepmeta">
+                <div class="row"><span class="k">Manual recording</span><span class="v mono">ev_01HZ… (import)</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mock">
+          <div class="mock-top">
+            <div class="crumbs">Test cases / HQ admin logout… / <b>Run #5</b></div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="pill failed">failed</span>
+              <span class="mode">completed · 2:04 · 7/10 replayed · $0.18</span>
+              <button class="btn ghost" style="height:28px">Share</button>
+            </div>
+          </div>
+          <div class="run">
+            <div class="steplist" id="runsteps"></div>
+            <div class="viewer">
+              <div class="video" id="video">
+                <div class="frame"></div>
+                <div class="banner" id="banner">Verify Email empty\nExpected: input text Email phải trống</div>
+                <div class="cursor" id="cursor" style="left:48%; top:52%"></div>
+              </div>
+              <div class="timeline" id="timeline"><div class="head" id="head" style="left:0"></div></div>
+              <div class="events" id="events"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ================= AUTHORING ================= -->
+    <section data-view="authoring">
+      <div class="view-head">
+        <div class="eyebrow">Authoring at scale</div>
+        <h1>Tạo, import, duplicate hàng ngàn case</h1>
+        <p>Mọi đường vào đều ra cùng một thứ: một transcript document, nên lint, phát hiện trùng và review queue chạy chung. AI sinh phần lớn, import từ Gherkin / sheet / TestRail là phần còn lại, viết tay là lớp sửa. Case gần giống nhau là một case có dataset, không phải bản sao; duplicate thật thì kế thừa step scripts.</p>
+      </div>
+      <div class="reveal">
+        <div class="mock" style="margin-bottom:22px">
+          <div class="mock-top">
+            <div class="crumbs"><b>Test cases</b> · 3,412 · module:admin</div>
+            <div style="display:flex; gap:8px">
+              <button class="btn ghost" style="height:28px">Import</button>
+              <button class="btn ghost" style="height:28px">Generate with AI</button>
+              <button class="btn primary" style="height:28px">New case <kbd style="font-family:var(--font-mono);font-size:10px;opacity:.7;margin-left:4px">c</kbd></button>
+            </div>
+          </div>
+          <div class="lib">
+            <div>
+              <div class="toolbar">
+                <div class="search"><span style="color:var(--meta)">⌕</span><input id="libq" placeholder="Search key, title, transcript, tags…" /><kbd>/</kbd></div>
+                <span class="chip on" data-f="all">All</span><span class="chip" data-f="review">Review 41</span><span class="chip" data-f="stale">Stale cache</span><span class="chip" data-f="failed">Failed last run</span><span class="chip">Saved: Login suite</span>
+              </div>
+              <div class="bulk" id="bulk"><b id="bulkn">0</b> selected · <button class="btn" style="height:24px;font-size:12px">Run</button><button class="btn" style="height:24px;font-size:12px">Duplicate…</button><button class="btn" style="height:24px;font-size:12px">Tag</button><button class="btn" style="height:24px;font-size:12px">Move</button><button class="btn" style="height:24px;font-size:12px">Set env</button><button class="btn" style="height:24px;font-size:12px">Export .md</button><button class="btn ghost" style="height:24px;font-size:12px">Archive</button></div>
+              <div class="rows" id="librows"></div>
+              <div class="foot"><span><kbd>j</kbd> <kbd>k</kbd> move</span><span><kbd>x</kbd> select · <kbd>shift+x</kbd> range</span><span><kbd>enter</kbd> open</span><span><kbd>d</kbd> duplicate</span><span><kbd>r</kbd> run</span><span style="margin-left:auto" id="libcount"></span></div>
+            </div>
+            <div class="detail" id="libdetail"></div>
+          </div>
+        </div>
+
+        <div class="grid c2" style="margin-bottom:22px">
+          <div class="card">
+            <div class="kicker">Một document format cho mọi đường vào</div>
+<pre># HQ admin logout returns a clean login form
+Key: TC-0412
+Tags: team:qa-pcf, module:admin, feature:login, regression
+Env: pcf-uat
+Links: https://littlelives.atlassian.net/browse/PCF-1234
+Params: role=HQ_ADMIN
+
+[Open] /login
+[Login: {role}] đăng nhập tài khoản {role} PCF
+[Act] mở menu tài khoản và chọn "Đăng xuất"
+[Assert] input text Email phải trống
+
+## Dataset
+| role          | tenant |
+| HQ_ADMIN      | HQ     |
+| BRANCH_ADMIN  | BR-01  |
+
+# Branch admin cannot open HQ settings
+Duplicate-of: TC-0412
+Params: role=BRANCH_ADMIN
+[Open] /settings/hq
+[Assert] hiện thông báo không có quyền</pre>
+            <p style="font-size:14px">Heading cấp 1 bắt đầu case, vài dòng metadata, rồi steps. Bảng <code>## Dataset</code> biến một case thành N variant run. <code>Duplicate-of</code> chỉ kèm <code>Params</code> là variant có link; kèm step list là case độc lập. Đây cũng là format paste vào editor ("tách thành 2 case"), export, và thư mục <code>e2e/cases</code> cho <code>jl-e2e push</code>.</p>
+          </div>
+          <div class="card">
+            <div class="kicker">Đường vào</div>
+            <table class="model">
+              <tr><td>Quick create</td><td>Step editor có cấu trúc: chip loại step, picker <code>/</code> <code>[</code> cho loại và macro, <code>{</code> biến, <code>@</code> credential/file, gợi ý element từ snapshot của run gần nhất, lint có nút sửa. Paste document nhiều case → "split into N". Gõ title thì hiện case tương tự.</td></tr>
+              <tr><td>Import file</td><td><code>.md</code>, <code>.feature</code> (Given/When → Act, Then → Assert, Background → macro, Outline → dataset), <code>.csv</code>/<code>.xlsx</code> với mapping cột, TestRail/Xray XML. Ô "steps" dạng văn xuôi được model tách thành dòng, lint làm hàng rào.</td></tr>
+              <tr><td>Import Jira</td><td>JQL → AC + description qua AI generation; Jira key thành link và <code>external_id</code>.</td></tr>
+              <tr><td>AI generate</td><td>Từ requirement dán vào, Jira issue, URL (discovery run), hoặc "generate similar" từ case có sẵn (negative, boundary, role). Output là transcript document nên qua cùng lint + similarity.</td></tr>
+              <tr><td>Duplicate</td><td>Dialog bên dưới. Kế thừa step scripts của dòng không đổi.</td></tr>
+              <tr><td>MCP</td><td><code>import_test_cases</code>, <code>duplicate_test_case</code>, <code>generate_test_cases</code>, <code>find_similar_test_cases</code>.</td></tr>
+            </table>
+            <p style="font-size:14px; margin-top:10px">Import 1.000 dòng phải xong dưới một phút không cần model; dòng cần model xếp hàng và hiện "normalising". Re-import cùng file là idempotent qua <code>external_id</code> hoặc <code>Key</code>. Mọi case từ import và AI vào trạng thái <code>review</code>.</p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:22px">
+          <div class="kicker">Import wizard · bước 2 trên 3</div>
+          <div class="stepper"><span>1 Upload · cases-pcf.xlsx · 1,284 rows</span><span class="on">2 Map &amp; preview</span><span>3 Batch</span></div>
+          <div class="wizard">
+            <div>
+              <table class="imp">
+                <thead><tr><th>Cột trong file</th><th>Field</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">ID</td><td><select><option>external_id</option></select></td></tr>
+                  <tr><td class="mono">Title</td><td><select><option>title</option></select></td></tr>
+                  <tr><td class="mono">Precondition</td><td><select><option>steps · prefix [Login]/[Open]</option></select></td></tr>
+                  <tr><td class="mono">Steps</td><td><select><option>steps · [Act] (model splits)</option></select></td></tr>
+                  <tr><td class="mono">Expected</td><td><select><option>steps · [Assert]</option></select></td></tr>
+                  <tr><td class="mono">Module</td><td><select><option>tag · module:{value}</option></select></td></tr>
+                  <tr><td class="mono">Priority</td><td><select><option>tag · prio:{value}</option></select></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <table class="imp">
+                <thead><tr><th>#</th><th>Title</th><th>Lint</th><th>Similar</th><th>Decision</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">1</td><td>Login as HQ admin</td><td><span class="pill passed">ok</span></td><td class="mono">TC-0412 · 96%</td><td><select><option>skip (exact)</option><option>update TC-0412</option><option>create</option></select></td></tr>
+                  <tr><td class="mono">2</td><td>Reset password with expired link</td><td><span class="pill passed">ok</span></td><td>—</td><td><select><option>create</option></select></td></tr>
+                  <tr><td class="mono">3</td><td>Enrol student, invalid NRIC</td><td><span class="pill blocked">2 warn</span></td><td class="mono">TC-0988 · 71%</td><td><select><option>create</option><option>merge into TC-0988</option></select></td></tr>
+                  <tr><td class="mono">4</td><td>Export fee report</td><td><span class="pill running"><i class="ring"></i> normalising</span></td><td>—</td><td><select><option>create</option></select></td></tr>
+                  <tr><td class="mono">…</td><td colspan="4" style="color:var(--meta)">1,280 more · 312 exact duplicates auto-skipped · 44 near-duplicates to decide · 9 lint errors</td></tr>
+                </tbody>
+              </table>
+              <div style="display:flex; gap:8px; margin-top:10px; align-items:center"><button class="btn primary" style="height:28px">Create 928 as draft</button><button class="btn ghost" style="height:28px">Apply "skip" to all exact</button><span class="mode">batch runs on the lease worker · error CSV at the end</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid c2" style="margin-bottom:22px; align-items:start">
+          <div class="dialog">
+            <h3>Duplicate TC-0412</h3>
+            <div class="f">
+              <label>New title</label><div class="in">Branch admin logout returns a clean login form</div>
+              <label>Tags</label><div class="in">team:qa-pcf, module:admin, feature:login</div>
+              <label>Find → replace</label><div class="in">HQ_ADMIN → BRANCH_ADMIN</div>
+              <label>Mode</label><div class="in">◉ Independent copy &nbsp; ○ Variant (Duplicate-of + Params)</div>
+            </div>
+            <div class="checks"><span>Links</span><span>Tags</span><span>Environment</span><span class="off">Datasets</span><span>Inherit step scripts</span></div>
+            <div class="note">6 of 7 steps unchanged → inherit scripts v2 from TC-0412. First run replays those; only the Login step runs through the agent. Lineage kept: TC-0412 shows "derived: 3".</div>
+            <div style="display:flex; gap:8px; justify-content:flex-end"><button class="btn ghost" style="height:28px">Cancel</button><button class="btn primary" style="height:28px">Duplicate <kbd style="font-family:var(--font-mono);font-size:10px;opacity:.7;margin-left:4px">⏎</kbd></button></div>
+          </div>
+          <div class="card">
+            <div class="kicker">Tổ chức hàng ngàn case</div>
+            <ul style="margin:0; padding-left:18px; font-size:14px; color:var(--muted-text)">
+              <li><b>Key</b> <code>TC-0412</code> theo org, dùng trong Jira và chat.</li>
+              <li><b>Tag có namespace</b> <code>team:</code> <code>feature:</code> <code>module:</code> <code>prio:</code> do org quản lý, sidebar nhóm theo namespace; không folder, không team scope. <b>Suites</b> tĩnh (membership) hoặc smart (filter trên tag), là đơn vị cho group run, CI, report.</li>
+              <li><b>Saved views</b> = filter + cột + sort. <b>FTS5</b> trên key, title, description, transcript, tags; filter theo status, tag, env, last outcome, stale cache, source, owner, "no runs in 30 days".</li>
+              <li><b>List ảo hoá</b>, keyboard-first, bulk bar, sửa title inline, export selection ra cùng document format.</li>
+              <li><b>Similarity khi tạo</b>: gõ title hoặc paste transcript là hiện "3 similar cases" kèm diff một dòng; một click mở case cũ hoặc biến case mới thành variant.</li>
+              <li><b>Lineage</b>: <code>source</code> (manual / import / ai / duplicate / recording), <code>source_ref</code>, <code>duplicated_from_id</code>.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="mock">
+          <div class="mock-top">
+            <div class="crumbs"><b>Review queue</b> · 41 · generated from PCF-1234, PCF-1240, cases-pcf.xlsx</div>
+            <div style="display:flex; gap:8px"><button class="btn ghost" style="height:28px">Approve all without warnings (28)</button></div>
+          </div>
+          <div class="review">
+            <div class="q">
+              <div class="qi sel"><span>Branch admin cannot open HQ settings</span><span class="pill passed">ok</span></div>
+              <div class="qi"><span>Teacher sees only own class</span><span class="pill passed">ok</span></div>
+              <div class="qi"><span>Enrol student, invalid NRIC</span><span class="pill blocked">2 warn</span></div>
+              <div class="qi"><span>Export fee report</span><span class="pill blocked">1 warn</span></div>
+              <div class="qi"><span>…37 more</span><span></span></div>
+            </div>
+            <div class="pane">
+              <div class="kicker">Transcript · ai · from PCF-1240</div>
+              <div class="mock" style="box-shadow:none; border-radius:8px"><div class="lines" style="padding:8px 0">
+                <div class="line"><span class="ln">1</span><span class="h"># Branch admin cannot open HQ settings</span></div>
+                <div class="line"><span class="ln">2</span><span><span class="t-open">[Open]</span> /login</span></div>
+                <div class="line"><span class="ln">3</span><span><span class="t-login">[Login: BRANCH_ADMIN]</span> đăng nhập branch admin</span></div>
+                <div class="line"><span class="ln">4</span><span><span class="t-open">[Open]</span> /settings/hq</span></div>
+                <div class="line"><span class="ln">5</span><span><span class="t-assert">[Assert]</span> hiện thông báo không có quyền, không hiện form</span></div>
+              </div></div>
+              <div class="acts"><button class="btn primary" style="height:26px;font-size:12px">Approve <kbd style="font-family:var(--font-mono);font-size:10px;opacity:.7">a</kbd></button><button class="btn" style="height:26px;font-size:12px">Edit <kbd style="font-family:var(--font-mono);font-size:10px;opacity:.7">e</kbd></button><button class="btn ghost" style="height:26px;font-size:12px">Reject <kbd style="font-family:var(--font-mono);font-size:10px;opacity:.7">x</kbd></button><span class="mode" style="margin-left:auto">similar: TC-0412 · 62%</span></div>
+            </div>
+            <div class="pane">
+              <div class="kicker">Source · PCF-1240 · acceptance criteria</div>
+              <div class="src">"Branch admins must not access HQ-level settings. Opening /settings/hq as a branch admin shows a permission error and never renders the settings form. Direct URL access must behave the same as navigation."</div>
+              <div class="kicker" style="margin-top:14px">Generation</div>
+              <div class="mode">anthropic/claude-sonnet-5-5 · 3 cases · 4.1k tokens · $0.01 · rejected reasons feed the next prompt</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ROADMAP ================= -->
+    <section data-view="roadmap">
+      <div class="view-head">
+        <div class="eyebrow">Phasing</div>
+        <h1>Roadmap</h1>
+        <p>Phase 0 là spike để kiểm chứng giả định quan trọng nhất: replay toàn bộ Act step với 0 model call ở lần chạy thứ hai, trên một case UAT thật.</p>
+      </div>
+      <div class="reveal">
+        <div class="phases">
+          <div class="phase"><div class="num">Phase 0 · 1–2 tuần</div><h3>Spike</h3><ul><li>packages/e2e-runner bọc Tester Army e2e, CLI only</li><li>parser transcript trong packages/shared → sinh case.e2e.ts</li><li>cache file JSON qua cache.store</li><li>trace → archive v4, upload qua /automation/evidences/zip</li><li>thử Input.setIgnoreInputEvents vs shield</li></ul><div class="exit"><b>Exit:</b> một case PCF/ILHAM từ _bdd chạy 2 lần, lần 2 replay mọi Act step với 0 model call cho Act; evidence mở được trong viewer; token per step đọc được từ ai-trace. <b>Gate:</b> giữ e2e hay chuyển loop riêng.</div></div>
+          <div class="phase"><div class="num">Phase 1</div><h3>MVP</h3><ul><li>tables, routes, permissions, AI allowlist</li><li>archive v4 + viewer lọc theo step</li><li>web: test case pages, run detail step-seek</li><li>Authoring: multi-case document, import .md/.feature/.csv, duplicate kế thừa scripts, review queue, FTS, folders/tags/suites</li><li>Cloud runner pool + self-hosted pool: daemon, đăng ký, lease worker, config token</li><li>Environments + Credentials settings, secret mã hoá server, BYOK model key</li><li>desktop và web là client, tiến độ step trực tiếp</li><li>in-app notifications; Jira import; .feature import</li><li>CLI jl-e2e: .env, env pull, export/push</li><li>MCP tools; macro có tham số</li></ul><div class="exit"><b>Exit:</b> tester tạo case trên web, chạy từ desktop, review run có step-seek, re-run với cache; agent tạo và chạy case qua MCP.</div></div>
+          <div class="phase"><div class="num">Phase 2</div><h3>Platform</h3><ul><li>webhook GitLab/GitHub + báo status về MR</li><li>Slack channel</li><li>live view cloud browser + take-over</li><li>agent notes (org memory)</li><li>GitHub Actions / GitLab CI template</li><li>strict cache trong CI, JUnit export</li><li>Jira comment integration</li></ul><div class="exit"><b>Exit:</b> pipeline CI chạy một group case bằng automation token và post kết quả.</div></div>
+          <div class="phase"><div class="num">Phase 3</div><h3>Bridges</h3><ul><li>import evidence sẵn có vào test case, link chéo hai chiều</li><li>sinh transcript nháp từ manual recording (archive interactions → model → draft)</li><li>agent tự đề xuất macro từ sequence lặp</li></ul><div class="exit"><b>Exit:</b> recording cũ gắn được vào case; session thủ công cho ra draft chạy được.</div></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="kicker">Open questions còn lại</div>
+          <details><summary>Model provider abstraction</summary><p>Phase 1 dùng thẳng Anthropic SDK. Nếu cần provider khác, bọc agent sau một <code>ModelClient</code> nhỏ thay vì chọn multi-provider SDK ngay.</p></details>
+          <details><summary>Headed hay headless trên desktop</summary><p>Headed để tester xem và can thiệp, nhưng cửa sổ Chrome nổi lên làm đổi focus. Mặc định headed, có tuỳ chọn "run in background".</p></details>
+          <details><summary>Stagehand</summary><p>v3 có thể thay lớp observe/act, nhưng cache đóng; v4 bỏ Playwright. Giữ sau interface step, không phụ thuộc ở phase 0.</p></details>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- navigation (keyboard: no animation) ---------- */
+  const views = [...document.querySelectorAll('section[data-view]')];
+  const navBtns = [...document.querySelectorAll('#nav button')];
+  function go(name, viaKeyboard) {
+    views.forEach(v => {
+      const active = v.dataset.view === name;
+      v.classList.toggle('is-active', active);
+      if (active) {
+        const r = v.querySelector('.reveal');
+        if (r) { r.classList.remove('reveal'); if (!viaKeyboard && !reduced) { void r.offsetWidth; r.classList.add('reveal'); } }
+      }
+    });
+    navBtns.forEach(b => b.setAttribute('aria-current', String(b.dataset.go === name)));
+    history.replaceState(null, '', '#' + name);
+    window.scrollTo({ top: 0 });
+  }
+  navBtns.forEach(b => b.addEventListener('click', () => go(b.dataset.go, false)));
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    const i = Number(e.key) - 1;
+    if (i >= 0 && i < navBtns.length) go(navBtns[i].dataset.go, true);
+  });
+  if (location.hash && navBtns.some(b => b.dataset.go === location.hash.slice(1))) go(location.hash.slice(1), true);
+
+  /* ---------- theme ---------- */
+  const themeBtn = document.getElementById('theme');
+  const applyTheme = dark => { document.documentElement.classList.toggle('dark', dark); themeBtn.lastChild.textContent = dark ? ' Light mode' : ' Dark mode'; };
+  applyTheme(localStorage.getItem('jl-plan-theme') === 'dark');
+  themeBtn.addEventListener('click', () => { const d = !document.documentElement.classList.contains('dark'); localStorage.setItem('jl-plan-theme', d ? 'dark' : 'light'); applyTheme(d); });
+
+  /* ---------- transcript parser (same grammar as the spec) ---------- */
+  const BUILTIN = new Set(['open','act','assert','login','wait','screenshot','extract','note']);
+  function parseArgs(raw) {
+    if (!raw) return {};
+    if (!raw.includes('=')) return { _0: raw.trim() };
+    const out = {};
+    raw.split(',').forEach(p => { const [k, ...v] = p.split('='); if (k) out[k.trim()] = v.join('=').trim(); });
+    return out;
+  }
+  function parseTranscript(text) {
+    const steps = [], lints = []; let title = null, checkpoint = null, n = 0;
+    text.split('\n').forEach((line, i) => {
+      const t = line.trim(); if (!t) return;
+      if (t.startsWith('## ')) { checkpoint = t.replace(/^##\s*(Checkpoint:)?\s*/i, ''); return; }
+      if (t.startsWith('# ')) { if (title === null) title = t.slice(2); return; }
+      const m = t.match(/^\[([A-Za-z][\w-]*)(?::\s*([^\]]*))?\]\s*(.*)$/);
+      let type = 'act', tag = 'Act', args = {}, body = t;
+      if (m) { tag = m[1]; type = m[1].toLowerCase(); args = parseArgs(m[2]); body = m[3]; }
+      if (!BUILTIN.has(type)) type = 'macro';
+      n++;
+      const step = { n, line: i + 1, type, tag, args, text: body, checkpoint };
+      const l = lint(step); if (l) { step.lint = l; lints.push(`Dòng ${i + 1}: ${l}`); }
+      steps.push(step);
+    });
+    if (!steps.some(s => s.type === 'assert')) lints.push('Transcript không có [Assert] nào. Không có checkpoint thì Act step không bao giờ được ghi vào cache.');
+    return { title, steps, lints };
+  }
+  function lint(s) {
+    if (/[#.][a-z0-9_-]+\s*>|\bcss\b|xpath|querySelector/i.test(s.text)) return 'có selector trong instruction, hãy dùng label nhìn thấy trên UI';
+    if (s.type === 'act' && /\b(và|rồi|then|and)\b.*\b(và|rồi|then|and)\b/i.test(s.text)) return 'nhiều ý định trong một step, nên tách';
+    if (s.type === 'assert' && s.text.length < 12) return 'assert quá mơ hồ, nêu rõ điều phải thấy';
+    if (s.type === 'login' && !s.args._0 && !s.args.profile) return '[Login] cần profile, ví dụ [Login: PCF]';
+    if (/mật khẩu|password/i.test(s.text) && /\d{4,}|[A-Z][a-z]+\d/.test(s.text)) return 'có vẻ chứa secret, dùng credential profile';
+    return null;
+  }
+  const cacheHint = { open: 'no cache', act: 'action record', assert: 'det. check', login: 'per macro step', macro: 'per macro step', wait: 'det. check', extract: 'always model', screenshot: '—', note: '—' };
+  function renderSteps(container, steps, opts = {}) {
+    container.innerHTML = '';
+    let cp = undefined;
+    steps.forEach(s => {
+      if (s.checkpoint !== cp) { cp = s.checkpoint; if (cp) { const h = document.createElement('div'); h.className = 'checkpoint'; h.textContent = cp; container.appendChild(h); } }
+      const el = document.createElement('div');
+      el.className = 'step' + (s.lint ? ' lint' : '');
+      el.dataset.n = s.n;
+      const argStr = Object.keys(s.args).length ? ' <em>' + Object.entries(s.args).map(([k, v]) => k === '_0' ? v : k + '=' + v).join(', ') + '</em>' : '';
+      el.innerHTML = `<span class="n">${s.n}</span><span class="pill ${s.type}">${s.tag}</span><span class="txt">${esc(s.text)}${argStr}</span>` +
+        (opts.status ? `<span class="status"></span>` : `<span class="cache">${cacheHint[s.type]}</span>`);
+      container.appendChild(el);
+    });
+  }
+  const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const tx = document.getElementById('tx'), parsed = document.getElementById('parsed'), lintsEl = document.getElementById('lints'), countEl = document.getElementById('stepcount');
+  function refresh() {
+    const r = parseTranscript(tx.value);
+    renderSteps(parsed, r.steps);
+    countEl.textContent = `${r.steps.length} steps · ${r.steps.filter(s => s.type === 'assert').length} asserts · ${new Set(r.steps.map(s => s.checkpoint).filter(Boolean)).size} checkpoints`;
+    lintsEl.innerHTML = r.lints.length ? r.lints.map(l => `<li><span class="w">lint</span> ${esc(l)}</li>`).join('') : '<li>Không có lint. Transcript đọc được bởi người và chạy được bởi agent.</li>';
+    return r;
+  }
+  tx.addEventListener('input', refresh);
+  const initial = refresh();
+
+  /* ---------- run simulation ---------- */
+  const SIM = initial.steps.filter(s => s.type !== 'note');
+  const CODE = {
+    open: s => `await page.goto(env.baseUrl + '${s.text}');`,
+    login: () => `// macro Login(profile=PCF) · 3 recorded actions\nawait page.getByRole('textbox', { name: 'Email' }).fill(params.PCF_HQ_ADMIN.username);\nawait page.getByRole('textbox', { name: 'Mật khẩu' }).fill(secret('PCF_HQ_ADMIN.password'));\nawait page.getByRole('button', { name: 'Đăng nhập' }).click();\n// end state\nawait expect(page).toHaveURL(/\\/dashboard/);`,
+    act: s => s.text.includes('Đăng xuất') ? `await page.getByRole('banner').getByRole('button', { name: 'Account menu' }).click();\nawait page.getByRole('menuitem', { name: 'Đăng xuất' }).click();\n// end state\nawait expect(page).toHaveURL(/\\/login/);\nawait expect(page.getByRole('textbox', { name: 'Email' })).toBeVisible();` : `// ${s.text}\n// (action record sẽ sinh ở lần agent chạy thành công)`,
+    assert: s => s.text.includes('Email phải trống') ? `await expect(page.getByRole('textbox', { name: 'Email' })).toHaveValue('');` : s.text.includes('form đăng nhập') ? `await expect(page.getByRole('textbox', { name: 'Email' })).toBeVisible();\nawait expect(page.getByRole('textbox', { name: 'Mật khẩu' })).toBeVisible();` : s.text.includes('chuyển hướng') ? `await expect(page).toHaveURL(/\\/login/);` : `await expect(page.getByRole('navigation')).toBeVisible();\nawait expect(page.getByRole('heading')).toContainText(/.+/);`,
+    screenshot: s => `await page.screenshot({ path: artifact('${s.text.replace(/\s+/g, '-')}.png') });`,
+    macro: s => `// macro ${s.tag}(${Object.entries(s.args).map(([k, v]) => k + '=' + v).join(', ')})\n// chưa có record: agent sẽ chạy và ghi lại`,
+    wait: () => `// cached deterministic check`, extract: () => `// extract luôn gọi model`
+  };
+  const simSteps = document.getElementById('simsteps'), codeEl = document.getElementById('code'), codeTag = document.getElementById('codetag'), label = document.getElementById('simlabel');
+  const stats = { calls: 0, replay: 0, handoff: 0, cost: 0 };
+  const btn1 = document.getElementById('run1'), btn2 = document.getElementById('run2'), btn3 = document.getElementById('run3');
+  let running = false, runIndex = 0;
+  function drawSim() {
+    renderSteps(simSteps, SIM, { status: true });
+    [...simSteps.querySelectorAll('.step')].forEach(el => {
+      el.addEventListener('click', () => selectStep(Number(el.dataset.n)));
+    });
+    selectStep(SIM[0].n);
+  }
+  function selectStep(n) {
+    const s = SIM.find(x => x.n === n); if (!s) return;
+    [...simSteps.querySelectorAll('.step')].forEach(el => el.classList.toggle('is-current', Number(el.dataset.n) === n));
+    codeEl.textContent = (CODE[s.type] || (() => '// —'))(s);
+    codeTag.textContent = `step ${n} · ${s.tag}${runIndex ? ' · after run #' + runIndex : ''}`;
+  }
+  function setStatus(n, status, mode, reason) {
+    const el = simSteps.querySelector(`.step[data-n="${n}"] .status`); if (!el) return;
+    const ring = status === 'running' ? '<i class="ring"></i> ' : '';
+    el.innerHTML = `<span class="pill ${status}">${ring}${status}</span>` + (mode ? ` <span class="mode ${mode}">${mode}${reason ? ' · ' + reason : ''}</span>` : '');
+  }
+  function updateStats() {
+    document.getElementById('st-calls').textContent = stats.calls;
+    document.getElementById('st-replay').textContent = stats.replay;
+    document.getElementById('st-handoff').textContent = stats.handoff;
+    document.getElementById('st-cost').textContent = '$' + stats.cost.toFixed(2);
+  }
+  const wait = ms => new Promise(r => setTimeout(r, reduced ? 0 : ms));
+  async function runSim(kind) {
+    if (running) return; running = true; runIndex = kind;
+    Object.assign(stats, { calls: 0, replay: 0, handoff: 0, cost: 0 }); updateStats();
+    [btn1, btn2, btn3].forEach(b => b.disabled = true);
+    label.textContent = kind === 1 ? 'agent-driven: mỗi Act/Assert gọi model, ghi action record' : kind === 2 ? 'replay: Act từ record, Assert từ deterministic check' : 'app đổi label "Đăng xuất" → "Thoát": replay hụt target, hand-off';
+    SIM.forEach(s => setStatus(s.n, 'queued'));
+    for (const s of SIM) {
+      selectStep(s.n); setStatus(s.n, 'running');
+      await wait(s.type === 'open' ? 350 : kind === 1 ? 1100 : 450);
+      let mode = null, reason = null, cost = 0;
+      if (s.type === 'open' || s.type === 'screenshot') { mode = null; }
+      else if (kind === 1) { mode = 'agent'; stats.calls += s.type === 'assert' ? 1 : 3; cost = s.type === 'assert' ? 0.012 : 0.05; }
+      else if (kind === 2) { if (s.type === 'macro') { mode = 'agent'; reason = 'no-entry'; stats.calls += 3; cost = 0.05; } else { mode = 'replayed'; stats.replay++; } }
+      else { if (s.type === 'act' && s.text.includes('Đăng xuất')) { mode = 'handoff'; reason = 'target-not-found'; stats.handoff++; stats.calls += 2; cost = 0.04; await wait(700); } else if (s.type === 'macro') { mode = 'replayed'; stats.replay++; } else { mode = 'replayed'; stats.replay++; } }
+      stats.cost += cost; updateStats();
+      setStatus(s.n, 'passed', mode, reason);
+      await wait(120);
+    }
+    label.textContent += ' · outcome: passed';
+    running = false;
+    btn1.disabled = false; btn2.disabled = false; btn3.disabled = kind < 2;
+  }
+  btn1.addEventListener('click', () => runSim(1));
+  btn2.addEventListener('click', () => runSim(2));
+  btn3.addEventListener('click', () => runSim(3));
+  document.getElementById('reset').addEventListener('click', () => { if (running) return; runIndex = 0; Object.assign(stats, { calls: 0, replay: 0, handoff: 0, cost: 0 }); updateStats(); label.textContent = ''; btn2.disabled = true; btn3.disabled = true; drawSim(); });
+  drawSim();
+
+  /* ---------- mock tabs (clip-path copy) ---------- */
+  const tabs = document.getElementById('mocktabs');
+  const tabBtns = [...tabs.querySelectorAll('.list button')], copy = tabs.querySelector('.copy');
+  function setTab(name) {
+    const list = tabs.querySelector('.list').getBoundingClientRect();
+    tabBtns.forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+    // size the copy's labels to the real buttons so the clip lines up exactly
+    const spans = copy.querySelectorAll('span');
+    tabBtns.forEach((btn, i) => { spans[i].style.width = btn.getBoundingClientRect().width + 'px'; spans[i].style.textAlign = 'center'; spans[i].style.padding = '6px 0'; });
+    const b = tabBtns.find(x => x.dataset.tab === name).getBoundingClientRect();
+    const left = b.left - list.left, right = list.right - b.right;
+    copy.style.clipPath = `inset(0 ${right}px 0 ${left}px round 999px)`;
+    document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('is-active', p.dataset.panel === name));
+  }
+  tabBtns.forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  // set initial without transition once laid out
+  requestAnimationFrame(() => { copy.style.transition = 'none'; setTab('transcript'); requestAnimationFrame(() => { copy.style.transition = ''; }); });
+  addEventListener('resize', () => { const cur = tabBtns.find(b => b.getAttribute('aria-selected') === 'true'); if (cur) setTab(cur.dataset.tab); });
+
+
+  /* ---------- authoring: library mock ---------- */
+  const LIB = [
+    ['TC-0412','HQ admin logout returns a clean login form','module:admin',['regression','login'],'active','passed',3],
+    ['TC-0413','Branch admin logout returns a clean login form','module:admin',['regression','login'],'active','passed',0],
+    ['TC-0414','Login with wrong password shows error','module:admin',['login','negative'],'active','passed',0],
+    ['TC-0415','Login locks after 5 failed attempts','module:admin',['login','negative'],'active','failed',0],
+    ['TC-0520','Branch admin cannot open HQ settings','module:permissions',['permissions'],'review','',0],
+    ['TC-0521','Teacher sees only own class','module:permissions',['permissions'],'review','',0],
+    ['TC-0988','Enrol student with valid NRIC','module:enrolment',['enrol','smoke'],'active','passed',2],
+    ['TC-0989','Enrol student with invalid NRIC','module:enrolment',['enrol','negative'],'active','blocked',0],
+    ['TC-1102','Export fee report for a month','module:finance',['finance','report'],'active','passed',0],
+    ['TC-1103','Fee report respects branch filter','module:finance',['finance'],'draft','',0],
+    ['TC-1340','Parent pays one-time invoice by card','module:payments',['payment','card'],'active','passed',1],
+    ['TC-1341','Card declined shows retry','module:payments',['payment','negative'],'active','stale',0],
+    ['TC-1342','Payment receipt email sent','module:payments',['payment','email'],'active','passed',0],
+    ['TC-2001','Attendance check-in via QR','module:attendance',['attendance'],'active','passed',0],
+  ];
+  const librows = document.getElementById('librows'), libdetail = document.getElementById('libdetail'), libq = document.getElementById('libq'), bulk = document.getElementById('bulk'), bulkn = document.getElementById('bulkn'), libcount = document.getElementById('libcount');
+  let libSel = 0, libChecked = new Set(), libFilter = 'all';
+  function libVisible() {
+    const q = libq.value.trim().toLowerCase();
+    return LIB.map((r, i) => ({ r, i })).filter(({ r }) => {
+      if (libFilter === 'review' && r[4] !== 'review') return false;
+      if (libFilter === 'stale' && r[5] !== 'stale') return false;
+      if (libFilter === 'failed' && r[5] !== 'failed') return false;
+      return !q || (r[0] + ' ' + r[1] + ' ' + r[2] + ' ' + r[3].join(' ')).toLowerCase().includes(q);
+    });
+  }
+  function drawLib() {
+    const vis = libVisible();
+    if (!vis.some(v => v.i === libSel) && vis.length) libSel = vis[0].i;
+    librows.innerHTML = vis.map(({ r, i }) => `<div class="row${i === libSel ? ' sel' : ''}${libChecked.has(i) ? ' checked' : ''}" data-i="${i}"><span class="box"></span><span class="key">${r[0]}</span><span class="title">${esc(r[1])}${r[6] ? `<small>${r[6]} variants</small>` : ''}</span><span class="folder">${r[2]}</span><span class="tags">${r[3].map(t => `<span>${t}</span>`).join('')}</span><span>${r[4] === 'review' ? '<span class="pill blocked">review</span>' : r[4] === 'draft' ? '<span class="pill queued">draft</span>' : r[5] === 'stale' ? '<span class="pill blocked">stale cache</span>' : r[5] ? `<span class="pill ${r[5]}">${r[5]}</span>` : ''}</span></div>`).join('');
+    librows.querySelectorAll('.row').forEach(el => {
+      el.addEventListener('click', e => { const i = Number(el.dataset.i); if (e.target.classList.contains('box')) { toggleCheck(i); } else { libSel = i; drawLib(); } });
+    });
+    libcount.textContent = `${vis.length} of 3,412 shown`;
+    bulk.classList.toggle('on', libChecked.size > 0); bulkn.textContent = libChecked.size;
+    const r = LIB[libSel];
+    libdetail.innerHTML = `<div class="kicker">${r[0]} · ${r[2]}</div><h3>${esc(r[1])}</h3><div class="mode">${r[4]} · last run ${r[5] || '—'} · source: ${r[4] === 'review' ? 'ai · PCF-1240' : 'import · cases-pcf.xlsx'}</div>` +
+      (r[0] === 'TC-0413' ? `<div class="similar"><b>duplicated from TC-0412</b> · 6/7 steps share scripts v2 · first run replayed 6 steps</div>` : r[0] === 'TC-0520' ? `<div class="similar"><b>similar: TC-0412 · 62%</b> · in review queue, approve with <code>a</code></div>` : `<div class="similar" style="background:var(--surface)">derived cases: ${r[6]} · suites: Login smoke, Nightly PCF</div>`) +
+      `<div class="mini">[Open] /login\n[Login: {role}] đăng nhập tài khoản {role} PCF\n[Act] mở menu tài khoản và chọn "Đăng xuất"\n[Assert] input text Email phải trống</div>` +
+      `<div style="display:flex; gap:6px; margin-top:12px"><button class="btn primary" style="height:26px;font-size:12px">Run</button><button class="btn" style="height:26px;font-size:12px">Duplicate</button><button class="btn ghost" style="height:26px;font-size:12px">Open</button></div>`;
+  }
+  function toggleCheck(i) { libChecked.has(i) ? libChecked.delete(i) : libChecked.add(i); drawLib(); }
+  libq.addEventListener('input', drawLib);
+  document.querySelectorAll('.lib .chip[data-f]').forEach(c => c.addEventListener('click', () => { libFilter = c.dataset.f; document.querySelectorAll('.lib .chip[data-f]').forEach(x => x.classList.toggle('on', x === c)); drawLib(); }));
+  document.addEventListener('keydown', e => {
+    if (!document.querySelector('[data-view="authoring"]').classList.contains('is-active')) return;
+    if (e.target === libq) { if (e.key === 'Escape') libq.blur(); return; }
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    const vis = libVisible(); const pos = vis.findIndex(v => v.i === libSel);
+    if (e.key === '/') { e.preventDefault(); libq.focus(); }
+    else if (e.key === 'j' && pos < vis.length - 1) { libSel = vis[pos + 1].i; drawLib(); }
+    else if (e.key === 'k' && pos > 0) { libSel = vis[pos - 1].i; drawLib(); }
+    else if (e.key === 'x' || e.key === 'X') { toggleCheck(libSel); }
+    else if (e.key === 'Escape') { libChecked.clear(); drawLib(); }
+  });
+  drawLib();
+
+  /* ---------- run detail mock ---------- */
+  const RUN = [
+    { n: 1, t: '[Open] /login', st: 'passed', mode: '', from: 0, to: 4, cur: [48, 52], ev: [['0.4s', 'nav', 'GET /login 200'], ['0.9s', 'lifecycle', 'step 1 finished']] },
+    { n: 2, t: '[Login: PCF] đăng nhập HQ_ADMIN', st: 'passed', mode: 'replayed', from: 4, to: 18, cur: [40, 44], ev: [['4.2s', 'input', 'textbox Email (redacted)'], ['5.1s', 'input', 'textbox Mật khẩu (redacted)'], ['6.0s', 'click', 'button Đăng nhập'], ['6.4s', 'net', 'POST /api/auth/login 200 · 212ms'], ['7.0s', 'nav', '/dashboard']] },
+    { n: 3, t: '[Assert] dashboard hiện tên trường', st: 'passed', mode: 'replayed', from: 18, to: 22, cur: [30, 30], ev: [['18.3s', 'assert', 'heading "Trường Mầm non Hoa Sen" visible']] },
+    { n: 4, t: '[Act] mở menu tài khoản, Đăng xuất', st: 'passed', mode: 'replayed', from: 22, to: 31, cur: [80, 26], ev: [['22.5s', 'click', 'button Account menu'], ['23.4s', 'click', 'menuitem Đăng xuất'], ['23.8s', 'net', 'POST /api/auth/logout 204'], ['24.5s', 'nav', '/login']] },
+    { n: 5, t: '[Assert] trang hiện form đăng nhập', st: 'passed', mode: 'replayed', from: 31, to: 34, cur: [48, 46], ev: [['31.2s', 'assert', 'textbox Email, Mật khẩu visible']] },
+    { n: 6, t: '[Assert] input text Email phải trống', st: 'failed', mode: 'agent', from: 34, to: 52, cur: [48, 44], ev: [['34.4s', 'assert', 'cached check FAILED: toHaveValue("") got "hq.admin@…"'], ['35.0s', 'model', 'judge screen · 1 call'], ['41.7s', 'assert', 'FAIL · observed: Email prefilled with hq.admin@littlelives.io']] },
+    { n: 7, t: '[Screenshot] login form after logout', st: 'passed', mode: '', from: 52, to: 54, cur: [48, 44], ev: [['52.1s', 'artifact', 'login-form-after-logout.png']] },
+    { n: 8, t: '[Open] /dashboard', st: 'skipped', mode: '', from: 54, to: 54, cur: [48, 44], ev: [['—', 'skipped', 'run stopped at first failed checkpoint']] },
+    { n: 9, t: '[Assert] chuyển hướng về đăng nhập', st: 'skipped', mode: '', from: 54, to: 54, cur: [48, 44], ev: [] },
+  ];
+  const TOTAL = 54;
+  const runsteps = document.getElementById('runsteps'), timeline = document.getElementById('timeline'), head = document.getElementById('head'), events = document.getElementById('events'), banner = document.getElementById('banner'), cursor = document.getElementById('cursor');
+  RUN.forEach(s => {
+    const row = document.createElement('div'); row.className = 'srow'; row.dataset.n = s.n;
+    const dur = s.st === 'skipped' ? '—' : (s.to - s.from) + 's';
+    row.innerHTML = `<span class="dot ${s.st}"></span><span class="t">${esc(s.t)}</span><span class="ms">${s.mode ? s.mode + ' · ' : ''}${dur}</span>`;
+    row.addEventListener('click', () => selectRun(s.n));
+    runsteps.appendChild(row);
+    if (s.to > s.from) { const seg = document.createElement('div'); seg.className = 'seg'; seg.dataset.n = s.n; seg.style.left = (s.from / TOTAL * 100) + '%'; seg.style.width = ((s.to - s.from) / TOTAL * 100) + '%'; seg.addEventListener('click', () => selectRun(s.n)); timeline.insertBefore(seg, head); }
+  });
+  function selectRun(n) {
+    const s = RUN.find(x => x.n === n);
+    runsteps.querySelectorAll('.srow').forEach(r => r.classList.toggle('sel', Number(r.dataset.n) === n));
+    timeline.querySelectorAll('.seg').forEach(g => g.classList.toggle('sel', Number(g.dataset.n) === n));
+    head.style.left = (s.from / TOTAL * 100) + '%';
+    banner.textContent = s.st === 'failed' ? `${s.t}\nFAIL · Email prefilled with hq.admin@littlelives.io` : s.t;
+    cursor.style.left = s.cur[0] + '%'; cursor.style.top = s.cur[1] + '%';
+    events.innerHTML = s.ev.map(([t, k, m]) => `<div class="ev ${k}"><span>${t}</span><span class="k">${k}</span><span>${esc(m)}</span></div>`).join('') || '<div class="ev"><span></span><span class="k"></span><span>no events</span></div>';
+  }
+  selectRun(6);
+})();
+</script>
+</body>
+</html>

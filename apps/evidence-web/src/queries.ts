@@ -41,6 +41,7 @@ import {
 import { useAuth } from "./auth";
 import { type LoadedSession, loadRemoteSessionArtifacts } from "./loader";
 import { migrationPollingInterval } from "./migration-ui-state";
+import { testKeys } from "./test-cases/query-keys";
 
 export function createQueryClient(): QueryClient {
 	return new QueryClient({
@@ -167,7 +168,7 @@ function remoteEvidenceMatchesId(evidenceId: string) {
 	};
 }
 
-function useAuthToken(): FetchToken {
+export function useAuthToken(): FetchToken {
 	const auth = useAuth();
 	// Keep a referentially-stable token getter that always reads the latest auth,
 	// so it is safe to use in query/effect dependency arrays without churn.
@@ -668,6 +669,8 @@ export function useSelectActiveOrganization() {
 			);
 			queryClient.invalidateQueries({ queryKey: queryKeys.organizations() });
 			queryClient.invalidateQueries({ queryKey: ["evidences"] });
+			// Test cases, runs and configuration are per organisation; refetch them for the new one.
+			queryClient.invalidateQueries({ queryKey: testKeys.all() });
 		},
 	});
 }

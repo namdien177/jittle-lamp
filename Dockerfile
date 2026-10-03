@@ -15,10 +15,16 @@ COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 COPY packages/viewer-core/package.json ./packages/viewer-core/package.json
 COPY packages/viewer-react/package.json ./packages/viewer-react/package.json
+COPY packages/e2e-runner/package.json ./packages/e2e-runner/package.json
 
-RUN bun install --frozen-lockfile --production --filter @jittle-lamp/backend
+# The backend imports only the runner's model resolver ("@jittle-lamp/e2e-runner/model") at
+# runtime for AI generation, so the runner workspace and its dependencies are installed too.
+RUN bun install --frozen-lockfile --production --filter @jittle-lamp/backend --filter @jittle-lamp/e2e-runner \
+  # claude-code/<model> is a development-only provider; its ~450 MB native CLI is not shipped.
+  && rm -rf node_modules/ai-sdk-provider-claude-code node_modules/@anthropic-ai/claude-agent-sdk*
 
 COPY packages/shared ./packages/shared
+COPY packages/e2e-runner/src/model ./packages/e2e-runner/src/model
 COPY apps/backend ./apps/backend
 
 RUN bun run --cwd packages/shared build:js
@@ -34,6 +40,7 @@ RUN apt-get update \
 
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/packages/shared /app/packages/shared
+COPY --from=build /app/packages/e2e-runner /app/packages/e2e-runner
 COPY --from=build /app/apps/backend/package.json ./package.json
 COPY --from=build /app/apps/backend/dist ./dist
 COPY --from=build /app/apps/backend/drizzle ./drizzle

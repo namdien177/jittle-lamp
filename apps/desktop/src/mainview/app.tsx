@@ -4,11 +4,12 @@ import { Analytics } from "@vercel/analytics/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { formatOffset, type TimelineItem, type TimelineSection } from "@jittle-lamp/shared";
 import { deriveSectionTimeline } from "@jittle-lamp/viewer-core";
-import { BookOpen, Building2, ChevronDown, Cloud, LogOut, Settings, User } from "lucide-react";
-import { MemoryRouter, Navigate, NavLink, Outlet, useLocation, useNavigate, useRoutes } from "react-router";
+import { BookOpen, Building2, ChevronDown, Cloud, FlaskConical, LogOut, PlayCircle, Settings, User } from "lucide-react";
+import { MemoryRouter, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams, useRoutes } from "react-router";
 import {
   ViewerModal,
   buildCurl,
+  buildViewerStepChips,
   getResponseBodyString,
   type JittleRouteObject,
   type ViewerContextMenuState,
@@ -29,7 +30,14 @@ import { CloudPage } from "./pages/cloud-page";
 import { OrganisationPage } from "./pages/organisation-page";
 import { AccountPage } from "./pages/account-page";
 import { SettingsPage } from "./pages/settings-page";
+import { TestCasesPage } from "./pages/test-cases-page";
+import { TestRunPage, TestRunsPage } from "./pages/test-runs-page";
+import { webOrigin } from "./api";
+import { createTestApi } from "./test-runs/test-api";
+import { TestApiProvider } from "./test-runs/test-api-context";
+import { NotificationBell } from "./ui/notification-bell";
 import { ToastProvider, useToast } from "./ui/toast";
+import { deepLinkTargetPath, isSafeRunId } from "../deep-link";
 import { createDesktopNotesAdapter } from "./adapters";
 import { formatRuntimeLabel } from "./catalog-view";
 import { createQueryClient } from "./queries";
@@ -227,6 +235,18 @@ function Sidebar(): React.JSX.Element {
         </NavLink>
       </div>
 
+      <div className="sidebar-section">
+        <span className="sidebar-section-label">Testing</span>
+        <NavLink to="/test-cases" className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}>
+          <FlaskConical className="sidebar-link-icon" aria-hidden size={16} strokeWidth={2} />
+          <span>Test cases</span>
+        </NavLink>
+        <NavLink to="/test-runs" className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}>
+          <PlayCircle className="sidebar-link-icon" aria-hidden size={16} strokeWidth={2} />
+          <span>Test runs</span>
+        </NavLink>
+      </div>
+
       <div className="sidebar-footer" ref={menuRef}>
         {menuOpen ? (
           <div className="sidebar-account-menu" role="menu">
@@ -303,6 +323,7 @@ function MainHeader(): React.JSX.Element {
         <button className="button ghost sm" type="button" onClick={desktop.importZip}>
           Import ZIP
         </button>
+        <NotificationBell />
       </div>
     </div>
   );
@@ -311,21 +332,64 @@ function MainHeader(): React.JSX.Element {
 function DesktopAppLayout(): React.JSX.Element {
   const auth = useDesktopAuth();
   const desktop = useDesktopController({ authStatus: auth.state.status, getAuthToken: auth.getToken });
+  const testApi = useMemo(() => createTestApi({ getToken: auth.getToken }), [auth.getToken]);
+  const bridge = desktop.bridge;
+  const openExternal = useCallback(
+    (url: string) => {
+      if (bridge) void bridge.rpc.request.openExternalUrl({ url }).catch(() => undefined);
+    },
+    [bridge]
+  );
 
   return (
     <DesktopControllerContext.Provider value={desktop}>
-      <div className="app-shell">
-        <Sidebar />
-        <div className="main-area">
-          <MainHeader />
-          <div className="main-content">
-            <Outlet />
+      <TestApiProvider api={testApi} webOrigin={webOrigin} openExternal={openExternal}>
+        <DeepLinkListener />
+        <div className="app-shell">
+          <Sidebar />
+          <div className="main-area">
+            <MainHeader />
+            <div className="main-content">
+              <Outlet />
+            </div>
           </div>
         </div>
-      </div>
-      <DesktopViewerOverlay />
+        <DesktopViewerOverlay />
+      </TestApiProvider>
     </DesktopControllerContext.Provider>
   );
+}
+
+// Routes `jittle-lamp://run?runId=…` links to the run page. The main process parses and holds the
+// link; the renderer consumes it on mount (after sign-in) and whenever a new one arrives.
+function DeepLinkListener(): null {
+  const desktop = useDesktop();
+  const navigate = useNavigate();
+  // `navigate` changes identity with the location; keep the subscription bound to the bridge only.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  useEffect(() => {
+    const bridge = desktop.bridge;
+    if (!bridge) return;
+    const consume = (): void => {
+      void bridge.rpc.request
+        .consumeDeepLink(undefined)
+        .then(({ target }) => {
+          if (target && isSafeRunId(target.runId)) navigateRef.current(deepLinkTargetPath(target));
+        })
+        .catch(() => undefined);
+    };
+    consume();
+    return bridge.onDeepLinkReceived(consume);
+  }, [desktop.bridge]);
+  return null;
+}
+
+function TestRunRoute(): React.JSX.Element {
+  const desktop = useDesktop();
+  const { runId } = useParams<{ runId: string }>();
+  if (!runId || !isSafeRunId(runId)) return <Navigate to="/test-runs" replace />;
+  return <TestRunPage key={runId} runId={runId} openEvidence={(evidenceId, options) => desktop.openRemoteEvidence(evidenceId, options)} />;
 }
 
 function LibraryRoute(): React.JSX.Element {
@@ -377,22 +441,24 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
 
   const viewerState = desktop.viewerState;
   const { activeSection, mergeGroups, selectedActionIds, networkSubtypeFilter, networkSearchQuery } = viewerState;
+  const activeStepId = viewerState.stepFilter;
+  const stepChips = useMemo(() => (payload ? buildViewerStepChips(payload.archive) : []), [payload]);
 
   // `sectionItems` and `rows` are rebuilt only when the viewer-state slices that
   // actually feed them change, instead of on every render of this overlay.
   const sectionItems = useMemo(
     () =>
       payload
-        ? deriveSectionTimeline(payload.archive, activeSection, networkSubtypeFilter, networkSearchQuery)
+        ? deriveSectionTimeline(payload.archive, activeSection, networkSubtypeFilter, networkSearchQuery, activeStepId)
         : [],
-    [payload, activeSection, networkSubtypeFilter, networkSearchQuery]
+    [payload, activeSection, networkSubtypeFilter, networkSearchQuery, activeStepId]
   );
 
   const rows = useMemo(
-    () => buildTimelineRows(desktop).map((row) => mapToModalRow(row, sectionItems)),
+    () => buildTimelineRows(desktop, activeStepId).map((row) => mapToModalRow(row, sectionItems)),
     // `buildTimelineRows` reads exactly these viewer-state slices off `desktop`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [payload, activeSection, mergeGroups, selectedActionIds, networkSubtypeFilter, networkSearchQuery, sectionItems]
+    [payload, activeSection, mergeGroups, selectedActionIds, networkSubtypeFilter, networkSearchQuery, sectionItems, activeStepId]
   );
 
   const onContextMenuClose = useCallback(() => {
@@ -486,6 +552,9 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
       subtypeFilter={desktop.viewerState.networkSubtypeFilter}
       onSubtypeFilterChange={desktop.setViewerSubtype}
       rows={rows}
+      steps={stepChips}
+      activeStepId={activeStepId}
+      onStepSelect={desktop.setViewerStepFilter}
       activeItemId={activeItemId}
       autoFollow={desktop.viewerState.autoFollow}
       onItemClick={(row, event) => {
@@ -538,9 +607,10 @@ function DesktopViewerOverlay(): React.JSX.Element | null {
   );
 }
 
-function mapDesktopSource(source: "library" | "zip" | "local"): SharedViewerSource {
+function mapDesktopSource(source: "library" | "zip" | "local" | "cloud"): SharedViewerSource {
   if (source === "library") return "local";
   if (source === "zip") return "zip";
+  if (source === "cloud") return "cloud";
   return "local";
 }
 
@@ -582,12 +652,18 @@ type TimelineRow = {
   tags: string[];
 };
 
-function buildTimelineRows(desktop: DesktopController): TimelineRow[] {
+function buildTimelineRows(desktop: DesktopController, stepFilter: string | null = null): TimelineRow[] {
   const viewerState = desktop.viewerState;
   const payload = viewerState.payload;
   if (!payload) return [];
   const section = viewerState.activeSection;
-  const items = deriveSectionTimeline(payload.archive, section, viewerState.networkSubtypeFilter, viewerState.networkSearchQuery);
+  const items = deriveSectionTimeline(
+    payload.archive,
+    section,
+    viewerState.networkSubtypeFilter,
+    viewerState.networkSearchQuery,
+    stepFilter
+  );
 
   if (section !== "actions") {
     return items.map((item) => ({
@@ -658,6 +734,10 @@ const desktopRoutes: JittleRouteObject[] = [
     children: [
       { index: true, element: <LibraryRoute /> },
       { path: "cloud", element: <CloudPage /> },
+      { path: "test-cases", element: <TestCasesPage /> },
+      { path: "test-cases/:caseId", element: <TestCasesPage /> },
+      { path: "test-runs", element: <TestRunsPage /> },
+      { path: "test-runs/:runId", element: <TestRunRoute /> },
       { path: "organisations", element: <OrganisationPage /> },
       { path: "organisations/:orgId", element: <OrganisationPage /> },
       { path: "organisations/:orgId/invitations", element: <OrganisationPage section="invitations" /> },

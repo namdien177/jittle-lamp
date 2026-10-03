@@ -1,5 +1,8 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { Elysia, status } from "elysia";
+import type { Logger } from "pino";
+import { clerkAuthorizedPartiesForRequest } from "../config/preview-origins";
+
 import type { RuntimeConfig } from "../config/runtime";
 import {
 	apiErrorSchema,
@@ -41,6 +44,8 @@ export type AuthContext = {
 	roles: string[];
 	scopes: string[];
 	tokenType: SessionTokenType;
+	// Set for AI access tokens: the token's own id (per-token run throttle, design.md §10.3).
+	aiTokenId?: string;
 };
 
 /**
@@ -178,8 +183,9 @@ const authenticateWithRequestState = async (
 	if (runtime.clerkJwtKey && !runtime.clerkSecretKey) {
 		authenticateOptions.jwtKey = runtime.clerkJwtKey;
 	}
-	if (runtime.clerkAuthorizedParties) {
-		authenticateOptions.authorizedParties = runtime.clerkAuthorizedParties;
+	const authorizedParties = clerkAuthorizedPartiesForRequest(runtime, request);
+	if (authorizedParties) {
+		authenticateOptions.authorizedParties = authorizedParties;
 	}
 	if (runtime.clerkAudience) {
 		authenticateOptions.audience = runtime.clerkAudience;
@@ -225,8 +231,9 @@ const authenticateWithVerifyToken = async (
 	if (runtime.clerkJwtKey && !runtime.clerkSecretKey) {
 		verifyOptions.jwtKey = runtime.clerkJwtKey;
 	}
-	if (runtime.clerkAuthorizedParties) {
-		verifyOptions.authorizedParties = runtime.clerkAuthorizedParties;
+	const authorizedParties = clerkAuthorizedPartiesForRequest(runtime, request);
+	if (authorizedParties) {
+		verifyOptions.authorizedParties = authorizedParties;
 	}
 	if (runtime.clerkAudience) {
 		verifyOptions.audience = runtime.clerkAudience;
@@ -293,11 +300,166 @@ const authenticateRequest = async (
 		// Not a desktop session token; continue with Clerk verification.
 	}
 
-	if (runtime.clerkPublishableKey) {
+	if (
+		runtime.clerkPublishableKey &&
+		(runtime.clerkSecretKey || !runtime.clerkJwtKey)
+	) {
 		return authenticateWithRequestState(request, runtime);
 	}
 
 	return authenticateWithVerifyToken(request, runtime);
+};
+
+type RequestAuthResult =
+	| { ok: true; authContext: AuthContext }
+	| {
+			ok: false;
+			status: 401 | 403 | 500 | 503;
+			body: ReturnType<typeof createApiError>;
+	  };
+
+const fail = (
+	code: 401 | 403 | 500 | 503,
+	body: ReturnType<typeof createApiError>,
+): RequestAuthResult => ({ ok: false, status: code, body });
+
+// The body of the `auth` macro, reusable by routes that also accept other bearer tokens
+// (automation API tokens on test-case routes).
+export const resolveRequestAuthContext = async ({
+	db,
+	request,
+	requestId,
+	requestLogger,
+	runtime,
+}: {
+	db: BackendDb | null;
+	request: Request;
+	requestId: string;
+	requestLogger: Logger;
+	runtime: RuntimeConfig;
+}): Promise<RequestAuthResult> => {
+	if (!readSessionToken(request)) {
+		return fail(
+			401,
+			createApiError(
+				requestId,
+				"AUTH_UNAUTHENTICATED",
+				"Authentication required",
+				401,
+			),
+		);
+	}
+
+	if (readAiBearerToken(request)) {
+		if (!db) {
+			return fail(503, createDbUnavailableError(requestId));
+		}
+		const access = await verifyAiUserAccess(db, request);
+		if (!access.ok) {
+			return fail(
+				access.status,
+				createApiError(requestId, access.code, access.message, access.status),
+			);
+		}
+		return { ok: true, authContext: access.authContext };
+	}
+
+	if (!runtime.clerkSecretKey && !runtime.clerkJwtKey && !runtime.secret) {
+		return fail(
+			500,
+			createApiError(
+				requestId,
+				"AUTH_MISCONFIGURED",
+				"Backend auth configuration is missing",
+				500,
+			),
+		);
+	}
+
+	let authContext: AuthContext | null;
+	try {
+		authContext = await authenticateRequest(request, runtime, db);
+	} catch (error) {
+		requestLogger.warn({ err: error }, "failed to authenticate request");
+		return fail(
+			401,
+			createApiError(
+				requestId,
+				"AUTH_INVALID_TOKEN",
+				"Invalid or expired auth token",
+				401,
+			),
+		);
+	}
+
+	if (!authContext) {
+		return fail(
+			401,
+			createApiError(
+				requestId,
+				"AUTH_UNAUTHENTICATED",
+				"Authentication required",
+				401,
+			),
+		);
+	}
+
+	try {
+		if (!db) {
+			return { ok: true, authContext };
+		}
+
+		const provisioned = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: authContext.userId,
+			source: "auth-middleware",
+			// Resolved lazily: only a brand-new user triggers the Clerk
+			// profile lookup, so existing users avoid a per-request Clerk
+			// API round-trip.
+			userProfile: () =>
+				resolveClerkUserProfile(runtime, authContext.userId).catch((error) => {
+					requestLogger.warn(
+						{ err: error, clerkUserId: authContext.userId },
+						"failed to resolve Clerk user profile during provisioning",
+					);
+					return null;
+				}),
+			rawPayload: {
+				userId: authContext.userId,
+				orgId: authContext.orgId,
+				roles: authContext.roles,
+				scopes: authContext.scopes,
+			},
+		});
+		const activeOrganization = await resolveActiveOrganizationForClerkUser(
+			db,
+			authContext.userId,
+		);
+
+		return {
+			ok: true,
+			authContext: {
+				...authContext,
+				localUserId: provisioned.userId,
+				activeOrgId:
+					activeOrganization?.organizationId ?? provisioned.organizationId,
+			},
+		};
+	} catch (error) {
+		requestLogger.error(
+			{ err: error },
+			"failed to provision authenticated Clerk user",
+		);
+
+		return fail(
+			500,
+			createApiError(
+				requestId,
+				"AUTH_PROVISIONING_FAILED",
+				"Failed to provision local user workspace",
+				500,
+			),
+		);
+	}
 };
 
 export const createClerkAuthPlugin = (core: CorePlugin) =>
@@ -313,137 +475,17 @@ export const createClerkAuthPlugin = (core: CorePlugin) =>
 				503: apiErrorSchema,
 			},
 			async derive({ db, request, requestId, requestLogger, runtime }) {
-				if (!readSessionToken(request)) {
-					return status(
-						401,
-						createApiError(
-							requestId,
-							"AUTH_UNAUTHENTICATED",
-							"Authentication required",
-							401,
-						),
-					);
+				const result = await resolveRequestAuthContext({
+					db,
+					request,
+					requestId,
+					requestLogger,
+					runtime,
+				});
+				if (!result.ok) {
+					return status(result.status, result.body);
 				}
-
-				if (readAiBearerToken(request)) {
-					if (!db) {
-						return status(503, createDbUnavailableError(requestId));
-					}
-					const access = await verifyAiUserAccess(db, request);
-					if (!access.ok) {
-						return status(
-							access.status,
-							createApiError(
-								requestId,
-								access.code,
-								access.message,
-								access.status,
-							),
-						);
-					}
-					return { authContext: access.authContext };
-				}
-
-				if (
-					!runtime.clerkSecretKey &&
-					!runtime.clerkJwtKey &&
-					!runtime.secret
-				) {
-					return status(
-						500,
-						createApiError(
-							requestId,
-							"AUTH_MISCONFIGURED",
-							"Backend auth configuration is missing",
-							500,
-						),
-					);
-				}
-
-				let authContext: AuthContext | null;
-				try {
-					authContext = await authenticateRequest(request, runtime, db);
-				} catch (error) {
-					requestLogger.warn({ err: error }, "failed to authenticate request");
-					return status(
-						401,
-						createApiError(
-							requestId,
-							"AUTH_INVALID_TOKEN",
-							"Invalid or expired auth token",
-							401,
-						),
-					);
-				}
-
-				if (!authContext) {
-					return status(
-						401,
-						createApiError(
-							requestId,
-							"AUTH_UNAUTHENTICATED",
-							"Authentication required",
-							401,
-						),
-					);
-				}
-
-				try {
-					if (!db) {
-						return { authContext };
-					}
-
-					const provisioned = await ensureUserAndPersonalOrganization(db, {
-						clerkUserId: authContext.userId,
-						source: "auth-middleware",
-						// Resolved lazily: only a brand-new user triggers the Clerk
-						// profile lookup, so existing users avoid a per-request Clerk
-						// API round-trip.
-						userProfile: () =>
-							resolveClerkUserProfile(runtime, authContext.userId).catch(
-								(error) => {
-									requestLogger.warn(
-										{ err: error, clerkUserId: authContext.userId },
-										"failed to resolve Clerk user profile during provisioning",
-									);
-									return null;
-								},
-							),
-						rawPayload: {
-							userId: authContext.userId,
-							orgId: authContext.orgId,
-							roles: authContext.roles,
-							scopes: authContext.scopes,
-						},
-					});
-					const activeOrganization =
-						await resolveActiveOrganizationForClerkUser(db, authContext.userId);
-
-					return {
-						authContext: {
-							...authContext,
-							localUserId: provisioned.userId,
-							activeOrgId:
-								activeOrganization?.organizationId ??
-								provisioned.organizationId,
-						},
-					};
-				} catch (error) {
-					requestLogger.error(
-						{ err: error },
-						"failed to provision authenticated Clerk user",
-					);
-
-					return status(
-						500,
-						createApiError(
-							requestId,
-							"AUTH_PROVISIONING_FAILED",
-							"Failed to provision local user workspace",
-							500,
-						),
-					);
-				}
+				return { authContext: result.authContext };
 			},
 		},
 	});

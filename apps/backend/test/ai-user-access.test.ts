@@ -105,6 +105,148 @@ describe("AI user access", () => {
 		}
 	});
 
+	it("allows test case and run routes but not test configuration writes or secrets", () => {
+		for (const [method, path] of [
+			["GET", "/test-cases"],
+			["POST", "/test-cases"],
+			["GET", "/test-cases/similar"],
+			["GET", "/test-cases/export"],
+			["POST", "/test-cases/import"],
+			["GET", "/test-cases/import/batch-1"],
+			["PATCH", "/test-cases/import/batch-1"],
+			["GET", "/test-cases/case-1"],
+			["PATCH", "/test-cases/case-1"],
+			["GET", "/test-cases/case-1/versions"],
+			["GET", "/test-cases/case-1/scripts"],
+			["DELETE", "/test-cases/case-1/scripts/st_1"],
+			["POST", "/test-cases/case-1/duplicate"],
+			["POST", "/test-cases/case-1/runs"],
+			["GET", "/test-cases/case-1/runs"],
+			["GET", "/test-suites"],
+			["POST", "/test-suites/suite-1/runs"],
+			["GET", "/test-runs"],
+			["GET", "/test-runs/run-1"],
+			["POST", "/test-runs/run-1/cancel"],
+			["GET", "/test-run-batches/batch-1"],
+			["GET", "/test-environments"],
+			["GET", "/test-credentials"],
+			["GET", "/test-macros"],
+			["POST", "/test-macros"],
+			["GET", "/test-tags"],
+			["GET", "/notifications"],
+			["POST", "/notifications/read"],
+			["POST", "/notifications/read-all"],
+			["POST", "/notifications/event-1/read"],
+		] as const) {
+			expect(isAiUserRouteAllowed(method, path)).toBe(true);
+		}
+		for (const [method, path] of [
+			["POST", "/test-environments"],
+			["PATCH", "/test-environments/env-1"],
+			["GET", "/test-environments/env-1/env-file"],
+			["POST", "/test-credentials"],
+			["PATCH", "/test-credentials/cred-1"],
+			["POST", "/test-credentials/cred-1/rotate"],
+			["POST", "/test-credentials/rotate-key"],
+			["PATCH", "/test-macros/macro-1"],
+			["DELETE", "/test-macros/macro-1"],
+			["POST", "/test-tags"],
+			// Approval, bulk edits and deletion need a person (ADR 0002 decision 13).
+			["POST", "/test-cases/bulk"],
+			["POST", "/test-cases/case-1/approve"],
+			["POST", "/test-cases/case-1/reject"],
+			["DELETE", "/test-cases/case-1"],
+			["PUT", "/test-run-settings"],
+			["GET", "/test-model-settings"],
+			["PUT", "/test-model-settings"],
+			["GET", "/test-model-costs"],
+			["GET", "/runner-pools"],
+			["POST", "/runner-pools"],
+			["POST", "/runner-pools/register"],
+			["POST", "/runner-pools/claim"],
+			["GET", "/test-runs/run-1/config"],
+			["POST", "/test-runs/run-1/config-token"],
+			["PATCH", "/test-runs/run-1/progress"],
+			["POST", "/test-runs/run-1/finalize"],
+			["POST", "/test-runs/run-1/evidence"],
+			["PUT", "/test-runs/run-1/cache/key"],
+			["GET", "/test-cases/case-1%2fsettings"],
+		] as const) {
+			expect(isAiUserRouteAllowed(method, path)).toBe(false);
+		}
+	});
+
+	it("lets an MCP token author and run test cases under the owner's role", async () => {
+		const { app, request } = await fixture();
+		const created = await app.handle(
+			request("/test-cases", "POST", {
+				transcript: "# MCP case\n\n[Open] /login\n[Assert] login form shows",
+			}),
+		);
+		expect(created.status).toBe(201);
+		const testCase = (await created.json()) as { id: string; key: string };
+		expect(testCase.key).toBe("TC-0001");
+		expect((await app.handle(request("/test-cases"))).status).toBe(200);
+		const run = await app.handle(
+			request(`/test-cases/${testCase.id}/runs`, "POST", { trigger: "mcp" }),
+		);
+		expect(run.status).toBe(201);
+		const runBody = (await run.json()) as { runId: string };
+		expect(
+			(await app.handle(request(`/test-runs/${runBody.runId}`))).status,
+		).toBe(200);
+		expect((await app.handle(request("/test-environments"))).status).toBe(200);
+		for (const [path, method, body] of [
+			["/test-environments", "POST", { name: "x", baseUrl: "https://x.test" }],
+			["/test-credentials", "POST", { profile: "X" }],
+			["/runner-pools", "GET", undefined],
+			["/test-model-settings", "GET", undefined],
+		] as const) {
+			const denied = await app.handle(request(path, method, body));
+			expect(denied.status).toBe(403);
+			expect(await denied.json()).toMatchObject({
+				error: { code: "AI_ACTION_FORBIDDEN" },
+			});
+		}
+	});
+
+	it("stores MCP-proposed macros as draft and keeps approval and deletion for people", async () => {
+		const { app, request } = await fixture();
+		const macro = await app.handle(
+			request("/test-macros", "POST", {
+				name: "OpenDashboard",
+				transcript: "[Open] /dashboard",
+				status: "active",
+			}),
+		);
+		expect(macro.status).toBe(201);
+		expect(await macro.json()).toMatchObject({
+			name: "OpenDashboard",
+			status: "draft",
+		});
+		const created = await app.handle(
+			request("/test-cases", "POST", {
+				transcript: "# MCP review case\n\n[Open] /login",
+				status: "review",
+				source: "ai",
+			}),
+		);
+		const testCase = (await created.json()) as { id: string; status: string };
+		expect(testCase.status).toBe("review");
+		for (const [path, method, body] of [
+			[`/test-cases/${testCase.id}/approve`, "POST", {}],
+			[`/test-cases/${testCase.id}/reject`, "POST", { reason: "x" }],
+			[`/test-cases/${testCase.id}`, "DELETE", undefined],
+			["/test-cases/bulk", "POST", { action: "approve", ids: [testCase.id] }],
+		] as const) {
+			const denied = await app.handle(request(path, method, body));
+			expect(denied.status).toBe(403);
+			expect(await denied.json()).toMatchObject({
+				error: { code: "AI_ACTION_FORBIDDEN" },
+			});
+		}
+	});
+
 	it("preserves debug-only tokens and rejects missing, revoked, and expired tokens", async () => {
 		const { db, owner, token, accessToken, request } = await fixture();
 		const debug = await createAiAccessToken(db, {

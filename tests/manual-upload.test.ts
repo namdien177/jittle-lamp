@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { parseSessionArchiveJson } from "@jittle-lamp/shared";
+
 import {
   InvalidEvidenceUploadError,
   MAX_MANUAL_VIDEO_UPLOAD_BYTES,
@@ -23,5 +25,19 @@ describe("manual evidence upload", () => {
     await expect(prepareManualEvidenceUploadFile(file)).rejects.toThrow(
       "Video files must be 60 MB or smaller.",
     );
+  });
+});
+
+describe("manual video upload without an archive", () => {
+  test("generates a valid schema-v4 archive for a raw video", async () => {
+    const bytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02]);
+    const file = new File([bytes], "walkthrough.webm", { type: "video/webm" });
+    const prepared = await prepareManualEvidenceUploadFile(file);
+    expect(prepared.generatedArchive).toBe(true);
+    const archiveArtifact = prepared.artifacts.find((artifact) => artifact.key === "archive");
+    expect(archiveArtifact).toBeDefined();
+    const archive = parseSessionArchiveJson(archiveArtifact?.payload ?? new Uint8Array());
+    expect(archive.schemaVersion).toBe(4);
+    expect(archive.recorder.kind).toBe("browser-extension");
   });
 });

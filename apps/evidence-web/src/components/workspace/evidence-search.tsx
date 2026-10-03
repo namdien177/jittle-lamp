@@ -8,12 +8,18 @@ import type { ApiEvidenceSummary } from "../../api";
 import { useEvidences, useRenameEvidence } from "../../queries";
 import { useToast } from "../../toast";
 import { formatRelativeTime } from "../../utils";
-import { Spinner } from "../ui/misc";
+import { Spinner } from "../ui/spinner";
+import { Hint } from "../ui/tooltip";
 
 const isMac =
   typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
 
-export function EvidenceSearch(): React.JSX.Element {
+export const searchShortcutLabel = `${isMac ? "⌘" : "Ctrl+"}K`;
+
+export function EvidenceSearch(props: {
+  // Custom trigger; defaults to the search field button.
+  renderTrigger?: (open: () => void) => React.ReactNode;
+} = {}): React.JSX.Element {
   const [open, setOpen] = useState(false);
 
   // Global ⌘K / Ctrl+K toggle.
@@ -28,32 +34,26 @@ export function EvidenceSearch(): React.JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  if (props.renderTrigger) {
+    return (
+      <>
+        {props.renderTrigger(() => setOpen(true))}
+        {open ? <SearchPalette onClose={() => setOpen(false)} /> : null}
+      </>
+    );
+  }
+
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Search evidence"
-        className="relative hidden h-9 w-[280px] items-center gap-2 rounded-md border border-transparent bg-secondary pl-8 pr-3 text-sm text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-popover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 sm:inline-flex"
+        className="relative inline-flex h-7 w-56 items-center gap-2 rounded-md border border-border bg-background pl-7 pr-1.5 text-[13px] text-muted-foreground outline-none transition-colors hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        <Search
-          aria-hidden
-          className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <span className="inline-flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate">Search evidence…</span>
-        </span>
-        <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-          {isMac ? "⌘" : "Ctrl"}K
-        </kbd>
-      </button>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Search evidence"
-        className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:hidden"
-      >
-        <Search aria-hidden className="size-4" />
+        <Search aria-hidden className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+        <span className="min-w-0 flex-1 truncate text-left">Search evidence…</span>
+        <kbd className="rounded border border-border bg-muted px-1 font-sans text-[11px]">{searchShortcutLabel}</kbd>
       </button>
       {open ? <SearchPalette onClose={() => setOpen(false)} /> : null}
     </>
@@ -169,14 +169,16 @@ function SearchPalette({
                 className="h-12 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 aria-label="Search evidence"
               />
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close search"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="size-4" aria-hidden />
-              </button>
+              <Hint label="Close">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close search"
+                  className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
+              </Hint>
             </div>
 
             <div
@@ -203,7 +205,7 @@ function SearchPalette({
                       onMouseEnter={() => setSelected(index)}
                       className={cn(
                         "group flex items-center gap-3 rounded-md px-2.5 py-2",
-                        active && !editing ? "bg-white/[0.06]" : "",
+                        active && !editing ? "bg-accent" : "",
                       )}
                     >
                       <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-primary">
@@ -252,17 +254,19 @@ function SearchPalette({
                           )}
                         </span>
                       ) : (
-                        <button
-                          type="button"
-                          aria-label={`Rename ${evidence.title}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startRename(evidence);
-                          }}
-                          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                        >
-                          <Pencil className="size-3.5" aria-hidden />
-                        </button>
+                        <Hint label="Rename">
+                          <button
+                            type="button"
+                            aria-label={`Rename ${evidence.title}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startRename(evidence);
+                            }}
+                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                          >
+                            <Pencil className="size-3.5" aria-hidden />
+                          </button>
+                        </Hint>
                       )}
                     </div>
                   );

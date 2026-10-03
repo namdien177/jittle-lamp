@@ -6,9 +6,7 @@ export const drawerStyles = `
   max-height: 70%;
   display: flex;
   flex-direction: column;
-  box-shadow:
-    0 -18px 42px rgba(0, 0, 0, 0.42),
-    0 -1px 0 rgba(34, 197, 94, 0.18);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.24);
   z-index: 5;
 }
 
@@ -17,14 +15,13 @@ export const drawerStyles = `
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 6px 8px 6px 14px;
+  min-height: 40px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--jl-vm-soft, rgba(239, 239, 239, 0.68));
+  font-size: 13px;
+  color: var(--jl-vm-text, #efefef);
   font-weight: 600;
-  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .jl-vm-drawer-actions {
@@ -52,12 +49,9 @@ export const drawerStyles = `
 }
 
 .jl-vm-drawer-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: 12px;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-weight: 600;
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 500;
 }
 
 .jl-vm-kv {
@@ -110,7 +104,7 @@ export const drawerStyles = `
 }
 
 .jl-vm-pre:hover {
-  border-color: rgba(34, 197, 94, 0.38);
+  border-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16));
 }
 
 .jl-vm-pre-compact {
@@ -136,7 +130,7 @@ export const drawerStyles = `
 }
 
 .jl-vm-cookie:hover {
-  border-color: rgba(34, 197, 94, 0.38);
+  border-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16));
 }
 
 .jl-vm-cookie-main {

@@ -1,25 +1,28 @@
 import React from "react";
 
 import { cn } from "../../lib/cn";
+import { Label } from "./label";
 
-export function Label({
-  className,
-  ...props
-}: React.LabelHTMLAttributes<HTMLLabelElement>): React.JSX.Element {
-  return (
-    <label
-      className={cn(
-        " font-semibold uppercase tracking-[0.06em] text-muted-foreground",
-        className,
-      )}
-      {...props}
-    />
-  );
+export function FieldLabel(props: React.LabelHTMLAttributes<HTMLLabelElement>): React.JSX.Element {
+  return <Label data-slot="field-label" {...props} />;
+}
+
+export function FieldDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>): React.JSX.Element {
+  return <p data-slot="field-description" className={cn("text-xs leading-normal text-muted-foreground", className)} {...props} />;
+}
+
+export function FieldError({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>): React.JSX.Element {
+  return <p data-slot="field-error" role="alert" className={cn("text-xs font-medium text-destructive", className)} {...props} />;
+}
+
+export function FieldGroup({ className, ...props }: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+  return <div data-slot="field-group" className={cn("flex flex-col gap-4", className)} {...props} />;
 }
 
 /**
- * A vertical form field: label, control (children) and an optional error/hint.
- * Pairs with react-hook-form — pass `error={errors.x?.message}`.
+ * A vertical form field (shadcn `Field`). Compose it with FieldLabel / FieldDescription /
+ * FieldError, or pass `label`, `hint` and `error` for the common case. Pairs with
+ * react-hook-form — pass `error={errors.x?.message}`.
  */
 export function Field(props: {
   label?: React.ReactNode;
@@ -30,16 +33,10 @@ export function Field(props: {
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <div className={cn("flex flex-col gap-1.5", props.className)}>
-      {props.label ? (
-        <Label htmlFor={props.htmlFor}>{props.label}</Label>
-      ) : null}
+    <div data-slot="field" data-invalid={props.error ? "true" : undefined} className={cn("flex flex-col gap-1.5", props.className)}>
+      {props.label ? <FieldLabel htmlFor={props.htmlFor}>{props.label}</FieldLabel> : null}
       {props.children}
-      {props.error ? (
-        <p className=" font-medium text-destructive">{props.error}</p>
-      ) : props.hint ? (
-        <p className=" text-muted-foreground">{props.hint}</p>
-      ) : null}
+      {props.error ? <FieldError>{props.error}</FieldError> : props.hint ? <FieldDescription>{props.hint}</FieldDescription> : null}
     </div>
   );
 }
