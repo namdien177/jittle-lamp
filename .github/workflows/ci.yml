@@ -48,6 +48,10 @@ jobs:
       - name: Install Chromium for the runner browser test
         run: bunx playwright install --with-deps chromium
 
+      # The engine child runs under Node and resolves @jittle-lamp/shared to its dist/.
+      - name: Build the shared package for the runner
+        run: bun run --cwd packages/shared build:js
+
       - name: Runner browser test (mock model)
         run: bun test packages/e2e-runner/browser --timeout=300000
         env:

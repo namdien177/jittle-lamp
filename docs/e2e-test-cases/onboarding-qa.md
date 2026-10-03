@@ -105,7 +105,13 @@ The case page shows the averages of the last ten runs: pass rate, flaky rate, du
 
 ## 6. Working on your machine
 
-The `jl-e2e` CLI runs the same transcripts locally, with a visible browser:
+The `jl-e2e` CLI runs the same transcripts locally, with a visible browser. From a checkout, build it once (and again after pulling changes to `packages/shared`):
+
+```bash
+bun install && bun run --cwd packages/shared build:js && bun run --cwd packages/e2e-runner build
+```
+
+Then:
 
 ```bash
 jl-e2e env pull pcf-uat                     # writes .env.e2e with the environment and empty credential lines
