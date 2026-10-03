@@ -800,6 +800,14 @@ export const refreshBatch = async (
 				passed,
 				failed,
 				blocked,
+				runIds: runs.map((run) => run.id),
+				// The notification opens this run: the first failing one, else the first.
+				focusRunId:
+					(
+						runs.find(
+							(run) => run.outcome === "failed" || run.outcome === "blocked",
+						) ?? runs[0]
+					)?.id ?? null,
 			},
 		});
 	}

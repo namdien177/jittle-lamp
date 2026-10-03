@@ -42,9 +42,18 @@ import {
 	createHttpMigrationPeerClient,
 	type MigrationPeerClient,
 } from "./services/migration-peer-client";
+import {
+	createSlackChannelAdapter,
+	createWebhookChannelAdapter,
+} from "./services/notification-channels";
+import { registerNotificationAdapter } from "./services/notifications";
 import { createOrganizationMigration } from "./services/organization-migration";
 import { createTaskQueue } from "./services/task-queue";
-import { createEnvKeyProvider, type KeyProvider } from "./services/test-config";
+import {
+	createEnvKeyProvider,
+	createTestSecrets,
+	type KeyProvider,
+} from "./services/test-config";
 import type { TextGenerator } from "./services/test-imports";
 import { createLiveHub, type LiveHub } from "./services/test-live";
 import {
@@ -126,6 +135,17 @@ export const createApp = (
 				directoryConfigured: Boolean(dependencies.clerkDirectory),
 			})
 		: null;
+
+	// Slack and outgoing-webhook channels on the notification bus (design.md §10b).
+	if (db) {
+		const channelDeps = {
+			secrets: createTestSecrets({ db, keyProvider }),
+			fetch: dependencies.fetch ?? fetch,
+			webOrigin: runtime.webAppOrigin ?? null,
+		};
+		registerNotificationAdapter(createSlackChannelAdapter(channelDeps), db);
+		registerNotificationAdapter(createWebhookChannelAdapter(channelDeps), db);
+	}
 
 	const app = new Elysia().use(core);
 
