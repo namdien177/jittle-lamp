@@ -62,6 +62,26 @@ export function lintCounts(lint: readonly Pick<LintFinding, "severity">[]): Lint
   };
 }
 
+// One line on an explored item: where it is in its exploration, or what came of it.
+export function explorationLabel(item: Pick<ImportItem, "exploration">): { text: string; tone: "muted" | "active" | "danger" } | null {
+  const exploration = item.exploration;
+  if (!exploration) return null;
+  const where = exploration.environmentName ? ` on ${exploration.environmentName}` : "";
+  switch (exploration.status) {
+    case "queued":
+      return { text: `Waiting for a runner${where}`, tone: "muted" };
+    case "running":
+      return { text: `Trying the instructions${where}${exploration.attempts > 1 ? ` (attempt ${exploration.attempts})` : ""}`, tone: "active" };
+    case "done": {
+      const findings = exploration.findings > 0 ? ` · ${exploration.findings} finding${exploration.findings === 1 ? "" : "s"}` : "";
+      const note = exploration.error ? ` · ${exploration.error}` : "";
+      return { text: `Explored${where}: ${exploration.steps} step${exploration.steps === 1 ? "" : "s"}${findings}${note}`, tone: exploration.error ? "danger" : "muted" };
+    }
+    case "failed":
+      return { text: `Not explored${where}: ${exploration.error ?? "the runner gave up"}`, tone: "danger" };
+  }
+}
+
 export type BatchOverview = {
   percent: number;
   active: boolean;
@@ -69,6 +89,8 @@ export type BatchOverview = {
   near: number;
   lintErrors: number;
   normalising: number;
+  // Items still waiting for or in their exploration.
+  exploring: number;
   toCreate: number;
   toUpdate: number;
   toMerge: number;
@@ -96,6 +118,7 @@ export function batchOverview(batch: Pick<ImportBatch, "status" | "counts" | "it
     near: batch.items.filter((item) => similarityClass(item) === "near").length,
     lintErrors: batch.items.filter((item) => lintCounts(item.lint).errors > 0).length,
     normalising: batch.items.filter((item) => item.state === "pending").length,
+    exploring: batch.items.filter((item) => item.exploration?.status === "queued" || item.exploration?.status === "running").length,
     toCreate: editable.filter((item) => item.decision === "create").length,
     toUpdate: editable.filter((item) => item.decision === "update").length,
     toMerge: editable.filter((item) => item.decision === "merge").length,

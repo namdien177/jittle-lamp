@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { FileSpreadsheet, FileText, ListChecks, Ticket, Upload } from "lucide-react";
-import { lintTestCase, parseTranscriptDocument, type CreateImportRequest } from "@jittle-lamp/shared";
+import { Compass, FileSpreadsheet, FileText, ListChecks, Ticket, Upload } from "lucide-react";
+import { lintTestCase, parseTranscriptDocument, splitInstructions, type CreateImportRequest } from "@jittle-lamp/shared";
 
 import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
@@ -34,9 +34,14 @@ import { bytesToBase64, readXlsxRows } from "./xlsx";
 
 // Import wizard (design.md §7 "Import pipeline"): source → map and preview → batch page.
 
-type SourceKind = "transcript-doc" | "gherkin" | "table" | "jira";
+type SourceKind = "instructions" | "transcript-doc" | "gherkin" | "table" | "jira";
+
+// Instructions and spreadsheet rows are tried on a browser before review; each takes a runner
+// for up to ten minutes.
+const exploreLimit = 50;
 
 const sources: Array<{ kind: SourceKind; label: string; detail: string; icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }> }> = [
+  { kind: "instructions", label: "General instructions", detail: "Plain language, tried on a browser", icon: Compass },
   { kind: "transcript-doc", label: "Transcript document", detail: ".md, one or many cases", icon: FileText },
   { kind: "gherkin", label: "Gherkin", detail: ".feature scenarios", icon: ListChecks },
   { kind: "table", label: "Spreadsheet", detail: ".csv or .xlsx with column mapping", icon: FileSpreadsheet },
@@ -96,7 +101,7 @@ export function TestCaseImportPage(): React.JSX.Element {
   const credentials = useTestCredentials();
   const jiraCredentials = (credentials.data ?? []).filter((credential) => credential.kind === "jira");
 
-  const [kind, setKind] = useState<SourceKind>("transcript-doc");
+  const [kind, setKind] = useState<SourceKind>("instructions");
   const [step, setStep] = useState<1 | 2>(1);
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -121,6 +126,10 @@ export function TestCaseImportPage(): React.JSX.Element {
       cases: parsed.cases.map((testCase) => ({ title: testCase.title, steps: testCase.steps.length, lint: lintTestCase(testCase) }))
     };
   }, [kind, text]);
+
+  const instructionCases = useMemo(() => (kind === "instructions" ? splitInstructions(text) : []), [kind, text]);
+  const explores = kind === "instructions" || kind === "table";
+  const exploreCount = kind === "instructions" ? instructionCases.length : (table?.data.records.length ?? 0);
 
   const tablePreview = useMemo(() => (table ? previewMappedRows(table.data.records, mapping, { defaultTags, limit: 50 }) : []), [table, mapping, defaultTags]);
 
@@ -163,16 +172,21 @@ export function TestCaseImportPage(): React.JSX.Element {
   const canSubmit =
     canImport &&
     !createImport.isPending &&
-    (kind === "table"
+    (!explores || (environmentId !== NONE && exploreCount <= exploreLimit)) &&
+    (kind === "instructions"
+      ? instructionCases.length > 0
+      : kind === "table"
       ? Boolean(table && table.data.records.length > 0) && mappingIsUsable(mapping) && step === 2
       : kind === "jira"
         ? jql.trim().length > 0 && jiraCredentialId !== NONE
         : (documentPreview?.cases.length ?? 0) > 0);
 
   const submit = async () => {
-    const common = { defaultTags, environmentId: environmentId === NONE ? null : environmentId };
+    const common = { defaultTags, environmentId: environmentId === NONE ? null : environmentId, explore: explores };
     let body: CreateImportRequest;
-    if (kind === "table" && table) {
+    if (kind === "instructions") {
+      body = { sourceKind: "instructions", content: text, fileName: fileName ?? "instructions.txt", ...common };
+    } else if (kind === "table" && table) {
       body = { sourceKind: table.format, content: table.content, fileName: table.fileName, mapping: toImportMapping(mapping), ...common };
     } else if (kind === "jira") {
       body = { sourceKind: "jira", jql: jql.trim(), jiraCredentialId, ...common };
@@ -183,7 +197,7 @@ export function TestCaseImportPage(): React.JSX.Element {
     navigate(`/test-cases/import/${encodeURIComponent(batchId)}`);
   };
 
-  const environmentOptions = [{ label: "No environment", value: NONE }, ...(environments.data ?? []).map((environment) => ({ label: environment.name, value: environment.id }))];
+  const environmentOptions = [{ label: explores ? "Choose an environment" : "No environment", value: NONE }, ...(environments.data ?? []).map((environment) => ({ label: environment.name, value: environment.id }))];
   const selectedPreview = tablePreview[previewRow] ?? tablePreview[0] ?? null;
   const wizardStep: 1 | 2 = kind === "table" ? step : text.trim() || kind === "jira" ? 2 : 1;
 
@@ -207,7 +221,7 @@ export function TestCaseImportPage(): React.JSX.Element {
         <Stepper step={wizardStep} labels={["Source", kind === "table" ? "Map & preview" : "Preview", "Batch"]} />
         {!canImport && !permissions.loading ? <ReadOnlyNotice permission="test_case.create" /> : null}
 
-        <div role="radiogroup" aria-label="Import source" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div role="radiogroup" aria-label="Import source" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {sources.map((source) => {
             const Icon = source.icon;
             const active = source.kind === kind;
@@ -236,7 +250,31 @@ export function TestCaseImportPage(): React.JSX.Element {
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="grid min-w-0 content-start gap-4">
-            {kind === "jira" ? (
+            {kind === "instructions" ? (
+              <AdminCard
+                title="General instructions"
+                description="Describe each test the way you would tell a colleague. A runner tries it on the environment, and what the agent did becomes the steps. Separate cases with a blank line or start each with a # heading."
+                actions={<UploadButton label="Upload file" accept=".txt,.md,.markdown" ariaLabel="Upload instructions" onPick={(file) => void onPickFile(file)} />}
+              >
+                <div className="grid gap-3">
+                  {fileName ? (
+                    <p className="text-sm text-muted-foreground">
+                      Loaded <span className="font-mono">{fileName}</span>
+                    </p>
+                  ) : null}
+                  <ErrorNote error={fileError} />
+                  <Textarea
+                    aria-label="Instructions"
+                    value={text}
+                    onChange={(event) => setText(event.target.value)}
+                    rows={12}
+                    placeholder={"# Admin creates an interest\nSign in as PCF_HQ_ADMIN, open Interests and add one for a new parent with a made-up name and email.\nThe new interest is listed.\n\n# Parent signs out\nSign out from the account menu. The login form is shown with an empty Email field."}
+                  />
+                  <p className="text-sm text-muted-foreground">Name a credential profile, such as PCF_HQ_ADMIN, where the test signs in; only the profiles you name are given to the runner.</p>
+                  {instructionCases.length > 0 ? <InstructionsPreview cases={instructionCases} /> : null}
+                </div>
+              </AdminCard>
+            ) : kind === "jira" ? (
               <AdminCard title="Jira issues" description="Acceptance criteria and description go through AI generation. The Jira key becomes a link and the external id.">
                 <div className="grid gap-4">
                   <Field label="Jira credential" hint={jiraCredentials.length === 0 ? "Add a credential of kind jira in Testing settings → Credentials." : undefined}>
@@ -323,14 +361,26 @@ export function TestCaseImportPage(): React.JSX.Element {
                 <Field label="Default tags" htmlFor="import-tags" hint="Comma separated, added to every case">
                   <Input id="import-tags" value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="team:qa-pcf, import:sheet" />
                 </Field>
-                <Field label="Environment">
+                <Field
+                  label="Environment"
+                  hint={explores ? (kind === "table" ? "Required: each row is tried here and rewritten from what the agent did" : "Required: the instructions are tried here") : undefined}
+                >
                   <SimpleSelect ariaLabel="Environment for imported cases" value={environmentId} onValueChange={setEnvironmentId} options={environmentOptions} />
                 </Field>
+                {explores && exploreCount > exploreLimit ? (
+                  <p className="text-sm text-warning">
+                    {exploreCount} cases; an explored import holds at most {exploreLimit}. Split the {kind === "table" ? "file" : "text"}.
+                  </p>
+                ) : null}
                 <ErrorNote error={createImport.error} />
                 <Button className={pressable} disabled={!canSubmit} onClick={() => void submit()}>
                   {createImport.isPending ? "Starting import…" : "Start import"}
                 </Button>
-                <p className="text-sm text-muted-foreground">The batch parses in the background. You decide create, update, skip or merge per row before anything is committed.</p>
+                <p className="text-sm text-muted-foreground">
+                  {explores
+                    ? "Each case waits for a runner of the environment's pool, then up to ten minutes on the browser. You decide create, update, skip or merge per row before anything is committed."
+                    : "The batch parses in the background. You decide create, update, skip or merge per row before anything is committed."}
+                </p>
               </div>
             </AdminCard>
           </aside>
@@ -343,6 +393,27 @@ export function TestCaseImportPage(): React.JSX.Element {
         ) : null}
       </PageBody>
     </>
+  );
+}
+
+function InstructionsPreview(props: { cases: ReturnType<typeof splitInstructions> }): React.JSX.Element {
+  return (
+    <div className="grid gap-2">
+      <p className="text-sm font-semibold text-foreground">
+        {props.cases.length} case{props.cases.length === 1 ? "" : "s"} to explore
+      </p>
+      <ol className="grid gap-1.5">
+        {props.cases.slice(0, 50).map((item, index) => (
+          <li key={index} className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2 rounded-md border border-border px-3 py-2 text-sm">
+            <span className="font-mono text-xs leading-5 text-muted-foreground">{index + 1}</span>
+            <span className="min-w-0">
+              <span className="block truncate font-medium text-foreground">{item.title || <em className="text-muted-foreground">untitled</em>}</span>
+              <span className="line-clamp-2 text-muted-foreground">{item.instructions}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

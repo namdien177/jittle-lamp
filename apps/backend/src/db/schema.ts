@@ -123,7 +123,11 @@ export {
 	testRateBuckets,
 	testRunSettings,
 } from "./tables/test-config";
-export { testImportBatches, testImportItems } from "./tables/test-imports";
+export {
+	testExplorations,
+	testImportBatches,
+	testImportItems,
+} from "./tables/test-imports";
 export {
 	notificationChannels,
 	notificationDeliveries,

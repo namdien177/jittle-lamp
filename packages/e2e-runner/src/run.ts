@@ -134,7 +134,7 @@ const hostEnvNames = [
 // names. Nothing else from the caller's environment leaks into the browser run.
 export function buildChildEnv(input: {
   config: ResolvedRunConfig;
-  plan: RunPlan;
+  plan: Pick<RunPlan, "baseUrl" | "params" | "agentInstructions">;
   host: Readonly<Record<string, string | undefined>>;
   extra: Record<string, string>;
 }): Record<string, string> {

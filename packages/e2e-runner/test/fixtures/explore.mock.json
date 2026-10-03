@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "description": "Recorded turns for an import exploration of the fixture app's sign in page (planner answers in the agent-extract-2 envelope)",
+  "modelId": "mock-explore",
+  "turns": [
+    { "match": { "noTools": true, "promptIncludes": ["decision"] },
+      "content": [{ "type": "text", "text": "{\"found\":true,\"value\":{\"decision\":\"step\",\"title\":\"Check the sign in form\",\"instruction\":\"Look at the sign in form and confirm the Email field is visible\",\"summary\":\"\"},\"missing\":null}" }],
+      "usage": { "inputTokens": 1200, "outputTokens": 60 } },
+    { "repeat": true, "match": { "tools": ["complete_step"] },
+      "content": [{ "type": "tool-call", "toolName": "complete_step", "input": { "status": "passed", "summary": "The sign in form shows Email and Password." } }],
+      "usage": { "inputTokens": 1500, "outputTokens": 30 } },
+    { "repeat": true, "match": { "noTools": true, "promptIncludes": ["decision"] },
+      "content": [{ "type": "text", "text": "{\"found\":true,\"value\":{\"decision\":\"finish\",\"title\":\"\",\"instruction\":\"\",\"summary\":\"The sign in form is shown with Email and Password fields.\"},\"missing\":null}" }],
+      "usage": { "inputTokens": 1100, "outputTokens": 40 } }
+  ]
+}

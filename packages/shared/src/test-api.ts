@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import { isFakeDataLocale } from "./fake-data";
+import { claimedExplorationSchema, importItemExplorationSchema } from "./test-exploration";
 import {
   linkedCaseSchema,
   lintFindingSchema,
@@ -198,7 +199,8 @@ export const similarTestCasesResponseSchema = z.object({ items: z.array(similarT
 // Import, review queue
 // ---------------------------------------------------------------------------------------------
 
-export const importSourceKindSchema = z.enum(["transcript-doc", "gherkin", "csv", "xlsx", "jira", "ai-generation"]);
+// `instructions`: plain-language instructions, explored on a browser and written as transcripts.
+export const importSourceKindSchema = z.enum(["transcript-doc", "gherkin", "csv", "xlsx", "jira", "ai-generation", "instructions"]);
 export const importDecisionSchema = z.enum(["create", "update", "skip", "merge"]);
 
 export const importMappingSchema = z.object({
@@ -219,7 +221,10 @@ export const createImportRequestSchema = z.object({
   jql: z.string().max(2000).optional(),
   jiraCredentialId: id.optional(),
   defaultTags: z.array(z.string().min(1)).default([]),
-  environmentId: id.nullable().optional()
+  environmentId: id.nullable().optional(),
+  // Try each item on a browser in the environment and rewrite it from what the agent did
+  // (always for `instructions`; csv and xlsx when asked). Needs an environment.
+  explore: z.boolean().default(false)
 });
 
 export const importItemSchema = z.object({
@@ -234,7 +239,9 @@ export const importItemSchema = z.object({
   resultTestCaseId: id.nullable(),
   error: z.string().nullable(),
   // Rows whose steps need the model ("normalising") stay pending until it returns.
-  state: z.enum(["pending", "ready", "committed", "skipped", "error"])
+  state: z.enum(["pending", "ready", "committed", "skipped", "error"]),
+  // Set when the item is explored on a browser before review.
+  exploration: importItemExplorationSchema.nullable().default(null)
 });
 
 export const importBatchSchema = z.object({
@@ -535,7 +542,8 @@ export const claimedRunSchema = z.object({
   // Per-run token for GET /test-runs/:id/config, progress, cache and evidence upload; valid for the lease.
   runToken: z.string().min(1)
 });
-export const claimRunResponseSchema = z.object({ run: claimedRunSchema.nullable() });
+// A worker gets a run or, when its pool has no run queued, an exploration (import).
+export const claimRunResponseSchema = z.object({ run: claimedRunSchema.nullable(), exploration: claimedExplorationSchema.nullable().default(null) });
 
 // The resolved environment and decrypted credentials for one run (§9.3). Matches the runner's
 // OrgRunConfig; returned only to a run token, never to a browser.

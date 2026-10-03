@@ -231,7 +231,7 @@ export function renderConfigFile(input: {
   ].join("\n");
 }
 
-function e2eNodeModulesDir(): string {
+export function e2eNodeModulesDir(): string {
   // The directory that contains the resolved `e2e` package, so the generated project resolves the
   // same e2e, engine and provider packages as the runner.
   return dirname(e2ePackageDir);

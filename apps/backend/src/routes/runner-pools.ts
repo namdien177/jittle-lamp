@@ -2,6 +2,8 @@ import {
 	claimRunResponseSchema,
 	createRunnerPoolRequestSchema,
 	createRunnerPoolResponseSchema,
+	explorationConfigSchema,
+	explorationResultRequestSchema,
 	registerRunnerRequestSchema,
 	registerRunnerResponseSchema,
 	runnerHeartbeatRequestSchema,
@@ -25,6 +27,7 @@ import {
 } from "../http/test-http";
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import { recordOrganizationActivity } from "../services/organization-activity";
+import type { OutboundPolicy } from "../services/outbound-http";
 import {
 	createRunnerPool,
 	getRunnerPoolRow,
@@ -36,6 +39,18 @@ import {
 	touchWorker,
 	verifyWorkerToken,
 } from "../services/runner-pools";
+import { createTestSecrets } from "../services/test-config";
+import {
+	claimNextExploration,
+	completeExploration,
+	explorationConfig,
+	requireExplorationLease,
+	sweepExplorations,
+} from "../services/test-explorations";
+import {
+	defaultTextGenerator,
+	type TextGenerator,
+} from "../services/test-imports";
 import {
 	claimNextRun,
 	revokeRunnerWorker,
@@ -45,7 +60,16 @@ import { buildClaimedRun } from "../services/test-runs";
 
 const poolParams = z.object({ id: z.string().min(1) });
 
-export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
+export type RunnerPoolRouteOptions = {
+	// Writes the transcript from an exploration's record.
+	generateText?: TextGenerator;
+	outbound?: OutboundPolicy;
+};
+
+export const createRunnerPoolRoutes = (
+	auth: ClerkAuthPlugin,
+	options: RunnerPoolRouteOptions = {},
+) =>
 	new Elysia({ name: "runner-pool-routes" })
 		.use(auth)
 		.get("/runner-pools", (ctx) =>
@@ -126,11 +150,64 @@ export const createRunnerPoolRoutes = (auth: ClerkAuthPlugin) =>
 				// Expired leases go back to the queue before this worker picks.
 				await sweepRunQueue(db, Date.now(), { logger: ctx.logger });
 				const claimed = await claimNextRun(db, { pool, workerId: worker.id });
+				if (claimed) {
+					return respond(claimRunResponseSchema, {
+						run: await buildClaimedRun(db, claimed.run, claimed.runToken),
+						exploration: null,
+					});
+				}
+				// Runs first; an idle worker explores import items of its pool.
+				const secrets = createTestSecrets({ db, keyProvider: ctx.keyProvider });
+				await sweepExplorations(db, secrets);
 				return respond(claimRunResponseSchema, {
-					run: claimed
-						? await buildClaimedRun(db, claimed.run, claimed.runToken)
-						: null,
+					run: null,
+					exploration: await claimNextExploration(db, {
+						pool,
+						workerId: worker.id,
+					}),
 				});
+			}),
+		)
+		.get("/test-explorations/:id/config", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const { worker } = await verifyWorkerToken(db, readBearer(ctx.request));
+				const { id } = parseInput(poolParams, ctx.params);
+				const row = await requireExplorationLease(db, {
+					explorationId: id,
+					workerId: worker.id,
+				});
+				return respond(
+					explorationConfigSchema,
+					await explorationConfig(
+						db,
+						createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+						row,
+					),
+				);
+			}),
+		)
+		.post("/test-explorations/:id/result", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const { worker } = await verifyWorkerToken(db, readBearer(ctx.request));
+				const { id } = parseInput(poolParams, ctx.params);
+				const body = parseInput(explorationResultRequestSchema, ctx.body);
+				const row = await requireExplorationLease(db, {
+					explorationId: id,
+					workerId: worker.id,
+				});
+				await completeExploration(
+					db,
+					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+					{
+						row,
+						request: body,
+						generateText: options.generateText ?? defaultTextGenerator,
+						...(options.outbound ? { outbound: options.outbound } : {}),
+					},
+				);
+				return { ok: true };
 			}),
 		)
 		.patch("/runner-pools/:id", (ctx) =>

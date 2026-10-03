@@ -9,5 +9,6 @@ export * from "./fake-data";
 export { sha256Hex } from "./sha256";
 export * from "./test-run";
 export * from "./test-api";
+export * from "./test-exploration";
 export * from "./test-live";
 export * from "./model-providers";

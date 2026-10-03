@@ -341,7 +341,10 @@ describe("MCP test-case tools", () => {
 			defaultTags: ["team:qa-pcf"],
 		});
 		expect(result.isError).toBe(false);
-		expect(result.data.items).toEqual(batch.items);
+		// Items not explored on a browser carry no exploration.
+		expect(result.data.items).toEqual(
+			batch.items.map((item) => ({ ...item, exploration: null })),
+		);
 		expect(requests[0]?.body).toMatchObject({
 			sourceKind: "transcript-doc",
 			defaultTags: ["team:qa-pcf"],

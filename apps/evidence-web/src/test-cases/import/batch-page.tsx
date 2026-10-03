@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Download, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, Compass, Download, ExternalLink } from "lucide-react";
 import type { ImportItem } from "@jittle-lamp/shared";
 
 import { PageBody, PageHeader } from "../../components/page";
@@ -23,6 +23,7 @@ import {
   batchOverview,
   bestMatch,
   decisionOptions,
+  explorationLabel,
   importErrorRows,
   importErrorsCsv,
   itemIsEditable,
@@ -116,7 +117,9 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
         description={`Started ${formatRelativeTime(batch.createdAt)} · ${batch.counts.total.toLocaleString()} rows`}
         actions={
           <>
-            <Badge variant={batch.status === "error" ? "danger" : batch.status === "done" ? "success" : "outline"}>{statusLabel[batch.status] ?? batch.status}</Badge>
+            <Badge variant={batch.status === "error" ? "danger" : batch.status === "done" ? "success" : "outline"}>
+              {batch.status === "parsing" && overview.exploring > 0 ? `${batch.items.length - overview.exploring} of ${batch.items.length} explored` : (statusLabel[batch.status] ?? batch.status)}
+            </Badge>
             <Button
               variant="outline"
               size="sm"
@@ -160,7 +163,9 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
           description={
             batch.status === "ready"
               ? `${overview.toCreate} create · ${overview.toUpdate} update · ${overview.toMerge} merge · ${overview.toSkip} skip${overview.normalising ? ` · ${overview.normalising} normalising` : ""}`
-              : overview.lintErrors > 0
+              : overview.exploring > 0
+                ? "Each row is tried on a browser and written as steps from what the agent did. Rows can be committed once all are explored."
+                : overview.lintErrors > 0
                 ? `${overview.lintErrors} rows with lint errors`
                 : undefined
           }
@@ -245,7 +250,9 @@ function BatchRow(props: {
   const counts = lintCounts(item.lint);
   const match = bestMatch(item);
   const kind = similarityClass(item);
-  const badge = stateBadge[item.state];
+  const exploring = item.exploration?.status === "queued" || item.exploration?.status === "running";
+  const badge = exploring ? { label: "exploring", variant: "outline" as const } : stateBadge[item.state];
+  const exploration = explorationLabel(item);
   const ExpandIcon = props.expanded ? ChevronDown : ChevronRight;
   return (
     <>
@@ -266,12 +273,24 @@ function BatchRow(props: {
             </span>
           </button>
           {item.error ? <p className="ml-5 text-sm text-destructive">{item.error}</p> : null}
-          {!props.expanded && item.lint.length > 0 ? (
+          {exploration ? (
+            <p
+              className={cn(
+                "ml-5 mt-0.5 flex items-center gap-1.5 text-sm",
+                exploration.tone === "danger" ? "text-warning" : exploration.tone === "active" ? "text-foreground" : "text-muted-foreground"
+              )}
+            >
+              <Compass className={cn("size-3.5 shrink-0", exploration.tone === "active" && "animate-pulse text-primary motion-reduce:animate-none")} aria-hidden />
+              <span>{exploration.text}</span>
+            </p>
+          ) : null}
+          {/* The draft holds the instructions as notes; its lint means nothing until the exploration writes the steps. */}
+          {!props.expanded && !exploring && item.lint.length > 0 ? (
             <LintFindingList findings={item.lint.filter((finding) => finding.severity !== "info").slice(0, 2)} className="ml-5 mt-1" />
           ) : null}
         </TableCell>
         <TableCell>
-          <LintBadge errors={counts.errors} warnings={counts.warnings} pending={item.state === "pending"} />
+          {exploring ? <span className="text-muted-foreground">—</span> : <LintBadge errors={counts.errors} warnings={counts.warnings} pending={item.state === "pending"} />}
         </TableCell>
         <TableCell>
           {item.similar.length === 0 ? (
@@ -302,7 +321,7 @@ function BatchRow(props: {
           )}
         </TableCell>
         <TableCell className="pr-5">
-          {item.state === "committed" || item.state === "skipped" || item.state === "error" ? (
+          {exploring || item.state === "committed" || item.state === "skipped" || item.state === "error" ? (
             <div className="flex items-center gap-2">
               <Badge variant={badge.variant}>{badge.label}</Badge>
               {item.resultTestCaseId ? (

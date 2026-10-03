@@ -4,12 +4,16 @@ import {
   liveControlResponseSchema,
   type LiveControlResponse,
   createTestRunResponseSchema,
+  explorationConfigSchema,
   registerRunnerResponseSchema,
   testRunConfigSchema,
   testRunDetailSchema,
   testRunProgressResponseSchema,
+  type ClaimedExploration,
   type ClaimedRun,
   type CreateTestRunRequest,
+  type ExplorationConfig,
+  type ExplorationResultRequest,
   type FinalizeTestRunRequest,
   type TestRunConfig,
   type TestRunProgressRequest
@@ -89,7 +93,20 @@ export class BackendClient {
   }
 
   async claim(workerToken: string): Promise<ClaimedRun | null> {
-    return (await this.request("POST", "/runner-pools/claim", workerToken, claimRunResponseSchema, {})).run;
+    return (await this.claimWork(workerToken)).run;
+  }
+
+  // A run, or when the pool has none queued, an import item to explore.
+  claimWork(workerToken: string): Promise<{ run: ClaimedRun | null; exploration: ClaimedExploration | null }> {
+    return this.request("POST", "/runner-pools/claim", workerToken, claimRunResponseSchema, {});
+  }
+
+  explorationConfig(workerToken: string, explorationId: string): Promise<ExplorationConfig> {
+    return this.request("GET", `/test-explorations/${encodeURIComponent(explorationId)}/config`, workerToken, explorationConfigSchema);
+  }
+
+  async explorationResult(workerToken: string, explorationId: string, body: ExplorationResultRequest): Promise<void> {
+    await this.request("POST", `/test-explorations/${encodeURIComponent(explorationId)}/result`, workerToken, null, body);
   }
 
   config(runId: string, runToken: string): Promise<TestRunConfig> {
