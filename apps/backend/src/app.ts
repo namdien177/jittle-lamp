@@ -211,11 +211,11 @@ export const createApp = (
 		.use(createMigrationManagementRoutes(auth, organizationMigration))
 		.use(
 			createTestCaseRoutes(auth, {
-				outbound,
 				...(dependencies.generateText
 					? { generateText: dependencies.generateText }
 					: {}),
 				...(dependencies.fetch ? { fetchImpl: dependencies.fetch } : {}),
+				outbound,
 			}),
 		)
 		.use(createTestRunRoutes(auth, liveHub))
@@ -226,7 +226,7 @@ export const createApp = (
 				...(dependencies.fetch ? { fetchImpl: dependencies.fetch } : {}),
 			}),
 		)
-		.use(createTestConfigRoutes(auth))
+		.use(createTestConfigRoutes(auth, { outbound }))
 		.use(createRunnerPoolRoutes(auth))
 		.use(createNotificationRoutes(auth))
 		.use(createProtectedRoutes(auth));

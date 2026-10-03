@@ -59,9 +59,11 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 
 ## ADR amendments
 
-None yet.
+- 2026-10-03, decision 14 (139d50e): one key per provider instead of one key per organisation, so act and judge can use different providers; `openai-compatible/` base URL stored with the model settings. Reason: decision 5 allows separate act and judge providers, which one key cannot serve.
 
 ## Log
+
+- 2026-10-03: provider-neutral model settings merged (shared provider list; OpenRouter, OpenAI-compatible with base URL, AI Gateway, OpenAI, Anthropic, Google, xAI; unknown prefixes rejected on save; separate judge key; model prices editable, router ids priced like the vendor model). Evidence `evidence/ops-ai-model-providers.png`, `ops-ai-model-prices.png`. Deployment guide `deployment.md` (ops.8).
 
 - 2026-10-03: phase 2 merged and reviewed (12 findings fixed: webhook credential exposure via payload URLs, SSRF, dedupe across commits, stuck pending status, take-over expiry, frames after secrets, inline channel delivery, keyboard trap). `daemon.browser.test.ts` live assertion changed with the frames-hidden rule: it now requires exactly one "frames hidden" signal and no frame after it; frame capture before a secret is covered in `test/live.test.ts`. CI on MR !5 green (pipeline 233598) before the phase 2 fixes. Suites after merge: root 467, backend 204, MCP 46, runner unit 35, runner browser 20.
 

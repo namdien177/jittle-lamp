@@ -43,6 +43,7 @@ export const testKeys = {
   tags: (orgId: Org) => [...config(orgId), "tags"] as const,
   runSettings: (orgId: Org) => [...config(orgId), "run-settings"] as const,
   modelSettings: (orgId: Org) => [...config(orgId), "model-settings"] as const,
+  modelPrices: (orgId: Org) => [...config(orgId), "model-prices"] as const,
   runnerPools: (orgId: Org) => [...config(orgId), "runner-pools"] as const,
   notificationSubscriptions: (orgId: Org) => [...config(orgId), "notification-subscriptions"] as const,
   notificationChannels: (orgId: Org) => [...config(orgId), "notification-channels"] as const,

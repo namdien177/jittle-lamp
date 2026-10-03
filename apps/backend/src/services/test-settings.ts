@@ -2,13 +2,16 @@ import {
 	defaultModelPrices,
 	defaultPriceTableVersion,
 	expandMacros,
+	findModelProvider,
 	type MacroDefinition,
 	type ModelCostReport,
 	type ModelPrice,
 	type ModelSettings,
 	macroParamSchema,
+	modelIdProblem,
 	parseTestCaseTranscript,
 	resolveCredentialAlias,
+	modelProviderOf as sharedModelProviderOf,
 	type TestCredential,
 	type TestEnvironment,
 	type TestMacro,
@@ -37,6 +40,12 @@ import {
 	testRuns,
 } from "../db/schema";
 import { conflict, HttpError, notFound } from "../http/test-http";
+import {
+	assertOutboundUrl,
+	defaultOutboundPolicy,
+	OutboundBlockedError,
+	type OutboundPolicy,
+} from "./outbound-http";
 import { parseJsonColumn, referencedCredentialProfiles } from "./test-cases";
 import type { TestSecrets } from "./test-config";
 import {
@@ -241,7 +250,8 @@ export const listCredentials = async (
 	});
 	return rows
 		.filter(
-			(row) => options.includeInternal || row.profile !== MODEL_KEY_PROFILE,
+			(row) =>
+				options.includeInternal || !internalCredentialProfiles.has(row.profile),
 		)
 		.map(toCredential);
 };
@@ -564,83 +574,233 @@ export const saveRunSettings = async (
 
 export const DEFAULT_ACT_MODEL = "anthropic/claude-opus-5-5";
 export const DEFAULT_JUDGE_MODEL = "anthropic/claude-sonnet-5-5";
-// The BYOK key lives in a `model_key` credential with this profile (design.md §9.3).
+// BYOK keys live in `model_key` credentials with these profiles (design.md §9.3): one for the act
+// model's provider and, when the judge uses another provider, one for the judge's.
 export const MODEL_KEY_PROFILE = "JL_MODEL_KEY";
+export const JUDGE_MODEL_KEY_PROFILE = "JL_JUDGE_MODEL_KEY";
+const internalCredentialProfiles = new Set([
+	MODEL_KEY_PROFILE,
+	JUDGE_MODEL_KEY_PROFILE,
+]);
 
-export const modelProviderOf = (modelId: string): string =>
-	modelId.startsWith("mock:") ? "mock" : (modelId.split("/")[0] ?? modelId);
+export const modelProviderOf = sharedModelProviderOf;
 
-// Environment variable names the runner's model resolver reads, per provider.
-const providerKeyNames: Record<string, string> = {
-	anthropic: "ANTHROPIC_API_KEY",
-	openai: "OPENAI_API_KEY",
-	openrouter: "OPENROUTER_API_KEY",
-	gateway: "AI_GATEWAY_API_KEY",
-	xai: "XAI_API_KEY",
-	google: "GOOGLE_GENERATIVE_AI_API_KEY",
-	"openai-compatible": "OPENAI_COMPATIBLE_API_KEY",
+// Environment variable name the runner's model resolver reads the key from, per provider.
+export const providerKeyName = (modelId: string): string | null =>
+	findModelProvider(modelId)?.keyEnv ?? null;
+
+type ModelSettingsState = ModelSettings & {
+	keyCredentialId: string | null;
+	judgeKeyCredentialId: string | null;
 };
 
-export const providerKeyName = (modelId: string): string | null =>
-	providerKeyNames[modelProviderOf(modelId)] ?? null;
+// Which providers a pair of models needs keys and a base URL for, and what is still missing.
+const modelRequirements = (input: {
+	actModel: string;
+	judgeModel: string;
+	keyConfigured: boolean;
+	judgeKeyConfigured: boolean;
+	baseUrl: string | null;
+}) => {
+	const act = findModelProvider(input.actModel);
+	const judge = findModelProvider(input.judgeModel);
+	const judgeKeyRequired = Boolean(
+		judge?.keyEnv && judge.prefix !== act?.prefix,
+	);
+	const missing: ModelSettings["missing"] = [];
+	if (act?.keyRequired && !input.keyConfigured) missing.push("key");
+	if (judgeKeyRequired && judge?.keyRequired && !input.judgeKeyConfigured) {
+		missing.push("judgeKey");
+	}
+	if ((act?.baseUrlEnv || judge?.baseUrlEnv) && !input.baseUrl) {
+		missing.push("baseUrl");
+	}
+	return { judgeKeyRequired, missing };
+};
 
 export const getModelSettings = async (
 	db: BackendDb,
 	orgId: string,
-): Promise<ModelSettings & { keyCredentialId: string | null }> => {
+): Promise<ModelSettingsState> => {
 	const row = await db.query.organizationModelSettings.findFirst({
 		where: eq(organizationModelSettings.orgId, orgId),
 	});
 	const actModel = row?.actModel ?? DEFAULT_ACT_MODEL;
+	const judgeModel = row?.judgeModel ?? DEFAULT_JUDGE_MODEL;
+	const keyConfigured = Boolean(row?.keyCredentialId);
+	const judgeKeyConfigured = Boolean(row?.judgeKeyCredentialId);
+	const baseUrl = row?.baseUrl ?? null;
 	return {
 		actModel,
-		judgeModel: row?.judgeModel ?? DEFAULT_JUDGE_MODEL,
+		judgeModel,
 		provider: row?.provider ?? modelProviderOf(actModel),
-		keyConfigured: Boolean(row?.keyCredentialId),
+		judgeProvider: modelProviderOf(judgeModel),
+		keyConfigured,
 		keyLast4: row?.keyCredentialId ? (row.keyLast4 ?? null) : null,
+		judgeKeyConfigured,
+		judgeKeyLast4: row?.judgeKeyCredentialId
+			? (row.judgeKeyLast4 ?? null)
+			: null,
+		baseUrl,
+		...modelRequirements({
+			actModel,
+			judgeModel,
+			keyConfigured,
+			judgeKeyConfigured,
+			baseUrl,
+		}),
 		keyCredentialId: row?.keyCredentialId ?? null,
+		judgeKeyCredentialId: row?.judgeKeyCredentialId ?? null,
 	};
+};
+
+const unprocessable = (code: string, message: string) =>
+	new HttpError(422, code, message);
+
+// Rejects what a run could never use: unknown provider prefixes, and an openai-compatible model
+// without an endpoint. Missing keys are allowed and reported in `missing` instead.
+const assertModelSettings = async (
+	request: UpdateModelSettingsRequest,
+	current: ModelSettingsState,
+	outbound: OutboundPolicy,
+): Promise<string | null> => {
+	for (const modelId of [request.actModel, request.judgeModel]) {
+		const problem = modelIdProblem(modelId);
+		if (problem) throw unprocessable("MODEL_PROVIDER_UNSUPPORTED", problem);
+	}
+	const baseUrl =
+		request.baseUrl === undefined ? current.baseUrl : request.baseUrl;
+	const needsBaseUrl = [request.actModel, request.judgeModel].some((id) =>
+		Boolean(findModelProvider(id)?.baseUrlEnv),
+	);
+	if (needsBaseUrl && !baseUrl) {
+		throw unprocessable(
+			"MODEL_BASE_URL_REQUIRED",
+			"openai-compatible/ models need the base URL of the endpoint, e.g. https://api.groq.com/openai/v1.",
+		);
+	}
+	if (baseUrl && request.baseUrl !== undefined) {
+		// The backend calls this endpoint itself for Jira import generation, so it gets the same
+		// SSRF check as webhook callbacks (JL_OUTBOUND_ALLOW_HOSTS admits an internal server).
+		try {
+			await assertOutboundUrl(outbound, baseUrl);
+		} catch (error) {
+			if (!(error instanceof OutboundBlockedError)) throw error;
+			throw unprocessable(
+				"MODEL_BASE_URL_BLOCKED",
+				`The base URL is not allowed: ${error.message}.`,
+			);
+		}
+	}
+	return baseUrl;
+};
+
+const removeModelKey = async (
+	db: BackendDb,
+	credentialId: string,
+	userId: string,
+) => {
+	await db
+		.update(testCredentials)
+		.set({ deletedAt: Date.now(), deletedBy: userId })
+		.where(eq(testCredentials.id, credentialId));
+};
+
+// Applies one key field of the request: a string replaces the key, null removes it, and an omitted
+// key is kept only while the provider it was saved for stays the same.
+const applyModelKey = async (
+	db: BackendDb,
+	secrets: TestSecrets,
+	input: {
+		orgId: string;
+		userId: string;
+		profile: string;
+		value: string | null | undefined;
+		credentialId: string | null;
+		last4: string | null;
+		keep: boolean;
+	},
+): Promise<{ credentialId: string | null; last4: string | null }> => {
+	if (typeof input.value === "string") {
+		const credential = await saveCredential(db, secrets, {
+			orgId: input.orgId,
+			userId: input.userId,
+			...(input.credentialId ? { id: input.credentialId } : {}),
+			request: {
+				profile: input.profile,
+				kind: "model_key",
+				environmentId: null,
+				fields: {},
+				secretFields: { api_key: input.value },
+			},
+			replaceSecrets: true,
+			reason: "model_key.update",
+		});
+		return { credentialId: credential.id, last4: input.value.slice(-4) };
+	}
+	if (input.credentialId && (input.value === null || !input.keep)) {
+		await removeModelKey(db, input.credentialId, input.userId);
+		return { credentialId: null, last4: null };
+	}
+	return { credentialId: input.credentialId, last4: input.last4 };
 };
 
 export const saveModelSettings = async (
 	db: BackendDb,
 	secrets: TestSecrets,
-	input: { orgId: string; userId: string; request: UpdateModelSettingsRequest },
-): Promise<void> => {
+	input: {
+		orgId: string;
+		userId: string;
+		request: UpdateModelSettingsRequest;
+		outbound?: OutboundPolicy;
+	},
+): Promise<{ keyChanged: boolean; judgeKeyChanged: boolean }> => {
+	const { request } = input;
 	const current = await getModelSettings(db, input.orgId);
-	let keyCredentialId = current.keyCredentialId;
-	let keyLast4 = current.keyLast4;
-	if (input.request.apiKey === null && keyCredentialId) {
-		await db
-			.update(testCredentials)
-			.set({ deletedAt: Date.now(), deletedBy: input.userId })
-			.where(eq(testCredentials.id, keyCredentialId));
-		keyCredentialId = null;
-		keyLast4 = null;
-	} else if (typeof input.request.apiKey === "string") {
-		const credential = await saveCredential(db, secrets, {
-			orgId: input.orgId,
-			userId: input.userId,
-			...(keyCredentialId ? { id: keyCredentialId } : {}),
-			request: {
-				profile: MODEL_KEY_PROFILE,
-				kind: "model_key",
-				environmentId: null,
-				fields: {},
-				secretFields: { api_key: input.request.apiKey },
-			},
-			replaceSecrets: true,
-			reason: "model_key.update",
-		});
-		keyCredentialId = credential.id;
-		keyLast4 = input.request.apiKey.slice(-4);
-	}
+	const baseUrl = await assertModelSettings(
+		request,
+		current,
+		input.outbound ?? defaultOutboundPolicy,
+	);
+	const actProvider = modelProviderOf(request.actModel);
+	const judgeProvider = modelProviderOf(request.judgeModel);
+	const judgeNeedsOwnKey =
+		judgeProvider !== actProvider &&
+		Boolean(findModelProvider(request.judgeModel)?.keyEnv);
+	const key = await applyModelKey(db, secrets, {
+		orgId: input.orgId,
+		userId: input.userId,
+		profile: MODEL_KEY_PROFILE,
+		value: request.apiKey,
+		credentialId: current.keyCredentialId,
+		last4: current.keyLast4,
+		// A stored key belongs to the provider of the act model it was saved with.
+		keep: modelProviderOf(current.actModel) === actProvider,
+	});
+	const judgeKey = await applyModelKey(db, secrets, {
+		orgId: input.orgId,
+		userId: input.userId,
+		profile: JUDGE_MODEL_KEY_PROFILE,
+		// Without a provider of its own the judge uses the act key; a judge key is then removed.
+		value: judgeNeedsOwnKey ? request.judgeApiKey : null,
+		credentialId: current.judgeKeyCredentialId,
+		last4: current.judgeKeyLast4,
+		keep: modelProviderOf(current.judgeModel) === judgeProvider,
+	});
 	const values = {
-		actModel: input.request.actModel,
-		judgeModel: input.request.judgeModel,
-		provider: modelProviderOf(input.request.actModel),
-		keyCredentialId,
-		keyLast4,
+		actModel: request.actModel,
+		judgeModel: request.judgeModel,
+		provider: actProvider,
+		keyCredentialId: key.credentialId,
+		keyLast4: key.last4,
+		judgeKeyCredentialId: judgeKey.credentialId,
+		judgeKeyLast4: judgeKey.last4,
+		// Kept only while a model needs it.
+		baseUrl: [request.actModel, request.judgeModel].some((id) =>
+			Boolean(findModelProvider(id)?.baseUrlEnv),
+		)
+			? baseUrl
+			: null,
 		updatedBy: input.userId,
 		updatedAt: Date.now(),
 	};
@@ -651,9 +811,52 @@ export const saveModelSettings = async (
 			target: organizationModelSettings.orgId,
 			set: values,
 		});
+	return {
+		keyChanged:
+			key.credentialId !== current.keyCredentialId ||
+			request.apiKey !== undefined,
+		judgeKeyChanged:
+			judgeKey.credentialId !== current.judgeKeyCredentialId ||
+			request.judgeApiKey !== undefined,
+	};
 };
 
-// Decrypts the organisation model key as runner environment variables ({ ANTHROPIC_API_KEY }).
+const decryptModelKey = async (
+	db: BackendDb,
+	secrets: TestSecrets,
+	credentialId: string | null,
+	input: {
+		orgId: string;
+		actorUserId: string | null;
+		runId?: string | null;
+		reason: string;
+	},
+): Promise<string | null> => {
+	if (!credentialId) return null;
+	const credential = await db.query.testCredentials.findFirst({
+		where: and(
+			eq(testCredentials.id, credentialId),
+			isNull(testCredentials.deletedAt),
+		),
+	});
+	if (!credential?.secretFieldsEnc) return null;
+	const value = await secrets.decrypt(
+		input.orgId,
+		credentialSubject(credential),
+		credential.secretFieldsEnc,
+		{
+			actorUserId: input.actorUserId,
+			runId: input.runId ?? null,
+			reason: input.reason,
+		},
+	);
+	return value.api_key || null;
+};
+
+// The organisation's models as runner environment variables: the act provider's key under its
+// name ({ OPENROUTER_API_KEY }), the judge provider's key under its own, and the
+// OpenAI-compatible base URL. A key is only ever filled in for the provider it was saved for, so a
+// missing judge key blocks the run with MODEL_KEY_MISSING instead of sending the act key elsewhere.
 export const resolveModelKeys = async (
 	db: BackendDb,
 	secrets: TestSecrets,
@@ -671,31 +874,26 @@ export const resolveModelKeys = async (
 }> => {
 	const settings = await getModelSettings(db, input.orgId);
 	const apiKeys: Record<string, string> = {};
-	if (settings.keyCredentialId) {
-		const credential = await db.query.testCredentials.findFirst({
-			where: and(
-				eq(testCredentials.id, settings.keyCredentialId),
-				isNull(testCredentials.deletedAt),
-			),
-		});
-		if (credential?.secretFieldsEnc) {
-			const value = await secrets.decrypt(
-				input.orgId,
-				credentialSubject(credential),
-				credential.secretFieldsEnc,
-				{
-					actorUserId: input.actorUserId,
-					runId: input.runId ?? null,
-					reason: input.reason,
-				},
-			);
-			const key = value.api_key;
-			if (key) {
-				for (const modelId of [settings.actModel, settings.judgeModel]) {
-					const name = providerKeyName(modelId);
-					if (name) apiKeys[name] = key;
-				}
-			}
+	const act = findModelProvider(settings.actModel);
+	const judge = findModelProvider(settings.judgeModel);
+	const actKey = act?.keyEnv
+		? await decryptModelKey(db, secrets, settings.keyCredentialId, input)
+		: null;
+	if (act?.keyEnv && actKey) apiKeys[act.keyEnv] = actKey;
+	if (judge?.keyEnv && judge.prefix === act?.prefix && actKey) {
+		apiKeys[judge.keyEnv] = actKey;
+	} else if (judge?.keyEnv) {
+		const judgeKey = await decryptModelKey(
+			db,
+			secrets,
+			settings.judgeKeyCredentialId,
+			input,
+		);
+		if (judgeKey) apiKeys[judge.keyEnv] = judgeKey;
+	}
+	for (const provider of [act, judge]) {
+		if (provider?.baseUrlEnv && settings.baseUrl) {
+			apiKeys[provider.baseUrlEnv] = settings.baseUrl;
 		}
 	}
 	return {
@@ -739,7 +937,12 @@ export const resolvePriceTable = async (
 	db: BackendDb,
 	orgId: string,
 	at = Date.now(),
-): Promise<{ prices: ModelPrice[]; version: string }> => {
+): Promise<{
+	prices: ModelPrice[];
+	version: string;
+	// Model ids priced by an organisation row rather than a global default.
+	organizationModelIds: Set<string>;
+}> => {
 	await ensureGlobalModelPrices(db);
 	const rows = await db.query.testModelPrices.findMany({
 		where: and(
@@ -770,6 +973,11 @@ export const resolvePriceTable = async (
 	return {
 		prices,
 		version: [...versions].sort().join("+") || defaultPriceTableVersion,
+		organizationModelIds: new Set(
+			[...chosen.values()]
+				.filter((row) => row.orgId !== null)
+				.map((row) => row.modelId),
+		),
 	};
 };
 

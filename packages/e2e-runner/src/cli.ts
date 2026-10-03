@@ -56,9 +56,14 @@ With JL_API_ORIGIN and JL_API_TOKEN (automation token):
   jl-e2e export --case <id|key> [--case …] [dir]
   jl-e2e push <file.transcript.md>          creates or updates by Key, then by title
 
-Model ids select the provider: anthropic/…, openai/…, openrouter/<vendor>/<model>,
-openai-compatible/<model>, gateway/…, claude-code/… (development only, --allow-claude-code),
-mock:<fixture.json> (recorded turns, no network).`;
+Model ids select the provider, each with its key in the environment or .env.e2e:
+  openrouter/<vendor>/<model>   OPENROUTER_API_KEY
+  openai-compatible/<model>     OPENAI_COMPATIBLE_BASE_URL (+ optional OPENAI_COMPATIBLE_API_KEY)
+  gateway/<provider>/<model>    AI_GATEWAY_API_KEY
+  openai/… anthropic/… google/… xai/…
+                                OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, XAI_API_KEY
+  claude-code/…                 development only, --allow-claude-code
+  mock:<fixture.json>           recorded turns, no network`;
 
 export async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);

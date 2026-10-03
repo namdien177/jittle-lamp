@@ -654,19 +654,44 @@ export const testRunSettingsSchema = z.object({
   })
 });
 
+// What a run still needs before the models can be instantiated: the act provider's key, the
+// judge provider's key (when it differs from the act provider) or the OpenAI-compatible base URL.
+export const modelSettingsMissingSchema = z.enum(["key", "judgeKey", "baseUrl"]);
 export const modelSettingsSchema = z.object({
   actModel: z.string().min(1),
   judgeModel: z.string().min(1),
+  // Provider of the act model; the key belongs to it.
   provider: z.string().min(1),
+  judgeProvider: z.string().min(1).optional(),
   keyConfigured: z.boolean(),
-  keyLast4: z.string().nullable()
+  keyLast4: z.string().nullable(),
+  // A second key for the judge model's provider, used only when it differs from the act provider.
+  judgeKeyRequired: z.boolean().default(false),
+  judgeKeyConfigured: z.boolean().default(false),
+  judgeKeyLast4: z.string().nullable().default(null),
+  // Endpoint for `openai-compatible/` models (OPENAI_COMPATIBLE_BASE_URL on the runner). Not a secret.
+  baseUrl: z.string().nullable().default(null),
+  missing: z.array(modelSettingsMissingSchema).default([])
 });
+const modelKeySchema = z.string().min(8).max(500);
 export const updateModelSettingsRequestSchema = z.object({
-  actModel: z.string().min(1).max(200),
-  judgeModel: z.string().min(1).max(200),
-  // Write-only. Omitted keeps the stored key; null removes it.
-  apiKey: z.string().min(8).max(500).nullable().optional()
+  actModel: z.string().trim().min(1).max(200),
+  judgeModel: z.string().trim().min(1).max(200),
+  // Write-only key for the act model's provider. Omitted keeps the stored key; null removes it. A
+  // stored key is dropped when the act provider changes, so it is never sent to another provider.
+  apiKey: modelKeySchema.nullable().optional(),
+  // Write-only key for the judge model's provider when it differs from the act provider. Same rules.
+  judgeApiKey: modelKeySchema.nullable().optional(),
+  // http(s) endpoint for `openai-compatible/` models, e.g. https://api.groq.com/openai/v1. Omitted
+  // keeps the stored URL; null removes it. Required while either model is openai-compatible.
+  baseUrl: z.string().trim().max(2000).pipe(httpUrlSchema).nullable().optional()
 });
+
+// GET/PUT /model-prices: the effective price per model id (USD per million tokens) and whether
+// it is a global default or the organisation's own row. PUT takes the organisation's rows only and
+// replaces the previous set; `source` is ignored there.
+export const modelPriceSourceSchema = z.enum(["default", "organization"]);
+export const modelPriceRowSchema = modelPriceSchema.extend({ source: modelPriceSourceSchema });
 
 // Model spend per organisation and per user (ops: cost visible in the UI).
 export const modelCostReportSchema = z.object({
@@ -861,6 +886,7 @@ export type TestMacro = z.infer<typeof testMacroSchema>;
 export type TestTag = z.infer<typeof testTagSchema>;
 export type TestRunSettings = z.infer<typeof testRunSettingsSchema>;
 export type ModelSettings = z.infer<typeof modelSettingsSchema>;
+export type ModelPriceRow = z.infer<typeof modelPriceRowSchema>;
 export type ModelCostReport = z.infer<typeof modelCostReportSchema>;
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 export type Notification = z.infer<typeof notificationSchema>;

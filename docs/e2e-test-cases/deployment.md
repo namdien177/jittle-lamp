@@ -52,7 +52,7 @@ The feature adds no new service type. The backend gains routes and background wo
 | Backend | Clerk Backend API | 443 | User directory and token checks with `CLERK_SECRET_KEY` (a JWT can also be verified locally with `CLERK_JWT_KEY`) |
 | Backend | GitLab/GitHub API, Slack incoming webhooks, webhook channels, rule callback URLs | 443, or 80 for plain `http://` | Outbound reports and notifications, through the SSRF guard in `apps/backend/src/services/outbound-http.ts` |
 | Backend | Jira | 443 | Jira import (`/rest/api/3/search/jql`). Not routed through the SSRF guard |
-| Backend | Model provider | 443 | Transcript generation during Jira import, with the organisation's model key |
+| Backend | Model provider | 443 | Transcript generation during Jira import, with the organisation's act model and key (for `openai-compatible/`, the configured base URL's host and port) |
 | GitLab/GitHub | backend | 443 | Inbound webhook deliveries to `POST /hooks/:endpointId` |
 | Runner | backend | 443 HTTPS (`JL_API_ORIGIN`) | Register, heartbeat every 10 s, claim, run config, progress, step cache, live frames, evidence ZIP (up to 64 MB), finalise |
 | Runner | Target app | The environment's base URL | The browser under test. HTTPS required unless the app is on the runner host's loopback |
@@ -263,6 +263,7 @@ Two ways, both applying `apps/backend/drizzle/*.sql` in journal order and record
 | `0026_test_run_dedupe_unique` | Column plus unique index | `test_runs.dedupe_exclusive` (default false) and the partial unique index `test_runs_org_dedupe_open_unique` on `(org_id, dedupe_key)` for open exclusive runs. Existing rows get `false`, so the index cannot fail on existing data |
 | `0027_webhooks_live` | New table and columns | `webhook_batches` with unique `(endpoint_id, rule_key, trigger_ref)`, `test_runs.base_url_override`, `webhook_deliveries.delivery_id` and an index |
 | `0028_phase2_review` | Columns plus data update | `notification_channels.secret_enc`, `key_version`; `notification_events.channels_dispatched_at`; `webhook_batches.report_stage`. Marks existing notification events as already dispatched to channels, so the new channel worker does not resend old events |
+| `0029_model_provider_settings` | Nullable columns only | `organization_model_settings.judge_key_credential_id`, `judge_key_last4`, `base_url`. Existing rows read as single-key settings with no base URL |
 
 All of them are additive. Nothing is dropped or renamed. The FTS5 trigram tokenizer needs SQLite 3.34 or newer with FTS5, which libSQL and Turso provide.
 
@@ -278,29 +279,30 @@ Drizzle has no down migrations. Because these migrations only add, an older back
 
 ## 5. Model providers
 
-The feature is provider-neutral. Each organisation brings its own key (BYOK), and every run of the organisation uses it. Model ids are Vercel AI SDK ids; the prefix picks the provider (`packages/e2e-runner/src/model/providers.ts`). The backend uses the same resolver for transcript generation during Jira import.
+The feature is provider-neutral. Each organisation brings its own keys (BYOK), and every run of the organisation uses them. Model ids are Vercel AI SDK ids; the prefix picks the provider. The supported prefixes and their variables are one list, `packages/shared/src/model-providers.ts`, used by the runner's resolver (`packages/e2e-runner/src/model/providers.ts`), the backend's settings validation and the web settings page; any other prefix is refused with `422 MODEL_PROVIDER_UNSUPPORTED` when the settings are saved. The backend uses the same resolver for transcript generation during Jira import, through the outbound address guard.
 
 | Prefix | Id shape | Key variable on the runner | Notes |
 | --- | --- | --- | --- |
-| `anthropic/` | `anthropic/<model>` | `ANTHROPIC_API_KEY` | Defaults for new organisations: act `anthropic/claude-opus-5-5`, judge `anthropic/claude-sonnet-5-5` |
-| `openai/` | `openai/<model>` | `OPENAI_API_KEY` | |
-| `openrouter/` | `openrouter/<vendor>/<model>` | `OPENROUTER_API_KEY` | The id is checked against `https://openrouter.ai/api/v1/models` when the run starts; an unknown id blocks with `MODEL_UNAVAILABLE` and suggestions |
-| `openai-compatible/` | `openai-compatible/<model>` | `OPENAI_COMPATIBLE_BASE_URL`, optional `OPENAI_COMPATIBLE_API_KEY` | Any server with the OpenAI API: vLLM, LiteLLM, Azure-style gateways |
+| `openrouter/` | `openrouter/<vendor>/<model>` | `OPENROUTER_API_KEY` | The id is checked against `https://openrouter.ai/api/v1/models` when the run starts; an unknown id blocks with `MODEL_UNAVAILABLE` and suggestions. Reports the cost of each call |
+| `openai-compatible/` | `openai-compatible/<model>` | `OPENAI_COMPATIBLE_BASE_URL`, optional `OPENAI_COMPATIBLE_API_KEY` | Any server with the OpenAI API: Groq, Together, DeepSeek, Fireworks, vLLM, Ollama, LiteLLM, Google's OpenAI-compatible endpoint. The base URL is part of the organisation settings |
 | `gateway/` | `gateway/<provider>/<model>` | `AI_GATEWAY_API_KEY` | Vercel AI Gateway |
-| `xai/` | `xai/<model>` | `XAI_API_KEY` | Being added to the runner on `feat/e2e-providers`. On this branch an `xai/` id blocks with `MODEL_UNAVAILABLE` |
+| `openai/` | `openai/<model>` | `OPENAI_API_KEY` | |
+| `anthropic/` | `anthropic/<model>` | `ANTHROPIC_API_KEY` | Defaults for new organisations: act `anthropic/claude-opus-5-5`, judge `anthropic/claude-sonnet-5-5`. Only defaults; no provider is required |
+| `google/` | `google/<model>` | `GOOGLE_GENERATIVE_AI_API_KEY` | `@ai-sdk/google` |
+| `xai/` | `xai/<model>` | `XAI_API_KEY` | `@ai-sdk/xai` |
 | `claude-code/` | `claude-code/<alias or model>` | The local `claude` login | **Development only.** Removed from the backend image; the daemon refuses it unless started with `--allow-claude-code`, the CLI unless given `--allow-claude-code` or `JL_ALLOW_CLAUDE_CODE=1`. Never on a cloud or shared pool |
 | `mock:` | `mock:<fixture.json>` | none | Recorded turns, no network. Tests and offline work |
 
 **Organisation settings** (Settings → Test cases → AI model, permission `test_config.manage`):
 
 - act model id and judge model id;
-- the provider key, stored write-only as a `model_key` credential and shown only by its last four characters;
-- a base URL when the act model is `openai-compatible/`;
-- a separate judge key when the judge uses a different provider from the act model.
+- the key for the act model's provider, stored write-only as a `model_key` credential and shown only by its last four characters (optional for `openai-compatible/`);
+- a separate write-only judge key when the judge uses a different provider from the act model (ADR 0002 amendment of 2026-10-03);
+- a base URL when either model is `openai-compatible/` (required, `422 MODEL_BASE_URL_REQUIRED` otherwise). It is not a secret. The backend checks it with the outbound address guard and refuses private, loopback and link-local addresses (`422 MODEL_BASE_URL_BLOCKED`) unless the host is in `JL_OUTBOUND_ALLOW_HOSTS` (or loopback with `JL_OUTBOUND_ALLOW_LOOPBACK=true`). A self-hosted runner reaching an internal vLLM therefore needs that host listed on the backend too, and the backend must be able to resolve it unless it is listed.
 
-The base URL and judge key fields come with `feat/e2e-providers`. On this branch the page holds one key, which is handed to both models under their provider's variable name. Until that branch lands, keep act and judge on the same provider, and do not use `openai-compatible/` on managed runs: without a base URL they block with `MODEL_KEY_MISSING`.
+Each run gets every key only under its own provider's variable, and the base URL as `OPENAI_COMPATIBLE_BASE_URL`; the act key is never handed to the judge's provider. A stored key is dropped when its provider changes. Saving without a needed key is allowed: the page shows what is missing and runs block with `MODEL_KEY_MISSING` until it is added. Settings saved before migration 0029 behave as one key for the act provider; if such a row has the judge on another provider, add the judge key.
 
-**Spend.** Each run records model, calls, input, cached input, output and reasoning tokens per step. When the run report carries a cost (reported by the provider, for example OpenRouter, or estimated by the engine), it is stored as reported, with price table version `provider`. Otherwise the backend prices tokens from `test_model_prices`: global rows (`org_id` null) seeded by migration 0023 for the Anthropic ids, their `gateway/anthropic/` forms and `claude-code/` aliases, overridden per organisation through `PUT /model-prices` (`test_config.manage`; no web form in this version). A model with neither a reported cost nor a price row shows no cost. Settings → Test cases → Model spend shows spend by user and model.
+**Spend.** Each run records model, calls, input, cached input, output and reasoning tokens per step. When the run report carries a cost (reported by the provider, for example OpenRouter, or estimated by the engine), it is stored as reported, with price table version `provider`. Otherwise the backend prices tokens from `test_model_prices`: global rows (`org_id` null) seeded by migration 0023 for the Anthropic ids, their `gateway/anthropic/` forms and `claude-code/` aliases, plus the organisation's own rows. A router id without its own row is priced like the vendor model: `openrouter/anthropic/claude-sonnet-5-5` (or OpenRouter's `claude-sonnet-5.5` spelling) and `gateway/<vendor>/<model>` use the `<vendor>/<model>` row. Organisation rows are managed in Settings → Test cases → AI model → Model prices (`test_config.manage`), which also says for each configured model whether it is priced and from which row; the same set is `GET`/`PUT /model-prices` (rows carry `source: default | organization`; `PUT` replaces the organisation's rows). A model with neither a reported cost nor a price row, which includes most `openai-compatible/`, `openai/`, `google/` and `xai/` models until a row is added, shows no cost. Settings → Test cases → Model spend shows spend by user and model.
 
 The Test runs settings have a daily budget field (`dailyBudgetUsd`). It is stored but not enforced in this version: no code sets `BUDGET_EXCEEDED`. Watch Model spend instead.
 
@@ -391,7 +393,7 @@ A generic webhook channel stores its URL encrypted and must resolve to a public 
 
 ### Jira import
 
-Settings → Test cases → Credentials: kind `jira` with fields `base_url` and `email` and secret `api_token`. Test cases → Import → Jira then takes a JQL query. The backend calls Jira directly and generates one transcript per issue with the organisation's model, so the backend needs network access to Jira and the model provider, and the organisation needs a model key. The Jira call does not pass through the SSRF guard, so `JL_OUTBOUND_ALLOW_HOSTS` does not apply to it.
+Settings → Test cases → Credentials: kind `jira` with fields `base_url` and `email` and secret `api_token`. Test cases → Import → Jira then takes a JQL query. The backend calls Jira directly and generates one transcript per issue with the organisation's act model, so the backend needs network access to Jira and the model provider, and the organisation needs the act provider's key. The Jira call does not pass through the SSRF guard, so `JL_OUTBOUND_ALLOW_HOSTS` does not apply to it. The model calls do: an `openai-compatible/` base URL on a private host needs that host in `JL_OUTBOUND_ALLOW_HOSTS`.
 
 ### Automation tokens for CI
 
@@ -532,8 +534,8 @@ To limit the feature to one team: deploy cloud runners only for the pilot organi
 | --- | --- | --- |
 | `NO_RUNNER` (run stays `queued`) | No worker of the environment's pool sent a heartbeat in the last 30 s | Start or fix the pool's runner. For `cloud`, the organisation needs its own cloud deployment (section 6) |
 | `RUNNER_LOST` (run `failed`) | The lease expired 3 times: host died, network cut, container killed | Check the runner host and its logs; check `stop_grace_period` and memory limits |
-| `MODEL_KEY_MISSING` | No key, or the key does not cover the model's provider, or `openai-compatible/` without a base URL | Settings → Test cases → AI model. Keep act and judge on one provider until `feat/e2e-providers` lands |
-| `MODEL_UNAVAILABLE` | Unknown prefix (for example `xai/` before `feat/e2e-providers`), an OpenRouter id not in its list, `claude-code/` on a runner without `--allow-claude-code`, or the provider rejected the call | Fix the model id; check provider status and the runner's egress |
+| `MODEL_KEY_MISSING` | No key for the act model's provider, no judge key while the judge uses another provider, or `openai-compatible/` without a base URL (settings saved before migration 0029, or a local run without `OPENAI_COMPATIBLE_BASE_URL`) | Settings → Test cases → AI model lists what is missing |
+| `MODEL_UNAVAILABLE` | An OpenRouter id not in its list, `claude-code/` on a runner without `--allow-claude-code`, a non-http(s) `OPENAI_COMPATIBLE_BASE_URL` on a local run, or the provider rejected the call. Unknown prefixes are refused when the settings are saved | Fix the model id; check provider status and the runner's egress |
 | `MISSING_CREDENTIAL` | The transcript names a credential profile the environment lacks, or a secret is unavailable | Settings → Test cases → Credentials |
 | `MISSING_VARIABLE` | A `{variable}` is undefined in the environment and params | Settings → Test cases → Environments, or case params |
 | `APP_UNREACHABLE` | The browser could not open the base URL from the runner | VPN or DNS on the runner host; environment bound to the wrong pool; plain `http://` to a non-loopback host |

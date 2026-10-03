@@ -50,10 +50,7 @@ import {
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import { emitReviewPendingCount } from "../services/notifications";
 import { recordOrganizationActivity } from "../services/organization-activity";
-import {
-	defaultOutboundPolicy,
-	type OutboundPolicy,
-} from "../services/outbound-http";
+import type { OutboundPolicy } from "../services/outbound-http";
 import { testCasePolicy } from "../services/test-case-policy";
 import {
 	applyReplacements,
@@ -112,7 +109,7 @@ const caseIdParams = z.object({ id: z.string().min(1) });
 export type TestCaseRouteOptions = {
 	generateText?: TextGenerator;
 	fetchImpl?: typeof fetch;
-	// SSRF guard for Jira imports (services/outbound-http.ts).
+	// SSRF guard for Jira imports: the Jira API and the model requests of transcript generation.
 	outbound?: OutboundPolicy;
 };
 
@@ -514,7 +511,7 @@ export const createTestCaseRoutes = (
 						request: body,
 						generateText: options.generateText ?? defaultTextGenerator,
 						...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-						outbound: options.outbound ?? defaultOutboundPolicy,
+						...(options.outbound ? { outbound: options.outbound } : {}),
 					},
 				);
 				ctx.set.status = 201;

@@ -39,6 +39,7 @@ export const testAdminKeys = {
   tags: (orgId: string | null) => testKeys.tags(orgId),
   runSettings: (orgId: string | null) => testKeys.runSettings(orgId),
   modelSettings: (orgId: string | null) => testKeys.modelSettings(orgId),
+  modelPrices: (orgId: string | null) => testKeys.modelPrices(orgId),
   modelCosts: (orgId: string | null, from: number, to: number) => testKeys.modelCosts(orgId, from, to),
   runnerPools: (orgId: string | null) => testKeys.runnerPools(orgId),
   notifications: (orgId: string | null) => testKeys.notifications(orgId),
@@ -127,6 +128,7 @@ export const useTestMacros = () => useOrgQuery(testAdminKeys.macros, testAdminAp
 export const useTestTags = () => useOrgQuery(testAdminKeys.tags, testAdminApi.listTags);
 export const useTestRunSettings = () => useOrgQuery(testAdminKeys.runSettings, testAdminApi.getRunSettings);
 export const useModelSettings = () => useOrgQuery(testAdminKeys.modelSettings, testAdminApi.getModelSettings);
+export const useModelPrices = () => useOrgQuery(testAdminKeys.modelPrices, testAdminApi.listModelPrices);
 export const useRunnerPools = () => useOrgQuery(testAdminKeys.runnerPools, testAdminApi.listRunnerPools, { refetchInterval: 15_000 });
 export const useNotificationChannels = () => useOrgQuery(testAdminKeys.notificationChannels, testAdminApi.listNotificationChannels, { retry: false });
 export const useNotificationSubscriptions = () => useOrgQuery(testAdminKeys.notificationSubscriptions, testAdminApi.getNotificationSubscriptions);

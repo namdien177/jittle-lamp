@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6f8188a9-ed65-4540-9415-de2153abf07d",
-  "prevId": "021efb4e-a65f-4c00-8338-b4e0d630f86c",
+  "id": "42b64ea5-4764-432e-b500-73c8a1fa002d",
+  "prevId": "6f8188a9-ed65-4540-9415-de2153abf07d",
   "tables": {
     "ai_access_token_usage_logs": {
       "name": "ai_access_token_usage_logs",
@@ -2191,6 +2191,20 @@
         },
         "channels_dispatched_at": {
           "name": "channels_dispatched_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "channels_lease_owner": {
+          "name": "channels_lease_owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "channels_lease_expires_at": {
+          "name": "channels_lease_expires_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -8976,6 +8990,20 @@
         "report_error": {
           "name": "report_error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "report_lease_owner": {
+          "name": "report_lease_owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "report_lease_expires_at": {
+          "name": "report_lease_expires_at",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

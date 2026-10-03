@@ -1,4 +1,4 @@
-import { resolveCredentialAlias, type CacheMode } from "@jittle-lamp/shared";
+import { modelProviderEnvNames, modelProviderUrlEnvNames, resolveCredentialAlias, type CacheMode } from "@jittle-lamp/shared";
 
 import type { EnvFile } from "./env-files";
 
@@ -49,15 +49,8 @@ const publicCredentialFields = new Set(["username", "user", "email", "login", "n
 // (design.md §9.1). JL_SECRET_NAMES lists any other names to treat as secret.
 const secretSegments = new Set(["PASSWORD", "PASSWD", "PASS", "PWD", "SECRET", "TOKEN", "OTP", "PIN", "KEY", "APIKEY", "PASSCODE"]);
 let extraSecretNames = new Set<string>();
-const providerKeyNames = [
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENROUTER_API_KEY",
-  "AI_GATEWAY_API_KEY",
-  "XAI_API_KEY",
-  "OPENAI_COMPATIBLE_API_KEY",
-  "OPENAI_COMPATIBLE_BASE_URL"
-] as const;
+// Provider keys are secret; provider endpoints (OPENAI_COMPATIBLE_BASE_URL) are not.
+const providerUrlNames = new Set(modelProviderUrlEnvNames);
 
 export const defaultActModel = "anthropic/claude-opus-5-5";
 export const defaultJudgeModel = "anthropic/claude-sonnet-5-5";
@@ -162,9 +155,9 @@ export function resolveRunConfig(input: {
 
   const orgEnv = org ? { source: orgSource(org.environment.name) } : null;
   const providerKeys = new Map<string, ResolvedValue>();
-  for (const name of providerKeyNames) {
+  for (const name of modelProviderEnvNames) {
     const orgKey = org?.model?.apiKeys[name];
-    const value = resolved(name, orgKey && orgEnv ? { value: orgKey, source: orgEnv.source } : null, name !== "OPENAI_COMPATIBLE_BASE_URL");
+    const value = resolved(name, orgKey && orgEnv ? { value: orgKey, source: orgEnv.source } : null, !providerUrlNames.has(name));
     if (value) providerKeys.set(name, value);
   }
 
