@@ -275,7 +275,11 @@ const recordOutcomes = async (
 	}
 };
 
-export const dispatchNotificationEvent = async (
+// A channel delivery is retried at most this many times, a minute apart.
+export const CHANNEL_MAX_ATTEMPTS = 5;
+
+// In-app delivery: rows per recipient, written with the producer.
+export const dispatchInApp = async (
 	db: BackendDb,
 	event: NotificationEventRow,
 	now = Date.now(),
@@ -289,6 +293,20 @@ export const dispatchNotificationEvent = async (
 		await inApp.deliver({ db, event, channel: null, recipients }),
 		now,
 	);
+	await db
+		.update(notificationEvents)
+		.set({ dispatchedAt: now })
+		.where(eq(notificationEvents.id, event.id));
+};
+
+// Slack and webhook channels, from the maintenance worker only: a slow or unreachable chat
+// service never holds up the request that produced the event. A channel that delivered, skipped,
+// is waiting for its next attempt or used up its attempts is left alone.
+export const dispatchChannels = async (
+	db: BackendDb,
+	event: NotificationEventRow,
+	now = Date.now(),
+): Promise<void> => {
 	const channels = await db.query.notificationChannels.findMany({
 		where: and(
 			eq(notificationChannels.orgId, event.orgId),
@@ -300,22 +318,28 @@ export const dispatchNotificationEvent = async (
 		tags ??= eventTags(db, event).catch(() => []);
 		return tags;
 	};
+	let recipients: string[] | null = null;
 	for (const channel of channels) {
 		if (
 			channel.kind === "in_app" ||
 			!(await channelMatches(channel, event, tagsOf))
 		)
 			continue;
-		// A retry never sends again what a channel already delivered.
-		const delivered = await db.query.notificationDeliveries.findFirst({
+		const previous = await db.query.notificationDeliveries.findFirst({
 			where: and(
 				eq(notificationDeliveries.eventId, event.id),
 				eq(notificationDeliveries.channelId, channel.id),
-				eq(notificationDeliveries.status, "delivered"),
 			),
-			columns: { id: true },
+			columns: { status: true, attempts: true, nextAttemptAt: true },
 		});
-		if (delivered) continue;
+		if (
+			previous &&
+			(previous.status !== "failed" ||
+				previous.attempts >= CHANNEL_MAX_ATTEMPTS ||
+				(previous.nextAttemptAt ?? 0) > now)
+		) {
+			continue;
+		}
 		const adapter = notificationAdapterFor(db, channel.kind);
 		let outcomes: DeliveryOutcome[];
 		if (!adapter) {
@@ -328,6 +352,7 @@ export const dispatchNotificationEvent = async (
 			];
 		} else {
 			try {
+				recipients ??= await resolveRecipients(db, event);
 				outcomes = await adapter.deliver({ db, event, channel, recipients });
 			} catch (error) {
 				outcomes = [
@@ -344,8 +369,17 @@ export const dispatchNotificationEvent = async (
 	}
 	await db
 		.update(notificationEvents)
-		.set({ dispatchedAt: now })
+		.set({ channelsDispatchedAt: now })
 		.where(eq(notificationEvents.id, event.id));
+};
+
+export const dispatchNotificationEvent = async (
+	db: BackendDb,
+	event: NotificationEventRow,
+	now = Date.now(),
+): Promise<void> => {
+	await dispatchInApp(db, event, now);
+	await dispatchChannels(db, event, now);
 };
 
 export type EmitNotificationInput = {
@@ -358,8 +392,9 @@ export type EmitNotificationInput = {
 	payload?: Record<string, unknown>;
 };
 
-// Producers call this. Delivery is attempted inline and retried by the maintenance loop; a
-// delivery failure never fails the producer.
+// Producers call this. In-app delivery happens inline; Slack and webhook channels are delivered
+// by the maintenance worker (dispatchPendingNotifications). A delivery failure never fails the
+// producer.
 export const emitNotification = async (
 	db: BackendDb,
 	input: EmitNotificationInput,
@@ -384,42 +419,49 @@ export const emitNotification = async (
 			})
 			.returning();
 		if (!event) return null;
-		await dispatchNotificationEvent(db, event).catch(() => undefined);
+		await dispatchInApp(db, event).catch(() => undefined);
 		return event;
 	} catch {
 		return null;
 	}
 };
 
-// Retries undispatched events and failed channel deliveries.
+// Worker step: in-app delivery that did not happen inline, channel delivery of new events, and
+// failed channel deliveries whose next attempt is due.
 export const dispatchPendingNotifications = async (
 	db: BackendDb,
 	now = Date.now(),
 ): Promise<number> => {
-	const pending = await db.query.notificationEvents.findMany({
+	const pendingInApp = await db.query.notificationEvents.findMany({
 		where: isNull(notificationEvents.dispatchedAt),
 		orderBy: asc(notificationEvents.createdAt),
 		limit: 200,
 	});
-	for (const event of pending) await dispatchNotificationEvent(db, event, now);
+	for (const event of pendingInApp) await dispatchInApp(db, event, now);
+	const pendingChannels = await db.query.notificationEvents.findMany({
+		where: isNull(notificationEvents.channelsDispatchedAt),
+		orderBy: asc(notificationEvents.createdAt),
+		limit: 200,
+	});
+	for (const event of pendingChannels) await dispatchChannels(db, event, now);
 	const failed = await db.query.notificationDeliveries.findMany({
 		where: and(
 			eq(notificationDeliveries.status, "failed"),
 			lte(notificationDeliveries.nextAttemptAt, now),
-			sql`${notificationDeliveries.attempts} < 5`,
+			sql`${notificationDeliveries.attempts} < ${CHANNEL_MAX_ATTEMPTS}`,
 		),
 		limit: 200,
 	});
-	const retried = new Set<string>();
+	const retried = new Set(pendingChannels.map((event) => event.id));
 	for (const delivery of failed) {
 		if (retried.has(delivery.eventId)) continue;
 		retried.add(delivery.eventId);
 		const event = await db.query.notificationEvents.findFirst({
 			where: eq(notificationEvents.id, delivery.eventId),
 		});
-		if (event) await dispatchNotificationEvent(db, event, now);
+		if (event) await dispatchChannels(db, event, now);
 	}
-	return pending.length + retried.size;
+	return pendingInApp.length + retried.size;
 };
 
 // ---------------------------------------------------------------------------------------------

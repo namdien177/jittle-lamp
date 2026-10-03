@@ -262,6 +262,8 @@ export const computeDedupeKey = (input: {
 	cacheMode: string;
 	// Webhook runs against a review app: a different baseUrl is a different run.
 	baseUrlOverride?: string | null;
+	// CI batches: the commit SHA, so a run never stands in for another commit's run.
+	triggerRef?: string | null;
 }) =>
 	`sha256:${sha256Text(
 		JSON.stringify([
@@ -271,6 +273,7 @@ export const computeDedupeKey = (input: {
 			input.paramsHash,
 			input.cacheMode,
 			...(input.baseUrlOverride ? [input.baseUrlOverride] : []),
+			...(input.triggerRef ? [`ref:${input.triggerRef}`] : []),
 		]),
 	)}`;
 
@@ -548,6 +551,8 @@ export const requestRuns = async (
 			paramsHash,
 			cacheMode: plan.request.cacheMode,
 			baseUrlOverride: input.baseUrlOverride ?? null,
+			triggerRef:
+				input.batch?.kind === "ci" ? (input.batch.triggerRef ?? null) : null,
 		});
 		const attachTo = await findAttachableRun(db, {
 			orgId: input.orgId,
@@ -807,10 +812,11 @@ export const refreshBatch = async (
 			? runs.some((run) => run.status !== "queued")
 				? "running"
 				: "queued"
-			: cancelled === runs.length && runs.length > 0
-				? "cancelled"
-				: failed + blocked > 0
-					? "failed"
+			: failed + blocked > 0
+				? "failed"
+				: // Any cancelled run means the batch did not run everything: never "completed".
+					cancelled > 0
+					? "cancelled"
 					: "completed";
 	const finished = pending === 0;
 	const changed = batch.status !== status || batch.pending !== pending;

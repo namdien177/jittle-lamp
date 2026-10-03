@@ -9,9 +9,14 @@ import type {
 	WebhookRule,
 } from "@jittle-lamp/shared";
 import { webhookRuleSchema } from "@jittle-lamp/shared";
-import { eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 
-import { testRuns, webhookBatches } from "../src/db/schema";
+import {
+	organizationActivityLogs,
+	testRuns,
+	webhookBatches,
+	webhookDeliveries,
+} from "../src/db/schema";
 import {
 	createEnvKeyProvider,
 	createTestSecrets,
@@ -19,7 +24,9 @@ import {
 import {
 	globToRegExp,
 	matchRule,
+	mergeEventContext,
 	normalizeWebhookEvent,
+	payloadHostAllowed,
 	processWebhookReports,
 	signBody,
 	verifyWebhookSignature,
@@ -29,6 +36,7 @@ import {
 	createTestCaseFixture,
 	FAKE_MODEL_KEY,
 	FAKE_PASSWORD,
+	loginTranscript,
 	type TestCaseFixture,
 } from "./test-case-fixtures";
 import {
@@ -54,7 +62,8 @@ type Captured = {
 // A fake GitHub / GitLab / callback receiver on a local port.
 const startFakeProvider = () => {
 	const requests: Captured[] = [];
-	let failNext: { path: RegExp; status: number } | null = null;
+	let failNext: { path: RegExp; status: number; remaining: number } | null =
+		null;
 	const server = Bun.serve({
 		port: 0,
 		async fetch(request) {
@@ -75,7 +84,8 @@ const startFakeProvider = () => {
 			});
 			if (failNext?.path.test(url.pathname)) {
 				const status = failNext.status;
-				failNext = null;
+				failNext.remaining -= 1;
+				if (failNext.remaining <= 0) failNext = null;
 				return new Response("provider down", { status });
 			}
 			return Response.json({ id: requests.length }, { status: 201 });
@@ -85,7 +95,10 @@ const startFakeProvider = () => {
 		url: `http://127.0.0.1:${server.port}`,
 		requests,
 		failOnce: (path: RegExp, status = 500) => {
-			failNext = { path, status };
+			failNext = { path, status, remaining: 1 };
+		},
+		failTimes: (path: RegExp, times: number, status = 500) => {
+			failNext = { path, status, remaining: times };
 		},
 		stop: () => server.stop(true),
 	};
@@ -102,7 +115,12 @@ const setup = async () => {
 		return fetch(input, init);
 	}) as typeof fetch;
 	const fixture = await createTestCaseFixture({
-		env: { JL_SECRETS_MASTER_KEY: masterKey, WEB_APP_ORIGIN: WEB },
+		env: {
+			JL_SECRETS_MASTER_KEY: masterKey,
+			WEB_APP_ORIGIN: WEB,
+			// The fake provider listens on 127.0.0.1.
+			JL_OUTBOUND_ALLOW_LOOPBACK: "true",
+		},
 		dependencies: { fetch: injectedFetch },
 	});
 	const seeded = await seedRunnableCase(fixture, {
@@ -121,6 +139,7 @@ const setup = async () => {
 			keyProvider: createEnvKeyProvider({ masterKey }),
 		}),
 		fetch: injectedFetch,
+		outbound: { allowLoopback: true, allowHosts: [] },
 		webOrigin: WEB,
 	});
 	return {
@@ -386,7 +405,11 @@ describe("webhook rules and normalisation", () => {
 		const reviewApp = rule({
 			suiteId: "s1",
 			environmentId: "e1",
-			environment: { fromPayload: "review_app_url", baseEnvironmentId: "e1" },
+			environment: {
+				fromPayload: "review_app_url",
+				baseEnvironmentId: "e1",
+				allowedHosts: ["*.review.example.test"],
+			},
 		});
 		expect(matchRule(reviewApp, sampleEvent())).toEqual({
 			matched: false,
@@ -752,6 +775,7 @@ describe("webhook endpoints and deliveries", () => {
 				environment: {
 					fromPayload: "review_app_url",
 					baseEnvironmentId: environmentId,
+					allowedHosts: ["*.review.example.test"],
 				},
 				report: {
 					commitStatus: false,
@@ -966,5 +990,566 @@ describe("webhook endpoints and deliveries", () => {
 		expect((calls[2]?.body as { body?: string } | undefined)?.body).toContain(
 			"Jittle Lamp E2E: passed",
 		);
+	});
+});
+
+const pushEvent = (sha: string, branch = "feature/cart") => ({
+	ref: `refs/heads/${branch}`,
+	after: sha,
+	repository: { full_name: "acme/shop" },
+});
+
+const deliveriesOf = (fixture: TestCaseFixture, endpointId: string) =>
+	fixture.call<{ items: WebhookDelivery[] }>(
+		`/test-webhooks/${endpointId}/deliveries`,
+		{ token: fixture.admin.token },
+	);
+
+const linkOf = (fixture: TestCaseFixture, batchId: string) =>
+	fixture.db.query.webhookBatches.findFirst({
+		where: eq(webhookBatches.batchId, batchId),
+	});
+
+const noReport = {
+	commitStatus: false,
+	mrNote: false,
+	callbackUrl: null,
+	credentialId: null,
+};
+
+describe("webhook review fixes", () => {
+	it("sends review-app runs only to allowed hosts", async () => {
+		expect(
+			payloadHostAllowed(
+				"https://mr-1.review.example.test/",
+				["*.review.example.test"],
+				null,
+			),
+		).toEqual({ allowed: true });
+		expect(
+			payloadHostAllowed(
+				"https://a.b.review.example.test",
+				["*.review.example.test"],
+				null,
+			),
+		).toEqual({ allowed: false, host: "a.b.review.example.test" });
+		expect(
+			payloadHostAllowed(
+				"https://review.example.test.evil.net",
+				["*.review.example.test"],
+				null,
+			).allowed,
+		).toBe(false);
+		expect(
+			payloadHostAllowed("https://uat.example.test/x", [], "uat.example.test")
+				.allowed,
+		).toBe(true);
+		expect(
+			payloadHostAllowed("https://other.example.test", [], null).allowed,
+		).toBe(false);
+
+		const { fixture, suiteId, environmentId } = await setup();
+		const { endpoint, secret } = await createEndpoint(fixture, "gitlab", [
+			rule({
+				suiteId,
+				environmentId,
+				when: { events: ["deployment"], branches: [], labels: [] },
+				// No allowedHosts: only the base environment's own host (uat.example.test).
+				environment: {
+					fromPayload: "deployment_url",
+					baseEnvironmentId: environmentId,
+					allowedHosts: [],
+				},
+				report: noReport,
+			}),
+		]);
+		const deployment = (url: string, sha: string) => ({
+			object_kind: "deployment",
+			status: "success",
+			ref: "main",
+			commit_url: `https://gitlab.example.test/acme/shop/-/commit/${sha}`,
+			environment_external_url: url,
+			project: { id: 123 },
+		});
+		const evil = await postGitlab(
+			fixture,
+			endpoint.id,
+			secret,
+			"Deployment Hook",
+			deployment("https://collector.evil.example.net", "d".repeat(40)),
+		);
+		expect(evil.status).toBe(200);
+		expect(evil.body.status).toBe("ignored");
+		const deliveries = await deliveriesOf(fixture, endpoint.id);
+		expect(deliveries.body.items[0]?.error).toContain(
+			"host collector.evil.example.net is not an allowed review app host",
+		);
+		expect(
+			await fixture.db.query.webhookBatches.findMany({
+				where: eq(webhookBatches.endpointId, endpoint.id),
+			}),
+		).toHaveLength(0);
+
+		const own = await postGitlab(
+			fixture,
+			endpoint.id,
+			secret,
+			"Deployment Hook",
+			deployment("https://uat.example.test/mr-7", "e".repeat(40)),
+		);
+		expect(own.status).toBe(202);
+	});
+
+	it("requires api_url on GitLab credentials so the PAT never follows a payload host", async () => {
+		const { fixture, suiteId, environmentId } = await setup();
+		const bare = await fixture.call<{ id: string }>("/test-credentials", {
+			token: fixture.admin.token,
+			body: {
+				profile: "GITLAB_NO_API",
+				kind: "gitlab_token",
+				secretFields: { token: FAKE_GITLAB_TOKEN },
+			},
+		});
+		const refused = await fixture.call<{ error: { message: string } }>(
+			"/test-webhooks",
+			{
+				token: fixture.admin.token,
+				body: {
+					provider: "gitlab",
+					rules: [
+						rule({
+							suiteId,
+							environmentId,
+							report: {
+								commitStatus: true,
+								mrNote: false,
+								callbackUrl: null,
+								credentialId: bare.body.id,
+							},
+						}),
+					],
+				},
+			},
+		);
+		expect(refused.status).toBe(422);
+		expect(refused.body.error.message).toContain("api_url");
+	});
+
+	it("refuses callbacks to private addresses and does not follow redirects", async () => {
+		const { fixture, suiteId, environmentId, reportDeps } = await setup();
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({
+				suiteId,
+				environmentId,
+				report: { ...noReport, callbackUrl: "http://10.0.0.7/hook" },
+			}),
+		]);
+		const opened = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			pullRequest("opened", { sha: "1".repeat(40) }),
+		);
+		const batchId = opened.body.batches?.[0]?.batchId ?? "";
+		await finishBatchRuns(fixture, batchId);
+		await processWebhookReports(reportDeps());
+		const link = await linkOf(fixture, batchId);
+		expect(link?.reportError).toContain("private or local address");
+		expect(link?.finalReportedAt).toBeNull();
+	});
+
+	it("verifies signatures without audit rows, samples bad signatures and limits each client", async () => {
+		const { fixture, suiteId, environmentId } = await setup();
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({ suiteId, environmentId, report: noReport }),
+		]);
+		const secretReads = async () =>
+			(
+				await fixture.db
+					.select({ value: count() })
+					.from(organizationActivityLogs)
+					.where(
+						and(
+							eq(organizationActivityLogs.organizationId, fixture.orgId),
+							eq(organizationActivityLogs.action, "test_config.secret_read"),
+						),
+					)
+			)[0]?.value ?? 0;
+		const before = await secretReads();
+		for (let index = 0; index < 3; index += 1) {
+			await postGithub(
+				fixture,
+				endpoint.id,
+				secret,
+				"pull_request",
+				pullRequest("synchronize", { sha: `${index}`.repeat(40), labels: [] }),
+			);
+		}
+		for (let index = 0; index < 5; index += 1) {
+			const forged = await postGithub(
+				fixture,
+				endpoint.id,
+				secret,
+				"pull_request",
+				pullRequest("opened"),
+				crypto.randomUUID(),
+				"whsec_attacker",
+			);
+			expect(forged.status).toBe(401);
+		}
+		expect(await secretReads()).toBe(before);
+		const badRows = await fixture.db.query.webhookDeliveries.findMany({
+			where: and(
+				eq(webhookDeliveries.endpointId, endpoint.id),
+				eq(webhookDeliveries.signatureValid, false),
+			),
+		});
+		expect(badRows).toHaveLength(1);
+
+		// No Content-Length and a body over 2 MB: refused while streaming.
+		const chunk = new Uint8Array(512 * 1024).fill(0x20);
+		let sent = 0;
+		const stream = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (sent >= 5) return controller.close();
+				sent += 1;
+				controller.enqueue(chunk);
+			},
+		});
+		const huge = await fixture.app.handle(
+			new Request(`http://localhost/hooks/${endpoint.id}`, {
+				method: "POST",
+				body: stream,
+				headers: {
+					"content-type": "application/json",
+					"x-github-event": "push",
+					"x-forwarded-for": "198.51.100.1",
+				},
+				duplex: "half",
+			} as RequestInit),
+		);
+		expect(huge.status).toBe(413);
+
+		const statuses: number[] = [];
+		for (let index = 0; index < 121; index += 1) {
+			const response = await fixture.call(`/hooks/${endpoint.id}`, {
+				method: "POST",
+				raw: "{}",
+				headers: {
+					"content-type": "application/json",
+					"x-github-event": "ping",
+					"x-forwarded-for": "203.0.113.9",
+				},
+			});
+			statuses.push(response.status);
+		}
+		expect(statuses.at(-1)).toBe(429);
+		expect(statuses.filter((status) => status === 429)).toHaveLength(1);
+		// Another client is not affected.
+		const other = await fixture.call(`/hooks/${endpoint.id}`, {
+			method: "POST",
+			raw: "{}",
+			headers: {
+				"content-type": "application/json",
+				"x-github-event": "ping",
+				"x-forwarded-for": "203.0.113.10",
+			},
+		});
+		expect(other.status).toBe(401);
+	});
+
+	it("still sends the final report after the pending status ran out of attempts, and shows the dead letter", async () => {
+		const { fixture, suiteId, environmentId, reportDeps } = await setup();
+		const credentialId = await credential(
+			fixture,
+			"github_app",
+			FAKE_GITHUB_TOKEN,
+		);
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({
+				suiteId,
+				environmentId,
+				report: {
+					commitStatus: true,
+					mrNote: false,
+					callbackUrl: null,
+					credentialId,
+				},
+			}),
+		]);
+		const sha = "2".repeat(40);
+		provider.failTimes(new RegExp(`/statuses/${sha}$`), 5);
+		const opened = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			pullRequest("opened", { sha }),
+		);
+		const batchId = opened.body.batches?.[0]?.batchId ?? "";
+		let now = Date.now();
+		for (let attempt = 0; attempt < 6; attempt += 1) {
+			now += 3_600_000;
+			await processWebhookReports(reportDeps(), now);
+		}
+		expect(await linkOf(fixture, batchId)).toMatchObject({
+			reportStage: "pending",
+			reportAttempts: 5,
+		});
+		const dead = await deliveriesOf(fixture, endpoint.id);
+		expect(dead.body.items[0]?.report).toMatchObject({
+			stage: "pending",
+			state: "failed",
+			attempts: 5,
+			error: expect.stringContaining("GitHub commit status answered 500"),
+		});
+
+		const before = provider.requests.length;
+		await finishBatchRuns(fixture, batchId);
+		await processWebhookReports(reportDeps(), now + 60_000);
+		const final = provider.requests
+			.slice(before)
+			.filter((call) => call.path.endsWith(`/statuses/${sha}`));
+		expect(final.map((call) => (call.body as { state: string }).state)).toEqual(
+			["success"],
+		);
+		const sent = await deliveriesOf(fixture, endpoint.id);
+		expect(sent.body.items[0]?.report).toMatchObject({
+			stage: "final",
+			state: "sent",
+			attempts: 0,
+			error: null,
+		});
+	});
+
+	it("never lets one commit's run stand in for another commit's run", async () => {
+		const { fixture, suiteId, environmentId } = await setup();
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({ suiteId, environmentId, report: noReport }),
+		]);
+		const first = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			pullRequest("opened", { sha: "3".repeat(40) }),
+		);
+		const firstBatch = first.body.batches?.[0]?.batchId ?? "";
+		await finishBatchRuns(fixture, firstBatch);
+		// Within the dedupe window: a new commit must still get its own run.
+		const second = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			pullRequest("synchronize", { sha: "4".repeat(40) }),
+		);
+		const secondBatch = second.body.batches?.[0]?.batchId ?? "";
+		expect(secondBatch).not.toBe(firstBatch);
+		const [a] = await fixture.db.query.testRuns.findMany({
+			where: eq(testRuns.batchId, firstBatch),
+		});
+		const [b] = await fixture.db.query.testRuns.findMany({
+			where: eq(testRuns.batchId, secondBatch),
+		});
+		expect(a?.id).toBeString();
+		expect(b?.id).toBeString();
+		expect(b?.id).not.toBe(a?.id);
+		expect(b?.dedupeKey).not.toBe(a?.dedupeKey);
+		expect(b?.status).toBe("queued");
+	});
+
+	it("joins a later merge request event to the commit's batch, and concurrent deliveries create one batch", async () => {
+		expect(
+			mergeEventContext(
+				sampleEvent({ kind: "push", mrId: null, labels: ["a"], github: null }),
+				sampleEvent({ mrId: "42", labels: ["b"] }),
+			),
+		).toMatchObject({
+			kind: "push",
+			mrId: "42",
+			labels: ["a", "b"],
+			github: { owner: "acme", repo: "shop" },
+		});
+
+		const { fixture, suiteId, environmentId, reportDeps } = await setup();
+		const credentialId = await credential(
+			fixture,
+			"github_app",
+			FAKE_GITHUB_TOKEN,
+		);
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({
+				suiteId,
+				environmentId,
+				when: { events: ["push", "merge_request"], branches: [], labels: [] },
+				report: {
+					commitStatus: false,
+					mrNote: true,
+					callbackUrl: null,
+					credentialId,
+				},
+			}),
+		]);
+		const sha = "5".repeat(40);
+		const [push, pr] = await Promise.all([
+			postGithub(fixture, endpoint.id, secret, "push", pushEvent(sha)),
+			postGithub(
+				fixture,
+				endpoint.id,
+				secret,
+				"pull_request",
+				pullRequest("opened", { sha }),
+			),
+		]);
+		const results = [push.body.batches?.[0], pr.body.batches?.[0]];
+		expect(new Set(results.map((entry) => entry?.batchId)).size).toBe(1);
+		expect(results.map((entry) => entry?.attached).sort()).toEqual([
+			false,
+			true,
+		]);
+		const batchId = results[0]?.batchId ?? "";
+		expect(
+			await fixture.db.query.testRuns.findMany({
+				where: eq(testRuns.batchId, batchId),
+			}),
+		).toHaveLength(1);
+		expect(
+			await fixture.db.query.webhookBatches.findMany({
+				where: eq(webhookBatches.endpointId, endpoint.id),
+			}),
+		).toHaveLength(1);
+
+		const before = provider.requests.length;
+		await finishBatchRuns(fixture, batchId);
+		await processWebhookReports(reportDeps());
+		// Whichever event came first, the PR number reached the batch: the comment is posted.
+		expect(provider.requests.slice(before).map((call) => call.path)).toEqual([
+			"/repos/acme/shop/issues/42/comments",
+		]);
+	});
+
+	it("never reports a partly cancelled batch as success", async () => {
+		const { fixture, environmentId, reportDeps, testCase } = await setup();
+		const second = await fixture.call<{ id: string }>("/test-cases", {
+			token: fixture.qa.token,
+			body: {
+				transcript: loginTranscript("Branch admin logout clears the email"),
+				environmentId,
+			},
+		});
+		const suite = await fixture.call<{ id: string }>("/test-suites", {
+			token: fixture.qa.token,
+			body: { name: "Two cases", memberIds: [testCase.id, second.body.id] },
+		});
+		const credentialId = await credential(
+			fixture,
+			"github_app",
+			FAKE_GITHUB_TOKEN,
+		);
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({
+				suiteId: suite.body.id,
+				environmentId,
+				report: {
+					commitStatus: true,
+					mrNote: false,
+					callbackUrl: null,
+					credentialId,
+				},
+			}),
+		]);
+		const sha = "6".repeat(40);
+		const opened = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			pullRequest("opened", { sha }),
+		);
+		const batchId = opened.body.batches?.[0]?.batchId ?? "";
+		const runs = await fixture.db.query.testRuns.findMany({
+			where: eq(testRuns.batchId, batchId),
+		});
+		expect(runs).toHaveLength(2);
+		const cancelled = await fixture.call(`/test-runs/${runs[1]?.id}/cancel`, {
+			token: fixture.admin.token,
+			body: {},
+		});
+		expect(cancelled.status).toBe(200);
+		const batch = await finishBatchRuns(fixture, batchId, "passed");
+		expect(batch.status).toBe("cancelled");
+		const before = provider.requests.length;
+		await processWebhookReports(reportDeps());
+		const status = provider.requests
+			.slice(before)
+			.find((call) => call.path.endsWith(`/statuses/${sha}`));
+		expect((status?.body as { state?: string } | undefined)?.state).toBe(
+			"error",
+		);
+	});
+
+	it("accepts a redelivery of an ignored delivery and runs only active cases", async () => {
+		const { fixture, environmentId, testCase } = await setup();
+		const draft = await fixture.call<{ id: string; status: string }>(
+			"/test-cases",
+			{
+				token: fixture.qa.token,
+				body: {
+					transcript: loginTranscript("Draft case stays out of CI"),
+					environmentId,
+					status: "draft",
+				},
+			},
+		);
+		expect(draft.body.status).toBe("draft");
+		const suite = await fixture.call<{ id: string }>("/test-suites", {
+			token: fixture.qa.token,
+			body: { name: "Mixed", memberIds: [testCase.id, draft.body.id] },
+		});
+		const { endpoint, secret } = await createEndpoint(fixture, "github", [
+			rule({
+				suiteId: suite.body.id,
+				environmentId,
+				when: { events: ["merge_request"], branches: ["main"], labels: [] },
+				report: noReport,
+			}),
+		]);
+		const deliveryId = crypto.randomUUID();
+		const payload = pullRequest("opened", { sha: "7".repeat(40) });
+		const first = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			payload,
+			deliveryId,
+		);
+		expect(first.body.status).toBe("ignored");
+		// The operator fixes the rule and redelivers from the provider's UI.
+		await fixture.call(`/test-webhooks/${endpoint.id}`, {
+			method: "PATCH",
+			token: fixture.admin.token,
+			body: {
+				rules: [
+					rule({ suiteId: suite.body.id, environmentId, report: noReport }),
+				],
+			},
+		});
+		const again = await postGithub(
+			fixture,
+			endpoint.id,
+			secret,
+			"pull_request",
+			payload,
+			deliveryId,
+		);
+		expect(again.status).toBe(202);
+		const batchId = again.body.batches?.[0]?.batchId ?? "";
+		const runs = await fixture.db.query.testRuns.findMany({
+			where: eq(testRuns.batchId, batchId),
+		});
+		expect(runs.map((run) => run.testCaseId)).toEqual([testCase.id]);
 	});
 });

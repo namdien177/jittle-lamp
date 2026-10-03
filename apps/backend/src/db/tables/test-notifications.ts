@@ -46,7 +46,10 @@ export const notificationEvents = sqliteTable(
 		createdAt: integer("created_at")
 			.notNull()
 			.$defaultFn(() => Date.now()),
+		// In-app delivery happens with the producer; Slack and webhook channels are delivered by the
+		// maintenance worker, which sets this.
 		dispatchedAt: integer("dispatched_at"),
+		channelsDispatchedAt: integer("channels_dispatched_at"),
 	},
 	(table) => [
 		index("notification_events_org_created_idx").on(
@@ -70,6 +73,9 @@ export const notificationChannels = sqliteTable(
 			enum: ["in_app", "slack", "email", "webhook"],
 		}).notNull(),
 		configJson: text("config_json").notNull().default("{}"),
+		// Webhook channels: { url, signingSecret } encrypted with the organisation data key.
+		secretEnc: text("secret_enc"),
+		keyVersion: integer("key_version").notNull().default(1),
 		filterJson: text("filter_json").notNull().default('{"kinds":[],"tags":[]}'),
 		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
 		createdBy: text("created_by").references(() => users.id, {
@@ -268,6 +274,10 @@ export const webhookBatches = sqliteTable(
 		contextJson: text("context_json").notNull().default("{}"),
 		pendingReportedAt: integer("pending_reported_at"),
 		finalReportedAt: integer("final_reported_at"),
+		// The stage the attempts count for; moving to "final" starts the count again.
+		reportStage: text("report_stage", { enum: ["pending", "final"] })
+			.notNull()
+			.default("pending"),
 		reportAttempts: integer("report_attempts").notNull().default(0),
 		reportNextAt: integer("report_next_at"),
 		reportError: text("report_error"),

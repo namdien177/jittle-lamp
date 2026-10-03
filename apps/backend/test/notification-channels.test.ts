@@ -1,8 +1,12 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { createHmac } from "node:crypto";
 import type { ClaimedRun, NotificationChannel } from "@jittle-lamp/shared";
 import { and, eq } from "drizzle-orm";
-
-import { notificationDeliveries, notificationEvents } from "../src/db/schema";
+import {
+	notificationChannels,
+	notificationDeliveries,
+	notificationEvents,
+} from "../src/db/schema";
 import { slackMessage } from "../src/services/notification-channels";
 import {
 	describeNotification,
@@ -24,15 +28,23 @@ const WEB = "https://jl-web.example.test";
 
 // A fake Slack incoming-webhook receiver.
 const startFakeSlack = () => {
-	const posts: Array<{ path: string; body: Record<string, unknown> }> = [];
+	const posts: Array<{
+		path: string;
+		body: Record<string, unknown>;
+		raw: string;
+		headers: Record<string, string>;
+	}> = [];
 	let failures = 0;
 	const server = Bun.serve({
 		port: 0,
 		async fetch(request) {
 			const url = new URL(request.url);
+			const raw = await request.text();
 			posts.push({
 				path: url.pathname,
-				body: (await request.json()) as Record<string, unknown>,
+				body: JSON.parse(raw) as Record<string, unknown>,
+				raw,
+				headers: Object.fromEntries(request.headers.entries()),
 			});
 			if (failures > 0) {
 				failures -= 1;
@@ -96,7 +108,7 @@ const finishOneRun = async (
 describe("Slack and webhook notification channels", () => {
 	it("manages channels with test_config.manage and never returns the Slack URL", async () => {
 		const fixture = await createTestCaseFixture({
-			env: { WEB_APP_ORIGIN: WEB },
+			env: { WEB_APP_ORIGIN: WEB, JL_OUTBOUND_ALLOW_LOOPBACK: "true" },
 		});
 		const credentialId = await slackCredential(fixture);
 		const denied = await fixture.call("/notification-channels", {
@@ -183,7 +195,7 @@ describe("Slack and webhook notification channels", () => {
 
 	it("posts run events to Slack filtered by kind and tag, with retries and delivery records", async () => {
 		const fixture = await createTestCaseFixture({
-			env: { WEB_APP_ORIGIN: WEB },
+			env: { WEB_APP_ORIGIN: WEB, JL_OUTBOUND_ALLOW_LOOPBACK: "true" },
 		});
 		const { testCase } = await seedRunnableCase(fixture, {
 			password: FAKE_PASSWORD,
@@ -243,6 +255,10 @@ describe("Slack and webhook notification channels", () => {
 					eq(notificationDeliveries.channelKind, "slack"),
 				),
 			});
+		// Finalising the run did not wait for Slack: channels belong to the worker.
+		expect(await deliveries()).toHaveLength(0);
+		expect(slack.posts.length - before).toBe(0);
+		await dispatchPendingNotifications(fixture.appDb, Date.now());
 		const first = await deliveries();
 		expect(first).toHaveLength(1);
 		expect(first[0]).toMatchObject({
@@ -331,5 +347,89 @@ describe("Slack and webhook notification channels", () => {
 		expect(JSON.stringify(message.blocks)).toContain(
 			`<${WEB}/test-runs/run-9|Open in Jittle Lamp>`,
 		);
+	});
+});
+
+describe("webhook notification channels after review", () => {
+	it("stores the URL encrypted, shows it masked, signs posts and returns the signing secret once", async () => {
+		const fixture = await createTestCaseFixture({
+			env: { WEB_APP_ORIGIN: WEB, JL_OUTBOUND_ALLOW_LOOPBACK: "true" },
+		});
+		const url = `${slack.url}/hooks/jittle-lamp?token=fake-path-token-0000`;
+		const created = await fixture.call<
+			NotificationChannel & { signingSecret: string | null }
+		>("/notification-channels", {
+			token: fixture.admin.token,
+			body: { kind: "webhook", config: { url } },
+		});
+		expect(created.status).toBe(201);
+		expect(created.body.signingSecret).toStartWith("jlsig_");
+		expect(created.body.config).toEqual({ urlMasked: `${slack.url}/…` });
+		const row = await fixture.db.query.notificationChannels.findFirst({
+			where: eq(notificationChannels.id, created.body.id),
+		});
+		expect(row?.secretEnc).toBeString();
+		expect(JSON.stringify(row)).not.toContain("fake-path-token-0000");
+		const list = await fixture.call<{ items: NotificationChannel[] }>(
+			"/notification-channels",
+			{ token: fixture.admin.token },
+		);
+		expect(JSON.stringify(list.body)).not.toContain("fake-path-token-0000");
+		expect(JSON.stringify(list.body)).not.toContain(
+			created.body.signingSecret ?? "missing",
+		);
+
+		// Editing the filter keeps the stored URL and secret.
+		const edited = await fixture.call<NotificationChannel>(
+			`/notification-channels/${created.body.id}`,
+			{
+				method: "PATCH",
+				token: fixture.admin.token,
+				body: { filter: { kinds: ["run.finished"], tags: [] } },
+			},
+		);
+		expect(edited.status).toBe(200);
+		expect(edited.body).not.toHaveProperty("signingSecret");
+
+		const before = slack.posts.length;
+		const sample = await fixture.call<{ delivered: boolean }>(
+			`/notification-channels/${created.body.id}/test`,
+			{
+				token: fixture.admin.token,
+				body: {},
+			},
+		);
+		expect(sample.body.delivered).toBe(true);
+		const post = slack.posts[before];
+		expect(post?.path).toBe("/hooks/jittle-lamp");
+		expect(post?.headers["x-jl-signature-256"]).toBe(
+			`sha256=${createHmac("sha256", created.body.signingSecret ?? "")
+				.update(post?.raw ?? "")
+				.digest("hex")}`,
+		);
+	});
+
+	it("refuses channel URLs on local addresses unless the dev flag allows loopback", async () => {
+		const fixture = await createTestCaseFixture({
+			env: { WEB_APP_ORIGIN: WEB, JL_OUTBOUND_ALLOW_LOOPBACK: "false" },
+		});
+		const created = await fixture.call<NotificationChannel>(
+			"/notification-channels",
+			{
+				token: fixture.admin.token,
+				body: { kind: "webhook", config: { url: `${slack.url}/hooks/local` } },
+			},
+		);
+		const before = slack.posts.length;
+		const sample = await fixture.call<{
+			delivered: boolean;
+			error: string | null;
+		}>(`/notification-channels/${created.body.id}/test`, {
+			token: fixture.admin.token,
+			body: {},
+		});
+		expect(sample.body.delivered).toBe(false);
+		expect(sample.body.error).toContain("private or local address");
+		expect(slack.posts.length).toBe(before);
 	});
 });

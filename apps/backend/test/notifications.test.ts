@@ -282,6 +282,11 @@ describe("notifications", () => {
 			fixture.db.query.notificationDeliveries.findMany({
 				where: eq(notificationDeliveries.eventId, event.id),
 			});
+		// Producers deliver in-app only; the worker delivers to channels.
+		expect((await deliveries()).map((row) => row.channelKind).sort()).toEqual([
+			"in_app",
+		]);
+		await dispatchPendingNotifications(fixture.db, Date.now());
 		const initial = await deliveries();
 		expect(
 			initial
@@ -314,5 +319,49 @@ describe("notifications", () => {
 		).toHaveLength(1);
 		const qa = await inbox(fixture, fixture.qa);
 		expect(qa.items[0]?.title).toBe("TC-0009 passed");
+	});
+
+	it("stops retrying a channel after five attempts and never re-sends to it", async () => {
+		const fixture = await createTestCaseFixture();
+		let calls = 0;
+		registerNotificationAdapter({
+			kind: "email",
+			deliver: async () => {
+				calls += 1;
+				return [
+					{ recipientUserId: null, status: "failed", error: "mail relay down" },
+				];
+			},
+		});
+		const [channel] = await fixture.db
+			.insert(notificationChannels)
+			.values({ orgId: fixture.orgId, kind: "email" })
+			.returning();
+		if (!channel) throw new Error("Expected a channel");
+		const event = await emitNotification(fixture.db, {
+			orgId: fixture.orgId,
+			kind: "run.finished",
+			subjectType: "test_run",
+			subjectId: "run-exhausted",
+			payload: { outcome: "failed" },
+		});
+		if (!event) throw new Error("Expected event");
+		let now = Date.now();
+		for (let pass = 0; pass < 8; pass += 1) {
+			await dispatchPendingNotifications(fixture.db, now);
+			now += 61_000;
+		}
+		expect(calls).toBe(5);
+		const delivery = await fixture.db.query.notificationDeliveries.findFirst({
+			where: and(
+				eq(notificationDeliveries.eventId, event.id),
+				eq(notificationDeliveries.channelId, channel.id),
+			),
+		});
+		expect(delivery).toMatchObject({
+			status: "failed",
+			attempts: 5,
+			lastError: "mail relay down",
+		});
 	});
 });

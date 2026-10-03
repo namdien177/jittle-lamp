@@ -42,6 +42,7 @@ import {
 } from "../db/schema";
 import { createUuidV7 } from "../db/uuid";
 import { HttpError, notFound } from "../http/test-http";
+import { guardedFetch, type OutboundPolicy } from "./outbound-http";
 import { parseJsonColumn, suiteMembers } from "./test-cases";
 import type { TestSecrets } from "./test-config";
 import { requestRuns, toBatch } from "./test-runs";
@@ -551,11 +552,56 @@ export const globToRegExp = (glob: string): RegExp => {
 	return new RegExp(`^${pattern}$`);
 };
 
+// Host globs for review apps: `*` is one DNS label, `**` any number of labels.
+export const hostGlobToRegExp = (glob: string): RegExp => {
+	let pattern = "";
+	const lower = glob.toLowerCase();
+	for (let index = 0; index < lower.length; index += 1) {
+		const char = lower[index] ?? "";
+		if (char === "*") {
+			if (lower[index + 1] === "*") {
+				pattern += "[a-z0-9.-]+";
+				index += 1;
+			} else {
+				pattern += "[a-z0-9-]+";
+			}
+		} else {
+			pattern += char.replace(/[.+^${}()|[\]\\?]/g, "\\$&");
+		}
+	}
+	return new RegExp(`^${pattern}$`);
+};
+
+// The base environment's credentials go to the payload's URL, so its host must be allowed: the
+// rule's allowedHosts globs, or the base environment's own host when the list is empty.
+export const payloadHostAllowed = (
+	url: string,
+	allowedHosts: readonly string[],
+	baseHost: string | null,
+): { allowed: true } | { allowed: false; host: string } => {
+	let host: string;
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+			return { allowed: false, host: parsed.protocol };
+		}
+		host = parsed.hostname.toLowerCase();
+	} catch {
+		return { allowed: false, host: "(invalid URL)" };
+	}
+	const patterns =
+		allowedHosts.length > 0 ? allowedHosts : baseHost ? [baseHost] : [];
+	return patterns.some((glob) => hostGlobToRegExp(glob).test(host))
+		? { allowed: true }
+		: { allowed: false, host };
+};
+
 // Events must be listed; branches (globs) and labels each match when empty or when any entry
-// matches. An environment taken from the payload needs that URL in the event.
+// matches. An environment taken from the payload needs that URL in the event, on an allowed host.
 export const matchRule = (
 	rule: WebhookRule,
 	event: WebhookEvent,
+	baseHosts: ReadonlyMap<string, string | null> = new Map(),
 ): { matched: true } | { matched: false; reason: string } => {
 	if (!rule.when.events.includes(event.kind)) {
 		return { matched: false, reason: `event ${event.kind} not in rule` };
@@ -589,6 +635,17 @@ export const matchRule = (
 				reason: `payload has no ${rule.environment.fromPayload.replace(/_/g, " ")}`,
 			};
 		}
+		const check = payloadHostAllowed(
+			url,
+			rule.environment.allowedHosts,
+			baseHosts.get(rule.environment.baseEnvironmentId) ?? null,
+		);
+		if (!check.allowed) {
+			return {
+				matched: false,
+				reason: `host ${check.host} is not an allowed review app host`,
+			};
+		}
 	}
 	return { matched: true };
 };
@@ -619,6 +676,7 @@ export const toWebhookDelivery = (
 	triggerRef: row.triggerRef,
 	batchId: row.batchId,
 	error: row.error,
+	report: null,
 	createdAt: row.createdAt,
 });
 
@@ -686,10 +744,22 @@ export const validateRules = async (
 					eq(testCredentials.orgId, orgId),
 					isNull(testCredentials.deletedAt),
 				),
-				columns: { kind: true },
+				columns: { kind: true, fieldsJson: true },
 			});
 			if (!credential) {
 				throw invalid(`${where}.report.credentialId: credential not found`);
+			}
+			// The PAT only ever goes to the API URL the credential names, never to a host taken
+			// from a payload.
+			const fields = parseJsonColumn(
+				credential.fieldsJson,
+				z.record(z.string(), z.string()),
+				{},
+			);
+			if (provider === "gitlab" && !fields.api_url) {
+				throw invalid(
+					`${where}.report.credentialId: a gitlab_token credential needs the api_url field (https://gitlab.example.com/api/v4)`,
+				);
 			}
 			const expected = credentialKindFor[provider];
 			if (expected && credential.kind !== expected) {
@@ -773,6 +843,18 @@ const endpointSecret = async (
 		})
 	).secret ?? "";
 
+const endpointSecretForCheck = async (
+	secrets: TestSecrets,
+	row: WebhookEndpointRow,
+) =>
+	(
+		await secrets.decryptForSignatureCheck(
+			row.orgId,
+			webhookSubject(row.id),
+			row.secretEnc,
+		)
+	).secret ?? "";
+
 // ---------------------------------------------------------------------------------------------
 // Inbound deliveries
 // ---------------------------------------------------------------------------------------------
@@ -781,6 +863,8 @@ export type WebhookReportDeps = {
 	db: BackendDb;
 	secrets: TestSecrets;
 	fetch: typeof fetch;
+	// SSRF guard for callback URLs and provider API URLs (services/outbound-http.ts).
+	outbound: OutboundPolicy;
 	// Links in commit statuses and notes point at the web app.
 	webOrigin: string | null;
 };
@@ -837,6 +921,44 @@ const providerDeliveryId = (headers: Headers) =>
 
 const withId = (id: string | undefined) => (id ? { deliveryId: id } : {});
 
+// Bad signatures are recorded at most once a minute per endpoint, so forged requests cannot fill
+// the deliveries table (the route also rate-limits per endpoint and client address).
+export const BAD_SIGNATURE_SAMPLE_MS = 60_000;
+
+// Hosts of the base environments of rules that take their base URL from the payload.
+const baseEnvironmentHosts = async (
+	db: BackendDb,
+	orgId: string,
+	rules: readonly WebhookRule[],
+): Promise<Map<string, string | null>> => {
+	const ids = [
+		...new Set(
+			rules.flatMap((rule) =>
+				"fromPayload" in rule.environment
+					? [rule.environment.baseEnvironmentId]
+					: [],
+			),
+		),
+	];
+	const out = new Map<string, string | null>();
+	if (ids.length === 0) return out;
+	const rows = await db.query.testEnvironments.findMany({
+		where: and(
+			eq(testEnvironments.orgId, orgId),
+			inArray(testEnvironments.id, ids),
+		),
+		columns: { id: true, baseUrl: true },
+	});
+	for (const row of rows) {
+		try {
+			out.set(row.id, new URL(row.baseUrl).hostname.toLowerCase());
+		} catch {
+			out.set(row.id, null);
+		}
+	}
+	return out;
+};
+
 export const handleWebhookDelivery = async (
 	deps: WebhookReportDeps,
 	input: {
@@ -874,28 +996,40 @@ export const handleWebhookDelivery = async (
 		deliveryId,
 		createdAt: now,
 	};
-	const secret = await endpointSecret(deps.secrets, endpoint, "webhook.verify");
+	// Unauthenticated callers reach this point: the decrypt writes no audit row.
+	const secret = await endpointSecretForCheck(deps.secrets, endpoint);
 	if (
 		!verifyWebhookSignature(endpoint.provider, secret, input.headers, input.raw)
 	) {
-		const id = await recordDelivery(db, {
-			...base,
-			eventType: eventHeader,
-			signatureValid: false,
-			status: "rejected",
-			error: "invalid signature",
+		const sampled = await db.query.webhookDeliveries.findFirst({
+			where: and(
+				eq(webhookDeliveries.endpointId, endpoint.id),
+				eq(webhookDeliveries.signatureValid, false),
+				gte(webhookDeliveries.createdAt, now - BAD_SIGNATURE_SAMPLE_MS),
+			),
+			columns: { id: true },
 		});
+		const id = sampled
+			? undefined
+			: await recordDelivery(db, {
+					...base,
+					eventType: eventHeader,
+					signatureValid: false,
+					status: "rejected",
+					error: "invalid signature",
+				});
 		return {
 			status: 401,
 			body: { status: "rejected", reason: "invalid signature", ...withId(id) },
 		};
 	}
-	// A delivery already accepted (same provider delivery id or same signed body) is a replay.
+	// A delivery that already started or joined a batch (same provider delivery id or same signed
+	// body) is a replay. Ignored deliveries may be redelivered, e.g. after fixing a rule.
 	const earlier = await db.query.webhookDeliveries.findFirst({
 		where: and(
 			eq(webhookDeliveries.endpointId, endpoint.id),
 			eq(webhookDeliveries.signatureValid, true),
-			inArray(webhookDeliveries.status, ["matched", "ignored"]),
+			eq(webhookDeliveries.status, "matched"),
 			gte(webhookDeliveries.createdAt, now - REPLAY_WINDOW_MS),
 			deliveryId
 				? or(
@@ -971,6 +1105,7 @@ export const handleWebhookDelivery = async (
 
 	const { event } = normalized;
 	const rules = parseRules(endpoint.rulesJson);
+	const hosts = await baseEnvironmentHosts(db, endpoint.orgId, rules);
 	const batches: Array<{
 		ruleIndex: number;
 		batchId: string;
@@ -980,29 +1115,17 @@ export const handleWebhookDelivery = async (
 	const reasons: string[] = [];
 	const created: WebhookBatchRow[] = [];
 	for (const [ruleIndex, rule] of rules.entries()) {
-		const match = matchRule(rule, event);
+		const match = matchRule(rule, event, hosts);
 		if (!match.matched) {
 			reasons.push(`rule ${ruleIndex + 1}: ${match.reason}`);
 			continue;
 		}
-		const key = webhookRuleKey(rule);
-		const existing = await db.query.webhookBatches.findFirst({
-			where: and(
-				eq(webhookBatches.endpointId, endpoint.id),
-				eq(webhookBatches.ruleKey, key),
-				eq(webhookBatches.triggerRef, event.sha),
-			),
-		});
-		if (existing) {
-			batches.push({ ruleIndex, batchId: existing.batchId, attached: true });
-			continue;
-		}
 		try {
-			const link = await createWebhookBatch(db, {
+			const link = await startOrJoinBatch(db, {
 				endpoint,
 				rule,
 				ruleIndex,
-				ruleKey: key,
+				ruleKey: webhookRuleKey(rule),
 				eventType: normalized.eventType,
 				event,
 				now,
@@ -1057,7 +1180,53 @@ export const handleWebhookDelivery = async (
 	};
 };
 
-const createWebhookBatch = async (
+// A later event for the same commit (a push, then the merge request) adds what it knows: the
+// MR/PR id for the note, labels, the repository.
+export const mergeEventContext = (
+	current: WebhookEvent,
+	next: WebhookEvent,
+): WebhookEvent => ({
+	...current,
+	mrId: current.mrId ?? next.mrId,
+	title: current.title ?? next.title,
+	branch: current.branch ?? next.branch,
+	labels: [...new Set([...current.labels, ...next.labels])],
+	github: current.github ?? next.github,
+	gitlab: current.gitlab ?? next.gitlab,
+	reviewAppUrl: current.reviewAppUrl ?? next.reviewAppUrl,
+	deploymentUrl: current.deploymentUrl ?? next.deploymentUrl,
+});
+
+const joinBatch = async (
+	db: BackendDb,
+	row: WebhookBatchRow,
+	event: WebhookEvent,
+	now: number,
+): Promise<{ row: WebhookBatchRow; attached: true }> => {
+	const context = parseJsonColumn(
+		row.contextJson,
+		batchContextSchema.nullable(),
+		null,
+	);
+	if (context) {
+		const merged = mergeEventContext(context.event, event);
+		if (JSON.stringify(merged) !== JSON.stringify(context.event)) {
+			await db
+				.update(webhookBatches)
+				.set({
+					contextJson: JSON.stringify({ ...context, event: merged }),
+					updatedAt: now,
+				})
+				.where(eq(webhookBatches.id, row.id));
+		}
+	}
+	return { row, attached: true };
+};
+
+// The (endpoint, rule, SHA) row is claimed first, under its unique index, and the runs are
+// created only by the delivery that won the claim; a concurrent delivery for the same commit
+// waits for the batch id and joins it.
+const startOrJoinBatch = async (
 	db: BackendDb,
 	input: {
 		endpoint: WebhookEndpointRow;
@@ -1070,6 +1239,84 @@ const createWebhookBatch = async (
 	},
 ): Promise<{ row: WebhookBatchRow; attached: boolean }> => {
 	const { endpoint, rule, event } = input;
+	const find = () =>
+		db.query.webhookBatches.findFirst({
+			where: and(
+				eq(webhookBatches.endpointId, endpoint.id),
+				eq(webhookBatches.ruleKey, input.ruleKey),
+				eq(webhookBatches.triggerRef, event.sha),
+			),
+		});
+	const baseUrl =
+		"fromPayload" in rule.environment
+			? rule.environment.fromPayload === "review_app_url"
+				? event.reviewAppUrl
+				: event.deploymentUrl
+			: null;
+	const context: BatchContext = {
+		provider: endpoint.provider,
+		eventType: input.eventType,
+		event,
+		baseUrl,
+		done: [],
+	};
+	const [claim] = await db
+		.insert(webhookBatches)
+		.values({
+			orgId: endpoint.orgId,
+			endpointId: endpoint.id,
+			ruleKey: input.ruleKey,
+			ruleIndex: input.ruleIndex,
+			triggerRef: event.sha,
+			// Filled in once the runs exist.
+			batchId: "",
+			contextJson: JSON.stringify(context),
+			createdAt: input.now,
+			updatedAt: input.now,
+		})
+		.onConflictDoNothing()
+		.returning();
+	if (!claim) {
+		for (let wait = 0; wait < 50; wait += 1) {
+			const winner = await find();
+			if (!winner) break;
+			if (winner.batchId) return joinBatch(db, winner, event, input.now);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		throw new Error("Another delivery for this commit is still starting runs");
+	}
+	try {
+		const batchId = await createBatchRuns(db, {
+			endpoint,
+			rule,
+			event,
+			baseUrl,
+			now: input.now,
+		});
+		const [row] = await db
+			.update(webhookBatches)
+			.set({ batchId, updatedAt: input.now })
+			.where(eq(webhookBatches.id, claim.id))
+			.returning();
+		return { row: row ?? { ...claim, batchId }, attached: false };
+	} catch (error) {
+		// Free the claim so a redelivery can try again.
+		await db.delete(webhookBatches).where(eq(webhookBatches.id, claim.id));
+		throw error;
+	}
+};
+
+const createBatchRuns = async (
+	db: BackendDb,
+	input: {
+		endpoint: WebhookEndpointRow;
+		rule: WebhookRule;
+		event: WebhookEvent;
+		baseUrl: string | null;
+		now: number;
+	},
+): Promise<string> => {
+	const { endpoint, rule, event } = input;
 	if (!endpoint.createdBy) {
 		throw new Error("The endpoint has no owner any more; recreate it");
 	}
@@ -1081,28 +1328,23 @@ const createWebhookBatch = async (
 		),
 	});
 	if (!suite) throw new Error("The rule's suite no longer exists");
+	// CI runs only approved cases: drafts and cases in review stay out of pipelines.
 	const members = (await suiteMembers(db, endpoint.orgId, suite)).filter(
-		(row) => row.status === "active" || row.status === "draft",
+		(row) => row.status === "active",
 	);
 	if (members.length === 0) {
-		throw new Error("The suite has no runnable test cases");
+		throw new Error("The suite has no active test cases");
 	}
 	const environmentId =
 		"id" in rule.environment
 			? rule.environment.id
 			: rule.environment.baseEnvironmentId;
-	// A review app or deployment: the base environment's config with the payload's baseUrl.
-	const baseUrl =
-		"fromPayload" in rule.environment
-			? rule.environment.fromPayload === "review_app_url"
-				? event.reviewAppUrl
-				: event.deploymentUrl
-			: null;
 	const request = createTestRunRequestSchema.parse({
 		environmentId,
 		trigger: "webhook",
 		priority: rule.priority,
 	});
+	// The SHA is part of each run's dedupe key: a run never attaches to another commit's run.
 	const { batchId } = await requestRuns(db, {
 		orgId: endpoint.orgId,
 		requester: {
@@ -1112,43 +1354,11 @@ const createWebhookBatch = async (
 		},
 		cases: members.map((row) => ({ row, request })),
 		batch: { kind: "ci", suiteId: suite.id, triggerRef: event.sha },
-		baseUrlOverride: baseUrl,
+		baseUrlOverride: input.baseUrl,
 		now: input.now,
 	});
 	if (!batchId) throw new Error("No batch was created");
-	const context: BatchContext = {
-		provider: endpoint.provider,
-		eventType: input.eventType,
-		event,
-		baseUrl,
-		done: [],
-	};
-	const [row] = await db
-		.insert(webhookBatches)
-		.values({
-			orgId: endpoint.orgId,
-			endpointId: endpoint.id,
-			ruleKey: input.ruleKey,
-			ruleIndex: input.ruleIndex,
-			triggerRef: event.sha,
-			batchId,
-			contextJson: JSON.stringify(context),
-			createdAt: input.now,
-			updatedAt: input.now,
-		})
-		.onConflictDoNothing()
-		.returning();
-	if (row) return { row, attached: false };
-	// A concurrent delivery for the same commit won; attach to its batch.
-	const winner = await db.query.webhookBatches.findFirst({
-		where: and(
-			eq(webhookBatches.endpointId, endpoint.id),
-			eq(webhookBatches.ruleKey, input.ruleKey),
-			eq(webhookBatches.triggerRef, event.sha),
-		),
-	});
-	if (!winner) throw new Error("Failed to record the webhook batch");
-	return { row: winner, attached: true };
+	return batchId;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -1210,7 +1420,7 @@ const postJson = async (
 	headers: Record<string, string>,
 	body: unknown,
 ) => {
-	const response = await deps.fetch(url, {
+	const response = await guardedFetch(deps.fetch, deps.outbound, url, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
@@ -1335,12 +1545,14 @@ const targetUrl = (lines: readonly RunLine[]) =>
 const githubApi = (credential: ProviderCredential) =>
 	(credential.apiUrl ?? "https://api.github.com").replace(/\/+$/, "");
 
-const gitlabApi = (context: BatchContext, credential: ProviderCredential) => {
-	if (credential.apiUrl) return credential.apiUrl.replace(/\/+$/, "");
-	const web = context.event.gitlab?.webUrl;
-	if (!web)
-		throw new Error("GitLab API URL unknown; set api_url on the credential");
-	return `${new URL(web).origin}/api/v4`;
+// Only the credential names the API host; a payload's project URL is never trusted with the PAT.
+const gitlabApi = (credential: ProviderCredential) => {
+	if (!credential.apiUrl) {
+		throw new Error(
+			"The GitLab credential needs api_url (https://gitlab.example.com/api/v4)",
+		);
+	}
+	return credential.apiUrl.replace(/\/+$/, "");
 };
 
 const githubHeaders = (credential: ProviderCredential) => ({
@@ -1389,7 +1601,7 @@ const sendTarget = async (
 				await postJson(
 					deps,
 					"GitLab commit status",
-					`${gitlabApi(context, credential)}/projects/${encodeURIComponent(event.gitlab.projectId)}/statuses/${event.sha}`,
+					`${gitlabApi(credential)}/projects/${encodeURIComponent(event.gitlab.projectId)}/statuses/${event.sha}`,
 					{ "private-token": credential.token },
 					{
 						state: gitlabState(batch, stage),
@@ -1427,7 +1639,7 @@ const sendTarget = async (
 			await postJson(
 				deps,
 				"GitLab MR note",
-				`${gitlabApi(context, credential)}/projects/${encodeURIComponent(event.gitlab.projectId)}/merge_requests/${event.mrId}/notes`,
+				`${gitlabApi(credential)}/projects/${encodeURIComponent(event.gitlab.projectId)}/merge_requests/${event.mrId}/notes`,
 				{ "private-token": credential.token },
 				{ body },
 			);
@@ -1455,7 +1667,7 @@ const sendTarget = async (
 		input.endpoint,
 		"webhook.callback",
 	);
-	const response = await deps.fetch(callbackUrl, {
+	const response = await guardedFetch(deps.fetch, deps.outbound, callbackUrl, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
@@ -1561,11 +1773,15 @@ const runReport = async (
 			failure = error instanceof Error ? error.message : "report failed";
 		}
 	}
-	const attempts = failure ? link.reportAttempts + 1 : 0;
+	// Attempts count per stage: a pending status that ran out of attempts must not stop the final
+	// report once the batch finishes.
+	const previous = link.reportStage === stage ? link.reportAttempts : 0;
+	const attempts = failure ? previous + 1 : 0;
 	await db
 		.update(webhookBatches)
 		.set({
 			contextJson: JSON.stringify({ ...context, done: [...done] }),
+			reportStage: stage,
 			...(failure
 				? {
 						reportAttempts: attempts,
@@ -1597,10 +1813,21 @@ export const processWebhookReports = async (
 		.innerJoin(testRunBatches, eq(testRunBatches.id, webhookBatches.batchId))
 		.where(
 			and(
-				lt(webhookBatches.reportAttempts, WEBHOOK_REPORT_MAX_ATTEMPTS),
+				or(
+					lt(webhookBatches.reportAttempts, WEBHOOK_REPORT_MAX_ATTEMPTS),
+					// Attempts spent on the pending status do not count for the final report.
+					and(
+						eq(webhookBatches.reportStage, "pending"),
+						isNotNull(testRunBatches.finishedAt),
+					),
+				),
 				or(
 					isNull(webhookBatches.reportNextAt),
 					lte(webhookBatches.reportNextAt, now),
+					and(
+						eq(webhookBatches.reportStage, "pending"),
+						isNotNull(testRunBatches.finishedAt),
+					),
 				),
 				isNull(webhookBatches.finalReportedAt),
 				or(
@@ -1645,15 +1872,54 @@ export const createWebhookReportWorker = (
 	},
 });
 
+export const reportStateOf = (
+	link: Pick<
+		WebhookBatchRow,
+		"reportStage" | "reportAttempts" | "reportError" | "finalReportedAt"
+	>,
+): NonNullable<WebhookDelivery["report"]> => ({
+	stage: link.reportStage,
+	state:
+		link.finalReportedAt !== null
+			? "sent"
+			: link.reportAttempts >= WEBHOOK_REPORT_MAX_ATTEMPTS
+				? "failed"
+				: link.reportAttempts > 0
+					? "retrying"
+					: "pending",
+	attempts: link.reportAttempts,
+	error: link.reportError,
+});
+
+// Deliveries with the outbound report of the batch each one started or joined, so a dead-lettered
+// commit status or MR note is visible in settings.
 export const listWebhookDeliveries = async (
 	db: BackendDb,
 	endpointId: string,
 	limit = 50,
-): Promise<WebhookDelivery[]> =>
-	(
-		await db.query.webhookDeliveries.findMany({
-			where: eq(webhookDeliveries.endpointId, endpointId),
-			orderBy: desc(webhookDeliveries.createdAt),
-			limit,
-		})
-	).map(toWebhookDelivery);
+): Promise<WebhookDelivery[]> => {
+	const rows = await db.query.webhookDeliveries.findMany({
+		where: eq(webhookDeliveries.endpointId, endpointId),
+		orderBy: desc(webhookDeliveries.createdAt),
+		limit,
+	});
+	const batchIds = [
+		...new Set(rows.flatMap((row) => (row.batchId ? [row.batchId] : []))),
+	];
+	const links = batchIds.length
+		? await db.query.webhookBatches.findMany({
+				where: and(
+					eq(webhookBatches.endpointId, endpointId),
+					inArray(webhookBatches.batchId, batchIds),
+				),
+			})
+		: [];
+	const byBatch = new Map(links.map((link) => [link.batchId, link]));
+	return rows.map((row) => {
+		const link = row.batchId ? byBatch.get(row.batchId) : undefined;
+		return {
+			...toWebhookDelivery(row),
+			report: link ? reportStateOf(link) : null,
+		};
+	});
+};

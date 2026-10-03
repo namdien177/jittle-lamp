@@ -19,7 +19,9 @@ export type RuleDraft = {
   labels: string;
   suiteId: string;
   environmentMode: EnvironmentMode;
-  environmentId: string;
+    environmentId: string;
+  // Review-app / deployment URLs: host globs the base environment's credentials may go to.
+  allowedHosts: string;
   priority: string;
   commitStatus: boolean;
   mrNote: boolean;
@@ -33,7 +35,8 @@ export const emptyRuleDraft = (): RuleDraft => ({
   labels: "",
   suiteId: "",
   environmentMode: "fixed",
-  environmentId: "",
+    environmentId: "",
+  allowedHosts: "",
   priority: "10",
   commitStatus: true,
   mrNote: false,
@@ -54,7 +57,8 @@ export function ruleToDraft(rule: WebhookRule): RuleDraft {
     labels: rule.when.labels.join(", "),
     suiteId: rule.run.suiteId,
     environmentMode: fromPayload ?? "fixed",
-    environmentId: "id" in rule.environment ? rule.environment.id : rule.environment.baseEnvironmentId,
+        environmentId: "id" in rule.environment ? rule.environment.id : rule.environment.baseEnvironmentId,
+    allowedHosts: "fromPayload" in rule.environment ? rule.environment.allowedHosts.join(", ") : "",
     priority: String(rule.priority),
     commitStatus: rule.report.commitStatus,
     mrNote: rule.report.mrNote,
@@ -71,6 +75,10 @@ export function draftToRule(draft: RuleDraft): DraftResult {
   if (!draft.environmentId) return { ok: false, error: draft.environmentMode === "fixed" ? "Pick an environment." : "Pick the base environment." };
   const priority = Number(draft.priority);
   if (!Number.isInteger(priority) || priority < 0 || priority > 100) return { ok: false, error: "Priority is a whole number from 0 to 100." };
+    const allowedHosts = splitList(draft.allowedHosts).map((host) => host.toLowerCase());
+  if (allowedHosts.some((host) => !/^[a-z0-9*.-]{1,253}$/.test(host))) {
+    return { ok: false, error: "Allowed hosts are host names or globs like *.review.example.com, without a scheme or path." };
+  }
   const callbackUrl = draft.callbackUrl.trim();
   if (callbackUrl && !/^https?:\/\/[^\s]+$/i.test(callbackUrl)) return { ok: false, error: "The callback URL must start with http:// or https://." };
   if ((draft.commitStatus || draft.mrNote) && !draft.credentialId) {
@@ -84,7 +92,7 @@ export function draftToRule(draft: RuleDraft): DraftResult {
       environment:
         draft.environmentMode === "fixed"
           ? { id: draft.environmentId }
-          : { fromPayload: draft.environmentMode, baseEnvironmentId: draft.environmentId },
+                    : { fromPayload: draft.environmentMode, baseEnvironmentId: draft.environmentId, allowedHosts },
       priority,
       report: {
         commitStatus: draft.commitStatus,
@@ -104,7 +112,9 @@ export function describeRule(rule: WebhookRule, names: { suites: Record<string, 
   const environment =
     "id" in rule.environment
       ? (names.environments[rule.environment.id] ?? "a deleted environment")
-      : `${rule.environment.fromPayload === "review_app_url" ? "the review app URL" : "the deployment URL"} with ${names.environments[rule.environment.baseEnvironmentId] ?? "a deleted environment"}'s config`;
+            : `${rule.environment.fromPayload === "review_app_url" ? "the review app URL" : "the deployment URL"} with ${names.environments[rule.environment.baseEnvironmentId] ?? "a deleted environment"}'s config (${
+          rule.environment.allowedHosts.length > 0 ? `hosts ${rule.environment.allowedHosts.join(", ")}` : "its own host only"
+        })`;
   const reports = [
     rule.report.commitStatus ? "commit status" : null,
     rule.report.mrNote ? "MR note" : null,
@@ -151,6 +161,22 @@ export function deliveryTone(status: WebhookDelivery["status"]): "success" | "wa
 }
 
 export const shortSha = (sha: string | null) => (sha ? sha.slice(0, 8) : "—");
+
+// What went back to GitHub/GitLab for the batch a delivery started or joined.
+export function reportSummary(report: WebhookDelivery["report"]): { label: string; tone: "success" | "warning" | "danger" | "muted" } | null {
+  if (!report) return null;
+  const stage = report.stage === "pending" ? "pending status" : "result";
+  switch (report.state) {
+    case "sent":
+      return { label: report.stage === "final" ? "result reported" : "pending status sent", tone: "success" };
+    case "pending":
+      return { label: `${stage} not sent yet`, tone: "muted" };
+    case "retrying":
+      return { label: `${stage} retrying (${report.attempts} of 5): ${report.error ?? "failed"}`, tone: "warning" };
+    case "failed":
+      return { label: `${stage} gave up after ${report.attempts} attempts: ${report.error ?? "failed"}`, tone: "danger" };
+  }
+}
 
 // ---------------------------------------------------------------------------------------------
 // Notification channels

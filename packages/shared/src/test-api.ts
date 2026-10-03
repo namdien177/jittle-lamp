@@ -719,6 +719,11 @@ export const notificationChannelSchema = z.object({
   filter: z.object({ kinds: z.array(notificationKindSchema).default([]), tags: z.array(z.string()).default([]) }),
   enabled: z.boolean()
 });
+// Webhook channels: the URL is stored encrypted and shown masked; posts are signed with a
+// per-channel secret (X-Jl-Signature-256) that is returned once, on create.
+export const createNotificationChannelResponseSchema = notificationChannelSchema.extend({
+  signingSecret: z.string().nullable().default(null)
+});
 export const upsertNotificationChannelRequestSchema = z.object({
   kind: z.enum(["slack", "webhook"]),
   // Slack: { credentialId } of a slack_webhook credential; webhook: { url }.
@@ -738,7 +743,17 @@ export const webhookRuleSchema = z.object({
     labels: z.array(z.string()).default([])
   }),
   run: z.object({ suiteId: id }),
-  environment: z.union([z.object({ id }), z.object({ fromPayload: z.enum(["review_app_url", "deployment_url"]), baseEnvironmentId: id })]),
+  // fromPayload: the event's review-app or deployment URL becomes the base URL, so its host must be
+  // allowed: globs in allowedHosts ("*.review.example.com"), or the base environment's own host
+  // when the list is empty. The base environment's credentials go to that host.
+  environment: z.union([
+    z.object({ id }),
+    z.object({
+      fromPayload: z.enum(["review_app_url", "deployment_url"]),
+      baseEnvironmentId: id,
+      allowedHosts: z.array(z.string().regex(/^[a-z0-9*.-]{1,253}$/i)).max(20).default([])
+    })
+  ]),
   priority: z.number().int().min(0).max(100).default(10),
   report: z
     .object({ commitStatus: z.boolean().default(true), mrNote: z.boolean().default(false), callbackUrl: httpUrlSchema.nullable().default(null), credentialId: id.nullable().default(null) })
@@ -772,7 +787,18 @@ export const webhookDeliverySchema = z.object({
   signatureValid: z.boolean(),
   triggerRef: z.string().nullable(),
   batchId: id.nullable(),
-  error: z.string().nullable(),
+    error: z.string().nullable(),
+  // Outbound report of the batch this delivery started or joined: retrying with the last error,
+  // or failed for good after five attempts (dead letter).
+  report: z
+    .object({
+      stage: z.enum(["pending", "final"]),
+      state: z.enum(["pending", "sent", "retrying", "failed"]),
+      attempts: z.number().int().nonnegative(),
+      error: z.string().nullable()
+    })
+    .nullable()
+    .default(null),
   createdAt: epochMs
 });
 
@@ -846,5 +872,6 @@ export type WebhookDelivery = z.infer<typeof webhookDeliverySchema>;
 export type CreateWebhookEndpointResponse = z.infer<typeof createWebhookEndpointResponseSchema>;
 export type UpsertWebhookEndpointRequest = z.infer<typeof upsertWebhookEndpointRequestSchema>;
 export type UpsertNotificationChannelRequest = z.infer<typeof upsertNotificationChannelRequestSchema>;
+export type CreateNotificationChannelResponse = z.infer<typeof createNotificationChannelResponseSchema>;
 export type TestRunBatch = z.infer<typeof testRunBatchSchema>;
 export type AgentNotes = z.infer<typeof agentNotesSchema>;

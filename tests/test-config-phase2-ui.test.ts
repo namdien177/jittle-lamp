@@ -9,7 +9,8 @@ import {
   draftToRule,
   emptyRuleDraft,
   notesBudget,
-  providerSetup,
+    providerSetup,
+  reportSummary,
   ruleToDraft,
   splitList
 } from "../apps/evidence-web/src/test-config/webhook-ui";
@@ -31,8 +32,9 @@ describe("webhook rule drafts", () => {
       branches: "main, feature/**",
       labels: "e2e",
       suiteId: SUITE,
-      environmentMode: "review_app_url" as const,
+            environmentMode: "review_app_url" as const,
       environmentId: ENV,
+      allowedHosts: "*.review.example.test, MR-*.Preview.example.test",
       priority: "60",
       commitStatus: true,
       mrNote: true,
@@ -45,7 +47,11 @@ describe("webhook rule drafts", () => {
     expect(result.rule).toEqual({
       when: { events: ["merge_request", "deployment"], branches: ["main", "feature/**"], labels: ["e2e"] },
       run: { suiteId: SUITE },
-      environment: { fromPayload: "review_app_url", baseEnvironmentId: ENV },
+            environment: {
+        fromPayload: "review_app_url",
+        baseEnvironmentId: ENV,
+        allowedHosts: ["*.review.example.test", "mr-*.preview.example.test"]
+      },
       priority: 60,
       report: { commitStatus: true, mrNote: true, callbackUrl: "https://ci.example.test/hook", credentialId: CREDENTIAL }
     });
@@ -58,7 +64,8 @@ describe("webhook rule drafts", () => {
     expect(draftToRule({ ...base, suiteId: "" })).toEqual({ ok: false, error: "Pick the suite to run." });
     expect(draftToRule({ ...base, environmentId: "", environmentMode: "deployment_url" })).toEqual({ ok: false, error: "Pick the base environment." });
     expect(draftToRule({ ...base, priority: "101" }).ok).toBe(false);
-    expect(draftToRule({ ...base, callbackUrl: "ftp://x" }).ok).toBe(false);
+        expect(draftToRule({ ...base, callbackUrl: "ftp://x" }).ok).toBe(false);
+    expect(draftToRule({ ...base, environmentMode: "review_app_url", allowedHosts: "https://evil.example.net/x" }).ok).toBe(false);
     expect(draftToRule({ ...base, credentialId: "" })).toEqual({ ok: false, error: "Commit status and MR notes need a GitHub or GitLab credential." });
     expect(draftToRule({ ...base, credentialId: "", commitStatus: false, mrNote: false }).ok).toBe(true);
   });
@@ -104,3 +111,16 @@ describe("notification channel and agent notes helpers", () => {
     expect(accents.over).toBe(true);
   });
 });
+
+describe("webhook delivery report states", () => {
+  it("shows retries and dead-lettered reports", () => {
+    expect(reportSummary(null)).toBeNull();
+    expect(reportSummary({ stage: "final", state: "sent", attempts: 0, error: null })).toEqual({ label: "result reported", tone: "success" });
+    expect(reportSummary({ stage: "pending", state: "retrying", attempts: 2, error: "GitHub commit status answered 502" })).toEqual({
+      label: "pending status retrying (2 of 5): GitHub commit status answered 502",
+      tone: "warning"
+    });
+    expect(reportSummary({ stage: "final", state: "failed", attempts: 5, error: "Callback refused" })?.tone).toBe("danger");
+  });
+});
+
