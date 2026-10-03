@@ -132,6 +132,21 @@ describe("outbound HTTP guard (SSRF)", () => {
 		).toBe(true);
 	});
 
+	it("reads JL_OUTBOUND_ALLOW_LOOPBACK like the other boolean flags", () => {
+		const loopback = (flag: string | undefined) =>
+			outboundPolicyFromEnv({
+				nodeEnv: "development",
+				allowLoopbackFlag: flag,
+				allowHosts: undefined,
+			}).allowLoopback;
+		for (const flag of ["true", "TRUE", "1", "yes", " Yes ", "on"]) {
+			expect(loopback(flag)).toBe(true);
+		}
+		for (const flag of [undefined, "", "false", "0", "no", "off", "maybe"]) {
+			expect(loopback(flag)).toBe(false);
+		}
+	});
+
 	it("never follows redirects, so credentials do not cross origins", async () => {
 		const seen: Array<{ url: string; redirect: RequestRedirect | undefined }> =
 			[];

@@ -67,7 +67,7 @@ const parseAuthorizedParties = (
 	return parsed.length > 0 ? parsed : undefined;
 };
 
-const parseBooleanFlag = (
+export const parseBooleanFlag = (
 	value: string | undefined,
 	defaultValue = false,
 ): boolean => {
