@@ -95,3 +95,12 @@ Decision 14 says the organisation stores one provider key. Decision 5 makes the 
 Amended: the organisation stores the key for the act model's provider and, only when the judge model uses another provider, a second write-only key for the judge's provider. Each key is filled in only under its own provider's environment name. A stored key is dropped when its provider changes. Saving without a needed key is allowed; the settings report it as missing and runs are blocked with `MODEL_KEY_MISSING`. An `openai-compatible/` model also needs the endpoint's base URL, stored with the model settings (not a secret) and checked with the outbound address guard. Still no per-user keys in the beta, and spend is still attributed to the requesting user. Rows saved before the amendment read as the single act key; a judge on the same provider keeps using it.
 
 Decisions 5 and 14 are otherwise unchanged; neither requires Anthropic. The supported prefixes are listed once in `packages/shared/src/model-providers.ts` and checked at save time.
+
+
+### 2026-10-03: Qwen Flash defaults through AI Gateway (decision 5)
+
+The owner initially selected GLM-5.3-Flash during production/preprod setup. Both supplied keys returned HTTP 403 because that model requires paid AI Gateway credits. The owner then identified `alibaba/qwen3.7-flash` as available with free credits, and short requests through the runner's provider resolver returned `OK` with both environment keys.
+
+New organisations use `gateway/alibaba/qwen3.7-flash` for both act and judge. Existing saved model settings remain in effect, and administrators can choose any supported provider, including GLM once their Gateway account has paid credits. Keys remain per-organisation BYOK, with separate keys for production and preprod.
+
+The catalog checked on 2026-10-03 lists Qwen Flash's base tier (context up to 32k tokens) at $0.03 input, $0.006 cached input and $0.13 output per million tokens. Longer contexts use higher tiers; the flat organisation price table is an estimate, and administrators can override it for their workload. GLM-5.3-Flash estimates are $0.15/$0.03/$0.50. Reported provider cost takes precedence over estimates.

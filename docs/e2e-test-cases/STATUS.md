@@ -59,6 +59,8 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 
 ## ADR amendments
 
+- 2026-10-03, decision 5: use owner-selected `gateway/alibaba/qwen3.7-flash` for new organisations' act and judge models. Both environment keys generated `OK` through the runner provider resolver. GLM remains available with paid credits; both supplied keys returned 403 for GLM.
+
 - 2026-10-03, decision 14 (139d50e): one key per provider instead of one key per organisation, so act and judge can use different providers; `openai-compatible/` base URL stored with the model settings. Reason: decision 5 allows separate act and judge providers, which one key cannot serve.
 
 ## Log
