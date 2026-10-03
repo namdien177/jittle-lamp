@@ -30,10 +30,10 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 | 1d.1 | Desktop queue client + `jittle-lamp://run` | done | a8b8c4c | `evidence/1d-*.png`. Review fixes (935aa0d): http(s)-only links via the system browser, IPC sender check, cloud evidence fetched by the main process from the build-time API origin with size cap, macOS deep link with no window, list refresh. |
 | 1d.2 | MCP tools | done | aead87a | Test case, macro, import and run tools; AI tokens create cases in review only, macros forced to draft (0510178). |
 | 1e | Docs (`docs/mcp.md`, runner setup, `.env.sample`) | done | 7e920da | `runner-setup.md` (ops.2), `onboarding-qa.md` (ops.6), `.env.sample` (ops.7), `docs/mcp.md` (ops.5). |
-| 2.1 | GitLab and GitHub webhooks with status reporting (§10c) | todo | | |
-| 2.2 | Slack notification channel (§10b) | todo | | |
-| 2.3 | Live view of cloud runs with take-over (§5.4) | in progress | e0a4217 | Runner side done: frames while watched, take-over pauses before the next agent action, input replayed and tagged `user:takeover`, nothing cached (browser test). Backend endpoints and web panel pending. |
-| 2.4 | Agent notes per organisation | todo | | |
+| 2.1 | GitLab and GitHub webhooks with status reporting (§10c) | done | 1edf666 | `/hooks/:endpointId` (GitHub HMAC, GitLab token, constant-time), rules to suites, commit status pending → final, MR/PR note, signed callbacks, retrying outbound worker with dead-letter shown in settings; `apps/backend/test/test-webhooks.test.ts`, `outbound-http.test.ts`; `evidence/2-webhook-settings.png`. Review: payload URLs limited to rule host allowlist, GitLab API base never from payload, SSRF guard on all outbound calls, SHA in dedupe key, partial cancel reported as cancelled. |
+| 2.2 | Slack notification channel (§10b) | done | 1edf666 | Slack and signed generic webhook channels on the bus, delivered by the maintenance worker; URLs encrypted and masked; `notification-channels.test.ts`; `evidence/2-slack-channel-settings.png`. |
+| 2.3 | Live view of cloud runs with take-over (§5.4) | done | c72218e | Runner (e0a4217), backend live routes and web panel (915b290, 42c69a1), review fixes (a41f054). `live-takeover.browser.test.ts`: watch over the real backend, take-over pauses the agent, input relayed and tagged `user:takeover`, release, run passes, step not cached, forced re-run passes; outsiders get 403/404. Take-over expires after 60 s without the holder. Frames stop for the rest of the run once a secret was filled (no pixel masking); `evidence/2-live-panel.png`, `2-takeover-banner.png`. |
+| 2.4 | Agent notes per organisation | done | 8093eb3 | `PUT /test-agent-notes` (16 KB), passed to the runner with environment instructions; `test-agent-notes.test.ts`; `evidence/2-agent-notes.png`. |
 | 2.5 | GitHub Actions and GitLab CI templates | done | cbb8c75 | `deploy/ci/github-actions-e2e.yml`, `deploy/ci/gitlab-ci-e2e.yml` run a suite through the runner image with JUnit; end-to-end demonstration with an automation token comes with 1b.3. |
 | ops.1 | Dockerfile and compose for the cloud runner pool | done | cbb8c75 | `deploy/runner/{Dockerfile,compose.yaml,runner.env.sample}`; image built locally and ran the fixture case with the mock model inside the container; CI job `build_runner_image`. |
 | ops.2 | systemd unit and `runner-setup.md` | done | ef0a1a6 | `deploy/runner/jl-e2e-runner.service`, `docs/e2e-test-cases/runner-setup.md`. |
@@ -61,6 +61,8 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 None yet.
 
 ## Log
+
+- 2026-10-03: phase 2 merged and reviewed (12 findings fixed: webhook credential exposure via payload URLs, SSRF, dedupe across commits, stuck pending status, take-over expiry, frames after secrets, inline channel delivery, keyboard trap). `daemon.browser.test.ts` live assertion changed with the frames-hidden rule: it now requires exactly one "frames hidden" signal and no frame after it; frame capture before a secret is covered in `test/live.test.ts`. CI on MR !5 green (pipeline 233598) before the phase 2 fixes. Suites after merge: root 467, backend 204, MCP 46, runner unit 35, runner browser 20.
 
 - 2026-10-03: review fixes merged (backend 10+1, web 15, desktop/MCP 11). Runner now names steps on their first progress update (180219e; found by the UI flow). All suites green after merge: root 448, backend 167, MCP 46, runner unit 32, runner browser 19 (incl. beta acceptance 7).
 
