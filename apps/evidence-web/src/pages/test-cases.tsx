@@ -32,6 +32,8 @@ import {
 } from "../test-cases/list-model";
 import { QuickCreateDialog } from "../test-cases/quick-create";
 import { useBulkTestCases, useTestCaseList, useTestEnvironments, useTestTags } from "../test-cases/queries";
+import { describeRunRequestError } from "../test-cases/run-errors";
+import { DuplicateTestCaseDialog } from "../test-cases/duplicate-dialog";
 import { RunDialog } from "../test-cases/run-dialog";
 
 export type TestCasesPageProps = {
@@ -155,7 +157,10 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           }
           if (result.errors.length > 0 && action !== "run") toast.error(`${result.errors.length} failed`, result.errors[0]?.message);
         },
-        onError: (error) => toast.error("Bulk action failed", error instanceof Error ? error.message : undefined)
+        onError: (error) =>
+          action === "run"
+            ? toast.error("Run request failed", describeRunRequestError(error).message)
+            : toast.error("Bulk action failed", error instanceof Error ? error.message : undefined)
       }
     );
   };
@@ -336,20 +341,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
       ) : null}
       {duplicateIds.length > 0
         ? props.renderDuplicateDialog?.({ ids: duplicateIds, onClose: () => setParams({ duplicate: null }) }) ?? (
-            <Dialog
-              open
-              onClose={() => setParams({ duplicate: null })}
-              size="sm"
-              title={`Duplicate ${duplicateIds.length} case${duplicateIds.length === 1 ? "" : "s"}`}
-              description="The duplicate dialog (find/replace, variant or copy, inherited scripts) is part of the import and review unit."
-              footer={
-                <Button size="sm" variant="ghost" onClick={() => setParams({ duplicate: null })}>
-                  Close
-                </Button>
-              }
-            >
-              <p className="font-mono text-[12.5px] text-muted-foreground">{duplicateIds.join(", ")}</p>
-            </Dialog>
+            <DuplicateTestCaseDialog key={duplicateIds.join(",")} caseIds={duplicateIds} onClose={() => setParams({ duplicate: null })} />
           )
         : null}
     </div>

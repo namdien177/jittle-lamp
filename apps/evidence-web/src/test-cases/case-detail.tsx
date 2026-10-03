@@ -1,7 +1,7 @@
 import React from "react";
 import { Copy, ExternalLink, Play, X } from "lucide-react";
 import type { TestCaseDetail, TestEnvironment, TestTag } from "@jittle-lamp/shared";
-import { linkLabel } from "@jittle-lamp/ui";
+import { linkLabel, safeExternalHref } from "@jittle-lamp/ui";
 
 import { cn } from "../lib/cn";
 import { Button } from "../components/ui/button";
@@ -81,11 +81,18 @@ export function CaseDetailPane(props: {
         <h2 className="text-[19px] font-semibold leading-snug tracking-[-0.01em]">{detail.title || "Untitled case"}</h2>
         {detail.description ? <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted-foreground">{detail.description}</p> : null}
         <div className="flex flex-wrap items-center gap-1.5">
-          {detail.links.map((link) => (
-            <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="jl-tc-press inline-flex items-center gap-1 rounded border border-border px-1.5 text-[12px] leading-5 hover:bg-muted" title={link.url}>
-              {link.label ?? linkLabel(link.url)} <ExternalLink className="size-3" aria-hidden />
-            </a>
-          ))}
+          {detail.links.map((link) => {
+            const href = safeExternalHref(link.url);
+            return href ? (
+              <a key={link.url} href={href} target="_blank" rel="noreferrer" className="jl-tc-press inline-flex items-center gap-1 rounded border border-border px-1.5 text-[12px] leading-5 hover:bg-muted" title={link.url}>
+                {link.label ?? linkLabel(link.url)} <ExternalLink className="size-3" aria-hidden />
+              </a>
+            ) : (
+              <span key={link.url} className="inline-flex items-center rounded border border-border px-1.5 text-[12px] leading-5 text-muted-foreground" title={link.url}>
+                {link.label ?? link.url}
+              </span>
+            );
+          })}
           {detail.tags.map((tag) => (
             <TagChip key={tag} tag={tag} color={tagColors.get(tag) ?? null} onClick={() => props.onTagClick(tag)} />
           ))}

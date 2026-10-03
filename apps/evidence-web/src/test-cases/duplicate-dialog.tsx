@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { useQueries } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import type { DuplicateTestCaseRequest, TestCaseDetail } from "@jittle-lamp/shared";
@@ -20,16 +20,16 @@ import {
   applyReplacements,
   countReplacements,
   defaultDuplicateTitle,
+  duplicateTitleForRequest,
   estimateInheritedSteps,
-  parseDuplicateParam,
   parseTagInput,
   replacementSegments,
   type Replacement
 } from "./duplicate/find-replace";
 import { caseEditorHref } from "./review/review-queue-state";
 
-// Duplicate dialog (design.md §7 "Duplicate"). Opened from `?duplicate=<id,id>` on the test-cases
-// route by <DuplicateDialogHost/>, or rendered directly with `caseIds`.
+// Duplicate dialog (design.md §7 "Duplicate"). The test-cases page renders it for `?duplicate=<id,id>`
+// (and the `d` key); other screens can render it directly with `caseIds`.
 
 type DuplicateResult = { sourceId: string; sourceKey: string; newId: string; newKey: string; title: string; inheritedScripts: number } | { sourceId: string; sourceKey: string; error: string };
 
@@ -52,7 +52,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
   const single = props.caseIds.length === 1;
   const first = sources[0] ?? null;
 
-  const [title, setTitle] = useState("");
+  const [typedTitle, setTypedTitle] = useState<string | null>(null);
   const [tagsInput, setTagsInput] = useState("");
   const [rows, setRows] = useState<Replacement[]>([{ find: "", replace: "" }]);
   const [copy, setCopy] = useState({ links: true, tags: true, environment: true, datasets: true });
@@ -61,15 +61,15 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
   const [results, setResults] = useState<DuplicateResult[] | null>(null);
   const [previewIndex, setPreviewIndex] = useState(0);
 
-  // Defaults once the sources load: "<title> (copy)" and the source tags.
+  // Default tags once the sources load. The title stays derived until the user types one.
   const firstId = first?.id ?? null;
   useEffect(() => {
     if (!first) return;
-    setTitle(defaultDuplicateTitle(first.title));
     setTagsInput(first.tags.join(", "));
   }, [firstId]);
 
   const replacements = activeReplacements(rows);
+  const title = typedTitle ?? (first ? defaultDuplicateTitle(first.title, replacements) : "");
   const previewSource = sources[Math.min(previewIndex, sources.length - 1)] ?? null;
   const preview = useMemo(() => {
     if (!previewSource) return null;
@@ -83,7 +83,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
 
   const duplicate = useTestAdminMutation(
     async (token, input: { source: TestCaseDetail; body: DuplicateTestCaseRequest }) => testAdminApi.duplicateTestCase(token, input.source.id, input.body),
-    [testAdminKeys.reviewQueue]
+    [testAdminKeys.cases]
   );
 
   const submit = async () => {
@@ -91,7 +91,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
     const collected: DuplicateResult[] = [];
     for (const source of sources) {
       const body: DuplicateTestCaseRequest = {
-        title: single ? title.trim() || defaultDuplicateTitle(source.title) : defaultDuplicateTitle(applyReplacements(source.title, replacements)),
+        ...withTitle(duplicateTitleForRequest({ single, edited: typedTitle !== null, title })),
         replacements,
         copy,
         mode,
@@ -162,7 +162,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
   return (
     <Dialog
       title={titleLabel}
-      description={single ? undefined : "The same find/replace and options apply to every selected case. Each copy is titled “<title> (copy)” after replacements."}
+      description={single ? undefined : "The same find/replace and options apply to every selected case. Each copy takes the replaced title, or “<title> (copy)” when the replacements leave it unchanged."}
       onClose={props.onClose}
       size="xl"
       footer={
@@ -191,7 +191,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
           <div className="grid content-start gap-4">
             {single ? (
               <Field label="New title" htmlFor="duplicate-title">
-                <Input id="duplicate-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={300} />
+                <Input id="duplicate-title" value={title} onChange={(event) => setTypedTitle(event.target.value)} maxLength={300} />
               </Field>
             ) : null}
             {single ? (
@@ -300,16 +300,6 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
   );
 }
 
-// Mounted once in the workspace shell: shows the dialog for `?duplicate=` on /test-cases.
-export function DuplicateDialogHost(): React.JSX.Element | null {
-  const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const ids = parseDuplicateParam(searchParams.get("duplicate"));
-  if (!location.pathname.startsWith("/test-cases") || ids.length === 0) return null;
-  const close = () => {
-    const next = new URLSearchParams(searchParams);
-    next.delete("duplicate");
-    setSearchParams(next, { replace: true });
-  };
-  return <DuplicateTestCaseDialog key={ids.join(",")} caseIds={ids} onClose={close} />;
+function withTitle(title: string | undefined): { title?: string } {
+  return title === undefined ? {} : { title };
 }

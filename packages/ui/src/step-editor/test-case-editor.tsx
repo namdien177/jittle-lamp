@@ -1,4 +1,5 @@
 import React from "react";
+import { safeExternalHref } from "../safe-url";
 import { serializeTestCase, type ParamDeclaration, type TranscriptDataset } from "@jittle-lamp/shared";
 
 import {
@@ -297,9 +298,13 @@ export function MetadataForm(props: {
       <div className="jl-meta-chips">
         {metadata.links.map((url) => (
           <span key={url} className="jl-meta-chip" title={url}>
-            <a href={url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>
-              {linkLabel(url)}
-            </a>
+            {safeExternalHref(url) ? (
+              <a href={safeExternalHref(url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>
+                {linkLabel(url)}
+              </a>
+            ) : (
+              <span>{linkLabel(url)}</span>
+            )}
             {!readOnly ? (
               <button type="button" aria-label={`Remove link ${url}`} onClick={() => onChange(updateMetadata(doc, { links: metadata.links.filter((link) => link !== url) }))}>
                 ×
