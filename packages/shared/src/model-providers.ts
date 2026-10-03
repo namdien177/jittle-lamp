@@ -17,18 +17,20 @@ export type ModelProvider = {
   example: string;
   // Development and test providers: accepted, but never on a cloud pool with real keys.
   development: boolean;
+  // The provider returns the cost of each call, which the run stores instead of pricing tokens.
+  reportsCost: boolean;
 };
 
 export const modelProviders: readonly ModelProvider[] = [
-  { prefix: "openrouter", label: "OpenRouter", keyEnv: "OPENROUTER_API_KEY", keyRequired: true, baseUrlEnv: null, example: "openrouter/anthropic/claude-sonnet-5-5", development: false },
-  { prefix: "openai-compatible", label: "OpenAI-compatible", keyEnv: "OPENAI_COMPATIBLE_API_KEY", keyRequired: false, baseUrlEnv: "OPENAI_COMPATIBLE_BASE_URL", example: "openai-compatible/llama-3.3-70b", development: false },
-  { prefix: "gateway", label: "AI Gateway", keyEnv: "AI_GATEWAY_API_KEY", keyRequired: true, baseUrlEnv: null, example: "gateway/openai/gpt-5", development: false },
-  { prefix: "openai", label: "OpenAI", keyEnv: "OPENAI_API_KEY", keyRequired: true, baseUrlEnv: null, example: "openai/gpt-5", development: false },
-  { prefix: "anthropic", label: "Anthropic", keyEnv: "ANTHROPIC_API_KEY", keyRequired: true, baseUrlEnv: null, example: "anthropic/claude-sonnet-5-5", development: false },
-  { prefix: "google", label: "Google", keyEnv: "GOOGLE_GENERATIVE_AI_API_KEY", keyRequired: true, baseUrlEnv: null, example: "google/gemini-2.5-pro", development: false },
-  { prefix: "xai", label: "xAI", keyEnv: "XAI_API_KEY", keyRequired: true, baseUrlEnv: null, example: "xai/grok-4", development: false },
-  { prefix: "claude-code", label: "Claude Code", keyEnv: null, keyRequired: false, baseUrlEnv: null, example: "claude-code/sonnet", development: true },
-  { prefix: "mock", label: "Mock replay", keyEnv: null, keyRequired: false, baseUrlEnv: null, example: "mock:fixture.json", development: true }
+  { prefix: "openrouter", label: "OpenRouter", keyEnv: "OPENROUTER_API_KEY", keyRequired: true, baseUrlEnv: null, example: "openrouter/anthropic/claude-sonnet-5-5", development: false, reportsCost: true },
+  { prefix: "openai-compatible", label: "OpenAI-compatible", keyEnv: "OPENAI_COMPATIBLE_API_KEY", keyRequired: false, baseUrlEnv: "OPENAI_COMPATIBLE_BASE_URL", example: "openai-compatible/llama-3.3-70b", development: false, reportsCost: false },
+  { prefix: "gateway", label: "AI Gateway", keyEnv: "AI_GATEWAY_API_KEY", keyRequired: true, baseUrlEnv: null, example: "gateway/openai/gpt-5", development: false, reportsCost: false },
+  { prefix: "openai", label: "OpenAI", keyEnv: "OPENAI_API_KEY", keyRequired: true, baseUrlEnv: null, example: "openai/gpt-5", development: false, reportsCost: false },
+  { prefix: "anthropic", label: "Anthropic", keyEnv: "ANTHROPIC_API_KEY", keyRequired: true, baseUrlEnv: null, example: "anthropic/claude-sonnet-5-5", development: false, reportsCost: false },
+  { prefix: "google", label: "Google", keyEnv: "GOOGLE_GENERATIVE_AI_API_KEY", keyRequired: true, baseUrlEnv: null, example: "google/gemini-2.5-pro", development: false, reportsCost: false },
+  { prefix: "xai", label: "xAI", keyEnv: "XAI_API_KEY", keyRequired: true, baseUrlEnv: null, example: "xai/grok-4", development: false, reportsCost: false },
+  { prefix: "claude-code", label: "Claude Code", keyEnv: null, keyRequired: false, baseUrlEnv: null, example: "claude-code/sonnet", development: true, reportsCost: false },
+  { prefix: "mock", label: "Mock replay", keyEnv: null, keyRequired: false, baseUrlEnv: null, example: "mock:fixture.json", development: true, reportsCost: false }
 ];
 
 // Every provider environment name the runner reads (keys and base URLs).

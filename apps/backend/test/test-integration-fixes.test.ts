@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type {
 	ClaimedRun,
 	CreateTestRunResponse,
-	ModelPrice,
+	ModelPriceRow,
 	TestRunDetail,
 } from "@jittle-lamp/shared";
 
@@ -129,7 +129,7 @@ describe("integration fixes for web, desktop and MCP clients", () => {
 
 	it("lets organisations override model prices used for run cost", async () => {
 		const fixture = await createTestCaseFixture();
-		const defaults = await fixture.call<ModelPrice[]>("/model-prices", {
+		const defaults = await fixture.call<ModelPriceRow[]>("/model-prices", {
 			token: fixture.admin.token,
 		});
 		expect(defaults.status).toBe(200);
@@ -142,6 +142,7 @@ describe("integration fixes for web, desktop and MCP clients", () => {
 			inputUsdPerMtok: 4,
 			cachedInputUsdPerMtok: 0.2,
 			outputUsdPerMtok: 20,
+			source: "default",
 		});
 		const denied = await fixture.call("/model-prices", {
 			method: "PUT",
@@ -149,7 +150,7 @@ describe("integration fixes for web, desktop and MCP clients", () => {
 			body: [],
 		});
 		expect(denied.status).toBe(403);
-		const override = await fixture.call<ModelPrice[]>("/model-prices", {
+		const override = await fixture.call<ModelPriceRow[]>("/model-prices", {
 			method: "PUT",
 			token: fixture.admin.token,
 			body: [
@@ -178,6 +179,15 @@ describe("integration fixes for web, desktop and MCP clients", () => {
 				(price) => price.modelId === "openrouter/acme/model-x",
 			),
 		).toBe(true);
+		// Each row says whether it is the organisation's own or a global default.
+		const sources = Object.fromEntries(
+			override.body.map((price) => [price.modelId, price.source]),
+		);
+		expect(sources).toMatchObject({
+			"anthropic/claude-opus-5-5": "organization",
+			"openrouter/acme/model-x": "organization",
+			"anthropic/claude-sonnet-5-5": "default",
+		});
 
 		const { claimed, report } = await runWithEvidence(fixture);
 		const finalized = await fixture.call<TestRunDetail>(
@@ -186,7 +196,7 @@ describe("integration fixes for web, desktop and MCP clients", () => {
 		);
 		expect(finalized.body.metrics.costUsd).toBe(0.02);
 
-		const cleared = await fixture.call<ModelPrice[]>("/model-prices", {
+		const cleared = await fixture.call<ModelPriceRow[]>("/model-prices", {
 			method: "PUT",
 			token: fixture.admin.token,
 			body: [],
@@ -194,8 +204,8 @@ describe("integration fixes for web, desktop and MCP clients", () => {
 		expect(
 			cleared.body.find(
 				(price) => price.modelId === "anthropic/claude-opus-5-5",
-			)?.inputUsdPerMtok,
-		).toBe(4);
+			),
+		).toMatchObject({ inputUsdPerMtok: 4, source: "default" });
 	});
 
 	it("accepts q as the title for similar-case search", async () => {

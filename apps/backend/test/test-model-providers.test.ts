@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import type {
-	ClaimedRun,
-	CreateTestRunResponse,
-	ModelSettings,
-	TestRunConfig,
+import {
+	type ClaimedRun,
+	type CreateTestRunResponse,
+	defaultModelPrices,
+	type ModelSettings,
+	priceRunReport,
+	type RunReport,
+	type TestRunConfig,
+	type TestRunDetail,
 } from "@jittle-lamp/shared";
 import { and, eq } from "drizzle-orm";
 
@@ -16,7 +20,11 @@ import {
 	FAKE_MODEL_KEY,
 	FAKE_PASSWORD,
 } from "./test-case-fixtures";
-import { registerRunner, seedRunnableCase } from "./test-run-fixtures";
+import {
+	buildRunReport,
+	registerRunner,
+	seedRunnableCase,
+} from "./test-run-fixtures";
 
 // Provider-neutral model settings (design.md §9.3, ADR 0002 amendment 2026-10-03): any AI SDK
 // provider prefix the runner supports, an OpenAI-compatible base URL, and a separate judge key
@@ -362,6 +370,75 @@ describe("provider-neutral model settings", () => {
 		expect(mixed.body).toMatchObject({
 			judgeKeyRequired: true,
 			missing: ["judgeKey"],
+		});
+	});
+
+	it("prices router ids like the vendor model unless the provider reported a cost", async () => {
+		const fixture = await createTestCaseFixture();
+		const { testCase } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+			modelKey: FAKE_MODEL_KEY,
+		});
+		const runner = await registerRunner(fixture);
+		const claimNext = async () => {
+			await fixture.call(`/test-cases/${testCase.id}/runs`, {
+				token: fixture.qa.token,
+				body: { force: true },
+			});
+			const claim = await fixture.call<{ run: ClaimedRun }>(
+				"/runner-pools/claim",
+				{ token: runner.workerToken, body: {} },
+			);
+			return claim.body.run;
+		};
+		// OpenRouter lists `claude-opus-5.5`; the price row is `anthropic/claude-opus-5-5`.
+		const viaOpenRouter = (report: RunReport): RunReport =>
+			JSON.parse(
+				JSON.stringify(report).replace(
+					/"anthropic\/(claude-[a-z]+)-5-5"/g,
+					'"openrouter/anthropic/$1-5.5"',
+				),
+			) as RunReport;
+
+		const first = await claimNext();
+		const direct = buildRunReport(first);
+		const pricedDirect = priceRunReport(direct, defaultModelPrices, "seed", {
+			act: null,
+			judge: null,
+		});
+		const expected =
+			Math.round(
+				((pricedDirect.totals.usage.costUsd ?? 0) +
+					(pricedDirect.totals.judgeUsage.costUsd ?? 0)) *
+					1e6,
+			) / 1e6;
+		expect(expected).toBeGreaterThan(0);
+		const routed = viaOpenRouter(direct);
+		expect(routed.totals.usage.modelId).toBe(
+			"openrouter/anthropic/claude-opus-5.5",
+		);
+		const finalized = await fixture.call<TestRunDetail>(
+			`/test-runs/${first.runId}/finalize`,
+			{ token: first.runToken, body: { report: routed, evidenceId: null } },
+		);
+		expect(finalized.status).toBe(200);
+		expect(finalized.body.metrics.costUsd).toBe(expected);
+		expect(finalized.body.metrics.priceTableVersion).not.toBe("provider");
+
+		// A cost OpenRouter reported is kept as is.
+		const second = await claimNext();
+		const reported = viaOpenRouter(
+			buildRunReport(second, { providerCost: 0.5 }),
+		);
+		const kept = await fixture.call<TestRunDetail>(
+			`/test-runs/${second.runId}/finalize`,
+			{ token: second.runToken, body: { report: reported, evidenceId: null } },
+		);
+		expect(kept.body.metrics).toMatchObject({
+			costUsd:
+				(reported.totals.usage.costUsd ?? 0) +
+				(reported.totals.judgeUsage.costUsd ?? 0),
+			priceTableVersion: "provider",
 		});
 	});
 });

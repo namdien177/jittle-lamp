@@ -937,7 +937,12 @@ export const resolvePriceTable = async (
 	db: BackendDb,
 	orgId: string,
 	at = Date.now(),
-): Promise<{ prices: ModelPrice[]; version: string }> => {
+): Promise<{
+	prices: ModelPrice[];
+	version: string;
+	// Model ids priced by an organisation row rather than a global default.
+	organizationModelIds: Set<string>;
+}> => {
 	await ensureGlobalModelPrices(db);
 	const rows = await db.query.testModelPrices.findMany({
 		where: and(
@@ -968,6 +973,11 @@ export const resolvePriceTable = async (
 	return {
 		prices,
 		version: [...versions].sort().join("+") || defaultPriceTableVersion,
+		organizationModelIds: new Set(
+			[...chosen.values()]
+				.filter((row) => row.orgId !== null)
+				.map((row) => row.modelId),
+		),
 	};
 };
 

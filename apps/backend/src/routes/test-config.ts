@@ -1,6 +1,7 @@
 import {
 	agentNotesSchema,
 	modelCostReportSchema,
+	modelPriceRowSchema,
 	modelPriceSchema,
 	modelSettingsSchema,
 	testCredentialSchema,
@@ -96,6 +97,18 @@ const toModelSettingsResponse = (
 		baseUrl: settings.baseUrl,
 		missing: settings.missing,
 	});
+
+const priceRows = (table: Awaited<ReturnType<typeof resolvePriceTable>>) =>
+	z.array(modelPriceRowSchema).parse(
+		[...table.prices]
+			.sort((a, b) => a.modelId.localeCompare(b.modelId))
+			.map((price) => ({
+				...price,
+				source: table.organizationModelIds.has(price.modelId)
+					? "organization"
+					: "default",
+			})),
+	);
 
 export type TestConfigRouteOptions = {
 	// SSRF guard for the OpenAI-compatible base URL (services/outbound-http.ts).
@@ -692,14 +705,7 @@ export const createTestConfigRoutes = (
 					"test_config.manage",
 					"test_config.use",
 				);
-				const table = await resolvePriceTable(db, who.orgId);
-				return z
-					.array(modelPriceSchema)
-					.parse(
-						[...table.prices].sort((a, b) =>
-							a.modelId.localeCompare(b.modelId),
-						),
-					);
+				return priceRows(await resolvePriceTable(db, who.orgId));
 			}),
 		)
 		.put("/model-prices", (ctx) =>
@@ -716,14 +722,7 @@ export const createTestConfigRoutes = (
 					entity: { type: "test_model_prices", id: who.orgId },
 					message: `Set ${prices.length} model price override(s)`,
 				});
-				const table = await resolvePriceTable(db, who.orgId);
-				return z
-					.array(modelPriceSchema)
-					.parse(
-						[...table.prices].sort((a, b) =>
-							a.modelId.localeCompare(b.modelId),
-						),
-					);
+				return priceRows(await resolvePriceTable(db, who.orgId));
 			}),
 		)
 		.get("/test-agent-notes", (ctx) =>

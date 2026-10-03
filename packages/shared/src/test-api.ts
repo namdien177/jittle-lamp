@@ -687,6 +687,12 @@ export const updateModelSettingsRequestSchema = z.object({
   baseUrl: z.string().trim().max(2000).pipe(httpUrlSchema).nullable().optional()
 });
 
+// GET/PUT /model-prices: the effective price per model id (USD per million tokens) and whether
+// it is a global default or the organisation's own row. PUT takes the organisation's rows only and
+// replaces the previous set; `source` is ignored there.
+export const modelPriceSourceSchema = z.enum(["default", "organization"]);
+export const modelPriceRowSchema = modelPriceSchema.extend({ source: modelPriceSourceSchema });
+
 // Model spend per organisation and per user (ops: cost visible in the UI).
 export const modelCostReportSchema = z.object({
   from: epochMs,
@@ -880,6 +886,7 @@ export type TestMacro = z.infer<typeof testMacroSchema>;
 export type TestTag = z.infer<typeof testTagSchema>;
 export type TestRunSettings = z.infer<typeof testRunSettingsSchema>;
 export type ModelSettings = z.infer<typeof modelSettingsSchema>;
+export type ModelPriceRow = z.infer<typeof modelPriceRowSchema>;
 export type ModelCostReport = z.infer<typeof modelCostReportSchema>;
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 export type Notification = z.infer<typeof notificationSchema>;
