@@ -21,6 +21,7 @@ import {
   presetForModels,
   providerFromModelId,
   rowsToRecord,
+  registrationTokenAction,
   runnerCommands,
   runSettingsFromForm,
   runSettingsToForm
@@ -197,6 +198,15 @@ describe("settings helpers", () => {
     expect(commands.docker).toContain("JL_RUNNER_TOKEN=jlr_abc123");
     expect(commands.docker).toContain("docker compose -f deploy/runner/compose.yaml up -d --build");
     expect(runnerCommands({ apiOrigin: "http://x", token: "a b'c" }).start).toBe("jl-e2e-runner start --api http://x --token 'a b'\\''c'");
+  });
+
+  it("offers a new registration token for the cloud pool as well as self-hosted pools, to managers only", () => {
+    const cloud = registrationTokenAction({ kind: "cloud", name: "cloud" }, true);
+    expect(cloud).toMatchObject({ label: "New token", ariaLabel: "New token for cloud", title: "New registration token for cloud" });
+    expect(cloud?.note).toContain("runner.env");
+    expect(registrationTokenAction({ kind: "self-hosted", name: "devbox" }, true)?.ariaLabel).toBe("New token for devbox");
+    expect(registrationTokenAction({ kind: "cloud", name: "cloud" }, false)).toBeNull();
+    expect(registrationTokenAction({ kind: "self-hosted", name: "devbox" }, false)).toBeNull();
   });
 
   it("round-trips run settings through the form and validates ranges", () => {

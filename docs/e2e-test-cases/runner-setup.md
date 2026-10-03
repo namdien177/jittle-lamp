@@ -24,7 +24,7 @@ If no worker of the pool has sent a heartbeat recently, a run stays `queued` wit
 
 Go to Settings → Runner pools → New pool. Pick a name and a concurrency (runs at a time across the pool). The registration token appears **once**, so copy it.
 
-The page offers **New token** only for self-hosted pools. The `cloud` pool's token is issued through the API (deployment.md, section 6).
+**New token** on a pool, the `cloud` pool included, issues a fresh registration token (shown once) and replaces the previous one; registered workers keep working. The cloud pool's token goes into the cloud deployment's `runner.env` (deployment.md, section 6).
 
 A worker uses the token only when it has no stored credential. It then gets its own worker credential and stores it with mode 600 in `~/.config/jittle-lamp/runner/<api host>-<host name>.json`, or in the path given with `--state`. Later starts reuse the stored credential, and the token can stay configured. To revoke a host, delete the worker from the pool page. Its credential and the run token of the run it holds stop working at once, and that run goes back to the queue with one attempt used (`apps/backend/src/services/test-run-queue.ts`, `revokeRunnerWorker`).
 
@@ -37,6 +37,8 @@ docker build -f deploy/runner/Dockerfile -t jittle-lamp/e2e-runner .
 cp deploy/runner/runner.env.sample deploy/runner/runner.env   # set JL_API_ORIGIN, JL_RUNNER_TOKEN
 docker compose -f deploy/runner/compose.yaml up -d --scale runner=2
 ```
+
+Every runner setting, including `JL_RUNNER_CONCURRENCY` (runs at a time per container, default 1), comes from `runner.env`. Edit the file and recreate the containers (`docker compose … up -d`) to change it; a variable set only in your shell does not reach the containers.
 
 The image is Playwright's `v1.63.0-noble` image with Node and Chromium; it runs as `pwuser`. The replicas share the `runner-state` volume, and each keeps its credential in a file named after its container host name. `shm_size: 1gb` is required: Chromium crashes with Docker's 64 MB default. `stop_grace_period: 20m` lets a running case finish on `docker compose down`.
 

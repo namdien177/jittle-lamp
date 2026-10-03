@@ -5,10 +5,15 @@ import { parseEnv } from "node:util";
 import { randomBytes } from "node:crypto";
 import { exportSPKI, generateKeyPair, SignJWT } from "jose";
 
+// Local dev-auth stack. Never reads the root .env: when it targets production, its APP_SECRET and
+// other secrets would land in .env.dev-auth and in the local backend. Secrets are generated here
+// (or kept from an earlier .env.dev-auth); everything else uses the local defaults below. The
+// package scripts run this file with `bun --no-env-file` so Bun does not load the root .env into
+// process.env either.
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "../..");
-const envPath = join(rootDir, ".env.dev-auth");
-const rootEnvPath = join(rootDir, ".env");
+const defaultEnvPath = join(rootDir, ".env.dev-auth");
 const webDistDir = join(rootDir, "apps/evidence-web/dist");
 
 const defaults = {
@@ -46,36 +51,19 @@ const quoteEnvValue = (value: string): string =>
 const firstNonEmpty = (...values: Array<string | undefined>): string | undefined =>
 	values.find((value) => value !== undefined && value.trim() !== "");
 
-const writeDevAuthEnv = async (): Promise<Record<string, string>> => {
-	const rootEnv = readEnvFile(rootEnvPath);
+export const writeDevAuthEnv = async (
+	envPath = defaultEnvPath,
+): Promise<Record<string, string>> => {
 	const existing = readEnvFile(envPath);
 	const { privateKey, publicKey } = await generateKeyPair("RS256");
 	const publicPem = await exportSPKI(publicKey);
-	const userId = firstNonEmpty(
-		existing.JITTLE_LAMP_DEV_AUTH_USER_ID,
-		rootEnv.JITTLE_LAMP_DEV_AUTH_USER_ID,
-		defaults.JITTLE_LAMP_DEV_AUTH_USER_ID,
-	) ?? defaults.JITTLE_LAMP_DEV_AUTH_USER_ID;
-	const origin = firstNonEmpty(
-		existing.JITTLE_LAMP_WEB_ORIGIN,
-		rootEnv.JITTLE_LAMP_WEB_ORIGIN,
-		defaults.JITTLE_LAMP_WEB_ORIGIN,
-	) ?? defaults.JITTLE_LAMP_WEB_ORIGIN;
-	const audience = firstNonEmpty(
-		existing.CLERK_AUDIENCE,
-		rootEnv.CLERK_AUDIENCE,
-		defaults.CLERK_AUDIENCE,
-	) ?? defaults.CLERK_AUDIENCE;
-	const email = firstNonEmpty(
-		existing.JITTLE_LAMP_DEV_AUTH_EMAIL,
-		rootEnv.JITTLE_LAMP_DEV_AUTH_EMAIL,
-		defaults.JITTLE_LAMP_DEV_AUTH_EMAIL,
-	) ?? defaults.JITTLE_LAMP_DEV_AUTH_EMAIL;
-	const name = firstNonEmpty(
-		existing.JITTLE_LAMP_DEV_AUTH_NAME,
-		rootEnv.JITTLE_LAMP_DEV_AUTH_NAME,
-		defaults.JITTLE_LAMP_DEV_AUTH_NAME,
-	) ?? defaults.JITTLE_LAMP_DEV_AUTH_NAME;
+	const keep = <K extends keyof typeof defaults>(key: K): string =>
+		firstNonEmpty(existing[key], defaults[key]) ?? defaults[key];
+	const userId = keep("JITTLE_LAMP_DEV_AUTH_USER_ID");
+	const origin = keep("JITTLE_LAMP_WEB_ORIGIN");
+	const audience = keep("CLERK_AUDIENCE");
+	const email = keep("JITTLE_LAMP_DEV_AUTH_EMAIL");
+	const name = keep("JITTLE_LAMP_DEV_AUTH_NAME");
 	const token = await new SignJWT({
 		azp: origin,
 		email,
@@ -98,11 +86,10 @@ const writeDevAuthEnv = async (): Promise<Record<string, string>> => {
 		CLERK_SECRET_KEY: "",
 		CLERK_AUDIENCE: audience,
 		CLERK_JWT_KEY: publicPem,
-		APP_SECRET: firstNonEmpty(
-			existing.APP_SECRET,
-			rootEnv.APP_SECRET,
+		// Generated for this machine and kept across setups.
+		APP_SECRET:
+			firstNonEmpty(existing.APP_SECRET) ??
 			`dev-auth-${randomBytes(24).toString("hex")}`,
-		) ?? `dev-auth-${randomBytes(24).toString("hex")}`,
 		JITTLE_LAMP_DEV_AUTH_USER_ID: userId,
 		JITTLE_LAMP_DEV_AUTH_EMAIL: email,
 		JITTLE_LAMP_DEV_AUTH_NAME: name,
@@ -176,7 +163,7 @@ const serveWebDist = (): ReturnType<typeof Bun.serve> =>
 const run = async (): Promise<void> => {
 	const env = await writeDevAuthEnv();
 	const mergedEnv = { ...process.env, ...env };
-	console.log(`Wrote ${envPath}`);
+	console.log(`Wrote ${defaultEnvPath}`);
 	console.log("Building evidence-web with local test auth...");
 	const build = Bun.spawn(["bun", "--no-env-file", "run", "--cwd", "apps/evidence-web", "build"], {
 		cwd: rootDir,
@@ -219,9 +206,11 @@ const run = async (): Promise<void> => {
 
 const mode = process.argv[2] ?? "run";
 
-if (mode === "setup") {
+if (!import.meta.main) {
+	// Imported by tests.
+} else if (mode === "setup") {
 	const env = await writeDevAuthEnv();
-	console.log(`Wrote ${envPath}`);
+	console.log(`Wrote ${defaultEnvPath}`);
 	console.log(`Account: ${env.JITTLE_LAMP_DEV_AUTH_EMAIL} (${env.JITTLE_LAMP_DEV_AUTH_USER_ID})`);
 	console.log("Start everything with: bun run dev:test-auth");
 } else if (mode === "run") {

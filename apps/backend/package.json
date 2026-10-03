@@ -16,7 +16,8 @@
     "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "test": "bun test",
     "db:generate": "bun x drizzle-kit generate --config drizzle.config.ts",
-    "db:migrate": "bun x drizzle-kit migrate --config drizzle.config.ts"
+    "db:migrate": "bun x drizzle-kit migrate --config drizzle.config.ts",
+    "secrets:rewrap": "bun --no-env-file src/cli/secrets-rewrap.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1143.0",

@@ -4,6 +4,12 @@ import { strFromU8 } from "fflate";
 import type { z } from "zod/v4";
 
 import {
+	defaultOutboundPolicy,
+	guardedFetch,
+	type OutboundPolicy,
+} from "./outbound-http";
+
+import {
 	MAX_XLSX_UNCOMPRESSED_BYTES,
 	unzipBounded,
 	ZipTooLargeError,
@@ -509,18 +515,28 @@ export const searchJiraIssues = async (input: {
 	jql: string;
 	maxResults?: number;
 	fetchImpl?: typeof fetch;
+	// The base URL comes from an organisation's credential: the SSRF guard applies
+	// (services/outbound-http.ts), and redirects are not followed, so the API token never goes
+	// to another host.
+	outbound?: OutboundPolicy;
 }): Promise<JiraIssue[]> => {
 	const base = input.baseUrl.replace(/\/+$/, "");
 	const url = new URL(`${base}/rest/api/3/search/jql`);
 	url.searchParams.set("jql", input.jql);
 	url.searchParams.set("fields", "summary,description,labels");
 	url.searchParams.set("maxResults", String(input.maxResults ?? 50));
-	const response = await (input.fetchImpl ?? fetch)(url, {
-		headers: {
-			accept: "application/json",
-			authorization: `Basic ${Buffer.from(`${input.email}:${input.apiToken}`).toString("base64")}`,
+	const response = await guardedFetch(
+		input.fetchImpl ?? fetch,
+		input.outbound ?? defaultOutboundPolicy,
+		url.toString(),
+		{
+			headers: {
+				accept: "application/json",
+				authorization: `Basic ${Buffer.from(`${input.email}:${input.apiToken}`).toString("base64")}`,
+			},
+			signal: AbortSignal.timeout(30_000),
 		},
-	});
+	);
 	if (!response.ok) {
 		throw new Error(`Jira search failed with HTTP ${response.status}`);
 	}

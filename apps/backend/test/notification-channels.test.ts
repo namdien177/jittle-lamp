@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { createHmac } from "node:crypto";
 import type { ClaimedRun, NotificationChannel } from "@jittle-lamp/shared";
 import { and, eq } from "drizzle-orm";
+import { createDb } from "../src/db";
 import {
 	notificationChannels,
 	notificationDeliveries,
@@ -9,8 +10,11 @@ import {
 } from "../src/db/schema";
 import { slackMessage } from "../src/services/notification-channels";
 import {
+	CHANNEL_LEASE_MS,
+	claimEventChannels,
 	describeNotification,
 	dispatchPendingNotifications,
+	emitNotification,
 } from "../src/services/notifications";
 import {
 	createTestCaseFixture,
@@ -431,5 +435,90 @@ describe("webhook notification channels after review", () => {
 		expect(sample.body.delivered).toBe(false);
 		expect(sample.body.error).toContain("private or local address");
 		expect(slack.posts.length).toBe(before);
+	});
+});
+
+describe("notification channel leases", () => {
+	it("lets exactly one of two concurrent claims take an event's channel delivery", async () => {
+		const fixture = await createTestCaseFixture({
+			env: { WEB_APP_ORIGIN: WEB, JL_OUTBOUND_ALLOW_LOOPBACK: "true" },
+		});
+		const event = await emitNotification(fixture.db, {
+			orgId: fixture.orgId,
+			kind: "run.finished",
+			subjectType: "test_run",
+			subjectId: "run-lease",
+		});
+		if (!event) throw new Error("Expected an event");
+		// Separate connections to the same database, as separate backend instances would use.
+		const connections = Array.from({ length: 2 }, () => {
+			const db = createDb(fixture.databaseUrl);
+			if (!db) throw new Error("Expected database");
+			return db;
+		});
+		const now = Date.now();
+		const claims = await Promise.all(
+			connections.map((db, index) =>
+				claimEventChannels(db, event.id, `instance-${index}`, now),
+			),
+		);
+		expect(claims.filter((claim) => claim !== null)).toHaveLength(1);
+		expect(
+			await claimEventChannels(fixture.db, event.id, "late", now + 1_000),
+		).toBeNull();
+		expect(
+			await claimEventChannels(
+				fixture.db,
+				event.id,
+				"after-expiry",
+				now + CHANNEL_LEASE_MS,
+			),
+		).toMatchObject({ channelsLeaseOwner: "after-expiry" });
+	});
+
+	it("posts to Slack once when two workers dispatch the same event at the same time", async () => {
+		const fixture = await createTestCaseFixture({
+			env: { WEB_APP_ORIGIN: WEB, JL_OUTBOUND_ALLOW_LOOPBACK: "true" },
+		});
+		const credentialId = await slackCredential(fixture);
+		const channel = await fixture.call<NotificationChannel>(
+			"/notification-channels",
+			{
+				token: fixture.admin.token,
+				body: { kind: "slack", config: { credentialId } },
+			},
+		);
+		expect(channel.status).toBe(201);
+		const event = await emitNotification(fixture.appDb, {
+			orgId: fixture.orgId,
+			kind: "run.finished",
+			subjectType: "test_run",
+			subjectId: "run-twice",
+			payload: { outcome: "passed", testCaseKey: "TC-9", testCaseTitle: "x" },
+		});
+		if (!event) throw new Error("Expected an event");
+		const before = slack.posts.length;
+		const now = Date.now();
+		await Promise.all([
+			dispatchPendingNotifications(fixture.appDb, now),
+			dispatchPendingNotifications(fixture.appDb, now),
+		]);
+		expect(slack.posts.length - before).toBe(1);
+		const deliveries = await fixture.db.query.notificationDeliveries.findMany({
+			where: and(
+				eq(notificationDeliveries.eventId, event.id),
+				eq(notificationDeliveries.channelKind, "slack"),
+			),
+		});
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0]).toMatchObject({ status: "delivered", attempts: 1 });
+		const row = await fixture.db.query.notificationEvents.findFirst({
+			where: eq(notificationEvents.id, event.id),
+		});
+		expect(row).toMatchObject({
+			channelsLeaseOwner: null,
+			channelsLeaseExpiresAt: null,
+		});
+		expect(row?.channelsDispatchedAt).toBeNumber();
 	});
 });

@@ -122,7 +122,8 @@ const decodeMasterKey = (value: string, name: string): Uint8Array => {
 };
 
 // Master key from the environment. The previous key, when set, only unwraps; re-wrapping with
-// rewrapDataKeys moves every organisation to the current key.
+// rewrapAllDataKeys (bun run --cwd apps/backend secrets:rewrap) moves every organisation to the
+// current key.
 export const createEnvKeyProvider = (input: {
 	masterKey: string | undefined;
 	previousMasterKey?: string | undefined;
@@ -163,6 +164,13 @@ export const createEnvKeyProvider = (input: {
 		unwrap: async (wrapped, id, context) =>
 			openBytes(byId(id), wrapped, context),
 	};
+};
+
+export type RewrapReport = {
+	total: number;
+	rewrapped: number;
+	alreadyCurrent: number;
+	unreadable: number;
 };
 
 export type SecretReadAudit = {
@@ -492,29 +500,65 @@ export const createTestSecrets = (input: {
 
 	// After a master key rotation: unwrap with whichever master key wrapped each data key and
 	// wrap again with the current one.
-	const rewrapDataKeys = async (): Promise<number> => {
+	// Master key rotation: re-wraps every data key (active and retired) that another master key
+	// wrapped, so JL_SECRETS_MASTER_KEY_PREVIOUS can be removed afterwards. Idempotent: rows
+	// already under the current key are left alone, and the guarded update never overwrites a row
+	// another process re-wrapped meanwhile. A row no configured key can unwrap is counted, not
+	// fatal, so one stale row does not stop the others.
+	const rewrapAllDataKeys = async (): Promise<RewrapReport> => {
 		const currentId = keyProvider.currentKeyId();
 		const rows = await db.query.organizationDataKeys.findMany();
-		let rewrapped = 0;
+		const report: RewrapReport = {
+			total: rows.length,
+			rewrapped: 0,
+			alreadyCurrent: 0,
+			unreadable: 0,
+		};
 		for (const row of rows) {
-			if (row.masterKeyId === currentId) continue;
+			if (row.masterKeyId === currentId) {
+				report.alreadyCurrent += 1;
+				continue;
+			}
 			const context = dataKeyContext(row.orgId, row.keyVersion);
-			const key = await keyProvider.unwrap(
-				row.wrappedKey,
-				row.masterKeyId,
-				context,
-			);
-			await db
+			let key: Uint8Array;
+			try {
+				key = await keyProvider.unwrap(
+					row.wrappedKey,
+					row.masterKeyId,
+					context,
+				);
+			} catch {
+				report.unreadable += 1;
+				continue;
+			}
+			const updated = await db
 				.update(organizationDataKeys)
 				.set({
 					wrappedKey: await keyProvider.wrap(key, context),
 					masterKeyId: currentId,
 					provider: keyProvider.id,
 				})
-				.where(eq(organizationDataKeys.id, row.id));
-			rewrapped += 1;
+				.where(
+					and(
+						eq(organizationDataKeys.id, row.id),
+						eq(organizationDataKeys.masterKeyId, row.masterKeyId),
+					),
+				)
+				.returning({ id: organizationDataKeys.id });
+			if (updated.length > 0) report.rewrapped += 1;
+			else report.alreadyCurrent += 1;
 		}
-		return rewrapped;
+		return report;
+	};
+
+	const rewrapDataKeys = async (): Promise<number> => {
+		const report = await rewrapAllDataKeys();
+		if (report.unreadable > 0) {
+			throw new SecretDecryptionError(
+				`${report.unreadable} data key(s) were wrapped by a master key that is not configured`,
+			);
+		}
+		return report.rewrapped;
 	};
 
 	// Throws SecretsUnavailableError before any row is written when no master key is set.
@@ -528,6 +572,7 @@ export const createTestSecrets = (input: {
 		decryptForSignatureCheck,
 		rotateDataKey,
 		rewrapDataKeys,
+		rewrapAllDataKeys,
 		assertAvailable,
 	};
 };

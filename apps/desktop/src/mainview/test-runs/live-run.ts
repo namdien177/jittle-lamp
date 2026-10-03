@@ -90,6 +90,7 @@ export function describeRunState(run: Pick<TestRunSummary, "status" | "outcome" 
   switch (run.status) {
     case "queued":
       if (run.blockedReason === "NO_RUNNER") return { tone: "warning", text: "Queued · waiting for a runner" };
+      if (run.blockedReason === "BUDGET_EXCEEDED") return { tone: "warning", text: "Queued · daily model budget used up" };
       // queuePosition counts the runs ahead of this one in its pool.
       if (run.queuePosition === null) return { tone: "neutral", text: "Queued" };
       return { tone: "neutral", text: run.queuePosition === 0 ? "Queued · next" : `Queued · ${run.queuePosition} ahead` };

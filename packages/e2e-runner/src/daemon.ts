@@ -6,13 +6,14 @@ import { join } from "node:path";
 import { parseArgs } from "./cli";
 import { startWorker } from "./daemon/worker";
 
-const usage = `jl-e2e-runner: claims runs for a runner pool and executes them
+export const usage = `jl-e2e-runner: claims runs for a runner pool and executes them
 
   jl-e2e-runner start --api https://api.example --token <registration token> [--work-dir dir]
                       [--concurrency 1] [--headed] [--once] [--state path]
 
 The registration token is used once; the worker credential is stored in
-~/.config/jittle-lamp/runner/<api host>.json (mode 600). Later starts need only --api.
+~/.config/jittle-lamp/runner/<api host>-<host name>.json (mode 600), or in --state.
+Later starts need only --api.
 Environment: JL_API_ORIGIN, JL_RUNNER_TOKEN, JL_RUNNER_WORK_DIR, JL_RUNNER_CONCURRENCY.`;
 
 export async function main(argv: readonly string[]): Promise<number> {

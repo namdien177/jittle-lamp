@@ -86,7 +86,8 @@ beforeAll(async () => {
     }
   });
 
-  fx = await createTestCaseFixture({ env: { JITTLE_LAMP_DEV_AUTH_ENABLED: "false" } });
+  // The fake Jira listens on 127.0.0.1; Jira imports go through the outbound SSRF guard.
+  fx = await createTestCaseFixture({ env: { JITTLE_LAMP_DEV_AUTH_ENABLED: "false", JL_OUTBOUND_ALLOW_LOOPBACK: "true" } });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => fx.app.handle(request) });
   origin = `http://127.0.0.1:${server.port}`;
   workDir = mkdtempSync(join(tmpdir(), "jl-beta-work-"));

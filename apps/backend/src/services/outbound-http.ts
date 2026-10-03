@@ -1,6 +1,8 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+import { parseBooleanFlag } from "../config/runtime";
+
 // Outbound HTTP to addresses an organisation configures (webhook callbacks, GitHub/GitLab API,
 // Slack and webhook notification channels). Guards against SSRF:
 //   - http(s) only;
@@ -153,8 +155,9 @@ export const outboundPolicyFromEnv = (input: {
 	allowLoopbackFlag: string | undefined;
 	allowHosts: string | undefined;
 }): OutboundPolicy => ({
+	// Same boolean parsing as RUN_DB_MIGRATIONS and the other flags: 1, true, yes, on.
 	allowLoopback:
-		input.nodeEnv === "test" || input.allowLoopbackFlag?.trim() === "true",
+		input.nodeEnv === "test" || parseBooleanFlag(input.allowLoopbackFlag),
 	allowHosts: (input.allowHosts ?? "")
 		.split(",")
 		.map((host) => host.trim().toLowerCase())

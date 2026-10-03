@@ -7,6 +7,7 @@ import {
 	emitNotification,
 	emitRunOutcome,
 } from "./notifications";
+import { BUDGET_EXCEEDED, releaseBudgetBlockedRuns } from "./test-run-budget";
 import {
 	ACTIVE_RUN_STATUSES,
 	poolConcurrency,
@@ -19,13 +20,15 @@ import {
 	WORKER_LIVE_MS,
 } from "./test-runs";
 import { createOpaqueToken, hashToken, RUN_TOKEN_PREFIX } from "./test-tokens";
+import type { WorkerLogger } from "./test-webhooks";
 import type { BackendDb } from "./user-provisioning";
 
 export { withBusyRetry };
 
 // Runner claims (design.md §10.1): one atomic statement picks the first queued run of the pool
 // by priority then queued_at, only while the pool runs fewer than its max_concurrent_runs, and
-// takes a 30 s lease. Same lease pattern as migration-worker.ts.
+// takes a 30 s lease. Same lease pattern as migration-worker.ts. Runs waiting on the daily model
+// budget (BUDGET_EXCEEDED) are skipped until the sweep releases them.
 
 export const claimNextRun = async (
 	db: BackendDb,
@@ -57,6 +60,7 @@ export const claimNextRun = async (
 				where candidate.runner_pool_id = ${input.pool.id}
 					and candidate.status = 'queued'
 					and candidate.cancel_requested_at is null
+					and (candidate.blocked_reason is null or candidate.blocked_reason <> ${BUDGET_EXCEEDED})
 					and (
 						select count(*) from test_runs active
 						where active.runner_pool_id = ${input.pool.id}
@@ -103,6 +107,8 @@ export type QueueSweepResult = {
 	requeued: string[];
 	lost: TestRunRow[];
 	cancelled: string[];
+	// Runs that waited on the daily budget and are claimable again.
+	budgetReleased: string[];
 	offlineWorkers: Array<typeof runnerWorkers.$inferSelect>;
 };
 
@@ -112,11 +118,13 @@ export type QueueSweepResult = {
 export const sweepRunQueue = async (
 	db: BackendDb,
 	now = Date.now(),
+	options: { logger?: WorkerLogger | undefined } = {},
 ): Promise<QueueSweepResult> => {
 	const result: QueueSweepResult = {
 		requeued: [],
 		lost: [],
 		cancelled: [],
+		budgetReleased: [],
 		offlineWorkers: [],
 	};
 	const expired = await db.query.testRuns.findMany({
@@ -177,6 +185,9 @@ export const sweepRunQueue = async (
 		}
 		await releaseWorkerRun(db, run.id, now);
 	}
+
+	// Budget first, so a released run gets NO_RUNNER below when its pool has no live worker.
+	result.budgetReleased = await releaseBudgetBlockedRuns(db, { now });
 
 	await withBusyRetry(() =>
 		db
@@ -255,7 +266,14 @@ export const sweepRunQueue = async (
 			},
 		});
 	}
-	await dispatchPendingNotifications(db, now).catch(() => 0);
+	// A failed channel delivery is recorded on its delivery row; a failure of the pass itself
+	// (database errors) must not fail the sweep or the claim that triggered it.
+	await dispatchPendingNotifications(db, now, options.logger).catch(
+		(err: unknown) => {
+			options.logger?.error({ err }, "notification channel worker failed");
+			return 0;
+		},
+	);
 	return result;
 };
 
@@ -317,10 +335,13 @@ export const createTestRunQueueWorker = (input: {
 	onSweep?: (result: QueueSweepResult) => Promise<void>;
 	intervalMs?: number;
 	now?: () => number;
+	logger?: WorkerLogger;
 }): TestRunQueueWorker => {
 	const now = input.now ?? Date.now;
 	const runOnce = async () => {
-		const result = await sweepRunQueue(input.db, now());
+		const result = await sweepRunQueue(input.db, now(), {
+			logger: input.logger,
+		});
 		await input.onSweep?.(result);
 		return result;
 	};
@@ -330,7 +351,9 @@ export const createTestRunQueueWorker = (input: {
 			let stopped = false;
 			const loop = async () => {
 				while (!stopped) {
-					await runOnce().catch(() => undefined);
+					await runOnce().catch((err: unknown) => {
+						input.logger?.error({ err }, "test run queue sweep failed");
+					});
 					await new Promise<void>((resolve) => {
 						const timer = setTimeout(
 							resolve,

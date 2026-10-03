@@ -109,7 +109,7 @@ const caseIdParams = z.object({ id: z.string().min(1) });
 export type TestCaseRouteOptions = {
 	generateText?: TextGenerator;
 	fetchImpl?: typeof fetch;
-	// SSRF guard for model requests the backend makes (Jira import generation).
+	// SSRF guard for Jira imports: the Jira API and the model requests of transcript generation.
 	outbound?: OutboundPolicy;
 };
 

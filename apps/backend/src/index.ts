@@ -58,7 +58,7 @@ try {
 			);
 		}
 		// Test run queue: lease expiry, RUNNER_LOST, NO_RUNNER and offline runners.
-		createTestRunQueueWorker({ db }).start();
+		createTestRunQueueWorker({ db, logger }).start();
 		logger.info("test run queue maintenance started");
 		// CI webhooks: pending and final commit statuses, MR notes and callbacks (design.md §10c).
 		createWebhookReportWorker({
@@ -67,6 +67,7 @@ try {
 			fetch,
 			outbound,
 			webOrigin: runtime.webAppOrigin ?? null,
+			logger,
 		}).start();
 		const runMaintenance = async () => {
 			if (organizationMigration) {

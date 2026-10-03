@@ -22,6 +22,7 @@ import { emitNotification, emitReviewPendingCount } from "./notifications";
 import {
 	defaultOutboundPolicy,
 	guardedFetch,
+	OutboundBlockedError,
 	type OutboundPolicy,
 } from "./outbound-http";
 import {
@@ -290,8 +291,16 @@ const jiraCandidates = async (
 			jql: request.jql,
 			maxResults: JIRA_IMPORT_MAX_ISSUES,
 			...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+			...(input.outbound ? { outbound: input.outbound } : {}),
 		});
 	} catch (error) {
+		if (error instanceof OutboundBlockedError) {
+			throw new HttpError(
+				422,
+				"JIRA_URL_BLOCKED",
+				`The Jira base_url is not allowed: ${error.message}. Add the host to JL_OUTBOUND_ALLOW_HOSTS if it is an internal Jira`,
+			);
+		}
 		throw new HttpError(
 			502,
 			"JIRA_UNAVAILABLE",
@@ -374,6 +383,7 @@ export const createImportBatch = async (
 		request: CreateImportRequest;
 		generateText: TextGenerator;
 		fetchImpl?: typeof fetch;
+		// SSRF guard for Jira imports: the Jira API and the model requests.
 		outbound?: OutboundPolicy;
 	},
 ): Promise<ImportBatchRow> => {

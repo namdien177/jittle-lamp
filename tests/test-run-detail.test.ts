@@ -107,6 +107,8 @@ describe("run detail model", () => {
     expect(formatQueuePill({ status: "queued", queuePosition: 0, estimatedStartAt: now + 20_000 }, now)).toBe("queued · #1 · starts in ~20s");
     expect(formatQueuePill({ status: "queued", queuePosition: 0, queueDepth: 1, estimatedStartAt: now - 4_000 }, now)).toBe("queued · #1 of 1 · starts soon");
     expect(formatQueuePill({ status: "queued", queuePosition: null, estimatedStartAt: null }, now)).toBe("queued");
+    expect(formatQueuePill({ status: "queued", queuePosition: 0, queueDepth: 2, estimatedStartAt: null, blockedReason: "BUDGET_EXCEEDED" }, now)).toBe("queued · waiting for the daily model budget");
+    expect(formatQueuePill({ status: "queued", queuePosition: 0, estimatedStartAt: now + 20_000, blockedReason: "NO_RUNNER" }, now)).toBe("queued · #1 · starts in ~20s");
     expect(formatQueuePill({ status: "running", queuePosition: null, estimatedStartAt: null }, now)).toBeNull();
   });
 

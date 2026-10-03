@@ -309,6 +309,24 @@ export function runnerCommands(input: { apiOrigin: string; token: string }): Run
   };
 }
 
+// Every pool, the organisation's cloud pool included, registers workers with a registration token
+// (POST /runner-pools/:id/registration-token, test_config.manage). The token is shown once; a new
+// one replaces the old one and registered workers keep working.
+export type RegistrationTokenAction = { label: string; ariaLabel: string; title: string; note: string };
+
+export function registrationTokenAction(pool: { kind: "cloud" | "self-hosted"; name: string }, canManage: boolean): RegistrationTokenAction | null {
+  if (!canManage) return null;
+  return {
+    label: "New token",
+    ariaLabel: `New token for ${pool.name}`,
+    title: `New registration token for ${pool.name}`,
+    note:
+      pool.kind === "cloud"
+        ? "Put it in runner.env of this organisation's cloud runner deployment (deploy/runner/compose.yaml). It replaces the previous token; registered workers keep working."
+        : "It replaces the previous token; registered workers keep working."
+  };
+}
+
 // Environments bind to "cloud" or to a self-hosted pool by name ("self-hosted:devbox"); the backend
 // resolves the reference by pool id or name.
 export function runnerPoolValue(pool: { kind: "cloud" | "self-hosted"; id: string; name: string }): string {

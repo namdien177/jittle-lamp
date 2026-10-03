@@ -50,6 +50,10 @@ export const notificationEvents = sqliteTable(
 		// maintenance worker, which sets this.
 		dispatchedAt: integer("dispatched_at"),
 		channelsDispatchedAt: integer("channels_dispatched_at"),
+		// Claim of the channel delivery worker, so two backend instances never deliver one event
+		// to its Slack and webhook channels at the same time.
+		channelsLeaseOwner: text("channels_lease_owner"),
+		channelsLeaseExpiresAt: integer("channels_lease_expires_at"),
 	},
 	(table) => [
 		index("notification_events_org_created_idx").on(
@@ -281,6 +285,10 @@ export const webhookBatches = sqliteTable(
 		reportAttempts: integer("report_attempts").notNull().default(0),
 		reportNextAt: integer("report_next_at"),
 		reportError: text("report_error"),
+		// Claim of the report worker (or the delivery request sending the pending status), so two
+		// backend instances never post the same status or note at the same time.
+		reportLeaseOwner: text("report_lease_owner"),
+		reportLeaseExpiresAt: integer("report_lease_expires_at"),
 		...timestamps,
 	},
 	(table) => [

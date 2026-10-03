@@ -586,7 +586,10 @@ describe("test case routes", () => {
 	});
 
 	it("imports Jira issues through the organisation model and credential", async () => {
-		const fixture = await createTestCaseFixture();
+		// The fake Jira listens on 127.0.0.1.
+		const fixture = await createTestCaseFixture({
+			env: { JL_OUTBOUND_ALLOW_LOOPBACK: "true" },
+		});
 		let authorization = "";
 		const jira = Bun.serve({
 			hostname: "127.0.0.1",

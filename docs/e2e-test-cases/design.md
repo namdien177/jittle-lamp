@@ -482,7 +482,7 @@ The cloud agent pool is small (one runner per organisation by default). Several 
 - Per organisation: at most `max_queued_runs` (default 20) queued at once; above that `POST …/runs` returns `429 QUEUE_FULL` with the current depth.
 - Per test case: at most one queued run per `dedupe_key` (already implied) and at most `max_queued_per_case` (default 3) queued runs with different keys.
 - Per trigger source: a token bucket of 30 run requests per 10 minutes per user or token; CI tokens get their own bucket. Rejections are `429 RATE_LIMITED` with `retryAfter`.
-- Model spend guard (phase 2): a daily `cost_usd` budget per organisation; when exceeded, new runs are queued with `status: queued` and `blocked_reason: BUDGET_EXCEEDED` until midnight or an admin raises the budget.
+- Model spend guard (phase 2, done): a daily `cost_usd` budget per organisation; when exceeded, new runs are queued with `status: queued` and `blocked_reason: BUDGET_EXCEEDED` until midnight UTC (organisations have no time zone setting) or an admin raises the budget.
 
 ### 10.4 What the UI shows
 

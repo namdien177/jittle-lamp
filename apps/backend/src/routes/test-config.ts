@@ -45,6 +45,7 @@ import {
 } from "../services/organization-activity";
 import type { OutboundPolicy } from "../services/outbound-http";
 import { createTestSecrets } from "../services/test-config";
+import { releaseBudgetBlockedRuns } from "../services/test-run-budget";
 import { getRunSettings } from "../services/test-runs";
 import {
 	buildCostReport,
@@ -616,6 +617,8 @@ export const createTestConfigRoutes = (
 				await requireTestPermission(db, who, "test_config.manage");
 				const body = parseInput(testRunSettingsSchema, ctx.body);
 				await saveRunSettings(db, who.orgId, who.userId, body);
+				// A raised or removed daily budget frees the runs waiting on it at once.
+				await releaseBudgetBlockedRuns(db, { orgId: who.orgId });
 				return respond(
 					testRunSettingsSchema,
 					await getRunSettings(db, who.orgId),
