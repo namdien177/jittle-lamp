@@ -70,6 +70,8 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 
 ## Log
 
+- 2026-10-03: 1b.1 bundled daemon startup fixed: argument parsing moved out of the CLI entrypoint so the multi-entrypoint Bun build cannot invoke the CLI while starting the daemon. Four bundled-process regressions failed before the fix and pass under Bun/Node after it. Independent review: no blockers. Workspace typecheck, backend lint, version sync, full build, 571 root/MCP/runner unit tests, 236 backend tests and 20 runner browser tests (including secret-leak grep) pass. Live preprod worker registered and ran the organisation-key Qwen smoke case twice (agent, then Act replay); rollout details follow in ops.8.
+
 - 2026-10-03: ops.8 preprod support: staging accepts only immutable deployment origins for the configured Vercel project/team with Clerk test keys, while branch aliases require exact authorization. S3_KEY_PREFIX applies to all four artifact operations. Signed-session, foreign-token, deceptive-origin, mixed Clerk-key and S3 namespace tests pass (6 tests, 35 assertions). Workspace typecheck, backend lint, version sync, 567 root/MCP/runner unit tests and 235 backend tests pass. Independent review findings fixed. Production/preprod configuration and hosted deployment verification remain in progress.
 
 - 2026-10-03: 1c Preview build fix: the standalone evidence-web build now builds viewer-react (including shared and viewer-core) before ui. A fresh detached checkout with frozen dependencies built successfully without cached dist files. Workspace typecheck, 567 unit tests, backend lint and version sync pass; independent review confirms the dependency order. Vercel deployment `ft2toynu2` built commit bafbe70 successfully (Ready, 27 s).

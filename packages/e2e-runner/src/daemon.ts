@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { parseArgs } from "./cli";
+import { parseArgs } from "./args";
 import { startWorker } from "./daemon/worker";
 
 export const usage = `jl-e2e-runner: claims runs for a runner pool and executes them
