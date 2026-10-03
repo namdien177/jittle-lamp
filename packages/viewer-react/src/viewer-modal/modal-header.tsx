@@ -234,7 +234,7 @@ export function ViewerModalHeader(props: ViewerModalProps): React.JSX.Element {
           />
         ) : null}
         <div className="jl-vm-heading">
-          <span className="jl-vm-title">{props.title}</span>
+          <h1 className="jl-vm-title">{props.title}</h1>
           <TitleMeta value={props.titleMeta} />
         </div>
       </div>

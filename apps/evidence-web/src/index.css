@@ -814,12 +814,29 @@
 }
 
 
-/* Evidence detail: the viewer takes the whole window, no workspace chrome. */
-.jl-app[data-evidence-focus="true"] .jl-vm-root { height: 100%; }
-
-.jl-library-header { margin-bottom: 12px; gap: 8px; align-items: center; }
-.jl-library-header h1 { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.011em; }
-.jl-library-count { margin-left: 6px; font-size: var(--text-sm); font-weight: 400; color: var(--muted-foreground); }
+/* The shared evidence viewer (@jittle-lamp/viewer-react) injects its own unlayered CSS. Inside
+   the workspace it takes the app's tokens, so it follows the same palette in both themes. */
+.jl-app .jl-vm-root,
+.jl-app .jl-vm-root[data-jl-theme] {
+  --jl-vm-bg: var(--background);
+  --jl-vm-bg-deep: var(--background);
+  --jl-vm-surface: var(--muted);
+  --jl-vm-surface-2: var(--secondary);
+  --jl-vm-surface-3: var(--accent);
+  --jl-vm-text: var(--foreground);
+  --jl-vm-soft: color-mix(in oklab, var(--foreground) 72%, var(--muted-foreground));
+  --jl-vm-muted: var(--muted-foreground);
+  --jl-vm-border: var(--border);
+  --jl-vm-border-strong: var(--border-strong);
+  --jl-vm-accent: var(--primary);
+  --jl-vm-accent-on: var(--primary-foreground);
+  --jl-vm-accent-soft-text: var(--brand-300);
+  --jl-vm-danger: var(--destructive);
+  --jl-vm-warn: var(--warning);
+  height: 100%;
+  min-height: 0;
+  font-family: var(--font-ui);
+}
 
 .jl-tc-press { transition: transform 150ms var(--ease-out), background-color 150ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out); }
 .jl-tc-press:active { transform: scale(0.97); }

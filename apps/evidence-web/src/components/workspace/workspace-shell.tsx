@@ -299,21 +299,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }): Rea
   const isEvidenceDetail = /^\/evidence\/[^/]+/.test(location.pathname);
   const isFillPage = /^\/(test-cases|test-runs)(\/|$)/.test(location.pathname) && !/^\/test-cases\/(settings|import|review)(\/|$)/.test(location.pathname);
 
-  // Evidence review takes the whole window; the viewer has its own chrome.
-  if (isEvidenceDetail) {
-    return (
-      <div className="jl-app flex h-dvh min-h-0 flex-col overflow-hidden bg-background" data-evidence-focus="true">
-        <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
-      </div>
-    );
-  }
-
   return (
     <TooltipProvider>
-      <SidebarProvider className="jl-app">
+      <SidebarProvider className="jl-app" data-evidence-focus={isEvidenceDetail ? "true" : undefined}>
         <AppSidebar pathname={location.pathname} readOnly={migrationReadOnly} dark={dark} onToggleTheme={toggleTheme} />
         <SidebarInset>
-          <InsetHeader crumbs={breadcrumbsFor(location.pathname)} titleRef={setTitleSlot} actionsRef={setActionsSlot} />
+          {/* The evidence viewer brings its own header bar (back, title, share, download). */}
+          {!isEvidenceDetail ? <InsetHeader crumbs={breadcrumbsFor(location.pathname)} titleRef={setTitleSlot} actionsRef={setActionsSlot} /> : null}
           {migrationReadOnly ? (
             <div role="status" className="border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-center text-[13px] text-foreground">
               This organisation is read-only during migration.{" "}
@@ -331,7 +323,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }): Rea
             </div>
           ) : null}
           <PageHeaderSlotProvider slots={{ title: titleSlot, actions: actionsSlot }}>
-            {isFillPage ? (
+            {isEvidenceDetail ? (
+              <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+            ) : isFillPage ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:min-h-0 [&>*]:flex-1">{children}</div>
             ) : (
               <div className="jl-scroll min-h-0 flex-1 overflow-y-auto">

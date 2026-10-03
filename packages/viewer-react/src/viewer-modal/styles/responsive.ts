@@ -152,7 +152,6 @@ export const responsiveStyles = `
 
   .jl-vm-row {
     min-width: 0;
-    min-height: 44px;
   }
 
   .jl-vm-row[data-kind="network"] {

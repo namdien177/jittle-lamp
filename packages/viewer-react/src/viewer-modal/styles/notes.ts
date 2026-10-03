@@ -10,7 +10,7 @@ export const notesStyles = `
   padding: 8px 16px;
   border-top: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
-  background: color-mix(in srgb, var(--jl-vm-bg, #0b0d0e) 92%, transparent);
+  background: var(--jl-vm-bg, #0b0d0e);
 }
 
 .jl-vm-tagbar-list {
@@ -41,10 +41,10 @@ export const notesStyles = `
   max-width: 140px;
   align-items: center;
   border: 1px solid;
-  border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 700;
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 11.5px;
+  font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
@@ -60,21 +60,22 @@ export const notesStyles = `
   appearance: none;
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
+  min-height: 24px;
   gap: 5px;
-  border: 1px solid rgba(34, 197, 94, 0.28);
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--jl-vm-accent-soft-text, #b6f3cf);
-  padding: 5px 9px;
+  border: 1px dashed var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16));
+  border-radius: 5px;
+  background: transparent;
+  color: var(--jl-vm-soft, rgba(239, 239, 239, 0.68));
+  padding: 2px 8px;
+  font-family: inherit;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .jl-vm-tag-add:hover {
-  border-color: rgba(34, 197, 94, 0.48);
-  background: rgba(34, 197, 94, 0.16);
+  border-color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
+  color: var(--jl-vm-text, #efefef);
 }
 
 .jl-vm-tag-add:disabled {
@@ -173,16 +174,13 @@ export const notesStyles = `
   padding: 14px 16px 16px;
   min-height: 0;
   border-top: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
-  background: #0b0d0e;
+  background: var(--jl-vm-bg, #0b0d0e);
 }
 
 .jl-vm-notes-label {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: 12px;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-weight: 600;
+  font-weight: 500;
   display: flex;
   justify-content: space-between;
   align-items: center;

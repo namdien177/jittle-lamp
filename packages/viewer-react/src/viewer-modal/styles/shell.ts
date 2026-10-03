@@ -2,10 +2,8 @@ export const shellStyles = `
 .jl-vm-overlay {
   position: fixed;
   inset: 0;
-  background:
-    radial-gradient(circle at 18% 0%, rgba(34, 197, 94, 0.12), transparent 28%),
-    linear-gradient(180deg, rgba(4, 7, 6, 0.84), rgba(4, 5, 5, 0.94));
-  backdrop-filter: blur(14px) saturate(150%);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -24,25 +22,27 @@ export const shellStyles = `
   height: 90vh;
   background: var(--jl-vm-bg);
   color: var(--jl-vm-text);
-  font-size: 16px;
+  font-family: var(--font-sans, "Inter", system-ui, -apple-system, "Segoe UI", sans-serif);
+  font-size: 13px;
   border: 1px solid var(--jl-vm-border-strong);
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow:
-    0 30px 90px rgba(0, 0, 0, 0.56),
-    0 0 0 1px rgba(34, 197, 94, 0.08) inset;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
 
-  /* Dark theme (default) */
-  --jl-vm-bg: #0b0d0e;
-  --jl-vm-bg-deep: #08090a;
-  --jl-vm-surface: #111314;
-  --jl-vm-surface-2: #171a1b;
-  --jl-vm-surface-3: #1f2324;
-  --jl-vm-text: #efefef;
-  --jl-vm-soft: rgba(239, 239, 239, 0.68);
-  --jl-vm-muted: rgba(239, 239, 239, 0.46);
-  --jl-vm-border: rgba(239, 239, 239, 0.1);
-  --jl-vm-border-strong: rgba(239, 239, 239, 0.16);
+  /* Dark theme (default): neutral greys, green only as the accent. Hosts may override the
+     --jl-vm-* tokens to match their own theme. */
+  --jl-vm-bg: #0f1012;
+  --jl-vm-bg-deep: #0b0c0e;
+  --jl-vm-surface: #16171a;
+  --jl-vm-surface-2: #1c1d21;
+  --jl-vm-surface-3: #26272c;
+  --jl-vm-text: #eeeff1;
+  --jl-vm-soft: #b4b7be;
+  --jl-vm-muted: #8b8f98;
+  --jl-vm-border: #24252a;
+  --jl-vm-border-strong: #303137;
+  --jl-vm-tab-active: #2a2b31;
+  --jl-vm-video-bg: #050506;
   --jl-vm-accent: #22c55e;
   --jl-vm-accent-on: #06120a;
   --jl-vm-accent-soft-text: #b6f3cf;
@@ -53,23 +53,23 @@ export const shellStyles = `
 .jl-vm-modal[data-jl-theme="light"],
 .jl-vm-root[data-jl-theme="light"] {
   --jl-vm-bg: #ffffff;
-  --jl-vm-bg-deep: #f4f4f2;
-  --jl-vm-surface: #f7f7f5;
-  --jl-vm-surface-2: #efefec;
-  --jl-vm-surface-3: #e6e6e1;
-  --jl-vm-text: #1b1a16;
-  --jl-vm-soft: rgba(27, 26, 22, 0.7);
-  --jl-vm-muted: rgba(27, 26, 22, 0.52);
-  --jl-vm-border: rgba(20, 20, 20, 0.1);
-  --jl-vm-border-strong: rgba(20, 20, 20, 0.16);
-  --jl-vm-accent: #16a34a;
+  --jl-vm-bg-deep: #f6f6f8;
+  --jl-vm-surface: #f6f6f8;
+  --jl-vm-surface-2: #efeff2;
+  --jl-vm-surface-3: #e6e6ea;
+  --jl-vm-text: #1c1d21;
+  --jl-vm-soft: #4b4e55;
+  --jl-vm-muted: #6b6f78;
+  --jl-vm-border: #e7e7ea;
+  --jl-vm-border-strong: #d6d6db;
+  --jl-vm-tab-active: #ffffff;
+  --jl-vm-video-bg: #ececef;
+  --jl-vm-accent: #178a42;
   --jl-vm-accent-on: #ffffff;
   --jl-vm-accent-soft-text: #15803d;
   --jl-vm-warn: #b45309;
   --jl-vm-danger: #dc2626;
-  box-shadow:
-    0 30px 90px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(0, 0, 0, 0.04) inset;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
 }
 
 .jl-vm-root {
@@ -83,12 +83,8 @@ export const shellStyles = `
 }
 
 .jl-vm-root .jl-vm-header {
-  padding: 14px 24px;
-  background: color-mix(in srgb, var(--jl-vm-bg, #0b0d0e) 86%, transparent);
-}
-
-.jl-vm-root .jl-vm-title {
-  font-size: 16px;
+  padding: 0 12px;
+  background: var(--jl-vm-bg);
 }
 
 .jl-vm-root .jl-vm-body {
@@ -96,7 +92,7 @@ export const shellStyles = `
 }
 
 .jl-vm-root .jl-vm-video-wrap {
-  background: #020304;
+  background: var(--jl-vm-video-bg);
 }
 
 .jl-vm-body {

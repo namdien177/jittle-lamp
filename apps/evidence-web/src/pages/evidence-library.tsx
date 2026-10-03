@@ -2,14 +2,14 @@ import React, { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   ArrowRightLeft,
-  Check,
   ChevronLeft,
   ChevronRight,
   Copy,
   Download,
   LayoutGrid,
+  Link2,
   List,
-  MoreVertical,
+  MoreHorizontal,
   Pencil,
   Play,
   RefreshCw,
@@ -19,13 +19,14 @@ import {
   Trash2,
   Users,
   Video,
+  X,
 } from "lucide-react";
 
 import { PageBody, PageHeader } from "../components/page";
 import { UploadEvidenceButton } from "../components/upload-evidence-button";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { Card } from "../components/ui/card";
+import { Checkbox } from "../components/ui/checkbox";
 import { Input } from "../components/ui/input";
 import { SimpleSelect } from "../components/ui/select";
 import { EmptyState } from "../components/ui/empty";
@@ -33,6 +34,7 @@ import { Skeleton } from "../components/ui/skeleton";
 import { Spinner } from "../components/ui/spinner";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -393,12 +395,12 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           type="button"
           aria-label="More actions"
           disabled={downloading || deleting}
-          className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
         >
           {downloading || deleting ? (
             <Spinner />
           ) : (
-            <MoreVertical className="size-4" aria-hidden />
+            <MoreHorizontal className="size-4" aria-hidden />
           )}
         </button>} />
 <DropdownMenuContent>
@@ -452,240 +454,159 @@ export function EvidenceLibraryPage(): React.JSX.Element {
 </DropdownMenu>
   );
 
+  const hasFilters = search !== "" || selectedCreatorIds.length > 0 || selectedTagIds.length > 0;
+  const filterButtonClass = (active: boolean): string =>
+    cn(buttonVariants({ variant: "outline", size: "sm" }), active && "border-primary/40 bg-primary/10 text-foreground");
+
   return (
     <>
       <PageHeader
-        className="jl-library-header"
-        title={<>Recordings <span className="jl-library-count">{total}</span></>}
+        title={<>Recordings <span className="ml-1 font-normal text-muted-foreground tabular-nums">{total}</span></>}
         actions={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void evidencesQuery.refetch()}
-              disabled={loading}
-            >
-              <RefreshCw aria-hidden className={cn(loading && "animate-spin")} />
-              Refresh
-            </Button>
-          </>
+          <Button variant="ghost" size="sm" onClick={() => void evidencesQuery.refetch()} disabled={loading}>
+            <RefreshCw aria-hidden className={cn(loading && "animate-spin")} />
+            Refresh
+          </Button>
         }
       />
-      <PageBody>
-        {/* Toolbar */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative max-w-md flex-1">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            />
+      <PageBody className="gap-3">
+        {/* Toolbar: search, filters, view. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative w-full sm:w-72">
+            <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setParam("q", e.currentTarget.value, "")}
               placeholder="Search by title, user, or id"
-              className="pl-9"
+              className="h-7 pl-8"
               aria-label="Search evidence"
             />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <DropdownMenu>
-<DropdownMenuTrigger render={<button
-                  type="button"
-                  className={cn(
-                    buttonVariants({ variant: "outline", size: "sm" }),
-                    "justify-start",
-                  )}
-                >
-                  <Users aria-hidden />
-                  {selectedCreatorIds.length === 0
-                    ? "All people"
-                    : `${selectedCreatorIds.length} selected`}
-                </button>} />
-<DropdownMenuContent align="end" className="w-64">
+          </label>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<button type="button" className={filterButtonClass(selectedCreatorIds.length > 0)} />}>
+              <Users aria-hidden />
+              {selectedCreatorIds.length === 0 ? "Recorded by" : `${selectedCreatorIds.length} ${selectedCreatorIds.length === 1 ? "person" : "people"}`}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
               <DropdownMenuLabel>Recorded by</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => setParam("people", "", "")}>
-                <span className="inline-flex size-4 items-center justify-center">
-                  {selectedCreatorIds.length === 0 ? (
-                    <Check aria-hidden />
-                  ) : null}
-                </span>
+              <DropdownMenuCheckboxItem checked={selectedCreatorIds.length === 0} onCheckedChange={() => setParam("people", "", "")}>
                 Everyone
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               {members.length === 0 ? (
-                <DropdownMenuItem disabled>
-                  {membersQuery.isPending
-                    ? "Loading people…"
-                    : "No people found"}
-                </DropdownMenuItem>
+                <DropdownMenuItem disabled>{membersQuery.isPending ? "Loading people…" : "No people found"}</DropdownMenuItem>
               ) : (
                 members.map((member) => {
                   const selected = selectedCreatorIds.includes(member.userId);
                   return (
-                    <DropdownMenuItem
-                      key={member.userId}
-                      onClick={() => setCreatorFilter(member.userId, !selected)}
-                    >
-                      <span className="inline-flex size-4 items-center justify-center">
-                        {selected ? <Check aria-hidden /> : null}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {memberNameById.get(member.userId) ??
-                          personName(member)}
-                      </span>
-                    </DropdownMenuItem>
+                    <DropdownMenuCheckboxItem key={member.userId} checked={selected} onCheckedChange={() => setCreatorFilter(member.userId, !selected)}>
+                      <span className="min-w-0 flex-1 truncate">{memberNameById.get(member.userId) ?? personName(member)}</span>
+                    </DropdownMenuCheckboxItem>
                   );
                 })
               )}
             </DropdownMenuContent>
-</DropdownMenu>
-            <DropdownMenu>
-<DropdownMenuTrigger render={<button
-                  type="button"
-                  className={cn(
-                    buttonVariants({ variant: "outline", size: "sm" }),
-                    "justify-start",
-                  )}
-                >
-                  <Tag aria-hidden />
-                  {selectedTagIds.length === 0
-                    ? "All tags"
-                    : `${selectedTagIds.length} selected`}
-                </button>} />
-<DropdownMenuContent align="end" className="w-64">
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<button type="button" className={filterButtonClass(selectedTagIds.length > 0)} />}>
+              <Tag aria-hidden />
+              {selectedTagIds.length === 0 ? "Tags" : `${selectedTagIds.length} tag${selectedTagIds.length === 1 ? "" : "s"}`}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
               <DropdownMenuLabel>Tags</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => setParam("tags", "", "")}>
-                <span className="inline-flex size-4 items-center justify-center">
-                  {selectedTagIds.length === 0 ? <Check aria-hidden /> : null}
-                </span>
+              <DropdownMenuCheckboxItem checked={selectedTagIds.length === 0} onCheckedChange={() => setParam("tags", "", "")}>
                 All tags
-              </DropdownMenuItem>
+              </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               {tags.length === 0 ? (
-                <DropdownMenuItem disabled>
-                  {tagsQuery.isPending ? "Loading tags…" : "No tags found"}
-                </DropdownMenuItem>
+                <DropdownMenuItem disabled>{tagsQuery.isPending ? "Loading tags…" : "No tags found"}</DropdownMenuItem>
               ) : (
                 tags.map((tag) => {
                   const selected = selectedTagIds.includes(tag.id);
                   return (
-                    <DropdownMenuItem
-                      key={tag.id}
-                      onClick={() => setTagFilter(tag.id, !selected)}
-                    >
-                      <span className="inline-flex size-4 items-center justify-center">
-                        {selected ? <Check aria-hidden /> : null}
-                      </span>
+                    <DropdownMenuCheckboxItem key={tag.id} checked={selected} onCheckedChange={() => setTagFilter(tag.id, !selected)}>
                       <EvidenceTagBadge tag={tag} />
-                    </DropdownMenuItem>
+                    </DropdownMenuCheckboxItem>
                   );
                 })
               )}
             </DropdownMenuContent>
-</DropdownMenu>
-            <div className="flex items-center rounded-md bg-secondary p-0.5">
-              <button
-                type="button"
-                aria-label="Grid view"
-                aria-pressed={view === "grid"}
-                onClick={() => setParam("view", "grid", "table")}
-                className={cn(
-                  "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
-                  view === "grid"
-                    ? "bg-background text-foreground shadow-soft"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <LayoutGrid className="size-4" aria-hidden />
-              </button>
-              <button
-                type="button"
-                aria-label="Table view"
-                aria-pressed={view === "table"}
-                onClick={() => setParam("view", "table", "table")}
-                className={cn(
-                  "inline-flex size-7 items-center justify-center rounded-[3px] transition-colors",
-                  view === "table"
-                    ? "bg-background text-foreground shadow-soft"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <List className="size-4" aria-hidden />
-              </button>
+          </DropdownMenu>
+          {hasFilters ? (
+            <Button variant="ghost" size="sm" onClick={() => setParams({ ...(view === "grid" ? { view: "grid" } : {}) }, { replace: true })}>
+              <X aria-hidden />
+              Clear
+            </Button>
+          ) : null}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
+              {loading ? "Loading…" : hasFilters ? `${filtered.length} of ${total}` : `${total} recording${total === 1 ? "" : "s"}`}
+            </span>
+            {view === "grid" && filtered.length > 0 ? (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Checkbox
+                  aria-label="Select visible evidence"
+                  checked={allFilteredSelected}
+                  indeterminate={filteredSelectedCount > 0 && !allFilteredSelected}
+                  onCheckedChange={toggleFilteredSelection}
+                />
+                Select all
+              </label>
+            ) : null}
+            <div className="flex items-center gap-0.5 rounded-md bg-muted p-0.5" role="group" aria-label="Layout">
+              {([
+                { id: "table", label: "List view", icon: List },
+                { id: "grid", label: "Grid view", icon: LayoutGrid },
+              ] as const).map((option) => {
+                const Icon = option.icon;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-label={option.label}
+                    title={option.label}
+                    aria-pressed={view === option.id}
+                    onClick={() => setParam("view", option.id, "table")}
+                    className={cn(
+                      "inline-flex size-6 items-center justify-center rounded-[5px] transition-colors",
+                      view === option.id ? "bg-background text-foreground shadow-soft dark:bg-accent" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="size-3.5" aria-hidden />
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
 
         {error ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/12 px-3 py-2 text-base text-destructive">
-            {error}
-          </div>
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
         ) : null}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className=" text-muted-foreground">
-            {loading
-              ? "Loading…"
-              : `${filtered.length} shown · ${total} total · latest first`}
-          </p>
-          {filtered.length > 0 ? (
-            <label className="inline-flex w-fit items-center gap-2 text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={allFilteredSelected}
-                ref={(element) => {
-                  if (element)
-                    element.indeterminate =
-                      filteredSelectedCount > 0 && !allFilteredSelected;
-                }}
-                onChange={toggleFilteredSelection}
-                className="size-4 accent-[var(--brand-500)]"
-              />
-              Select visible
-            </label>
-          ) : null}
-        </div>
-
         {hasSelection ? (
-          <div className="flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/[0.08] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-base font-medium text-foreground">
-              {selectedEvidences.length} selected
-              {selectedUndeletableCount > 0 ? (
-                <span className="ml-2 font-normal text-destructive">
-                  {selectedUndeletableCount} cannot be deleted because they belong to someone else
-                </span>
-              ) : null}
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void handleBulkDownload()}
-                disabled={bulkDownloading || bulkDeleting}
-              >
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/60 py-1.5 pl-3 pr-1.5">
+            <span className="text-[13px] font-medium text-foreground">{selectedEvidences.length} selected</span>
+            {selectedUndeletableCount > 0 ? (
+              <span className="text-xs text-muted-foreground">{selectedUndeletableCount} recorded by someone else cannot be deleted</span>
+            ) : null}
+            <div className="ml-auto flex flex-wrap items-center gap-1">
+              <Button size="sm" variant="ghost" onClick={() => void handleBulkDownload()} disabled={bulkDownloading || bulkDeleting}>
                 <Download aria-hidden />
                 {bulkDownloading ? "Downloading…" : "Download ZIPs"}
               </Button>
               <Button
                 size="sm"
-                variant="destructive"
+                variant="ghost"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => setPendingBulkDelete(true)}
-                disabled={
-                  bulkDownloading ||
-                  bulkDeleting ||
-                  selectedUndeletableCount > 0
-                }
+                disabled={bulkDownloading || bulkDeleting || selectedUndeletableCount > 0}
               >
                 <Trash2 aria-hidden />
                 Delete
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSelectedIds(new Set())}
-                disabled={bulkDownloading || bulkDeleting}
-              >
-                Clear
+              <Button size="icon-sm" variant="ghost" aria-label="Clear selection" onClick={() => setSelectedIds(new Set())} disabled={bulkDownloading || bulkDeleting}>
+                <X aria-hidden />
               </Button>
             </div>
           </div>
@@ -694,34 +615,29 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         {loading ? (
           view === "grid" ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-                <Skeleton key={i} className="aspect-[4/3] w-full" />
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <Skeleton key={i} className="aspect-[4/3] w-full rounded-lg" />
               ))}
             </div>
           ) : (
-            <Skeleton className="h-64 w-full" />
+            <div className="grid gap-1">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-11 w-full" />
+              ))}
+            </div>
           )
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<Video aria-hidden />}
-            title={
-              evidences.length === 0
-                ? "No evidence in this workspace yet"
-                : "No matches"
-            }
+            title={evidences.length === 0 ? "No evidence in this workspace yet" : "No matches"}
             description={
-              evidences.length === 0
-                ? "Upload a ZIP, MP4, WebM, or WebP. Video-only files get an empty log."
-                : "Try a different search term or filter."
+              evidences.length === 0 ? "Upload a ZIP, MP4, WebM, or WebP. Video-only files get an empty log." : "Try a different search term or filter."
             }
             action={
               evidences.length === 0 ? (
                 <UploadEvidenceButton label="Upload evidence" />
               ) : (
-                <Button
-                  variant="outline"
-                  onClick={() => setParams({}, { replace: true })}
-                >
+                <Button variant="outline" size="sm" onClick={() => setParams({}, { replace: true })}>
                   Clear filters
                 </Button>
               )
@@ -729,218 +645,143 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           />
         ) : view === "grid" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {filtered.map((evidence) => (
-              <Card
-                key={evidence.id}
-                className={cn(
-                  "group relative flex flex-col overflow-hidden p-0 transition-[border-color,box-shadow]",
-                  selectedIds.has(evidence.id) &&
-                    "border-primary ring-2 ring-primary/30",
-                )}
-              >
-                <div className="relative">
-                  <label
-                    className="absolute left-1.5 top-1.5 z-10 inline-flex shrink-0 items-center rounded-md bg-foreground/55 p-1 text-background opacity-0 transition-opacity group-hover:opacity-100 has-[:checked]:opacity-100"
-                    aria-label={`Select ${evidence.title}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(evidence.id)}
-                      onChange={(event) =>
-                        setEvidenceSelected(
-                          evidence.id,
-                          event.currentTarget.checked,
-                        )
-                      }
-                      className="size-4 accent-[var(--brand-500)]"
-                    />
-                  </label>
+            {filtered.map((evidence) => {
+              const selected = selectedIds.has(evidence.id);
+              return (
+                <div
+                  key={evidence.id}
+                  className={cn(
+                    "group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-[border-color,box-shadow] hover:border-border-strong",
+                    selected && "border-primary/50 ring-1 ring-primary/40",
+                  )}
+                >
                   <button
                     type="button"
-                    onClick={() =>
-                      navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
-                    }
-                    className="block w-full"
+                    onClick={() => navigateToEvidence(evidence)}
+                    className="relative block aspect-video w-full overflow-hidden bg-muted"
                     aria-label={`Review ${evidence.title}`}
                   >
-                    <EvidenceThumbnail
-                      evidence={evidence}
-                      className="aspect-video w-full rounded-none border-0"
-                    />
+                    <EvidenceThumbnail evidence={evidence} className="size-full rounded-none border-0 bg-muted" />
+                    {evidence.status === "pending" ? (
+                      <Badge variant="secondary" className="absolute bottom-2 left-2">Pending</Badge>
+                    ) : null}
+                    {evidence.durationMs !== null ? (
+                      <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
+                        {formatDuration(evidence.durationMs)}
+                      </span>
+                    ) : null}
                   </button>
-                  {evidence.status === "pending" ? (
-                    <Badge variant="muted" className="absolute bottom-1.5 left-1.5">
-                      Pending
-                    </Badge>
-                  ) : null}
-                  <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded bg-foreground/70 px-1.5 py-0.5 font-mono text-[10px] text-background">
-                    {formatRelativeTime(evidence.createdAt)}
-                  </span>
-                  <div className="absolute right-1.5 top-1.5">
-                    {actions(
-                      evidence,
-                      downloadingId === evidence.id,
-                      deletingId === evidence.id,
+                  <span
+                    className={cn(
+                      "absolute left-2 top-2 z-10 grid size-6 place-items-center rounded-md bg-background/90 shadow-soft transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                      selected && "[@media(hover:hover)]:opacity-100",
                     )}
+                  >
+                    <Checkbox
+                      aria-label={`Select ${evidence.title}`}
+                      checked={selected}
+                      onCheckedChange={(checked) => setEvidenceSelected(evidence.id, checked)}
+                    />
+                  </span>
+                  <div className="flex items-start gap-1 p-3 pr-1.5">
+                    <button type="button" onClick={() => navigateToEvidence(evidence)} className="min-w-0 flex-1 text-left">
+                      <span className="block truncate text-[13px] font-medium text-foreground">{evidence.title}</span>
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                        {memberNameById.get(evidence.createdBy) ?? evidence.createdBy} · {formatRelativeTime(evidence.createdAt)}
+                      </span>
+                      <EvidenceStats evidence={evidence} hideDuration />
+                    </button>
+                    <Button size="icon-sm" variant="ghost" aria-label={`Share ${evidence.title}`} onClick={() => setShareTarget(evidence)}>
+                      <Share2 aria-hidden />
+                    </Button>
+                    {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
-                  }
-                  className="min-w-0 px-3 pt-2.5 text-left"
-                >
-                  <span className="block truncate text-sm font-semibold text-foreground group-hover:text-primary">
-                    {evidence.title}
-                  </span>
-                  <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Badge
-                      variant="muted"
-                      className="shrink-0 px-1.5 py-0 text-[10px] capitalize"
-                    >
-                      {evidence.sourceType}
-                    </Badge>
-                    <span className="truncate">
-                      {memberNameById.get(evidence.createdBy) ??
-                        evidence.createdBy}
-                    </span>
-                  </span>
-                  <EvidenceStats evidence={evidence} />
-                </button>
-                <div className="mt-auto flex items-center gap-2 px-3 pb-3 pt-2.5">
-                  <Button
-                    size="sm"
-                    className="h-8 flex-1"
-                    onClick={() =>
-                      navigate(`/evidence/${encodeURIComponent(evidence.id)}`)
-                    }
-                  >
-                    <Play aria-hidden />
-                    Review
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 px-2.5"
-                    aria-label={`Share ${evidence.title}`}
-                    onClick={() => setShareTarget(evidence)}
-                  >
-                    <Share2 aria-hidden />
-                  </Button>
-                </div>
-              </Card>
-            ))}
+              );
+            })}
           </div>
         ) : (
-          <Card className="overflow-hidden p-0">
+          <div className="overflow-hidden rounded-lg border border-border">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
-                    <input
-                      type="checkbox"
+                <TableRow className="bg-muted/40">
+                  <TableHead className="w-9 pl-3 pr-0">
+                    <Checkbox
                       aria-label="Select visible evidence"
                       checked={allFilteredSelected}
-                      ref={(element) => {
-                        if (element)
-                          element.indeterminate =
-                            filteredSelectedCount > 0 && !allFilteredSelected;
-                      }}
-                      onChange={toggleFilteredSelection}
-                      className="size-4 accent-[var(--brand-500)]"
+                      indeterminate={filteredSelectedCount > 0 && !allFilteredSelected}
+                      onCheckedChange={toggleFilteredSelection}
                     />
                   </TableHead>
-                  <TableHead>Evidence</TableHead>
-                  <TableHead className="hidden sm:table-cell">
-                    Recorded by
+                  <TableHead>Recording</TableHead>
+                  <TableHead className="hidden sm:table-cell">Recorded by</TableHead>
+                  <TableHead className="hidden md:table-cell">Tags</TableHead>
+                  <TableHead className="hidden lg:table-cell">Recorded</TableHead>
+                  <TableHead className="w-24 pr-3">
+                    <span className="sr-only">Actions</span>
                   </TableHead>
-                  <TableHead className="hidden md:table-cell">
-                    Tags
-                  </TableHead>
-                  <TableHead className="hidden lg:table-cell">
-                    Recorded
-                  </TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((evidence) => (
                   <TableRow
                     key={evidence.id}
-                    data-active={selectedIds.has(evidence.id)}
+                    data-state={selectedIds.has(evidence.id) ? "selected" : undefined}
                     onClick={() => navigateToEvidence(evidence)}
-                    className="cursor-pointer"
+                    className="group cursor-pointer"
                   >
-                    <TableCell className="w-10 pr-0" onClick={(event) => event.stopPropagation()}>
-                      <input
-                        type="checkbox"
+                    <TableCell className="w-9 py-1.5 pl-3 pr-0" onClick={(event) => event.stopPropagation()}>
+                      <Checkbox
                         aria-label={`Select ${evidence.title}`}
                         checked={selectedIds.has(evidence.id)}
-                        onChange={(event) =>
-                          setEvidenceSelected(
-                            evidence.id,
-                            event.currentTarget.checked,
-                          )
-                        }
-                        className="size-4 accent-[var(--brand-500)]"
+                        onCheckedChange={(checked) => setEvidenceSelected(evidence.id, checked)}
                       />
                     </TableCell>
-                    <TableCell>
-                      <div className="flex min-w-0 items-center gap-3 text-left">
-                        <EvidenceThumbnail
-                          evidence={evidence}
-                          className="h-10 w-16"
-                        />
+                    <TableCell className="py-1.5">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <EvidenceThumbnail evidence={evidence} className="h-8 w-14" />
                         <span className="min-w-0">
-                          <span className="block truncate text-base font-semibold text-foreground group-hover:text-primary">
-                            {evidence.title}
-                          </span>
+                          <span className="block truncate text-[13px] font-medium text-foreground">{evidence.title}</span>
                           <EvidenceStats evidence={evidence} />
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden py-1.5 sm:table-cell">
                       <RecordedByCell
                         member={memberById.get(evidence.createdBy)}
                         fallbackName={memberNameById.get(evidence.createdBy) ?? evidence.createdBy}
                         onClick={() => setCreatorFilter(evidence.createdBy, true)}
                       />
                     </TableCell>
-                    <TableCell className="hidden md:table-cell">
+                    <TableCell className="hidden py-1.5 md:table-cell">
                       <EvidenceTagStack tags={evidence.tags} />
                     </TableCell>
-                    <TableCell className="hidden whitespace-nowrap text-base text-muted-foreground lg:table-cell">
+                    <TableCell className="hidden whitespace-nowrap py-1.5 text-[13px] text-muted-foreground lg:table-cell">
                       {formatRelativeTime(evidence.createdAt)}
                     </TableCell>
-                    <TableCell onClick={(event) => event.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
+                    <TableCell className="py-1.5 pr-3" onClick={(event) => event.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Copy share link for ${evidence.title}`}
+                          title="Copy share link"
+                          className="transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                           onClick={(event) => {
                             event.preventDefault();
-                            event.stopPropagation();
                             void handleShareCopy(evidence);
                           }}
-                          className={cn(
-                            buttonVariants({ variant: "ghost", size: "sm" }),
-                          )}
                         >
-                          <Share2 aria-hidden />
-                          Share
-                        </button>
-                        {actions(
-                          evidence,
-                          downloadingId === evidence.id,
-                          deletingId === evidence.id,
-                        )}
+                          <Link2 aria-hidden />
+                        </Button>
+                        {actions(evidence, downloadingId === evidence.id, deletingId === evidence.id)}
                       </div>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </div>
         )}
         {!loading && totalPages > 1 ? (
           <FloatingEvidencePager
@@ -1041,16 +882,18 @@ function formatRequestCount(value: number | null): string {
   return `${value} request${value === 1 ? "" : "s"}`;
 }
 
-function EvidenceStats(props: { evidence: ApiEvidenceSummary }): React.JSX.Element {
+function EvidenceStats(props: { evidence: ApiEvidenceSummary; hideDuration?: boolean }): React.JSX.Element {
   const { evidence } = props;
+  // Only the counts the recording has; missing values are left out rather than spelled "No …".
+  const parts = [
+    props.hideDuration || evidence.durationMs === null ? null : formatDuration(evidence.durationMs),
+    evidence.actionCount === null ? null : formatActionCount(evidence.actionCount),
+    evidence.requestCount === null ? null : formatRequestCount(evidence.requestCount),
+  ].filter((part): part is string => part !== null);
 
   return (
-    <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-      <span>{formatDuration(evidence.durationMs)}</span>
-      <span aria-hidden>·</span>
-      <span>{formatActionCount(evidence.actionCount)}</span>
-      <span aria-hidden>·</span>
-      <span>{formatRequestCount(evidence.requestCount)}</span>
+    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+      {parts.length > 0 ? parts.join(" · ") : "No log"}
     </span>
   );
 }
@@ -1105,7 +948,7 @@ function getInitials(value: string): string {
 
 function EvidenceTagStack({ tags }: { tags: ApiEvidenceTag[] }): React.JSX.Element {
   if (tags.length === 0) {
-    return <span className="text-sm text-muted-foreground">No tags</span>;
+    return <span className="text-xs text-muted-foreground/70">—</span>;
   }
 
   const visibleTags = tags.slice(0, 2);
@@ -1117,8 +960,8 @@ function EvidenceTagStack({ tags }: { tags: ApiEvidenceTag[] }): React.JSX.Eleme
         <EvidenceTagBadge key={tag.id} tag={tag} />
       ))}
       {hiddenCount > 0 ? (
-        <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-          + {hiddenCount}
+        <span className="inline-flex items-center rounded-sm bg-secondary px-1.5 py-px text-[11px] font-medium text-muted-foreground">
+          +{hiddenCount}
         </span>
       ) : null}
     </div>
@@ -1128,7 +971,7 @@ function EvidenceTagStack({ tags }: { tags: ApiEvidenceTag[] }): React.JSX.Eleme
 function EvidenceTagBadge({ tag }: { tag: ApiEvidenceTag }): React.JSX.Element {
   return (
     <span
-      className="inline-flex max-w-24 items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+      className="inline-flex max-w-28 items-center gap-1 rounded-sm border px-1.5 py-px text-[11px] font-medium"
       style={{
         borderColor: `${tag.color}55`,
         backgroundColor: `${tag.color}18`,
@@ -1146,7 +989,6 @@ function RecordedByCell(props: {
   onClick: () => void;
 }): React.JSX.Element {
   const name = props.member?.displayName ?? props.fallbackName;
-  const email = props.member?.email ?? "No email";
   return (
     <button
       type="button"
@@ -1155,28 +997,13 @@ function RecordedByCell(props: {
         event.stopPropagation();
         props.onClick();
       }}
-      className="group/author relative flex w-[200px] items-center gap-2 text-left"
-      title={name}
+      className="flex max-w-[200px] items-center gap-2 rounded-md text-left text-[13px] text-foreground hover:text-foreground/80"
+      title={`${name}${props.member?.email ? ` · ${props.member.email}` : ""} · show only their recordings`}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 font-mono text-xs font-semibold text-primary">
+      <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-brand-300">
         {getInitials(name)}
       </span>
-      <span className="min-w-0">
-        <span className="block truncate text-base font-medium text-foreground">
-          {name}
-        </span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {email}
-        </span>
-      </span>
-      <span className="pointer-events-none absolute left-10 top-9 z-30 hidden w-64 rounded-md border border-border bg-popover px-3 py-2 text-left shadow-pop group-hover/author:block">
-        <span className="block whitespace-normal break-words text-sm font-semibold text-foreground">
-          {name}
-        </span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-          {email}
-        </span>
-      </span>
+      <span className="min-w-0 truncate">{name}</span>
     </button>
   );
 }
@@ -1255,14 +1082,9 @@ function EvidenceTagsDialog(props: {
           props.tags.map((tag) => (
             <label
               key={tag.id}
-              className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-secondary px-3 py-2"
+              className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2 hover:bg-muted/50"
             >
-              <input
-                type="checkbox"
-                checked={selected.has(tag.id)}
-                onChange={() => toggle(tag.id)}
-                className="size-4 accent-[var(--brand-500)]"
-              />
+              <Checkbox checked={selected.has(tag.id)} onCheckedChange={() => toggle(tag.id)} />
               <EvidenceTagBadge tag={tag} />
             </label>
           ))

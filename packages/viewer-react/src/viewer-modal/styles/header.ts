@@ -4,18 +4,17 @@ export const headerStyles = `
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
+  gap: 8px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
-  min-height: 64px;
-  background: color-mix(in srgb, var(--jl-vm-bg, #0b0d0e) 88%, transparent);
-  backdrop-filter: blur(18px) saturate(160%);
+  min-height: 44px;
+  background: var(--jl-vm-bg, #0b0d0e);
 }
 
 .jl-vm-header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
 }
@@ -24,15 +23,18 @@ export const headerStyles = `
 
 .jl-vm-heading {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
 .jl-vm-title {
-  font-family: var(--font-display, system-ui, sans-serif);
-  font-size: 18px;
-  font-weight: 700;
+  margin: 0;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -41,7 +43,6 @@ export const headerStyles = `
 
 .jl-vm-title-meta {
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -51,7 +52,7 @@ export const headerStyles = `
 .jl-vm-actions {
   position: relative;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex: 0 0 auto;
 }
@@ -63,15 +64,17 @@ export const headerStyles = `
   justify-content: center;
   gap: 6px;
   appearance: none;
-  border: 1px solid var(--jl-vm-border-strong, rgba(239, 239, 239, 0.16));
-  background: var(--jl-vm-surface-2, #171a1b);
+  border: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
+  background: transparent;
   color: var(--jl-vm-text, #efefef);
-  font-family: var(--font-display, system-ui, sans-serif);
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 12.5px;
   font-weight: 500;
   line-height: 1;
-  padding: 8px 12px;
-  border-radius: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  box-sizing: border-box;
   cursor: pointer;
   white-space: nowrap;
   transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
@@ -87,7 +90,7 @@ export const headerStyles = `
 }
 
 .jl-vm-btn:hover {
-  background: var(--jl-vm-surface-3, #1f2324);
+  background: var(--jl-vm-surface-2, #1f2324);
   border-color: var(--jl-vm-border-strong, rgba(239, 239, 239, 0.24));
 }
 
@@ -102,7 +105,7 @@ export const headerStyles = `
 }
 
 .jl-vm-btn-primary:hover {
-  background: color-mix(in srgb, var(--jl-vm-accent, #22c55e) 88%, white);
+  background: color-mix(in srgb, var(--jl-vm-accent, #22c55e) 90%, black);
 }
 
 .jl-vm-btn-icon {
@@ -118,8 +121,8 @@ export const headerStyles = `
   }
 
   .jl-vm-actions .jl-vm-btn {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     gap: 0;
   }
@@ -150,8 +153,8 @@ export const headerStyles = `
     color: var(--jl-vm-text, #efefef);
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
     content: attr(data-label);
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 11px;
+    font-size: 11.5px;
+    font-weight: 500;
     line-height: 1.2;
     opacity: 0;
     overflow-wrap: break-word;

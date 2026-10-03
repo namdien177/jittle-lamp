@@ -4,7 +4,7 @@ import { cn } from "../../lib/cn";
 
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>): React.JSX.Element {
   return (
-    <div data-slot="table-container" className="jl-scroll relative w-full overflow-x-auto">
+    <div data-slot="table-container" className="jl-scroll relative w-full overflow-x-auto [scrollbar-gutter:auto]">
       <table data-slot="table" className={cn("w-full caption-bottom border-collapse text-sm", className)} {...props} />
     </div>
   );

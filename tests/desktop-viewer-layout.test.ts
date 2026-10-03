@@ -95,7 +95,7 @@ describe("viewer modal layout CSS", () => {
 
   test("header actions collapse to tooltip-backed icon buttons below 1200px", () => {
     expect(css).toContain("@media (max-width: 1199px)");
-    expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn\s*\{[\s\S]*?width:\s*32px;[\s\S]*?height:\s*32px;[\s\S]*?padding:\s*0;/);
+    expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?padding:\s*0;/);
     expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn-label\s*\{[\s\S]*?clip-path:\s*inset\(50%\);/);
     expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn::after\s*\{[\s\S]*?content:\s*attr\(data-label\);[\s\S]*?opacity:\s*0;/);
     expect(css).toMatch(/\.jl-vm-actions \.jl-vm-btn:hover::after,\s*\.jl-vm-actions \.jl-vm-btn:focus-visible::after\s*\{[\s\S]*?opacity:\s*1;/);
