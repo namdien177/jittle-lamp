@@ -50,6 +50,7 @@ import {
   type CredentialOption,
   type EditorCredential,
   type EditorDoc,
+  type EditorCase,
   type EditorMacro,
   type EditorRow,
   type EditorTrigger,
@@ -73,6 +74,11 @@ export type StepEditorProps = {
   macros?: readonly EditorMacro[];
   // False until the org macro catalog has loaded; unknown-macro lint waits for it.
   macrosLoaded?: boolean;
+  // Cases a [Use: KEY] row can name; with casesLoaded, an unknown key is a lint error.
+  cases?: readonly EditorCase[];
+  casesLoaded?: boolean;
+  // Key of the case being edited: not offered to [Use] and linted as self-use.
+  caseKey?: string | null;
   credentials?: readonly EditorCredential[];
   environmentVariables?: readonly string[];
   environmentName?: string | null;
@@ -106,6 +112,11 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   injectStepEditorStyles();
   const { doc, onChange } = props;
   const macros = props.macros ?? [];
+  const caseKey = props.caseKey ?? null;
+  const cases = React.useMemo(
+    () => (props.cases ?? []).filter((linked) => linked.key.toLowerCase() !== caseKey?.toLowerCase()),
+    [props.cases, caseKey]
+  );
   const credentials = props.credentials ?? [];
   const environmentVariables = props.environmentVariables ?? [];
   const elementNames = props.elementNames ?? [];
@@ -133,10 +144,12 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
     () =>
       lintTestCase(parsed, {
         ...(props.macrosLoaded ? { macros: lintMacros } : {}),
+        ...(props.casesLoaded ? { cases } : {}),
+        ...(caseKey ? { caseKey } : {}),
         ...(props.environmentVariables ? { environmentVariables } : {}),
         elementNames
       }),
-    [parsed, props.macrosLoaded, lintMacros, props.environmentVariables, environmentVariables, elementNames]
+    [parsed, props.macrosLoaded, lintMacros, props.casesLoaded, cases, caseKey, props.environmentVariables, environmentVariables, elementNames]
   );
   const rowSteps = React.useMemo(() => mapRowsToSteps(doc, parsed).steps, [doc, parsed]);
   const lint = React.useMemo(() => lintByRow(doc, parsed, findings), [doc, parsed, findings]);
@@ -188,7 +201,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   // ------------------------------------------------------------------------------------------
 
   const pickerRow = picker ? doc.rows.find((row) => row.rowId === picker.rowId) : undefined;
-  const typeChoices: TypeOption[] = picker?.kind === "type" ? typeOptions(picker.trigger?.query ?? "", macros) : [];
+  const typeChoices: TypeOption[] = picker?.kind === "type" ? typeOptions(picker.trigger?.query ?? "", macros, cases) : [];
   const variableChoices: VariableOption[] =
     picker?.kind === "variable"
       ? variableOptions(picker.trigger.query, {
@@ -212,7 +225,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   };
 
   const applyType = (row: StepRow, option: TypeOption, trigger: EditorTrigger | null, values: Record<string, string>) => {
-    let next = setRowTag(doc, row.rowId, option.tag, argsFromParamValues(option.params, values));
+    let next = setRowTag(doc, row.rowId, option.tag, option.args ?? argsFromParamValues(option.params, values));
     if (trigger) next = setRowText(next, row.rowId, applyTypePick(row.text, trigger));
     setPicker(null);
     commit(next, { rowId: row.rowId, caret: "end" });
@@ -504,6 +517,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
                 focused={focused}
                 readOnly={readOnly}
                 macros={macros}
+                cases={cases}
                 mod={mod}
                 findings={rowFindings}
                 status={step ? props.stepStatus?.[step.stepId] : undefined}
@@ -658,6 +672,7 @@ function StepRowView(props: {
   focused: boolean;
   readOnly: boolean;
   macros: readonly EditorMacro[];
+  cases: readonly EditorCase[];
   mod: string;
   findings: readonly LintFinding[];
   status: StepEditorRowStatus | undefined;
@@ -682,14 +697,14 @@ function StepRowView(props: {
 }): React.JSX.Element {
   const { row } = props;
   const type = rowStepType(row);
-  const chip = formatStepChip(row, props.macros);
+  const chip = formatStepChip(row, props.macros, props.cases);
   const tokens = tokenizeInstruction(row.text);
   const worst = props.findings.reduce<LintFinding | null>(
     (current, finding) => (current === null || severityRank[finding.severity] > severityRank[current.severity] ? finding : current),
     null
   );
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-  const isCall = type === "login" || type === "macro";
+  const isCall = type === "login" || type === "macro" || type === "use";
   const showBelow = props.findings.length > 0 || (isCall && props.expansion.length > 0) || props.suggestions.length > 0;
 
   return (
@@ -716,7 +731,8 @@ function StepRowView(props: {
           <button
             type="button"
             className="jl-se-params"
-            aria-label={`Edit ${chip.tag} parameters: ${chip.params}`}
+            aria-label={`Edit ${chip.tag} parameters: ${chip.hint ?? chip.params}`}
+            title={chip.hint}
             tabIndex={props.tabbable ? 0 : -1}
             disabled={props.readOnly}
             onClick={props.onParamsClick}
@@ -940,8 +956,8 @@ function Picker(props: {
   const items: Item[] =
     picker.kind === "type"
       ? props.typeChoices.map((option) => ({
-          key: `${option.kind}:${option.tag}`,
-          main: <code>{option.kind === "macro" ? `[${option.tag}: …]` : `[${option.tag}]`}</code>,
+          key: `${option.kind}:${option.label}`,
+          main: <code>{option.kind === "case" ? `[${option.tag}: ${option.args?.[0]?.value ?? ""}]` : option.kind === "macro" || option.tag === "Use" ? `[${option.tag}: …]` : `[${option.tag}]`}</code>,
           detail: option.description
         }))
       : picker.kind === "variable"

@@ -8,6 +8,7 @@ import {
   priceRunReport,
   sha256Hex,
   type BlockedReason,
+  type LinkedCase,
   type MacroDefinition,
   type ModelPrice,
   type TranscriptStep, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
@@ -17,7 +18,7 @@ import { collectSecretValues, resolveRunConfig, type OrgRunConfig, type Resolved
 import { generateProject, type GeneratedProject } from "./generate/project";
 import { e2ePackageDir, engineVersion, runnerVersion } from "./paths";
 import { ModelResolutionError, resolveModel } from "./model/providers";
-import { buildRunPlan, loadMacros, type RunPlan } from "./plan";
+import { buildRunPlan, loadCaseDir, loadMacros, type RunPlan } from "./plan";
 import { createRedactor, redactJson } from "./redact";
 import { buildRunReport, type AiTrace, type E2eReport } from "./report/build";
 import type { StepLogEvent } from "./runtime/step-log";
@@ -50,6 +51,8 @@ export type RunTranscriptOptions = {
   prices?: readonly ModelPrice[];
   // Organisation macros (runner daemon); local runs read macro files instead.
   macros?: readonly MacroDefinition[];
+  // Cases [Use: KEY] runs inline (runner daemon); local runs read the transcripts next to this one.
+  cases?: readonly LinkedCase[];
   // Steps as the backend stored them, so step ids match the server's.
   previousSteps?: readonly Pick<TranscriptStep, "stepId" | "instructionKey">[];
   // Backend cache store and progress screenshots for daemon runs.
@@ -176,10 +179,12 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   const macros = options.macros
     ? [...loadMacros([]).filter((macro) => !options.macros?.some((org) => org.name.toLowerCase() === macro.name.toLowerCase())), ...options.macros]
     : loadMacros([...(options.macroDirs ?? []), join(transcriptDir, "../macros"), join(options.cwd, "e2e/macros")]);
+  const cases = options.cases ?? loadCaseDir(transcriptDir);
   const plan = buildRunPlan({
     transcript: options.transcript,
     config,
     macros,
+    cases,
     params: options.params ?? {},
     ...(options.previousSteps ? { previousSteps: options.previousSteps } : {})
   });

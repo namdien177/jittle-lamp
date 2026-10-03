@@ -249,6 +249,25 @@ describe("pickers", () => {
     expect(typeOptions("lev", [selectLevel]).map((option) => option.tag)).toEqual(["Select level"]);
   });
 
+  test("type picker offers [Use: KEY] for the organisation's cases; the chip names the case", () => {
+    const cases = [
+      { key: "TC-0001", title: "Parent can log in" },
+      { key: "TC-0002", title: "Admin creates an interest" }
+    ];
+    expect(typeOptions("", [], cases).map((option) => option.label)).toContain("Use");
+    expect(typeOptions("", [], cases).some((option) => option.kind === "case")).toBe(false);
+    const forUse = typeOptions("use", [], cases);
+    expect(forUse.map((option) => option.label)).toEqual(["Use", "Use TC-0001", "Use TC-0002"]);
+    expect(forUse[1]?.args).toEqual([{ name: null, value: "TC-0001" }]);
+    expect(typeOptions("log in", [], cases).map((option) => option.label)).toEqual(["Use TC-0001"]);
+    expect(typeOptions("tc-0002", [], cases).map((option) => option.label)).toEqual(["Use TC-0002"]);
+    expect(formatStepChip({ tag: "Use", args: [{ name: null, value: "TC-0001" }, { name: "profile", value: "PCF" }] }, [], cases)).toEqual({
+      tag: "Use",
+      params: "TC-0001 · profile: PCF",
+      hint: "TC-0001 · Parent can log in"
+    });
+  });
+
   test("param fields become args: one first param positional, several named; chips render them", () => {
     const loginParams = typeOptions("", [loginMacro]).find((option) => option.tag === "Login")?.params ?? [];
     const loginArgs = argsFromParamValues(loginParams, { profile: "PCF_HQ_ADMIN" });

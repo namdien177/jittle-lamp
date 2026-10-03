@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 
 import { isFakeDataLocale } from "./fake-data";
 import {
+  linkedCaseSchema,
   lintFindingSchema,
   macroParamSchema,
   paramDeclarationSchema,
@@ -524,6 +525,8 @@ export const claimedRunSchema = z.object({
   transcriptVersion: z.number().int().positive(),
   steps: z.array(transcriptStepSchema),
   macros: z.array(z.object({ name: z.string(), version: z.number().int().positive(), params: z.array(macroParamSchema), transcript: z.string() })),
+  // Cases the transcript runs inline with [Use: KEY], transitively.
+  cases: z.array(linkedCaseSchema).default([]),
   environmentId: id.nullable(),
   params: z.record(z.string(), z.string()),
   cacheMode: cacheModeSchema,

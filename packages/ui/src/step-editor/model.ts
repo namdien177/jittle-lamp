@@ -1,5 +1,6 @@
 import {
   applyLintFix,
+  useCaseKeyArg,
   fakeDataFields,
   emptyTranscriptMetadata,
   loginProfileArg,
@@ -285,7 +286,7 @@ export function setRowArgs(doc: EditorDoc, rowId: string, args: StepArg[]): Edit
 export function nextRowTag(row: EditorRow): string | null {
   if (row.kind === "heading") return "Assert";
   const type = rowStepType(row);
-  if (type === "macro" || type === "login" || type === "open") return row.tag === null ? null : "Act";
+  if (type === "macro" || type === "login" || type === "use" || type === "open") return row.tag === null ? null : "Act";
   return row.tag;
 }
 
@@ -509,12 +510,19 @@ export function detectTrigger(text: string, caret: number): EditorTrigger | null
 }
 
 export type TypeOption = {
-  kind: "builtin" | "macro";
+  kind: "builtin" | "macro" | "case";
   tag: string;
   label: string;
   description: string;
   params: MacroParam[];
+  // Arguments written as they are, without a form: `[Use: TC-0001]` for a picked case.
+  args?: StepArg[];
 };
+
+// An organisation case another case can run inline with [Use: KEY].
+export type EditorCase = { key: string; title: string };
+
+const useCaseParam: MacroParam = { name: "case", required: true, default: null, kind: "text" };
 
 const builtinDescriptions: Record<(typeof stepTypeCycle)[number], string> = {
   Act: "Agent performs one user intent",
@@ -537,7 +545,7 @@ export function withBuiltinMacros(macros: readonly EditorMacro[]): EditorMacro[]
   return macros.some((macro) => macro.name.toLowerCase() === "login") ? [...macros] : [...macros, builtinLoginMacro];
 }
 
-export function typeOptions(query: string, macros: readonly EditorMacro[]): TypeOption[] {
+export function typeOptions(query: string, macros: readonly EditorMacro[], cases: readonly EditorCase[] = []): TypeOption[] {
   const needle = query.trim().toLowerCase();
   const loginMacro = macros.find((macro) => macro.name.toLowerCase() === "login");
   const builtins: TypeOption[] = stepTypeCycle.map((tag) => ({
@@ -561,11 +569,22 @@ export function typeOptions(query: string, macros: readonly EditorMacro[]): Type
       description: macro.params.length > 0 ? `Macro · ${macro.params.map((param) => param.name).join(", ")}` : "Macro",
       params: macro.params
     }));
-  const all = [...builtins, ...macroOptions];
+  const use: TypeOption = { kind: "builtin", tag: "Use", label: "Use", description: "Run another case's steps here, in the same browser", params: [useCaseParam] };
+  const caseOptions: TypeOption[] = cases.map((linked) => ({
+    kind: "case",
+    tag: "Use",
+    label: `Use ${linked.key}`,
+    description: linked.title,
+    params: [],
+    args: [{ name: null, value: linked.key }]
+  }));
+  const all = [...builtins, use, ...macroOptions];
   if (needle.length === 0) return all;
   const starts = all.filter((option) => option.tag.toLowerCase().startsWith(needle));
   const contains = all.filter((option) => !option.tag.toLowerCase().startsWith(needle) && option.tag.toLowerCase().includes(needle));
-  return [...starts, ...contains];
+  // Cases appear once the query names them: "use", a key ("tc-12") or words of the title.
+  const matchingCases = caseOptions.filter((option) => `${option.label} ${option.description}`.toLowerCase().includes(needle) || "use".startsWith(needle));
+  return [...starts, ...contains, ...matchingCases];
 }
 
 // Arguments for a picked type from its param form values. A single first param is written
@@ -740,10 +759,21 @@ export function tokenizeInstruction(text: string): InstructionToken[] {
 }
 
 // `Login · profile: PCF_HQ_ADMIN` for macro and login rows; the plain tag otherwise.
-export function formatStepChip(row: Pick<StepRow, "tag" | "args">, macros: readonly EditorMacro[]): { tag: string; params: string | null } {
+export function formatStepChip(
+  row: Pick<StepRow, "tag" | "args">,
+  macros: readonly EditorMacro[],
+  cases: readonly EditorCase[] = []
+): { tag: string; params: string | null; hint?: string } {
   const { type, macro } = resolveStepType(row.tag);
   const tag = row.tag ?? "Act";
   if (row.args.length === 0) return { tag, params: null };
+  if (type === "use") {
+    const key = useCaseKeyArg(row.args);
+    const title = key === null ? undefined : cases.find((linked) => linked.key.toLowerCase() === key.toLowerCase())?.title;
+    const rest = row.args.filter((arg) => arg.name !== null && arg.name.toLowerCase() !== "case");
+    const params = [key, ...rest.map((arg) => `${arg.name}: ${arg.value}`)].filter(Boolean).join(" · ");
+    return title ? { tag, params, hint: `${key} · ${title}` } : { tag, params };
+  }
   if (type === "login") {
     const profile = loginProfileArg(row.args);
     const rest = row.args.filter((arg) => arg.name !== null && arg.name.toLowerCase() !== "profile");
@@ -766,6 +796,7 @@ export const phrasingTemplates: Record<TranscriptStepType, string> = {
   screenshot: "label, e.g. login form after logout",
   extract: "the value to read, e.g. the order id in the header",
   note: "context for the report",
+  use: "note for the reader, e.g. sign in as the parent first",
   macro: "note for the reader"
 };
 

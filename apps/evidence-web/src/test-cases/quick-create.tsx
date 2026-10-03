@@ -205,6 +205,8 @@ export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids:
                 autoFocus
                 macros={catalog.macros}
                 macrosLoaded={catalog.macrosLoaded}
+                cases={catalog.cases}
+                casesLoaded={catalog.casesLoaded}
                 credentials={catalog.credentials}
                 environmentVariables={environment ? Object.keys(environment.variables) : []}
                 environmentName={environment?.name ?? null}

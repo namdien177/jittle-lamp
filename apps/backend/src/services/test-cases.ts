@@ -133,6 +133,9 @@ export const parseSingleCase = (
 
 export type LintContext = {
 	macros: Array<{ name: string; params: MacroParam[] }>;
+	// Keys a [Use: KEY] step may name.
+	cases: Array<{ key: string }>;
+	caseKey?: string;
 	environmentVariables?: string[];
 };
 
@@ -145,7 +148,12 @@ export const loadLintContext = async (
 		where: and(eq(testMacros.orgId, orgId), isNull(testMacros.deletedAt)),
 		columns: { name: true, paramsJson: true },
 	});
+	const cases = await db.query.testCases.findMany({
+		where: and(eq(testCases.orgId, orgId), isNull(testCases.deletedAt)),
+		columns: { key: true },
+	});
 	const context: LintContext = {
+		cases,
 		macros: macros.map((macro) => ({
 			name: macro.name,
 			params: parseJsonColumn(macro.paramsJson, z.array(macroParamSchema), []),
@@ -426,14 +434,14 @@ export const updateTestCase = async (
 	if (parsed) {
 		Object.assign(
 			set,
-			deriveCaseColumns(
-				parsed,
-				await loadLintContext(
+			deriveCaseColumns(parsed, {
+				...(await loadLintContext(
 					db,
 					row.orgId,
 					set.environmentId ?? row.environmentId,
-				),
-			),
+				)),
+				caseKey: row.key,
+			}),
 		);
 	}
 

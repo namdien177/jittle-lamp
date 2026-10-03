@@ -23,6 +23,8 @@ export const testKeys = {
   cases,
   caseLists: (orgId: Org) => [...cases(orgId), "list"] as const,
   caseList: (orgId: Org, filters: unknown, sort: unknown) => [...cases(orgId), "list", filters, sort] as const,
+  // Keys and titles for the editor's [Use: KEY] picker.
+  linkableCases: (orgId: Org) => [...cases(orgId), "linkable"] as const,
   caseDetail: (orgId: Org, caseId: string) => [...cases(orgId), "detail", caseId] as const,
   caseVersions: (orgId: Org, caseId: string) => [...cases(orgId), "versions", caseId] as const,
   caseScripts: (orgId: Org, caseId: string) => [...cases(orgId), "scripts", caseId] as const,

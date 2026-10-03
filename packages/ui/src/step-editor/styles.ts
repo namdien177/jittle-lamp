@@ -37,7 +37,7 @@ const css = `
 .jl-se-chip[data-type="open"]{background:color-mix(in srgb,#3b82f6 13%,transparent);border-color:color-mix(in srgb,#3b82f6 32%,transparent)}
 .jl-se-chip[data-type="login"],.jl-se-chip[data-type="macro"]{background:color-mix(in srgb,var(--se-warn) 14%,transparent);border-color:color-mix(in srgb,var(--se-warn) 36%,transparent)}
 .jl-se-chip[data-type="note"],.jl-se-chip[data-type="screenshot"]{color:var(--se-muted)}
-.jl-se-params{appearance:none;display:inline-flex;align-items:center;height:22px;box-sizing:border-box;margin-top:1px;border:1px dashed color-mix(in srgb,var(--se-warn) 55%,transparent);background:transparent;color:inherit;font:inherit;font-size:calc(12px * var(--jl-font-scale, 1));padding:0 7px;border-radius:5px;cursor:pointer;font-family:var(--se-mono);transition:transform .15s var(--se-ease)}
+.jl-se-params{appearance:none;display:inline-block;line-height:20px;max-width:32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:22px;box-sizing:border-box;margin-top:1px;border:1px dashed color-mix(in srgb,var(--se-warn) 55%,transparent);background:transparent;color:inherit;font:inherit;font-size:calc(12px * var(--jl-font-scale, 1));padding:0 7px;border-radius:5px;cursor:pointer;font-family:var(--se-mono);transition:transform .15s var(--se-ease)}
 .jl-se-params:active{transform:scale(.97)}
 .jl-se-field{position:relative;min-width:0}
 .jl-se-input{width:100%;box-sizing:border-box;border:0;outline:none;background:transparent;color:inherit;font:inherit;font-size:calc(13.5px * var(--jl-font-scale, 1));line-height:24px;padding:0 2px;min-height:24px}

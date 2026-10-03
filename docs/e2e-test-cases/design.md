@@ -99,7 +99,7 @@ step        := "[" tag [":" args] "]" text
              | text                          (bare text = Act)
 args        := value                         (fills the macro's first parameter)
              | name "=" value {"," name "=" value}
-tag         := Open | Act | Assert | Login | Wait | Screenshot | Extract | Note | <macro name>
+tag         := Open | Act | Assert | Login | Wait | Screenshot | Extract | Note | Use | <macro name>
 ```
 
 | Tag | Meaning | Cached? | Model call on replay |
@@ -112,9 +112,12 @@ tag         := Open | Act | Assert | Login | Wait | Screenshot | Extract | Note 
 | `[Screenshot] <label>` | Capture a screenshot artifact | n/a | no |
 | `[Extract: <var>] <text>` | Agent extracts a value into `{var}` for later steps | no | always |
 | `[Note] <text>` | Not executed; shown in reports | n/a | no |
+| `[Use: <key>, <param>=<value>] <text>` | Runs another case's steps here, in the same browser and session. Named arguments fill that case's params; its defaults fill the rest | per step of that case | only on hand-off |
 | `[<Macro>: <arg>]` | Any other tag resolves to an org macro of that name | per macro step | only on hand-off |
 
 Variables: `{name}` is substituted from run params, then environment variables. Values never enter the cache key, so `{email}` can vary per run while the step still replays. A value read by `[Extract: x]` fills `{x}` in later steps while the run executes.
+
+Linked cases: `[Use: TC-0001]` runs case TC-0001 inline at its current version, so a "create an interest" case can start with the "admin signs in" case instead of repeating its steps. Values its `[Extract]` steps read fill `{name}` in the steps after the `[Use]`, and the credential profiles it logs in with are delivered with the run. Linked cases may use others up to four levels deep; a case that uses itself, directly or through another, is an error, and lint flags a key the organisation does not have. Local runs find the case among the `*.transcript.md` files next to the one being run, by `Key:`. The editor's `[` picker lists the organisation's cases as `[Use: KEY]`.
 
 Generated values: `{person.name}`, `{person.email}`, `{phone.number}`, `{location.address}`, `{company.name}`, `{date.birthdate}`, `{lorem.sentence}` and the other fields in `packages/shared/src/fake-data.ts` resolve to realistic fake data (faker) when no param, dataset column or variable has that name. The runner draws one value per token per run in the environment's data locale (Settings → Environments, default English; `JL_DATA_LOCALE` locally). Fields of one person agree: `{person.email}` is built from `{person.firstName}` and `{person.lastName}`, and `{internet.email}` is the same value. A number after the group is another entity: `{person2.name}` and `{person2.email}` belong to a second person. Emails use `example.com`. Step labels in the run show the drawn values, and the run report lists them under `params`. The editor's `{` picker offers them, and lint names the fields of a mistyped one (`{person.nmae}`).
 

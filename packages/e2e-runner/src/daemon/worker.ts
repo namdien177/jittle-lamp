@@ -171,6 +171,7 @@ function blockedReport(claimed: ClaimedRun, message: string): RunReport {
     transcript: claimed.transcript,
     config: resolveRunConfig({ env: {} }),
     macros: claimed.macros.map((macro) => macroDefinitionSchema.parse({ ...macro, status: "active" })),
+    cases: claimed.cases,
     previousSteps: claimed.steps
   });
   const now = new Date().toISOString();
@@ -332,6 +333,7 @@ export async function executeClaimedRun(input: {
       org: toOrgConfig(config),
       params: claimed.params,
       macros: claimed.macros.map((macro) => macroDefinitionSchema.parse({ ...macro, status: "active" })),
+      cases: claimed.cases,
       previousSteps: claimed.steps,
       cacheMode: claimed.cacheMode,
       runId: claimed.runId,

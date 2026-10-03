@@ -3,6 +3,7 @@ import {
 	defaultPriceTableVersion,
 	expandMacros,
 	findModelProvider,
+	type LinkedCase,
 	type MacroDefinition,
 	type ModelCostReport,
 	type ModelPrice,
@@ -49,6 +50,7 @@ import {
 import { parseJsonColumn, referencedCredentialProfiles } from "./test-cases";
 import type { TestSecrets } from "./test-config";
 import {
+	loadLinkedCases,
 	loadRunMacros,
 	runTranscriptVersion,
 	type TestRunRow,
@@ -994,9 +996,11 @@ export const resolvePriceTable = async (
 const credentialProfilesForRun = (
 	steps: z.infer<typeof transcriptStepSchema>[],
 	macros: MacroDefinition[],
+	cases: LinkedCase[],
 	values: Record<string, string>,
 ): string[] => {
-	const expanded = expandMacros(steps, macros).steps;
+	// Linked cases count: a [Use: TC-0001] that logs in needs that profile too.
+	const expanded = expandMacros(steps, macros, cases).steps;
 	const profiles = new Set(referencedCredentialProfiles(expanded, values));
 	// Macro parameters of kind "credential" carry profile names.
 	const byName = new Map(
@@ -1052,7 +1056,8 @@ export const resolveRunConfig = async (
 	const macros: MacroDefinition[] = (await loadRunMacros(db, run.orgId)).map(
 		(macro) => ({ ...macro, status: "active" as const }),
 	);
-	const profiles = credentialProfilesForRun(steps, macros, {
+	const cases = await loadLinkedCases(db, run.orgId, steps);
+	const profiles = credentialProfilesForRun(steps, macros, cases, {
 		...variables,
 		...params,
 	});
