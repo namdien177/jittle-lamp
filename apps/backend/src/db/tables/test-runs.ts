@@ -156,6 +156,9 @@ export const testRuns = sqliteTable(
 			() => testEnvironments.id,
 			{ onDelete: "set null" },
 		),
+		// Webhook runs against a review app or deployment: the environment's config with this
+		// baseUrl (design.md §10c). Part of the dedupe key when set.
+		baseUrlOverride: text("base_url_override"),
 		paramsJson: text("params_json").notNull().default("{}"),
 		paramsHash: text("params_hash").notNull(),
 		cacheMode: text("cache_mode", {

@@ -130,6 +130,7 @@ export {
 	notificationEvents,
 	notificationReads,
 	notificationSubscriptions,
+	webhookBatches,
 	webhookDeliveries,
 	webhookEndpoints,
 } from "./tables/test-notifications";

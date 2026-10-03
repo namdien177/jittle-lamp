@@ -253,6 +253,8 @@ export const computeDedupeKey = (input: {
 	environmentId: string | null;
 	paramsHash: string;
 	cacheMode: string;
+	// Webhook runs against a review app: a different baseUrl is a different run.
+	baseUrlOverride?: string | null;
 }) =>
 	`sha256:${sha256Text(
 		JSON.stringify([
@@ -261,6 +263,7 @@ export const computeDedupeKey = (input: {
 			input.environmentId ?? "",
 			input.paramsHash,
 			input.cacheMode,
+			...(input.baseUrlOverride ? [input.baseUrlOverride] : []),
 		]),
 	)}`;
 
@@ -368,6 +371,7 @@ const insertRun = async (
 		batchId: string | null;
 		now: number;
 		retryOf?: TestRunRow;
+		baseUrlOverride?: string | null;
 	},
 ): Promise<TestRunRow> => {
 	const { plan } = input;
@@ -388,6 +392,7 @@ const insertRun = async (
 			requestedByTokenId: input.requester.tokenId,
 			transcriptVersion: plan.row.transcriptVersion,
 			environmentId: plan.environmentId,
+			baseUrlOverride: input.baseUrlOverride ?? null,
 			paramsJson: JSON.stringify(plan.params),
 			paramsHash: input.paramsHash,
 			cacheMode: plan.request.cacheMode,
@@ -463,7 +468,11 @@ export const requestRuns = async (
 			kind: "dataset" | "suite" | "ci";
 			suiteId?: string | null;
 			testCaseId?: string | null;
+			// Webhook batches: the commit SHA (design.md §10c).
+			triggerRef?: string | null;
 		};
+		// Webhook runs against a review app or deployment URL instead of the environment's.
+		baseUrlOverride?: string | null;
 		now?: number;
 	},
 ): Promise<{
@@ -509,6 +518,7 @@ export const requestRuns = async (
 			environmentId: plan.environmentId,
 			paramsHash,
 			cacheMode: plan.request.cacheMode,
+			baseUrlOverride: input.baseUrlOverride ?? null,
 		});
 		const attachTo = await findAttachableRun(db, {
 			orgId: input.orgId,
@@ -576,6 +586,7 @@ export const requestRuns = async (
 					(kind === "dataset" ? (plans[0]?.row.id ?? null) : null),
 				suiteId: input.batch?.suiteId ?? null,
 				trigger: plans[0]?.request.trigger ?? "manual",
+				triggerRef: input.batch?.triggerRef ?? null,
 				status: "queued",
 				total: plans.length,
 				pending: plans.length,
@@ -615,6 +626,7 @@ export const requestRuns = async (
 			paramsHash: entry.paramsHash,
 			batchId,
 			now,
+			baseUrlOverride: input.baseUrlOverride ?? null,
 		});
 		createdByKey.set(entry.dedupeKey, run.id);
 		results.push({ runId: run.id, attached: false });
@@ -650,6 +662,7 @@ export const queueRetryRun = async (
 			requestedByTokenId: run.requestedByTokenId,
 			transcriptVersion: run.transcriptVersion,
 			environmentId: run.environmentId,
+			baseUrlOverride: run.baseUrlOverride,
 			paramsJson: run.paramsJson,
 			paramsHash: run.paramsHash,
 			cacheMode: run.cacheMode,

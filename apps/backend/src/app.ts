@@ -28,6 +28,7 @@ import { createTestCaseRoutes } from "./routes/test-cases";
 import { createTestConfigRoutes } from "./routes/test-config";
 import { createTestLiveRoutes } from "./routes/test-live";
 import { createTestRunRoutes } from "./routes/test-runs";
+import { createTestWebhookRoutes } from "./routes/test-webhooks";
 import {
 	type ArtifactStorage,
 	createArtifactStorage,
@@ -189,6 +190,12 @@ export const createApp = (
 		)
 		.use(createTestRunRoutes(auth, liveHub))
 		.use(createTestLiveRoutes(auth, liveHub))
+		.use(
+			createTestWebhookRoutes(
+				auth,
+				dependencies.fetch ? { fetchImpl: dependencies.fetch } : {},
+			),
+		)
 		.use(createTestConfigRoutes(auth))
 		.use(createRunnerPoolRoutes(auth))
 		.use(createNotificationRoutes(auth))

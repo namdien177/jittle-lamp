@@ -755,6 +755,18 @@ export const createWebhookEndpointResponseSchema = z.object({
   secret: z.string().min(16)
 });
 
+// Inbound deliveries of an endpoint, newest first (settings "Recent deliveries").
+export const webhookDeliverySchema = z.object({
+  id,
+  eventType: z.string(),
+  status: z.enum(["received", "matched", "ignored", "rejected", "error"]),
+  signatureValid: z.boolean(),
+  triggerRef: z.string().nullable(),
+  batchId: id.nullable(),
+  error: z.string().nullable(),
+  createdAt: epochMs
+});
+
 export const testRunBatchSchema = z.object({
   id,
   kind: z.enum(["dataset", "suite", "ci"]),
@@ -821,5 +833,9 @@ export type NotificationSubscriptions = z.infer<typeof notificationSubscriptions
 export type NotificationChannel = z.infer<typeof notificationChannelSchema>;
 export type WebhookRule = z.infer<typeof webhookRuleSchema>;
 export type WebhookEndpoint = z.infer<typeof webhookEndpointSchema>;
+export type WebhookDelivery = z.infer<typeof webhookDeliverySchema>;
+export type CreateWebhookEndpointResponse = z.infer<typeof createWebhookEndpointResponseSchema>;
+export type UpsertWebhookEndpointRequest = z.infer<typeof upsertWebhookEndpointRequestSchema>;
+export type UpsertNotificationChannelRequest = z.infer<typeof upsertNotificationChannelRequestSchema>;
 export type TestRunBatch = z.infer<typeof testRunBatchSchema>;
 export type AgentNotes = z.infer<typeof agentNotesSchema>;
