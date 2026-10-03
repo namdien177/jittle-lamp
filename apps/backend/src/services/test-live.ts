@@ -1,5 +1,7 @@
 import type { LiveInputEvent, LiveInputRequest } from "@jittle-lamp/shared";
 
+import { HIDDEN_FRAME_JPEG } from "./live-hidden-frame";
+
 // Live view of a running cloud or self-hosted run (design.md §5.4, ADR 0002 decision 11,
 // phase 2 unit 2.3).
 //
@@ -16,6 +18,11 @@ export const LIVE_FRAME_MAX_BYTES = 1024 * 1024;
 export const LIVE_INPUT_QUEUE_MAX = 500;
 // Entries untouched for this long are dropped (the run finished or the runner went away).
 export const LIVE_IDLE_TTL_MS = 10 * 60_000;
+// A take-over whose holder sent nothing (watch, input) for this long is released: a closed tab
+// must not leave a run paused for ever.
+export const LIVE_TAKEOVER_TTL_MS = 60_000;
+// PUT /live/frame with this content type (empty body): a secret was typed, hide frames.
+export const LIVE_FRAME_HIDDEN_CONTENT_TYPE = "application/vnd.jl.frame-hidden";
 
 export type LiveViewport = { width: number; height: number };
 
@@ -28,6 +35,10 @@ type LiveRunState = {
 	inputs: LiveInputEvent[];
 	nextSeq: number;
 	touchedAt: number;
+	// Last sign of life from the take-over holder.
+	holderSeenAt: number | null;
+	// A secret was typed in the run: frames are replaced by a placeholder from then on.
+	framesHidden: boolean;
 };
 
 export class LiveInputQueueFullError extends Error {
@@ -107,6 +118,8 @@ export const createLiveHub = () => {
 				inputs: [],
 				nextSeq: 0,
 				touchedAt: now,
+				holderSeenAt: null,
+				framesHidden: false,
 			};
 			runs.set(runId, state);
 		}
@@ -123,6 +136,19 @@ export const createLiveHub = () => {
 		isWatched(runId: string, now = Date.now()): boolean {
 			return (runs.get(runId)?.watchUntil ?? 0) > now;
 		},
+		touchHolder(runId: string, now = Date.now()) {
+			entry(runId, now).holderSeenAt = now;
+		},
+		holderSeenAt(runId: string): number | null {
+			return runs.get(runId)?.holderSeenAt ?? null;
+		},
+		// Drops every frame of the run and serves the placeholder from now on.
+		hideFrames(runId: string, now = Date.now()) {
+			const state = entry(runId, now);
+			state.framesHidden = true;
+			state.frame = null;
+			state.frameAt = now;
+		},
 		putFrame(
 			runId: string,
 			bytes: Uint8Array,
@@ -130,6 +156,10 @@ export const createLiveHub = () => {
 			now = Date.now(),
 		) {
 			const state = entry(runId, now);
+			// Once hidden, a late frame from before the secret never comes back.
+			if (state.framesHidden) {
+				return { frameAt: state.frameAt ?? now, viewport: state.viewport };
+			}
 			state.frame = bytes;
 			state.frameAt = now;
 			state.viewport = jpegDimensions(bytes) ?? fallbackViewport;
@@ -139,25 +169,37 @@ export const createLiveHub = () => {
 			bytes: Uint8Array;
 			frameAt: number;
 			viewport: LiveViewport | null;
+			hidden: boolean;
 		} | null {
 			const state = runs.get(runId);
+			if (state?.framesHidden) {
+				return {
+					bytes: HIDDEN_FRAME_JPEG,
+					frameAt: state.frameAt ?? Date.now(),
+					viewport: state.viewport,
+					hidden: true,
+				};
+			}
 			if (!state?.frame || state.frameAt === null) return null;
 			return {
 				bytes: state.frame,
 				frameAt: state.frameAt,
 				viewport: state.viewport,
+				hidden: false,
 			};
 		},
 		snapshot(runId: string): {
 			frameAt: number | null;
 			viewport: LiveViewport | null;
 			watching: boolean;
+			framesHidden: boolean;
 		} {
 			const state = runs.get(runId);
 			return {
 				frameAt: state?.frameAt ?? null,
 				viewport: state?.viewport ?? null,
 				watching: (state?.watchUntil ?? 0) > Date.now(),
+				framesHidden: state?.framesHidden ?? false,
 			};
 		},
 		// Assigns increasing sequence numbers; refuses input beyond the queue cap.

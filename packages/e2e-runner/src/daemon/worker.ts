@@ -20,6 +20,7 @@ import { engineVersion, runnerVersion } from "../paths";
 import { buildRunPlan } from "../plan";
 import { buildRunReport } from "../report/build";
 import { runTranscript, type RunTranscriptResult } from "../run";
+import { FRAMES_HIDDEN_MARKER } from "../runtime/live";
 import type { StepLogEvent } from "../runtime/step-log";
 import { BackendClient, BackendError } from "./api";
 
@@ -247,7 +248,11 @@ export async function executeClaimedRun(input: {
   writeFileSync(join(liveDir, "control.json"), JSON.stringify({ live: false, takeover: false }));
 
   // Live view relay: backend control and input → JL_LIVE_DIR → e2e worker; frames back.
-  let liveSeq = -1;
+    let liveSeq = -1;
+  // Take-over epoch: bumped when a take-over starts; input lines carry it (runtime/live.ts).
+  let takeoverEpoch = 0;
+  let inTakeover = false;
+  let framesHiddenSent = false;
   let liveEnabled = true;
   let lastFrameMtime = 0;
   let liveBusy = false;
@@ -262,12 +267,22 @@ export async function executeClaimedRun(input: {
       }
       if (control.cancelRequested) controller.abort();
       // Input first, then the state: input sent together with "stop" must not wait for the next take-over.
+            if (control.takeover && !inTakeover) takeoverEpoch += 1;
+      inTakeover = control.takeover;
       const fresh = control.inputs.filter((event) => event.seq > liveSeq).sort((a, b) => a.seq - b.seq);
       if (fresh.length > 0) {
-        appendFileSync(join(liveDir, "inputs.jsonl"), fresh.map((event) => `${JSON.stringify(event)}\n`).join(""));
+        // Input that arrives with the release belongs to the take-over that just ended.
+        appendFileSync(join(liveDir, "inputs.jsonl"), fresh.map((event) => `${JSON.stringify({ ...event, takeover: takeoverEpoch })}\n`).join(""));
         liveSeq = fresh.at(-1)?.seq ?? liveSeq;
       }
-      writeFileSync(join(liveDir, "control.json"), JSON.stringify({ live: control.live || control.takeover, takeover: control.takeover }));
+      writeFileSync(join(liveDir, "control.json"), JSON.stringify({ live: control.live || control.takeover, takeover: control.takeover, epoch: takeoverEpoch }));
+      if (existsSync(join(liveDir, FRAMES_HIDDEN_MARKER))) {
+        if (!framesHiddenSent) {
+          framesHiddenSent = true;
+          await client.liveFramesHidden(claimed.runId, claimed.runToken);
+        }
+        return;
+      }
       const framePath = join(liveDir, "frame.jpg");
       if ((control.live || control.takeover) && existsSync(framePath)) {
         const mtime = statSync(framePath).mtimeMs;

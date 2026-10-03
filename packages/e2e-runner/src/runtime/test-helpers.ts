@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { credentials, secrets, unique } from "e2e";
 
 import { currentPage } from "./engine";
-import { waitWhileTakenOver } from "./live";
+import { markSecretUsed, waitWhileTakenOver } from "./live";
 import { writeStepLog } from "./step-log";
 
 // Imported by the generated case.e2e.ts. Values are read from the JL_* environment at run time,
@@ -51,10 +51,12 @@ export function params(bindings: Readonly<Record<string, Binding>>): Record<stri
       case "cred":
         out[param] = unique(credentialField(binding.profile, binding.field));
         break;
-      case "cred-password":
+            case "cred-password":
+        markSecretUsed();
         out[param] = credentials.user(binding.profile).password;
         break;
       case "secret":
+        markSecretUsed();
         out[param] = secrets.get(binding.name);
         break;
       case "extracted": {

@@ -7,9 +7,17 @@ import type {
 	TestRunDetail,
 } from "@jittle-lamp/shared";
 
+import { and, eq } from "drizzle-orm";
+
+import { organizationActivityLogs, testRuns } from "../src/db/schema";
+import { HIDDEN_FRAME_JPEG } from "../src/services/live-hidden-frame";
 import {
+	createLiveHub,
 	jpegDimensions,
+	LIVE_FRAME_HIDDEN_CONTENT_TYPE,
 	LIVE_FRAME_MAX_BYTES,
+	LIVE_TAKEOVER_TTL_MS,
+	type LiveHub,
 } from "../src/services/test-live";
 import {
 	createTestCaseFixture,
@@ -51,8 +59,10 @@ const jpeg = (width = 1440, height = 900, padding = 0) =>
 		0xd9,
 	]);
 
-const setup = async () => {
-	const fixture = await createTestCaseFixture();
+const setup = async (hub: LiveHub = createLiveHub()) => {
+	const fixture = await createTestCaseFixture({
+		dependencies: { liveHub: hub },
+	});
 	const { testCase } = await seedRunnableCase(fixture, {
 		password: FAKE_PASSWORD,
 		modelKey: FAKE_MODEL_KEY,
@@ -94,6 +104,7 @@ const setup = async () => {
 			error?: { code: string };
 		}>(`/test-runs/${runId}/live/input`, { token, body: { events } });
 	return {
+		hub,
 		fixture,
 		runId,
 		claimed,
@@ -328,3 +339,103 @@ const otherOrganization = async (
 	await ensureDefaultOrganizationRoles(fixture.db, org.id);
 	return org.id;
 };
+
+describe("live view review fixes", () => {
+	it("releases a take-over whose holder went quiet and drops the input left behind", async () => {
+		const { hub, fixture, runId, control, takeover, input } = await setup();
+		await control();
+		expect((await takeover(fixture.developer.token, "start")).status).toBe(200);
+		expect(
+			(await input(fixture.developer.token, [{ kind: "press", key: "Enter" }]))
+				.status,
+		).toBe(200);
+		// The holder's watch calls are the heartbeat.
+		await fixture.call(`/test-runs/${runId}/live/watch`, {
+			token: fixture.developer.token,
+			body: {},
+		});
+		expect((await control()).body.takeover).toBe(true);
+
+		hub.touchHolder(runId, Date.now() - LIVE_TAKEOVER_TTL_MS - 1_000);
+		const after = await control();
+		expect(after.body).toMatchObject({
+			takeover: false,
+			takeoverBy: null,
+			inputs: [],
+		});
+		const run = await fixture.db.query.testRuns.findFirst({
+			where: eq(testRuns.id, runId),
+		});
+		expect(run?.liveTakeoverBy).toBeNull();
+		const logged = await fixture.db.query.organizationActivityLogs.findMany({
+			where: and(
+				eq(organizationActivityLogs.organizationId, fixture.orgId),
+				eq(organizationActivityLogs.action, "test_run.takeover_expired"),
+			),
+		});
+		expect(logged).toHaveLength(1);
+		expect(
+			(await input(fixture.developer.token, [{ kind: "press", key: "Enter" }]))
+				.status,
+		).toBe(403);
+	});
+
+	it("keeps input sent with a release for the runner, but a new take-over starts without stale input", async () => {
+		const { fixture, control, takeover, input } = await setup();
+		await control();
+		await takeover(fixture.developer.token, "start");
+		await input(fixture.developer.token, [
+			{ kind: "type", text: "last words" },
+		]);
+		await takeover(fixture.developer.token, "stop");
+		// The runner reads input before state, so the release does not lose it.
+		const released = await control(-1);
+		expect(released.body.takeover).toBe(false);
+		expect(released.body.inputs.map((event) => event.kind)).toEqual(["type"]);
+		// Not acknowledged, then someone takes over again: the old input is gone.
+		await takeover(fixture.qa.token, "start");
+		expect((await control(-1)).body.inputs).toEqual([]);
+	});
+
+	it("serves a placeholder instead of frames once the runner reports a secret entry", async () => {
+		const { fixture, runId, claimed, control, putFrame } = await setup();
+		await control();
+		await fixture.call(`/test-runs/${runId}/live/watch`, {
+			token: fixture.developer.token,
+			body: {},
+		});
+		expect((await putFrame(jpeg())).status).toBe(200);
+		const hidden = await fixture.call(`/test-runs/${runId}/live/frame`, {
+			method: "PUT",
+			token: claimed.runToken,
+			raw: new Uint8Array().buffer,
+			headers: { "content-type": LIVE_FRAME_HIDDEN_CONTENT_TYPE },
+		});
+		expect(hidden.status).toBe(200);
+		// A late frame captured before the secret never comes back.
+		expect((await putFrame(jpeg(1280, 800))).status).toBe(200);
+		const frame = await fixture.app.handle(
+			new Request(`http://localhost/test-runs/${runId}/live/frame`, {
+				headers: { authorization: `Bearer ${fixture.developer.token}` },
+			}),
+		);
+		expect(frame.status).toBe(200);
+		expect(frame.headers.get("content-type")).toBe("image/jpeg");
+		expect(frame.headers.get("x-frame-hidden")).toBe("secret-entered");
+		expect(new Uint8Array(await frame.arrayBuffer())).toEqual(
+			HIDDEN_FRAME_JPEG,
+		);
+		const state = await fixture.call<LiveState>(
+			`/test-runs/${runId}/live/watch`,
+			{
+				token: fixture.developer.token,
+				body: {},
+			},
+		);
+		expect(state.body.framesHidden).toBe(true);
+		const detail = await fixture.call<TestRunDetail>(`/test-runs/${runId}`, {
+			token: fixture.developer.token,
+		});
+		expect(detail.body.live?.framesHidden).toBe(true);
+	});
+});

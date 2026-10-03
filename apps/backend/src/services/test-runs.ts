@@ -1351,6 +1351,7 @@ const liveDetail = async (
 				? `/test-runs/${encodeURIComponent(run.id)}/live/frame?at=${frameAt}`
 				: null,
 		frameAt,
+		framesHidden: snapshot?.framesHidden ?? false,
 		viewport: snapshot?.viewport ?? runnerViewport ?? null,
 	};
 };

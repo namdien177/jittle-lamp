@@ -415,8 +415,10 @@ export const testRunDetailSchema = testRunSummarySchema.extend({
       takeoverBy: id.nullable(),
       paused: z.boolean(),
       // API path of the latest JPEG (GET /test-runs/:id/live/frame); fetch it with the session.
-      frameUrl: z.string().nullable(),
+            frameUrl: z.string().nullable(),
       frameAt: epochMs.nullable(),
+      // After a secret was typed in the run, frames are replaced by a placeholder.
+      framesHidden: z.boolean().default(false),
       // CSS pixels of the run's browser viewport; input coordinates use this space.
       viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).nullable().default(null)
     })

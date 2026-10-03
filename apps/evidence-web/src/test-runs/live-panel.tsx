@@ -15,8 +15,10 @@ import {
   LIVE_INPUT_FLUSH_MS,
   LIVE_WATCH_INTERVAL_MS,
   canTakeOver,
+  LEAVE_CHORD_LABEL,
   coalesceInputs,
   containedRect,
+  isLeaveChord,
   frameAge,
   keyToLiveInput,
   liveViewport,
@@ -166,7 +168,8 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
   const orgId = useTestOrgId();
   const frame = useLiveFrames(run.id, Boolean(live?.available));
   const now = useNow(500);
-  const stageRef = React.useRef<HTMLDivElement | null>(null);
+    const stageRef = React.useRef<HTMLDivElement | null>(null);
+  const releaseRef = React.useRef<HTMLButtonElement | null>(null);
   const stage = useElementRect(stageRef);
   const role = takeoverRole(live, currentUserIds);
   const holding = role === "mine";
@@ -234,8 +237,14 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
       }, 120);
     }
   };
-  const onKeyDown = (event: React.KeyboardEvent) => {
+    const onKeyDown = (event: React.KeyboardEvent) => {
     if (!holding) return;
+    const keys = { key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey };
+    if (isLeaveChord(keys)) {
+      event.preventDefault();
+      releaseRef.current?.focus();
+      return;
+    }
     const input = keyToLiveInput({
       key: event.key,
       ctrlKey: event.ctrlKey,
@@ -261,6 +270,9 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
         <span className="text-white/55" aria-live="off">
           frame {age.label} · {viewport.width}×{viewport.height}
         </span>
+                {live.framesHidden ? (
+          <span className="text-[11.5px] text-white/55">frames hidden after a secret was entered</span>
+        ) : null}
         {paused ? (
           <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/40 bg-amber-300/10 px-2 py-0.5 text-[11.5px] font-semibold text-amber-200">
             <PauseCircle className="size-3.5" aria-hidden /> paused
@@ -268,7 +280,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
         ) : null}
         <span className="ml-auto flex items-center gap-2">
           {holding ? (
-            <Button size="xs" variant="secondary" className="jl-tc-press" disabled={pending !== null} onClick={() => void takeover("stop")}>
+                        <Button ref={releaseRef} size="xs" variant="secondary" className="jl-tc-press" disabled={pending !== null} onClick={() => void takeover("stop")}>
               <Undo2 aria-hidden /> {pending === "stop" ? "Releasing…" : "Release"}
             </Button>
           ) : mayTakeOver ? (
@@ -282,8 +294,9 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
       {holding ? (
         <div role="status" className="jl-tc-enter flex items-center gap-2 border-b border-amber-300/30 bg-amber-300/12 px-4 py-2 text-[13px] text-amber-100">
           <MousePointerClick className="size-4 shrink-0" aria-hidden />
-          <span>
-            <strong className="font-semibold">Paused: you control the browser.</strong> Nothing you do is cached.
+                    <span>
+            <strong className="font-semibold">Paused: you control the browser.</strong> Nothing you do is cached. Keys go to the run;{" "}
+            <kbd className="rounded border border-amber-200/40 px-1 font-mono text-[11.5px]">{LEAVE_CHORD_LABEL}</kbd> moves focus to Release.
           </span>
         </div>
       ) : role === "other" ? (
@@ -296,7 +309,11 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
         <div
           ref={stageRef}
           role={holding ? "application" : "img"}
-          aria-label={holding ? "Remote browser. Clicks, keys and scrolling go to the run." : "Live view of the run's browser"}
+                    aria-label={
+            holding
+              ? `Remote browser. Clicks, keys and scrolling go to the run. Press ${LEAVE_CHORD_LABEL} to move focus to Release.`
+              : "Live view of the run's browser"
+          }
           aria-roledescription={holding ? "remote browser" : undefined}
           tabIndex={holding ? 0 : -1}
           onClick={onClick}

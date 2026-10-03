@@ -5,7 +5,8 @@ import {
   canTakeOver,
   coalesceInputs,
   containedRect,
-  frameAge,
+    frameAge,
+  isLeaveChord,
   keyToLiveInput,
   liveViewport,
   takeoverRole,
@@ -29,6 +30,7 @@ const live = (overrides: Partial<NonNullable<TestRunDetail["live"]>> = {}): NonN
   paused: false,
   frameUrl: null,
   frameAt: null,
+  framesHidden: false,
   viewport: { width: 1440, height: 900 },
   ...overrides
 });
@@ -156,3 +158,16 @@ describe("live view take-over rules", () => {
     expect(frameAge(10_000, 22_000)).toEqual({ label: "12 s ago", stale: true });
   });
 });
+
+describe("live view keyboard escape", () => {
+  it("reserves Ctrl+Alt+Esc to leave the remote browser instead of sending it", () => {
+    const chord = key("Escape", { ctrlKey: true, altKey: true });
+    expect(isLeaveChord(chord)).toBe(true);
+    expect(keyToLiveInput(chord)).toBeNull();
+    // Plain Escape and Tab still go to the run.
+    expect(isLeaveChord(key("Escape"))).toBe(false);
+    expect(keyToLiveInput(key("Escape"))).toEqual({ kind: "press", key: "Escape" });
+    expect(keyToLiveInput(key("Tab"))).toEqual({ kind: "press", key: "Tab" });
+  });
+});
+
