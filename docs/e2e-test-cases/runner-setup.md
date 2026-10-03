@@ -38,6 +38,8 @@ cp deploy/runner/runner.env.sample deploy/runner/runner.env   # set JL_API_ORIGI
 docker compose -f deploy/runner/compose.yaml up -d --scale runner=2
 ```
 
+Every runner setting, including `JL_RUNNER_CONCURRENCY` (runs at a time per container, default 1), comes from `runner.env`. Edit the file and recreate the containers (`docker compose … up -d`) to change it; a variable set only in your shell does not reach the containers.
+
 The image is Playwright's `v1.63.0-noble` image with Node and Chromium; it runs as `pwuser`. The replicas share the `runner-state` volume, and each keeps its credential in a file named after its container host name. `shm_size: 1gb` is required: Chromium crashes with Docker's 64 MB default. `stop_grace_period: 20m` lets a running case finish on `docker compose down`.
 
 ### systemd (self-hosted devbox)

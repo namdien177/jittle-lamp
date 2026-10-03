@@ -10,9 +10,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/runner/Dockerfile
+    # All runner settings, including JL_RUNNER_CONCURRENCY, come from runner.env. Do not add an
+    # `environment:` entry for a variable runner.env sets: it would override the file.
     env_file: runner.env
-    environment:
-      JL_RUNNER_CONCURRENCY: ${JL_RUNNER_CONCURRENCY:-1}
     # Chromium needs more shared memory than Docker's 64 MB default.
     shm_size: 1gb
     init: true
