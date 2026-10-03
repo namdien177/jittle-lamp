@@ -129,8 +129,13 @@ export class BackendClient {
     }
   }
 
-  liveFrame(runId: string, runToken: string, jpeg: Uint8Array) {
+    liveFrame(runId: string, runToken: string, jpeg: Uint8Array) {
     return this.request("PUT", `/test-runs/${encodeURIComponent(runId)}/live/frame`, runToken, null, jpeg, "image/jpeg");
+  }
+
+  // A secret was typed: the backend serves a placeholder instead of frames from now on.
+  liveFramesHidden(runId: string, runToken: string) {
+    return this.request("PUT", `/test-runs/${encodeURIComponent(runId)}/live/frame`, runToken, null, new Uint8Array(), "application/vnd.jl.frame-hidden");
   }
 
   createRun(testCaseId: string, token: string, body: Partial<CreateTestRunRequest>) {

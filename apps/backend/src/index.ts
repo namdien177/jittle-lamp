@@ -21,6 +21,7 @@ const {
 	artifactStorage,
 	organizationMigration,
 	keyProvider,
+	outbound,
 } = createApp(process.env);
 
 if (
@@ -64,6 +65,7 @@ try {
 			db,
 			secrets: createTestSecrets({ db, keyProvider }),
 			fetch,
+			outbound,
 			webOrigin: runtime.webAppOrigin ?? null,
 		}).start();
 		const runMaintenance = async () => {

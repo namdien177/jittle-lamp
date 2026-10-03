@@ -1,4 +1,5 @@
 import {
+	createNotificationChannelResponseSchema,
 	markNotificationsReadRequestSchema,
 	notificationChannelSchema,
 	notificationListResponseSchema,
@@ -10,6 +11,7 @@ import { Elysia } from "elysia";
 import { z } from "zod/v4";
 
 import { notificationChannels } from "../db/schema";
+import { createUuidV7 } from "../db/uuid";
 import {
 	HttpError,
 	handleTestRoute,
@@ -23,7 +25,7 @@ import {
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import {
 	getChannelRow,
-	normalizeChannelConfig,
+	prepareChannel,
 	toNotificationChannel,
 } from "../services/notification-channels";
 import {
@@ -34,6 +36,7 @@ import {
 	saveNotificationSubscriptions,
 } from "../services/notifications";
 import { recordOrganizationActivity } from "../services/organization-activity";
+import { createTestSecrets } from "../services/test-config";
 
 const idParams = z.object({ id: z.string().min(1) });
 
@@ -173,13 +176,27 @@ export const createNotificationRoutes = (auth: ClerkAuthPlugin) =>
 					upsertNotificationChannelRequestSchema,
 					ctx.body,
 				);
-				const config = await normalizeChannelConfig(db, who.orgId, body);
+				const id = createUuidV7();
+				const prepared = await prepareChannel(
+					db,
+					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+					{
+						orgId: who.orgId,
+						id,
+						request: body,
+						existing: null,
+						actorUserId: who.userId,
+					},
+				);
 				const [row] = await db
 					.insert(notificationChannels)
 					.values({
+						id,
 						orgId: who.orgId,
 						kind: body.kind,
-						configJson: JSON.stringify(config),
+						configJson: prepared.configJson,
+						secretEnc: prepared.secretEnc,
+						keyVersion: prepared.keyVersion,
 						filterJson: JSON.stringify(body.filter),
 						enabled: body.enabled,
 						createdBy: who.userId,
@@ -194,7 +211,11 @@ export const createNotificationRoutes = (auth: ClerkAuthPlugin) =>
 					message: `Added a ${row.kind} notification channel`,
 				});
 				ctx.set.status = 201;
-				return respond(notificationChannelSchema, toNotificationChannel(row));
+				// Webhook channels: the signing secret is shown this once.
+				return respond(createNotificationChannelResponseSchema, {
+					...toNotificationChannel(row),
+					signingSecret: prepared.signingSecret,
+				});
 			}),
 		)
 		.patch("/notification-channels/:id", (ctx) =>
@@ -226,11 +247,23 @@ export const createNotificationRoutes = (auth: ClerkAuthPlugin) =>
 						"kind: a channel keeps its kind; add a new channel instead",
 					);
 				}
-				const config = await normalizeChannelConfig(db, who.orgId, body);
+				const prepared = await prepareChannel(
+					db,
+					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+					{
+						orgId: who.orgId,
+						id: existing.id,
+						request: body,
+						existing,
+						actorUserId: who.userId,
+					},
+				);
 				const [row] = await db
 					.update(notificationChannels)
 					.set({
-						configJson: JSON.stringify(config),
+						configJson: prepared.configJson,
+						secretEnc: prepared.secretEnc,
+						keyVersion: prepared.keyVersion,
 						filterJson: JSON.stringify(body.filter),
 						enabled: body.enabled,
 						updatedAt: Date.now(),
@@ -297,6 +330,7 @@ export const createNotificationRoutes = (auth: ClerkAuthPlugin) =>
 						}),
 						createdAt: now,
 						dispatchedAt: null,
+						channelsDispatchedAt: null,
 					},
 				});
 				const failure = outcomes.find(

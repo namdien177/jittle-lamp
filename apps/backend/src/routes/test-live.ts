@@ -28,7 +28,9 @@ import { testCasePolicy } from "../services/test-case-policy";
 import { parseJsonColumn } from "../services/test-cases";
 import {
 	isJpeg,
+	LIVE_FRAME_HIDDEN_CONTENT_TYPE,
 	LIVE_FRAME_MAX_BYTES,
+	LIVE_TAKEOVER_TTL_MS,
 	type LiveHub,
 	LiveInputQueueFullError,
 } from "../services/test-live";
@@ -72,7 +74,46 @@ const toLiveState = (run: TestRunRow, hub: LiveHub): LiveState => {
 		paused: run.status === "paused" || run.livePaused,
 		frameAt: snapshot.frameAt,
 		viewport: snapshot.viewport ?? runnerViewport ?? null,
+		framesHidden: snapshot.framesHidden,
 	});
+};
+
+// Releases a take-over whose holder went quiet (closed tab, lost network) for LIVE_TAKEOVER_TTL_MS;
+// the agent resumes. After a restart the holder gets a fresh grace period.
+const expireTakeover = async (
+	db: BackendDb,
+	hub: LiveHub,
+	run: TestRunRow,
+	now = Date.now(),
+): Promise<TestRunRow> => {
+	if (run.liveTakeoverBy === null || !isActive(run)) return run;
+	const seen = hub.holderSeenAt(run.id);
+	if (seen === null) {
+		hub.touchHolder(run.id, now);
+		return run;
+	}
+	if (now - seen <= LIVE_TAKEOVER_TTL_MS) return run;
+	const [released] = await db
+		.update(testRuns)
+		.set({ liveTakeoverBy: null, takeoverRequestedAt: null, updatedAt: now })
+		.where(
+			and(
+				eq(testRuns.id, run.id),
+				eq(testRuns.liveTakeoverBy, run.liveTakeoverBy),
+			),
+		)
+		.returning();
+	if (!released) return run;
+	// Input the absent holder left behind is not replayed.
+	hub.clearInputs(run.id);
+	await recordOrganizationActivity(db, {
+		organizationId: run.orgId,
+		actorUserId: run.liveTakeoverBy,
+		action: "test_run.takeover_expired",
+		entity: { type: "test_run", id: run.id },
+		message: "Released a take-over after the holder went quiet",
+	});
+	return released;
 };
 
 const readBody = async (body: unknown, request: Request) =>
@@ -92,7 +133,10 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 				const who = await resolveTestActor(ctx);
 				await requireTestPermission(db, who, "test_run.view");
 				const { id } = parseInput(runParams, ctx.params);
-				const run = await getRunRow(db, who.orgId, id);
+				const found = await getRunRow(db, who.orgId, id);
+				// Watching is the holder's heartbeat (the panel calls it every 10 s).
+				if (found.liveTakeoverBy === who.userId) hub.touchHolder(found.id);
+				const run = await expireTakeover(db, hub, found);
 				if (isActive(run)) hub.watch(run.id);
 				return toLiveState(run, hub);
 			}),
@@ -121,6 +165,8 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 					headers["x-frame-width"] = String(frame.viewport.width);
 					headers["x-frame-height"] = String(frame.viewport.height);
 				}
+				// After a secret entry the placeholder is served instead of the page.
+				if (frame.hidden) headers["x-frame-hidden"] = "secret-entered";
 				return new Response(Uint8Array.from(frame.bytes), { headers });
 			}),
 		)
@@ -131,7 +177,11 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 				await requireTestPermission(db, who, "test_run.view");
 				const { id } = parseInput(runParams, ctx.params);
 				const body = parseInput(liveTakeoverRequestSchema, ctx.body);
-				const run = await getRunRow(db, who.orgId, id);
+				const run = await expireTakeover(
+					db,
+					hub,
+					await getRunRow(db, who.orgId, id),
+				);
 				// The requester of the run, or anyone who may cancel other people's runs.
 				const canCancelAny = (
 					await testCasePolicy.permissions(db, {
@@ -186,6 +236,10 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 					}
 					// Watching keeps frames flowing while the person drives.
 					hub.watch(run.id, now);
+					hub.touchHolder(run.id, now);
+					// A new take-over never replays input left over from an earlier one. Input
+					// sent with a release stays queued until the runner reads it.
+					if (run.liveTakeoverBy !== who.userId) hub.clearInputs(run.id);
 					if (run.liveTakeoverBy !== who.userId) {
 						await recordOrganizationActivity(db, {
 							organizationId: who.orgId,
@@ -234,7 +288,11 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 				await requireTestPermission(db, who, "test_run.view");
 				const { id } = parseInput(runParams, ctx.params);
 				const body = parseInput(liveInputRequestSchema, ctx.body);
-				const run = await getRunRow(db, who.orgId, id);
+				const run = await expireTakeover(
+					db,
+					hub,
+					await getRunRow(db, who.orgId, id),
+				);
 				requireActive(run);
 				if (run.liveTakeoverBy !== who.userId) {
 					throw new HttpError(
@@ -246,6 +304,7 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 				try {
 					const events = hub.enqueue(run.id, body.events);
 					hub.watch(run.id);
+					hub.touchHolder(run.id);
 					return {
 						accepted: events.length,
 						lastSeq: events.at(-1)?.seq ?? null,
@@ -267,7 +326,8 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 		// --- Runner side (per-run token) -----------------------------------------------------
 		.get("/test-runs/:id/live/control", (ctx) =>
 			handleTestRoute(ctx, async () => {
-				const { db, run } = await runFromToken(ctx);
+				const { db, run: found } = await runFromToken(ctx);
+				const run = await expireTakeover(db, hub, found);
 				const query = parseInput(
 					z.object({ after: z.number().int().min(-1).default(-1) }),
 					normalizeQuery(ctx.request.url, new Set()),
@@ -291,6 +351,16 @@ export const createTestLiveRoutes = (auth: ClerkAuthPlugin, hub: LiveHub) =>
 		.put("/test-runs/:id/live/frame", (ctx) =>
 			handleTestRoute(ctx, async () => {
 				const { run } = await runFromToken(ctx);
+				// The runner stops capturing once a secret was typed and says so; every frame
+				// from then on is the placeholder.
+				if (
+					(ctx.request.headers.get("content-type") ?? "").startsWith(
+						LIVE_FRAME_HIDDEN_CONTENT_TYPE,
+					)
+				) {
+					if (isActive(run)) hub.hideFrames(run.id);
+					return { ok: true, stored: false, hidden: true };
+				}
 				const contentType = ctx.request.headers.get("content-type") ?? "";
 				if (!contentType.toLowerCase().startsWith("image/jpeg")) {
 					throw new HttpError(

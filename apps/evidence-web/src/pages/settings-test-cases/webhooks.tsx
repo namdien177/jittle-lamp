@@ -29,7 +29,8 @@ import {
   describeRule,
   draftToRule,
   emptyRuleDraft,
-  providerSetup,
+    providerSetup,
+  reportSummary,
   ruleToDraft,
   shortSha,
   webhookEventLabels,
@@ -223,8 +224,15 @@ function Deliveries(props: { endpointId: string }): React.JSX.Element {
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-sm">{delivery.eventType}</TableCell>
                 <TableCell className="font-mono text-xs">{shortSha(delivery.triggerRef)}</TableCell>
-                <TableCell className="max-w-[28rem] truncate text-sm text-muted-foreground" title={delivery.error ?? undefined}>
-                  {delivery.error ?? (delivery.batchId ? "Suite queued" : "")}
+                                <TableCell className="max-w-[28rem] text-sm text-muted-foreground">
+                  <span className="block truncate" title={delivery.error ?? undefined}>
+                    {delivery.error ?? (delivery.batchId ? "Suite queued" : "")}
+                  </span>
+                  {reportSummary(delivery.report) ? (
+                    <Badge variant={reportSummary(delivery.report)?.tone ?? "muted"} className="mt-1 max-w-full truncate" title={reportSummary(delivery.report)?.label}>
+                      {reportSummary(delivery.report)?.label}
+                    </Badge>
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">{formatRelativeTime(delivery.createdAt)}</TableCell>
               </TableRow>
@@ -387,9 +395,18 @@ function RuleEditor(props: { index: number; provider: Provider; draft: RuleDraft
             value={draft.environmentId}
             onValueChange={(value) => set("environmentId", value)}
             options={[{ value: "", label: "Choose an environment" }, ...(environments.data ?? []).map((environment) => ({ value: environment.id, label: environment.name }))]}
-          />
+                    />
         </Field>
       </div>
+      {draft.environmentMode === "fixed" ? null : (
+        <Field
+          label="Allowed review app hosts"
+          htmlFor={`${id}-hosts`}
+          hint="The base environment's credentials are sent to this URL. Globs such as *.review.example.com; empty allows only the base environment's own host."
+        >
+          <Input id={`${id}-hosts`} value={draft.allowedHosts} onChange={(event) => set("allowedHosts", event.target.value)} placeholder="*.review.example.com" className="font-mono" />
+        </Field>
+      )}
       <div className="grid gap-2">
         <span className="text-sm font-medium text-foreground">Report back</span>
         <div className="flex flex-wrap gap-x-5 gap-y-2">
@@ -397,7 +414,15 @@ function RuleEditor(props: { index: number; provider: Provider; draft: RuleDraft
           <Toggle checked={draft.mrNote} label={props.provider === "github" ? "PR comment" : "MR note"} disabled={!credentialKind} onChange={(on) => set("mrNote", on)} />
         </div>
         {credentialKind ? (
-          <Field label={props.provider === "github" ? "GitHub credential (token field)" : "GitLab credential (token field)"} htmlFor={`${id}-credential`}>
+                    <Field
+            label={props.provider === "github" ? "GitHub credential" : "GitLab credential"}
+            htmlFor={`${id}-credential`}
+            hint={
+              props.provider === "github"
+                ? "A github_app credential: a fine-grained personal access token or an installation token in the secret field token (statuses and pull requests: write). Add api_url for GitHub Enterprise."
+                : "A gitlab_token credential: a project or group access token (api scope) in the secret field token, and api_url (https://gitlab.example.com/api/v4). The token only goes to api_url."
+            }
+          >
             <Select<string>
               ariaLabel="Report credential"
               value={draft.credentialId}

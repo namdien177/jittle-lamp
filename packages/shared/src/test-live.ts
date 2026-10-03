@@ -44,6 +44,8 @@ export const liveControlResponseSchema = z.object({
 
 export const liveStateSchema = z.object({
   available: z.boolean(),
+  // A secret was typed in the run: frames are replaced by a placeholder from then on.
+  framesHidden: z.boolean().default(false),
   takeoverBy: z.string().nullable(),
   paused: z.boolean(),
   frameAt: z.number().int().nonnegative().nullable(),

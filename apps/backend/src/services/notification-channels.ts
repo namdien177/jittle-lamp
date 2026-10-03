@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+import { createHmac, randomBytes } from "node:crypto";
 import {
 	type NotificationChannel,
 	notificationKindSchema,
@@ -15,6 +17,11 @@ import {
 	type NotificationChannelRow,
 	type NotificationEventRow,
 } from "./notifications";
+import {
+	guardedFetch,
+	OutboundBlockedError,
+	type OutboundPolicy,
+} from "./outbound-http";
 import { parseJsonColumn } from "./test-cases";
 import type { TestSecrets } from "./test-config";
 import { credentialSubject } from "./test-settings";
@@ -41,15 +48,123 @@ export const filterSchema = z
 	})
 	.catch({ kinds: [], tags: [] });
 
+// "https://chat.example.com/…": enough to recognise the target, never the path or its tokens.
+export const maskUrl = (url: string): string => {
+	try {
+		return `${new URL(url).origin}/…`;
+	} catch {
+		return "…";
+	}
+};
+
+// Webhook channel URLs are stored encrypted; the API only ever returns the masked form.
 export const toNotificationChannel = (
 	row: NotificationChannelRow,
-): NotificationChannel => ({
-	id: row.id,
-	kind: row.kind,
-	config: parseJsonColumn(row.configJson, stringRecord, {}),
-	filter: filterSchema.parse(JSON.parse(row.filterJson)),
-	enabled: row.enabled,
+): NotificationChannel => {
+	const config = parseJsonColumn(row.configJson, stringRecord, {});
+	if (row.kind === "webhook") {
+		const { url: legacyUrl, ...rest } = config;
+		return {
+			id: row.id,
+			kind: row.kind,
+			config: {
+				...rest,
+				...(rest.urlMasked
+					? {}
+					: legacyUrl
+						? { urlMasked: maskUrl(legacyUrl) }
+						: {}),
+			},
+			filter: filterSchema.parse(JSON.parse(row.filterJson)),
+			enabled: row.enabled,
+		};
+	}
+	return {
+		id: row.id,
+		kind: row.kind,
+		config,
+		filter: filterSchema.parse(JSON.parse(row.filterJson)),
+		enabled: row.enabled,
+	};
+};
+
+const channelSubject = (id: string) => ({
+	kind: "notification_channel",
+	id,
+	label: `notification channel ${id}`,
 });
+
+export const createChannelSigningSecret = () =>
+	`jlsig_${Buffer.from(randomBytes(32)).toString("base64url")}`;
+
+export type PreparedChannel = {
+	configJson: string;
+	secretEnc: string | null;
+	keyVersion: number;
+	// Returned once, when a webhook channel is created.
+	signingSecret: string | null;
+};
+
+// Webhook channels: the URL and a per-channel signing secret are encrypted with the organisation
+// data key; config keeps only the masked URL. An update without a new URL keeps the stored one.
+export const prepareChannel = async (
+	db: BackendDb,
+	secrets: TestSecrets,
+	input: {
+		orgId: string;
+		id: string;
+		request: Pick<UpsertNotificationChannelRequest, "kind" | "config">;
+		existing: NotificationChannelRow | null;
+		actorUserId: string;
+	},
+): Promise<PreparedChannel> => {
+	const config = await normalizeChannelConfig(db, input.orgId, input.request, {
+		urlRequired: !input.existing,
+	});
+	if (input.request.kind !== "webhook") {
+		return {
+			configJson: JSON.stringify(config),
+			secretEnc: null,
+			keyVersion: 1,
+			signingSecret: null,
+		};
+	}
+	const existingSecret = input.existing?.secretEnc
+		? await secrets.decrypt(
+				input.orgId,
+				channelSubject(input.id),
+				input.existing.secretEnc,
+				{
+					actorUserId: input.actorUserId,
+					reason: "notification_channel.update",
+				},
+			)
+		: null;
+	const legacyUrl = input.existing
+		? parseJsonColumn(input.existing.configJson, stringRecord, {}).url
+		: undefined;
+	const url = config.url ?? existingSecret?.url ?? legacyUrl;
+	if (!url) {
+		throw new HttpError(
+			422,
+			"VALIDATION",
+			"config.url: an http(s) URL is required",
+		);
+	}
+	const isNew = !existingSecret?.signingSecret;
+	const signingSecret =
+		existingSecret?.signingSecret ?? createChannelSigningSecret();
+	const sealed = await secrets.encrypt(input.orgId, channelSubject(input.id), {
+		url,
+		signingSecret,
+	});
+	return {
+		configJson: JSON.stringify({ urlMasked: maskUrl(url) }),
+		secretEnc: sealed.enc,
+		keyVersion: sealed.keyVersion,
+		signingSecret: isNew ? signingSecret : null,
+	};
+};
 
 export const getChannelRow = async (
 	db: BackendDb,
@@ -76,6 +191,7 @@ export const normalizeChannelConfig = async (
 	db: BackendDb,
 	orgId: string,
 	request: Pick<UpsertNotificationChannelRequest, "kind" | "config">,
+	options: { urlRequired?: boolean } = {},
 ): Promise<Record<string, string>> => {
 	if (request.kind === "slack") {
 		const credentialId = request.config.credentialId;
@@ -107,7 +223,19 @@ export const normalizeChannelConfig = async (
 			...(channelLabel ? { channel: channelLabel.slice(0, 80) } : {}),
 		};
 	}
-	const url = httpUrl.safeParse(request.config.url);
+	// The masked URL the API returned, sent back unchanged, means "keep the stored URL".
+	const given = request.config.url?.trim();
+	if (!given || given.endsWith("/…")) {
+		if (options.urlRequired !== false) {
+			throw new HttpError(
+				422,
+				"VALIDATION",
+				"config.url: an http(s) URL is required",
+			);
+		}
+		return {};
+	}
+	const url = httpUrl.safeParse(given);
 	if (!url.success) {
 		throw new HttpError(
 			422,
@@ -211,6 +339,8 @@ export const slackMessage = (
 export type ChannelAdapterDeps = {
 	secrets: TestSecrets;
 	fetch: typeof fetch;
+	// SSRF guard (services/outbound-http.ts).
+	outbound: OutboundPolicy;
 	webOrigin: string | null;
 	// Inline retries for 429, 5xx and network errors before the bus schedules a later one.
 	retryDelaysMs?: readonly number[];
@@ -235,10 +365,10 @@ const postWithRetries = async (
 	let lastError = `${label} did not answer`;
 	for (let attempt = 0; attempt <= delays.length; attempt += 1) {
 		try {
-			const response = await deps.fetch(url, {
+			const response = await guardedFetch(deps.fetch, deps.outbound, url, {
 				method: "POST",
 				headers: { "content-type": "application/json", ...headers },
-				body: JSON.stringify(body),
+				body: typeof body === "string" ? body : JSON.stringify(body),
 				signal: AbortSignal.timeout(10_000),
 			});
 			if (response.ok) {
@@ -254,6 +384,10 @@ const postWithRetries = async (
 				: (delays[attempt] ?? 0);
 			if (attempt < delays.length) await sleep(wait);
 		} catch (error) {
+			if (error instanceof OutboundBlockedError) {
+				// Not retried: the address is refused, not down.
+				return failed(`${label} refused: ${error.message}`);
+			}
 			lastError = `${label} unreachable (${error instanceof Error ? error.name : "error"})`;
 			if (attempt < delays.length) await sleep(delays[attempt] ?? 0);
 		}
@@ -306,26 +440,37 @@ export const createWebhookChannelAdapter = (
 	kind: "webhook",
 	deliver: async ({ event, channel }) => {
 		if (!channel) return [];
-		const config = parseJsonColumn(channel.configJson, stringRecord, {});
-		const url = httpUrl.safeParse(config.url);
+		const stored = channel.secretEnc
+			? await deps.secrets.decrypt(
+					channel.orgId,
+					channelSubject(channel.id),
+					channel.secretEnc,
+					{ actorUserId: null, reason: `notification.${event.kind}` },
+				)
+			: null;
+		const legacy = parseJsonColumn(channel.configJson, stringRecord, {});
+		const url = httpUrl.safeParse(stored?.url ?? legacy.url);
 		if (!url.success) return failed("The webhook channel has no URL");
 		const described = describeNotification(event);
-		return postWithRetries(
-			deps,
-			"Webhook",
-			url.data,
-			{
-				id: event.id,
-				kind: event.kind,
-				subjectType: event.subjectType,
-				subjectId: event.subjectId,
-				title: described.title,
-				body: described.body,
-				url: absoluteUrl(described.url, deps.webOrigin),
-				payload: payloadSchema.parse(JSON.parse(event.payloadJson)),
-				createdAt: event.createdAt,
-			},
-			{ "x-jl-event": event.kind },
-		);
+		const text = JSON.stringify({
+			id: event.id,
+			kind: event.kind,
+			subjectType: event.subjectType,
+			subjectId: event.subjectId,
+			title: described.title,
+			body: described.body,
+			url: absoluteUrl(described.url, deps.webOrigin),
+			payload: payloadSchema.parse(JSON.parse(event.payloadJson)),
+			createdAt: event.createdAt,
+		});
+		// Receivers verify the sender with the channel's signing secret.
+		return postWithRetries(deps, "Webhook", url.data, text, {
+			"x-jl-event": event.kind,
+			...(stored?.signingSecret
+				? {
+						"x-jl-signature-256": `sha256=${createHmac("sha256", stored.signingSecret).update(text).digest("hex")}`,
+					}
+				: {}),
+		});
 	},
 });

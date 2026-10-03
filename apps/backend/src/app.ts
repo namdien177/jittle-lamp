@@ -48,6 +48,7 @@ import {
 } from "./services/notification-channels";
 import { registerNotificationAdapter } from "./services/notifications";
 import { createOrganizationMigration } from "./services/organization-migration";
+import { outboundPolicyFromEnv } from "./services/outbound-http";
 import { createTaskQueue } from "./services/task-queue";
 import {
 	createEnvKeyProvider,
@@ -136,11 +137,19 @@ export const createApp = (
 			})
 		: null;
 
+	// SSRF guard for addresses organisations configure (services/outbound-http.ts).
+	const outbound = outboundPolicyFromEnv({
+		nodeEnv: runtime.nodeEnv,
+		allowLoopbackFlag: source.JL_OUTBOUND_ALLOW_LOOPBACK,
+		allowHosts: source.JL_OUTBOUND_ALLOW_HOSTS,
+	});
+
 	// Slack and outgoing-webhook channels on the notification bus (design.md §10b).
 	if (db) {
 		const channelDeps = {
 			secrets: createTestSecrets({ db, keyProvider }),
 			fetch: dependencies.fetch ?? fetch,
+			outbound,
 			webOrigin: runtime.webAppOrigin ?? null,
 		};
 		registerNotificationAdapter(createSlackChannelAdapter(channelDeps), db);
@@ -211,10 +220,10 @@ export const createApp = (
 		.use(createTestRunRoutes(auth, liveHub))
 		.use(createTestLiveRoutes(auth, liveHub))
 		.use(
-			createTestWebhookRoutes(
-				auth,
-				dependencies.fetch ? { fetchImpl: dependencies.fetch } : {},
-			),
+			createTestWebhookRoutes(auth, {
+				outbound,
+				...(dependencies.fetch ? { fetchImpl: dependencies.fetch } : {}),
+			}),
 		)
 		.use(createTestConfigRoutes(auth))
 		.use(createRunnerPoolRoutes(auth))
@@ -237,6 +246,7 @@ export const createApp = (
 		organizationMigration,
 		keyProvider,
 		liveHub,
+		outbound,
 	};
 };
 

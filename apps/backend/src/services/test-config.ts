@@ -5,9 +5,10 @@ import {
 	createHash,
 	randomBytes,
 } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 
 import {
+	notificationChannels,
 	organizationDataKeys,
 	testCredentials,
 	webhookEndpoints,
@@ -332,6 +333,14 @@ export const createTestSecrets = (input: {
 		return value;
 	};
 
+	// Webhook signature checks run on unauthenticated requests: decrypting there must not let
+	// anyone on the internet write audit rows. Used only for that check.
+	const decryptForSignatureCheck = (
+		orgId: string,
+		subject: { kind: string; id: string },
+		enc: string,
+	) => decryptRaw(orgId, subject, enc);
+
 	// Creates a new data key version, re-encrypts every secret of the organisation with it and
 	// retires the old versions. Secrets never leave the process in plaintext.
 	const rotateDataKey = async (
@@ -355,6 +364,23 @@ export const createTestSecrets = (input: {
 			),
 			columns: { id: true, secretEnc: true },
 		});
+		const channels = await db.query.notificationChannels.findMany({
+			where: and(
+				eq(notificationChannels.orgId, orgId),
+				isNotNull(notificationChannels.secretEnc),
+			),
+			columns: { id: true, secretEnc: true },
+		});
+		const plainChannels = await Promise.all(
+			channels.map(async (row) => ({
+				id: row.id,
+				value: await decryptRaw(
+					orgId,
+					{ kind: "notification_channel", id: row.id },
+					row.secretEnc ?? "",
+				),
+			})),
+		);
 		const plainCredentials = await Promise.all(
 			credentials
 				.filter((row) => row.secretFieldsEnc)
@@ -429,6 +455,21 @@ export const createTestSecrets = (input: {
 				.where(eq(webhookEndpoints.id, endpoint.id));
 		}
 
+		for (const channel of plainChannels) {
+			const sealed = await encrypt(
+				orgId,
+				{ kind: "notification_channel", id: channel.id },
+				channel.value,
+			);
+			await db
+				.update(notificationChannels)
+				.set({
+					secretEnc: sealed.enc,
+					keyVersion: sealed.keyVersion,
+					updatedAt: Date.now(),
+				})
+				.where(eq(notificationChannels.id, channel.id));
+		}
 		await recordOrganizationActivity(db, {
 			organizationId: orgId,
 			actorUserId,
@@ -436,12 +477,16 @@ export const createTestSecrets = (input: {
 			entity: { type: "organization_data_key", id: String(nextVersion) },
 			message: `Rotated the test secrets data key to v${nextVersion}`,
 			metadata: {
-				reencrypted: plainCredentials.length + plainEndpoints.length,
+				reencrypted:
+					plainCredentials.length +
+					plainEndpoints.length +
+					plainChannels.length,
 			},
 		});
 		return {
 			keyVersion: nextVersion,
-			reencrypted: plainCredentials.length + plainEndpoints.length,
+			reencrypted:
+				plainCredentials.length + plainEndpoints.length + plainChannels.length,
 		};
 	};
 
@@ -477,7 +522,14 @@ export const createTestSecrets = (input: {
 		keyProvider.currentKeyId();
 	};
 
-	return { encrypt, decrypt, rotateDataKey, rewrapDataKeys, assertAvailable };
+	return {
+		encrypt,
+		decrypt,
+		decryptForSignatureCheck,
+		rotateDataKey,
+		rewrapDataKeys,
+		assertAvailable,
+	};
 };
 
 export type TestSecrets = ReturnType<typeof createTestSecrets>;

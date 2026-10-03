@@ -46,7 +46,7 @@ const finalized = new Map<string, FinalizeTestRunRequest>();
 const evidence = new Map<string, Record<string, Uint8Array>>();
 const seenAuth = new Set<string>();
 // Live view state for the take-over test.
-const live = { watching: false, takeover: false, inputs: [] as Array<Record<string, unknown>>, frames: 0, takeoverStepId: "" };
+const live = { watching: false, takeover: false, inputs: [] as Array<Record<string, unknown>>, frames: 0, uploads: [] as Array<"frame" | "hidden">, takeoverStepId: "" };
 
 beforeAll(() => {
   app = startFixtureApp({ email: "admin@example.test", password: FIXTURE_PASSWORD });
@@ -88,7 +88,12 @@ beforeAll(() => {
       if (liveMatch) {
         if (!liveMatch[1]?.startsWith("run_live")) return json({ code: "NOT_FOUND" }, 404);
         if (liveMatch[2] === "frame") {
-          if ((await request.arrayBuffer()).byteLength > 0) live.frames += 1;
+          // After a secret was typed the runner sends "frames hidden" instead of frames.
+          if ((request.headers.get("content-type") ?? "").startsWith("application/vnd.jl.frame-hidden")) live.uploads.push("hidden");
+          else if ((await request.arrayBuffer()).byteLength > 0) {
+            live.frames += 1;
+            live.uploads.push("frame");
+          }
           return json({ ok: true });
         }
         const after = Number(url.searchParams.get("after") ?? -1);
@@ -206,7 +211,11 @@ describe("live view and take-over (design.md §5.4)", () => {
 
     const report = finalized.get("run_live_1")?.report;
     expect(report?.outcome).toBe("passed");
-    expect(live.frames).toBeGreaterThan(0);
+    // Frames flow while watched until the Login step hands over the password; from then on the
+    // runner says "hidden" once and never uploads a frame again.
+    expect(live.uploads.length).toBeGreaterThan(0);
+    expect(live.uploads.filter((upload) => upload === "hidden")).toHaveLength(1);
+    expect(live.uploads.slice(live.uploads.indexOf("hidden") + 1)).not.toContain("frame");
     // The other three acts were cached; the one taken over was not.
     const cachedSteps = [...liveCache.values()].flatMap((value) => value.stepIds);
     expect(cachedSteps).toHaveLength(3);

@@ -73,10 +73,17 @@ export type KeyLike = {
   isComposing?: boolean;
 };
 
+// Reserved chord that leaves the remote browser (moves focus to Release) instead of being sent:
+// while holding, Tab and Escape go to the run, so the panel needs a way out for keyboard users.
+export const LEAVE_CHORD_LABEL = "Ctrl+Alt+Esc";
+export function isLeaveChord(event: KeyLike): boolean {
+  return event.key === "Escape" && event.ctrlKey && event.altKey;
+}
+
 // Playwright key names: "Enter", "Shift+Tab", "Control+A". Modifier-only keys and function keys
-// are not sent.
+// are not sent, nor is the leave chord.
 export function keyToLiveInput(event: KeyLike): LiveInput | null {
-  if (event.isComposing) return null;
+  if (event.isComposing || isLeaveChord(event)) return null;
   const { key } = event;
   if (PRESS_KEYS.has(key)) {
     const modifiers = [event.ctrlKey && "Control", event.metaKey && "Meta", event.altKey && "Alt", event.shiftKey && "Shift"].filter(Boolean);

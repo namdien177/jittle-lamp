@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 import {
   agentNotesSchema,
   bulkTestCaseResponseSchema,
+    createNotificationChannelResponseSchema,
   createWebhookEndpointResponseSchema,
   createRunnerPoolResponseSchema,
   duplicateTestCaseResponseSchema,
@@ -223,7 +224,7 @@ export const testAdminApi = {
     }
   },
   createNotificationChannel: (getToken: FetchToken, body: UpsertNotificationChannelRequest) =>
-    request(getToken, "/notification-channels", oneOf(notificationChannelSchema, "channel"), json("POST", body)),
+        request(getToken, "/notification-channels", createNotificationChannelResponseSchema, json("POST", body)),
   updateNotificationChannel: (getToken: FetchToken, channelId: string, body: Partial<UpsertNotificationChannelRequest>) =>
     request(getToken, `/notification-channels/${id(channelId)}`, oneOf(notificationChannelSchema, "channel"), json("PATCH", body)),
   deleteNotificationChannel: (getToken: FetchToken, channelId: string) =>

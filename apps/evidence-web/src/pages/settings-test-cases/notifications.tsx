@@ -19,7 +19,7 @@ import {
   useTestCredentials,
   useTestPermissions
 } from "../../test-cases/admin-queries";
-import { AdminCard, ErrorNote, ReadOnlyNotice, Toggle, pressable } from "../../test-cases/admin-ui";
+import { AdminCard, CopyBlock, ErrorNote, ReadOnlyNotice, Toggle, pressable } from "../../test-cases/admin-ui";
 import { channelFilterSummary, notificationKindLabels, splitList } from "../../test-config/webhook-ui";
 import { isSubscribed, notificationKinds, toggleSubscription, type NotificationSubscriptions } from "../../notifications/subscriptions";
 
@@ -115,7 +115,7 @@ export function SettingsTestNotificationsPage(): React.JSX.Element {
                 title={
                   channel.kind === "slack"
                     ? `Slack${channel.config.channel ? ` ${channel.config.channel}` : ""} · ${credentialName(channel.config.credentialId)}`
-                    : `Webhook · ${channel.config.url ?? ""}`
+                                        : `Webhook · ${channel.config.urlMasked ?? channel.config.url ?? ""}`
                 }
                 detail={channelFilterSummary(channel.filter)}
                 status={<Badge variant={channel.enabled ? "success" : "muted"}>{channel.enabled ? "Enabled" : "Disabled"}</Badge>}
@@ -164,7 +164,9 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
   const [kind, setKind] = useState<ExternalKind>(props.channel?.kind === "webhook" ? "webhook" : "slack");
   const [credentialId, setCredentialId] = useState(props.channel?.config.credentialId ?? "");
   const [label, setLabel] = useState(props.channel?.config.channel ?? "");
-  const [url, setUrl] = useState(props.channel?.config.url ?? "");
+    // Stored encrypted and shown masked; empty on edit keeps the stored URL.
+  const [url, setUrl] = useState("");
+  const [signingSecret, setSigningSecret] = useState<string | null>(null);
   const [kinds, setKinds] = useState<NotificationKind[]>(props.channel?.filter.kinds ?? ["run.finished", "run.blocked", "batch.finished"]);
   const [tags, setTags] = useState((props.channel?.filter.tags ?? []).join(", "));
   const [error, setError] = useState<string | null>(null);
@@ -176,15 +178,40 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
 
   const submit = async () => {
     if (kind === "slack" && !credentialId) return setError("Choose the Slack webhook credential.");
-    if (kind === "webhook" && !/^https?:\/\/\S+$/i.test(url.trim())) return setError("The URL must start with http:// or https://.");
+        const keepUrl = kind === "webhook" && props.channel !== null && url.trim() === "";
+    if (kind === "webhook" && !keepUrl && !/^https?:\/\/\S+$/i.test(url.trim())) return setError("The URL must start with http:// or https://.");
     setError(null);
-    await save.mutateAsync({
+    const saved = await save.mutateAsync({
       kind,
-      config: kind === "slack" ? { credentialId, ...(label.trim() ? { channel: label.trim() } : {}) } : { url: url.trim() },
+      config: kind === "slack" ? { credentialId, ...(label.trim() ? { channel: label.trim() } : {}) } : keepUrl ? {} : { url: url.trim() },
       filter: { kinds, tags: splitList(tags) }
     });
-    props.onClose();
+    // A new webhook channel's signing secret is shown once, here.
+    const secret = (saved as { signingSecret?: string | null }).signingSecret ?? null;
+    if (secret) setSigningSecret(secret);
+    else props.onClose();
   };
+
+  if (signingSecret) {
+    return (
+      <Dialog
+        title="Webhook channel added"
+        onClose={props.onClose}
+        size="md"
+        closeOnOverlay={false}
+        footer={
+          <Button size="sm" onClick={props.onClose}>
+            I have copied the secret
+          </Button>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          Every post carries <code className="font-mono text-xs">X-Jl-Signature-256: sha256=&lt;HMAC-SHA256 of the body&gt;</code>. Verify it with this secret; it is shown once.
+        </p>
+        <CopyBlock label="Signing secret" value={signingSecret} />
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog
@@ -235,7 +262,15 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
             </Field>
           </>
         ) : (
-          <Field label="URL" htmlFor="channel-url">
+                    <Field
+            label="URL"
+            htmlFor="channel-url"
+            hint={
+              props.channel
+                ? `Stored encrypted (${props.channel.config.urlMasked ?? "set"}). Leave empty to keep it.`
+                : "Stored encrypted. Must resolve to a public address. Posts carry X-Jl-Signature-256."
+            }
+          >
             <Input id="channel-url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://chat.example.com/hooks/jittle-lamp" />
           </Field>
         )}
