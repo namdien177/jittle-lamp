@@ -63,6 +63,8 @@ Status values: `todo`, `in progress`, `done`, `blocked: model key`, `blocked: <r
 
 ## Log
 
+- 2026-10-03: 1c Preview build fix: the standalone evidence-web build now builds viewer-react (including shared and viewer-core) before ui. A fresh detached checkout with frozen dependencies built successfully without cached dist files. Workspace typecheck, 567 unit tests, backend lint and version sync pass; independent review confirms the dependency order. Hosted Vercel rebuild pending push.
+
 - 2026-10-03: production-readiness gaps from the deployment guide fixed (`feat/e2e-ops-fix`): daily model budget enforced (`BUDGET_EXCEEDED`, UTC day, released on the next day or a raised budget); `secrets:rewrap` command for master key rotation; leases on webhook reports and channel delivery (migration 0030) and the queue sweep, report and channel workers log errors; Jira search through the SSRF guard (`422 JIRA_URL_BLOCKED`); `JL_OUTBOUND_ALLOW_LOOPBACK` takes 1/true/yes/on; `runner.env` sets `JL_RUNNER_CONCURRENCY` again; New token for the cloud pool (`evidence/ops-cloud-pool-token.png`); dev-auth setup no longer reads the root `.env`; daemon help names `<api host>-<host name>.json`. Suites: root 478, backend 229, MCP 46, runner unit 43, runner browser 20.
 - 2026-10-03: provider-neutral model settings merged (shared provider list; OpenRouter, OpenAI-compatible with base URL, AI Gateway, OpenAI, Anthropic, Google, xAI; unknown prefixes rejected on save; separate judge key; model prices editable, router ids priced like the vendor model). Evidence `evidence/ops-ai-model-providers.png`, `ops-ai-model-prices.png`. Deployment guide `deployment.md` (ops.8).
 

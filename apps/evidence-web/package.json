@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run --cwd ../../packages/ui build && bun run ./scripts/build.ts",
+    "build": "bun run --cwd ../../packages/viewer-react build && bun run --cwd ../../packages/ui build && bun run ./scripts/build.ts",
     "typecheck": "bun x tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
