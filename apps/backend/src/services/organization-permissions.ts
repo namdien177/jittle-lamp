@@ -30,6 +30,17 @@ export const organizationPermissionSchema = z.enum([
 	"members.assign_role",
 	"members.kick",
 	"activity.view",
+	"test_case.view",
+	"test_case.create",
+	"test_case.update",
+	"test_case.approve",
+	"test_case.delete",
+	"test_run.create",
+	"test_run.cancel",
+	"test_run.cancel_any",
+	"test_run.view",
+	"test_config.manage",
+	"test_config.use",
 ]);
 
 export const allOrganizationPermissions = organizationPermissionSchema.options;
@@ -48,12 +59,62 @@ export const defaultRoleLabels = {
 	qa_engineer: "QA Engineer",
 } as const satisfies Record<OrganizationRoleKey, string>;
 
+export const testCasePermissions = [
+	"test_case.view",
+	"test_case.create",
+	"test_case.update",
+	"test_case.approve",
+	"test_case.delete",
+] as const satisfies readonly OrganizationPermission[];
+
+export const testRunPermissions = [
+	"test_run.create",
+	"test_run.cancel",
+	"test_run.cancel_any",
+	"test_run.view",
+] as const satisfies readonly OrganizationPermission[];
+
+export const testConfigPermissions = [
+	"test_config.manage",
+	"test_config.use",
+] as const satisfies readonly OrganizationPermission[];
+
+// Default grants for test cases (design.md §6, §9.3): QA engineers author, review and run;
+// developers view and run; moderators and admins hold everything.
+export const defaultRoleTestPermissions = {
+	developer: [
+		"test_case.view",
+		"test_run.create",
+		"test_run.view",
+		"test_config.use",
+	],
+	qa_engineer: [
+		...testCasePermissions,
+		...testRunPermissions,
+		"test_config.use",
+	],
+	moderator: [
+		...testCasePermissions,
+		...testRunPermissions,
+		...testConfigPermissions,
+	],
+	admin: [
+		...testCasePermissions,
+		...testRunPermissions,
+		...testConfigPermissions,
+	],
+} as const satisfies Record<
+	OrganizationRoleKey,
+	readonly OrganizationPermission[]
+>;
+
 export const defaultRolePermissions = {
 	developer: [
 		"evidence.view",
 		"evidence.download",
 		"evidence.comment",
 		"evidence.create",
+		...defaultRoleTestPermissions.developer,
 	],
 	qa_engineer: [
 		"evidence.view",
@@ -63,6 +124,7 @@ export const defaultRolePermissions = {
 		"evidence.update.own",
 		"evidence.delete.own",
 		"evidence.move.own",
+		...defaultRoleTestPermissions.qa_engineer,
 	],
 	moderator: [
 		"evidence.view",
@@ -79,6 +141,7 @@ export const defaultRolePermissions = {
 		"invitations.disable",
 		"join_requests.manage",
 		"activity.view",
+		...defaultRoleTestPermissions.moderator,
 	],
 	admin: allOrganizationPermissions,
 } as const satisfies Record<
@@ -106,11 +169,16 @@ export const normalizeOrganizationRoleKey = (
 	}
 };
 
+// Stored role JSON may come from an older or newer server version: unknown values are dropped
+// rather than failing every permission check for the organisation.
 export const parsePermissions = (
 	permissionsJson: string,
 ): OrganizationPermission[] => {
-	const parsed = JSON.parse(permissionsJson) as unknown;
-	return organizationPermissionSchema.array().parse(parsed);
+	const parsed = z.array(z.string()).parse(JSON.parse(permissionsJson));
+	const known = new Set<string>(organizationPermissionSchema.options);
+	return parsed.filter((permission): permission is OrganizationPermission =>
+		known.has(permission),
+	);
 };
 
 export const serializePermissions = (

@@ -1,0 +1,93 @@
+{
+  "environment": "preprod",
+  "organisation": "LittleLives",
+  "caseId": "01a1013e-86f8-748f-a161-9114965fbe7d",
+  "pool": "preprod-mac",
+  "target": "https://www.saucedemo.com",
+  "runs": [
+    {
+      "runId": "01a1013f-3ca8-75e5-8fd3-cd03f80e8e36",
+      "evidenceId": "01a1013f-8479-7792-8718-d211b2743d81",
+      "outcome": "passed",
+      "model": {
+        "act": "gateway/alibaba/qwen3.7-flash",
+        "judge": "gateway/alibaba/qwen3.7-flash",
+        "provider": "gateway"
+      },
+      "totals": {
+        "stepsTotal": 3,
+        "stepsReplayed": 0,
+        "stepsAgent": 1,
+        "stepsHandoff": 0,
+        "usage": {
+          "modelId": "gateway/alibaba/qwen3.7-flash",
+          "modelCalls": 2,
+          "inputTokens": 5938,
+          "cachedInputTokens": 5376,
+          "outputTokens": 101,
+          "reasoningTokens": 0,
+          "costUsd": 0.00022352600000000001
+        },
+        "judgeUsage": {
+          "modelId": "gateway/alibaba/qwen3.7-flash",
+          "modelCalls": 1,
+          "inputTokens": 741,
+          "cachedInputTokens": 0,
+          "outputTokens": 67,
+          "reasoningTokens": 240,
+          "costUsd": 6.214e-05
+        }
+      }
+    },
+    {
+      "runId": "01a10142-cf36-7503-9eba-9de8a5bad9e5",
+      "evidenceId": "01a10142-f5f5-76e0-94d7-5a8f9b2a63b9",
+      "outcome": "passed",
+      "model": {
+        "act": "gateway/alibaba/qwen3.7-flash",
+        "judge": "gateway/alibaba/qwen3.7-flash",
+        "provider": "gateway"
+      },
+      "totals": {
+        "stepsTotal": 3,
+        "stepsReplayed": 1,
+        "stepsAgent": 0,
+        "stepsHandoff": 0,
+        "usage": {
+          "modelId": "gateway/alibaba/qwen3.7-flash",
+          "modelCalls": 0,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "reasoningTokens": 0,
+          "costUsd": null
+        },
+        "judgeUsage": {
+          "modelId": "gateway/alibaba/qwen3.7-flash",
+          "modelCalls": 1,
+          "inputTokens": 741,
+          "cachedInputTokens": 0,
+          "outputTokens": 61,
+          "reasoningTokens": 208,
+          "costUsd": 5.72e-05
+        }
+      }
+    }
+  ],
+  "gatewayKeyPrefixScan": {
+    "filesAndZipEntriesChecked": 205,
+    "matches": 0
+  },
+  "viewerStatus": "verified: archive loaded and video playback readyState 4 in Edge after S3 CORS update",
+  "serviceSmoke": {
+    "runId": "01a1014d-58c1-7206-be35-ff594a729d41",
+    "evidenceId": "01a1014d-b684-75d9-bf01-4bae73c8d765",
+    "outcome": "passed",
+    "actCalls": 0,
+    "judgeCalls": 1,
+    "stepsReplayed": 1,
+    "supervisor": "per-user macOS LaunchAgent",
+    "runnerCommit": "23696d0ef3cf600c03f751bf2ca8b8ad836eca42",
+    "note": "One progress PATCH returned 502 during backend deployment; evidence upload and finalisation succeeded."
+  }
+}

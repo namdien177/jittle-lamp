@@ -21,6 +21,7 @@ import {
 	type ClerkAuthPlugin,
 	requireSessionScope,
 } from "../plugins/clerk-auth";
+import { canSignReadUrls } from "../services/artifact-storage";
 import {
 	formatClerkDisplayName,
 	resolveClerkUserProfile,
@@ -2034,7 +2035,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								404,
 							);
 						}
-						if (artifactStorage.mode !== "s3") {
+						if (!canSignReadUrls(artifactStorage)) {
 							set.status = 503;
 							return createApiError(
 								requestId,
@@ -2238,7 +2239,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							return createDbUnavailableError(requestId);
 						}
 
-						if (artifactStorage.mode !== "s3") {
+						if (!canSignReadUrls(artifactStorage)) {
 							set.status = 503;
 							return createApiError(
 								requestId,

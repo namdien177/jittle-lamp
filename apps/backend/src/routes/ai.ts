@@ -1,6 +1,5 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-
 import {
 	aiAccessTokens,
 	desktopRecordingSessions,
@@ -22,6 +21,7 @@ import {
 	revokeAiAccessToken,
 	verifyAiAccessToken,
 } from "../services/ai-access-tokens";
+import { canSignReadUrls } from "../services/artifact-storage";
 import { createEvidencePolicy } from "../services/evidence-policy";
 import { getRequestIpAddress } from "../services/organization-activity";
 
@@ -637,7 +637,7 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 								readUrlUnavailableReason: "artifact_not_uploaded",
 							};
 						}
-						if (artifactStorage.mode !== "s3") {
+						if (!canSignReadUrls(artifactStorage)) {
 							return {
 								...artifact,
 								s3Key: undefined,

@@ -4,11 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { strToU8, zipSync } from "fflate";
-import { buildSectionTimeline, createSessionArchive, createSessionDraft, type ActionMergeGroup } from "@jittle-lamp/shared";
-import { createMergeGroup, getContiguousMergeableSelection } from "@jittle-lamp/viewer-core";
+import {
+  buildSectionTimeline,
+  createSessionArchive,
+  createSessionDraft,
+  type ActionMergeGroup,
+  type SessionArchive
+} from "@jittle-lamp/shared";
+import { createMergeGroup, deriveSectionTimeline, getContiguousMergeableSelection } from "@jittle-lamp/viewer-core";
+import { buildViewerStepChips } from "@jittle-lamp/viewer-react";
+
+import { makeRunnerArchive } from "./fixtures/e2e/runner-archive";
 
 import { importZipBundle, buildSessionZip } from "../apps/desktop/src/session/zip-import";
-import { saveLibrarySessionReviewState, _testOverrideDb } from "../apps/desktop/src/companion/sessions-db";
+import { loadLibrarySession, saveLibrarySessionReviewState, _testOverrideDb } from "../apps/desktop/src/companion/sessions-db";
 import { loadSessionZip } from "../apps/evidence-web/src/loader";
 import { buildReviewedSessionZip } from "../apps/evidence-web/src/archive-export";
 
@@ -152,6 +161,65 @@ describe("review E2E parity: desktop app", () => {
     const savedArchive = JSON.parse(await readFile(join(sessionDir, "session.archive.json"), "utf8")) as { notes: string[] };
     expect(savedArchive.notes).toEqual(["review complete"]);
 
+    await rm(outputDir, { recursive: true, force: true });
+  });
+});
+
+describe("review E2E parity: test-run evidence (archive v4)", () => {
+  const runnerZip = () =>
+    zipSync({
+      "session.archive.json": strToU8(JSON.stringify(makeRunnerArchive())),
+      "recording.webm": new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])
+    });
+
+  const stepView = (archive: SessionArchive) => ({
+    chips: buildViewerStepChips(archive),
+    filtered: buildViewerStepChips(archive).map((chip) => ({
+      stepId: chip.stepId,
+      actions: deriveSectionTimeline(archive, "actions", "all", "", chip.stepId).map((item) => item.id),
+      network: deriveSectionTimeline(archive, "network", "all", "", chip.stepId).map((item) => item.id),
+      console: deriveSectionTimeline(archive, "console", "all", "", chip.stepId).map((item) => item.id)
+    }))
+  });
+
+  test("desktop and web show the same steps and step-filtered timelines, and review saves keep steps", async () => {
+    _testOverrideDb(":memory:");
+    const web = await loadSessionZip(new File([runnerZip() as Uint8Array<ArrayBuffer>], "run.zip", { type: "application/zip" }));
+    const desktop = await importZipBundle(runnerZip());
+
+    expect(web.archive.recorder.kind).toBe("e2e-runner");
+    expect(stepView(desktop.archive)).toEqual(stepView(web.archive));
+    expect(stepView(web.archive).chips.map((chip) => chip.status)).toEqual(["passed", "passed"]);
+    expect(stepView(web.archive).filtered[1]?.network).toHaveLength(1);
+
+    // Web: reviewed export keeps step annotations next to the new merge groups.
+    const exported = buildReviewedSessionZip({
+      archive: web.archive,
+      mergeGroups: [],
+      recordingBytes: web.recordingBytes,
+      now: new Date("2026-10-03T09:00:00.000Z")
+    });
+    const reloaded = await loadSessionZip(new File([exported as Uint8Array<ArrayBuffer>], "reviewed.zip", { type: "application/zip" }));
+    expect(stepView(reloaded.archive)).toEqual(stepView(web.archive));
+
+    // Desktop: saving review state keeps step annotations too.
+    const outputDir = join(tmpdir(), `jl-e2e-run-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const sessionDir = join(outputDir, desktop.archive.sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "session.archive.json"), JSON.stringify(desktop.archive, null, 2));
+    await writeFile(join(sessionDir, "recording.webm"), new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]));
+    const saved = await saveLibrarySessionReviewState({
+      sessionId: desktop.archive.sessionId,
+      outputDir,
+      notes: "",
+      annotations: []
+    });
+    expect(stepView(saved)).toEqual(stepView(web.archive));
+
+    // Desktop library sessions are rebuilt from the catalog database; step tags must survive it.
+    const library = await loadLibrarySession(desktop.archive.sessionId, outputDir);
+    expect(stepView(library.archive)).toEqual(stepView(web.archive));
+    expect(library.archive.sections.network.map((entry) => entry.tags)).toEqual(web.archive.sections.network.map((entry) => entry.tags));
     await rm(outputDir, { recursive: true, force: true });
   });
 });

@@ -2,6 +2,7 @@ import { zipSync } from "fflate";
 
 import {
   recordingFileName,
+  replaceMergeGroups,
   sessionArchiveFileName,
   sessionArchiveSchema,
   type ActionMergeGroup,
@@ -17,7 +18,7 @@ export function buildReviewedArchive(input: {
   return sessionArchiveSchema.parse({
     ...input.archive,
     updatedAt: (input.now ?? new Date()).toISOString(),
-    annotations: input.mergeGroups
+    annotations: replaceMergeGroups(input.archive.annotations, input.mergeGroups)
   });
 }
 

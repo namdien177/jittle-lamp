@@ -11,6 +11,7 @@ import {
 	KeyRound,
 	Plus,
 	ShieldCheck,
+	SlidersHorizontal,
 	Terminal,
 	Trash2,
 	UploadCloud,
@@ -19,7 +20,7 @@ import {
 import type React from "react";
 import { useMemo, useState } from "react";
 import type { MigrationCompatibility, ReceiverCode } from "@jittle-lamp/shared";
-import { Link, NavLink, Outlet } from "react-router";
+import { Link, Outlet } from "react-router";
 
 import {
 	buildAiEvidencePrompt,
@@ -28,15 +29,20 @@ import {
 } from "../ai-prompt";
 import type { ApiAiAccessToken, ApiAutomationApiToken } from "../api";
 import { useClerk } from "../auth";
-import { PageBody, PageHeader } from "../components/page";
+import {
+	PageHeader,
+	SettingsLayout,
+	SettingsNav,
+	type SettingsNavGroup,
+} from "../components/page";
 import { Badge } from "../components/ui/badge";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { ConfirmDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
-import { Skeleton } from "../components/ui/misc";
-import { Select } from "../components/ui/select";
+import { Skeleton } from "../components/ui/skeleton";
+import { SimpleSelect } from "../components/ui/select";
 import { apiOrigin } from "../env";
 import { cn } from "../lib/cn";
 import {
@@ -65,6 +71,7 @@ import {
 } from "../migration-ui-state";
 import { useToast } from "../toast";
 import { copyToClipboard } from "../utils";
+import { Hint } from "../components/ui/tooltip";
 
 const INSTALL_COMMAND =
 	"curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash";
@@ -90,7 +97,7 @@ type NetworkSubtype =
   | "other";
 
 export interface SessionArchiveJson {
-  schemaVersion: 3;
+  schemaVersion: 3 | 4; // 3: browser extension, 4: adds recorder.kind and step annotations
   sessionId: string; // 8-128 chars
   name: string;
   createdAt: IsoTimestamp;
@@ -269,58 +276,35 @@ function SettingCard(props: {
 	children: React.ReactNode;
 }): React.JSX.Element {
 	return (
-		<Card className="jl-proto-card p-0">
-			<div className="border-b border-border px-5 py-4">
-				<h2 className="font-display text-base font-bold">{props.title}</h2>
+		<Card className="overflow-hidden">
+			<div className="border-b border-border px-4 py-3">
+				<h2 className="text-sm font-semibold">{props.title}</h2>
 				{props.description ? (
-					<p className="text-sm text-muted-foreground">{props.description}</p>
+					<p className="text-[13px] text-muted-foreground">{props.description}</p>
 				) : null}
 			</div>
-			<CardContent className="p-5 pt-5">{props.children}</CardContent>
+			<CardContent className="p-4">{props.children}</CardContent>
 		</Card>
 	);
 }
 
-function SettingsSectionNav(): React.JSX.Element {
-	const tabs = [
-		{ to: "/settings", label: "Overview", icon: UserCog },
-		{ to: "/settings/ai-tokens", label: "AI tokens", icon: Bot },
-		{ to: "/settings/api-tokens", label: "API tokens", icon: UploadCloud },
-		{ to: "/settings/migration", label: "Migration", icon: ArrowRightLeft },
-	];
-
-	return (
-		<nav
-			aria-label="Settings"
-			className="rounded-md border border-border bg-card p-2 shadow-soft"
-		>
-			<div className="mb-2 px-2 py-1 font-mono text-xs font-semibold uppercase text-muted-foreground">
-				Settings
-			</div>
-			<div className="grid gap-1">
-				{tabs.map((tab) => {
-					const Icon = tab.icon;
-					return (
-						<NavLink
-							key={tab.to}
-							to={tab.to}
-							end={tab.to === "/settings"}
-							className={({ isActive }) =>
-								cn(
-									"flex items-center gap-2 rounded-md px-3 py-2 text-base font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-									isActive && "bg-secondary text-foreground shadow-soft",
-								)
-							}
-						>
-							<Icon className="size-4" aria-hidden />
-							<span>{tab.label}</span>
-						</NavLink>
-					);
-				})}
-			</div>
-		</nav>
-	);
-}
+const accountSettingsGroups: SettingsNavGroup[] = [
+	{
+		label: "Account",
+		items: [
+			{ to: "/settings", label: "Overview", icon: UserCog, end: true },
+			{ to: "/settings/ai-tokens", label: "AI tokens", icon: Bot },
+			{ to: "/settings/api-tokens", label: "API tokens", icon: UploadCloud },
+		],
+	},
+	{
+		label: "Organisation",
+		items: [
+			{ to: "/settings/migration", label: "Migration", icon: ArrowRightLeft },
+			{ to: "/test-cases/settings", label: "Testing settings", icon: SlidersHorizontal },
+		],
+	},
+];
 
 function TokenWarning(props: { children: React.ReactNode }): React.JSX.Element {
 	return (
@@ -387,20 +371,21 @@ function TokenSecret(props: {
 	return (
 		<span
 			className="inline-flex min-w-0 items-center gap-1.5 font-mono"
-			title={value}
 		>
 			<KeyRound className="size-3.5" aria-hidden />
 			<span className="break-all">{value}</span>
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				className="size-7"
-				disabled={!props.token.token}
-				onClick={props.onCopy}
-				aria-label={`Copy ${props.token.label}`}
-			>
-				<Copy aria-hidden />
-			</Button>
+			<Hint label="Copy">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					className="size-7"
+					disabled={!props.token.token}
+					onClick={props.onCopy}
+					aria-label={`Copy ${props.token.label}`}
+				>
+					<Copy aria-hidden />
+				</Button>
+			</Hint>
 		</span>
 	);
 }
@@ -408,17 +393,10 @@ function TokenSecret(props: {
 export function SettingsPage(): React.JSX.Element {
 	return (
 		<>
-			<PageHeader eyebrow="Workspace" title="Settings" />
-			<PageBody className="max-w-5xl">
-				<div className="grid gap-5 lg:grid-cols-[14rem_minmax(0,1fr)]">
-					<aside className="lg:sticky lg:top-6 lg:self-start">
-						<SettingsSectionNav />
-					</aside>
-					<div className="min-w-0">
-						<Outlet />
-					</div>
-				</div>
-			</PageBody>
+			<PageHeader title="Account" />
+			<SettingsLayout nav={<SettingsNav label="Settings" groups={accountSettingsGroups} />}>
+				<Outlet />
+			</SettingsLayout>
 		</>
 	);
 }
@@ -513,12 +491,9 @@ export function SettingsOverviewPage(): React.JSX.Element {
 			>
 				<div className="flex items-center gap-2 overflow-hidden rounded-md border border-border bg-muted pl-3 pr-1.5 font-mono text-base">
 					<Terminal aria-hidden className="size-4 shrink-0 text-primary" />
-					<code
-						className="flex-1 truncate py-2.5 text-muted-foreground"
-						title={INSTALL_COMMAND}
-					>
-						curl ... | bash
-					</code>
+					<Hint label={INSTALL_COMMAND}>
+						<code className="flex-1 truncate py-2.5 text-muted-foreground">curl ... | bash</code>
+					</Hint>
 					<button
 						type="button"
 						onClick={onCopy}
@@ -710,7 +685,7 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 									: "Read evidence sessions and captured request data that your account can view and download."
 							}
 						>
-							<Select<"debug" | "mcp">
+							<SimpleSelect<"debug" | "mcp">
 								ariaLabel="AI token access"
 								value={aiTokenAccess}
 								options={[
@@ -756,7 +731,6 @@ export function SettingsAiTokensPage(): React.JSX.Element {
 						<div className="flex items-end">
 							<Button
 								type="submit"
-								size="md"
 								className="w-full md:w-auto"
 								disabled={createAiToken.isPending}
 							>
@@ -1140,7 +1114,6 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 						<div className="flex items-end">
 							<Button
 								type="submit"
-								size="md"
 								className="w-full md:w-auto"
 								disabled={
 									createApiToken.isPending ||
@@ -1210,7 +1183,7 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 									session.archive.json standard
 								</div>
 								<p className="text-base text-muted-foreground">
-									Validated as schemaVersion 3. Include this file with
+									Validated as schemaVersion 3 or 4. Include this file with
 									recording.webm in the upload ZIP.
 								</p>
 							</div>

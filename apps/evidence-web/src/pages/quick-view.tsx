@@ -165,7 +165,7 @@ export function QuickViewPage(): React.JSX.Element {
           {!isLoading ? (
             <span
               className={cn(
-                buttonVariants({ variant: "primary", size: "sm" }),
+                buttonVariants({ variant: "default", size: "sm" }),
                 "pointer-events-none",
               )}
             >

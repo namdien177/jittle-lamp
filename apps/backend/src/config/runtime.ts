@@ -24,6 +24,7 @@ export type RuntimeConfig = {
 	s3:
 		| {
 				bucket: string;
+				keyPrefix?: string | undefined;
 				region: string;
 				endpoint: string | undefined;
 				accessKeyId: string;
@@ -39,8 +40,13 @@ export type RuntimeConfig = {
 	clerkJwtKey: string | undefined;
 	clerkAudience: string | undefined;
 	clerkAuthorizedParties: string[] | undefined;
+	vercelPreviewProject?: string | undefined;
+	vercelPreviewTeam?: string | undefined;
 	webAppOrigin: string | undefined;
 	apiOrigin: string | undefined;
+	devAuthEnabled: boolean;
+	secretsMasterKey: string | undefined;
+	secretsMasterKeyPrevious: string | undefined;
 };
 
 const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, "");
@@ -64,7 +70,7 @@ const parseAuthorizedParties = (
 	return parsed.length > 0 ? parsed : undefined;
 };
 
-const parseBooleanFlag = (
+export const parseBooleanFlag = (
 	value: string | undefined,
 	defaultValue = false,
 ): boolean => {
@@ -110,6 +116,7 @@ export const buildRuntimeConfig = (env: AppEnv): RuntimeConfig => {
 			env.S3_SECRET_ACCESS_KEY
 				? {
 						bucket: env.S3_BUCKET,
+						keyPrefix: env.S3_KEY_PREFIX,
 						region: env.S3_REGION,
 						endpoint: env.S3_ENDPOINT,
 						accessKeyId: env.S3_ACCESS_KEY_ID,
@@ -127,9 +134,14 @@ export const buildRuntimeConfig = (env: AppEnv): RuntimeConfig => {
 		clerkAuthorizedParties: parseAuthorizedParties(
 			env.CLERK_AUTHORIZED_PARTIES,
 		),
+		vercelPreviewProject: env.VERCEL_PREVIEW_PROJECT,
+		vercelPreviewTeam: env.VERCEL_PREVIEW_TEAM,
 		webAppOrigin: env.WEB_APP_ORIGIN,
 		apiOrigin: env.JITTLE_LAMP_API_ORIGIN
 			? normalizeOrigin(env.JITTLE_LAMP_API_ORIGIN)
 			: undefined,
+		devAuthEnabled: parseBooleanFlag(env.JITTLE_LAMP_DEV_AUTH_ENABLED, false),
+		secretsMasterKey: env.JL_SECRETS_MASTER_KEY?.trim(),
+		secretsMasterKeyPrevious: env.JL_SECRETS_MASTER_KEY_PREVIOUS?.trim(),
 	};
 };

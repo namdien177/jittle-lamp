@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   recordingFileName,
@@ -20,7 +20,9 @@ import {
   type OpenDialogOptions
 } from "electron";
 
+import { desktopApiOrigin } from "../api-origin";
 import { loadResolvedCompanionConfig, saveCompanionConfig } from "../companion/config";
+import { deepLinkScheme, findDeepLinkInArgv, isExternalHttpUrl, isSameFileUrl, parseDeepLink, type DeepLinkTarget } from "../deep-link";
 import {
   deleteSession,
   getCompanionConfigState,
@@ -50,7 +52,14 @@ import {
   type DesktopRendererMessageMap,
   type DesktopRequestMap
 } from "../rpc";
-import { buildSessionZip, clearTempSession, importZipBundle, loadLocalSession } from "../session/zip-import";
+import {
+  buildSessionZip,
+  clearAllTempSessions,
+  clearTempSession,
+  importZipBundle,
+  loadLocalSession,
+  openRemoteEvidence
+} from "../session/zip-import";
 
 type DesktopHandler<K extends keyof DesktopRequestMap> = (
   params: DesktopRequestMap[K]["params"]
@@ -74,12 +83,16 @@ const currentFile = fileURLToPath(import.meta.url);
 const currentDir = dirname(currentFile);
 const preloadPath = join(currentDir, "preload.js");
 const mainViewPath = join(currentDir, "..", "views", "mainview", "index.html");
+const mainViewUrl = pathToFileURL(mainViewPath).href;
 const macosDesktopInstallScriptUrl =
   "https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh";
 const latestReleaseApiUrl = "https://api.github.com/repos/namdien177/jittle-lamp/releases/latest";
 
 let mainWindow: BrowserWindow | null = null;
 let desktopUpdateState: DesktopUpdateState = createInitialDesktopUpdateState();
+// The latest `jittle-lamp://` target, held until the renderer consumes it (it may still be loading
+// or waiting for sign-in when the link arrives).
+let pendingDeepLink: DeepLinkTarget | null = null;
 
 const handlers: DesktopHandlerMap = {
   addSessionTag: async ({ sessionId, tag }) => {
@@ -95,6 +108,11 @@ const handlers: DesktopHandlerMap = {
     return {
       selectedPath: result.canceled ? null : result.filePaths[0] ?? null
     };
+  },
+  consumeDeepLink: () => {
+    const target = pendingDeepLink;
+    pendingDeepLink = null;
+    return { target };
   },
   clearTempSession: async ({ tempId }) => {
     await clearTempSession(tempId);
@@ -259,11 +277,12 @@ const handlers: DesktopHandlerMap = {
       ok: true as const
     };
   },
+  openRemoteEvidence: async (request) => openRemoteEvidence(request, desktopApiOrigin),
   openExternalUrl: async ({ url }) => {
-    const parsedUrl = new URL(url);
-    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+    if (!isExternalHttpUrl(url)) {
       throw new Error("Only HTTP(S) URLs can be opened externally.");
     }
+    const parsedUrl = new URL(url);
 
     await shell.openExternal(parsedUrl.toString());
     return {
@@ -315,31 +334,118 @@ const handlers: DesktopHandlerMap = {
 };
 
 app.setName("Jittle Lamp");
-registerIpcHandlers();
 
-void app.whenReady().then(async () => {
-  await startCompanionServer().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
+// One instance owns the companion port and the protocol handler. A second launch (for example a
+// `jittle-lamp://run?runId=…` link on Windows or Linux) hands its argv to this instance and quits.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  registerDeepLinkProtocol();
+  registerIpcHandlers();
+  startDesktopApp();
+}
+
+function registerDeepLinkProtocol(): void {
+  if (process.defaultApp && process.argv.length >= 2 && process.argv[1]) {
+    // Development (`electron .`): register the Electron binary with the app path as its argument.
+    app.setAsDefaultProtocolClient(deepLinkScheme, process.execPath, [resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient(deepLinkScheme);
+  }
+
+  // macOS delivers links through open-url, also before the app is ready.
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
   });
 
-  createMainWindow();
+  app.on("second-instance", (_event, argv) => {
+    handleDeepLink(findDeepLinkInArgv(argv));
+    focusMainWindow();
+  });
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+  // Windows and Linux pass the link that launched the first instance in argv.
+  handleDeepLink(findDeepLinkInArgv(process.argv));
+}
+
+function handleDeepLink(raw: string | null): void {
+  if (!raw) return;
+  const target = parseDeepLink(raw);
+  if (!target) {
+    console.warn("[jittle-lamp] ignored an unsupported deep link");
+    return;
+  }
+  pendingDeepLink = target;
+  // On macOS the app keeps running with no window; a link then opens one, which consumes the
+  // pending target when its renderer mounts.
+  if (!mainWindow && app.isReady()) {
+    createMainWindow();
+    return;
+  }
+  sendRendererMessage("deepLinkReceived", {});
+  focusMainWindow();
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+function startDesktopApp(): void {
+  void app.whenReady().then(async () => {
+    await startCompanionServer().catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+    });
+
+    createMainWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
+      }
+    });
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
+      app.quit();
     }
   });
-});
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+  // ZIP imports and cloud evidence live in temp files for as long as a viewer shows them.
+  let tempSessionsCleared = false;
+  app.on("before-quit", (event) => {
+    if (tempSessionsCleared) return;
+    event.preventDefault();
+    tempSessionsCleared = true;
+    void clearAllTempSessions()
+      .catch(() => undefined)
+      .finally(() => app.quit());
+  });
+}
+
+/** Only the bundled main view may call the desktop RPC; never another frame or a navigated page. */
+function isTrustedSender(frame: Electron.WebFrameMain | null): boolean {
+  if (!frame || !mainWindow || frame !== mainWindow.webContents.mainFrame) return false;
+  return isMainViewUrl(frame.url);
+}
+
+function isMainViewUrl(value: string): boolean {
+  return isSameFileUrl(value, mainViewUrl);
+}
+
+function openExternalHttpUrl(value: string): void {
+  if (isExternalHttpUrl(value)) void shell.openExternal(new URL(value).toString());
+}
 
 function registerIpcHandlers(): void {
-  ipcMain.handle(desktopIpcRequestChannel, async (_event, payload: DesktopRequestPayload) => {
-    if (!payload.name || !(payload.name in handlers)) {
+  ipcMain.handle(desktopIpcRequestChannel, async (event, payload: DesktopRequestPayload) => {
+    if (!isTrustedSender(event.senderFrame)) {
+      throw new Error("Desktop requests are accepted only from the Jittle Lamp window.");
+    }
+    if (!payload || !payload.name || !Object.hasOwn(handlers, payload.name)) {
       throw new Error(`Unknown desktop request: ${payload.name ?? "(missing)"}`);
     }
 
@@ -366,6 +472,19 @@ function createMainWindow(): void {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+
+  // Links (target=_blank, window.open) never open Electron windows: http(s) goes to the system
+  // browser, everything else (file:, javascript:, custom schemes) is dropped.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalHttpUrl(url);
+    return { action: "deny" };
+  });
+  // The renderer stays on the bundled main view; any other navigation opens externally or is dropped.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isMainViewUrl(url)) return;
+    event.preventDefault();
+    openExternalHttpUrl(url);
   });
 
   void mainWindow.loadFile(mainViewPath);

@@ -122,18 +122,18 @@ export const videoStyles = `
 
 .jl-vm-video-inner .jl-vm-vc-bar {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
-  left: 16px;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
   z-index: 4;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 52px;
-  padding: 0 14px;
+  gap: 8px;
+  height: 44px;
+  padding: 0 10px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  background: rgba(0, 0, 0, 0.42);
+  border-radius: 10px;
+  background: rgba(10, 10, 12, 0.62);
   color: #fff;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(16px) saturate(150%);

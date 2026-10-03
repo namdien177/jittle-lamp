@@ -93,6 +93,11 @@ const [mainBuild, preloadBuild, viewBuild] = await Promise.all([
     outdir: electronRoot.pathname,
     target: "node",
     format: "esm",
+    // The main process fetches evidence playback links from the same API origin as the renderer.
+    define: {
+      "process.env.JITTLE_LAMP_API_ORIGIN": JSON.stringify(apiOrigin),
+      "process.env.JITTLE_LAMP_WEB_ORIGIN": JSON.stringify(webOrigin)
+    },
     external: ["electron", "libsql", "@libsql/*"],
     minify: nodeEnv === "production",
     naming: "[name].js"

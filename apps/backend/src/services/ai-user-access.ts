@@ -61,6 +61,53 @@ const aiUserRoutes: ReadonlyArray<{
 		methods: ["POST"],
 		path: /^\/evidences\/uploads\/[^/%?#]+\/complete\/?$/,
 	},
+	// Test cases and runs (design.md §8 MCP tools). Configuration writes, secrets, env files,
+	// runner pools and model keys stay out. AI tokens cannot approve, reject, bulk-edit or delete
+	// test cases: agent-authored cases wait for a person in the review queue (ADR 0002 decision 13).
+	{ methods: ["GET", "POST"], path: /^\/test-cases\/?$/ },
+	{
+		methods: ["GET", "POST"],
+		path: /^\/test-cases\/(?:similar|export)\/?$/,
+	},
+	{ methods: ["POST"], path: /^\/test-cases\/import\/?$/ },
+	{
+		methods: ["GET", "PATCH"],
+		path: /^\/test-cases\/import\/[^/%?#]+\/?$/,
+	},
+	{ methods: ["GET", "PATCH"], path: /^\/test-cases\/[^/%?#]+\/?$/ },
+	{
+		methods: ["GET"],
+		path: /^\/test-cases\/[^/%?#]+\/(?:versions|required-config|scripts)\/?$/,
+	},
+	{
+		methods: ["POST"],
+		path: /^\/test-cases\/[^/%?#]+\/duplicate\/?$/,
+	},
+	{
+		methods: ["DELETE"],
+		path: /^\/test-cases\/[^/%?#]+\/scripts(?:\/[^/%?#]+)?\/?$/,
+	},
+	{ methods: ["GET", "POST"], path: /^\/test-cases\/[^/%?#]+\/runs\/?$/ },
+	{ methods: ["GET", "POST"], path: /^\/test-suites\/?$/ },
+	{
+		methods: ["GET", "PATCH", "DELETE"],
+		path: /^\/test-suites\/[^/%?#]+\/?$/,
+	},
+	{ methods: ["POST"], path: /^\/test-suites\/[^/%?#]+\/runs\/?$/ },
+	{ methods: ["GET"], path: /^\/test-runs\/?$/ },
+	{ methods: ["GET"], path: /^\/test-runs\/[^/%?#]+\/?$/ },
+	{ methods: ["POST"], path: /^\/test-runs\/[^/%?#]+\/cancel\/?$/ },
+	{ methods: ["GET"], path: /^\/test-run-batches\/[^/%?#]+\/?$/ },
+	// Names only: environments, credential profiles, macros, tags.
+	{
+		methods: ["GET"],
+		path: /^\/test-(?:environments|credentials|macros|tags)\/?$/,
+	},
+	// Agents may propose macros; POST /test-macros stores them as draft for AI tokens.
+	{ methods: ["POST"], path: /^\/test-macros\/?$/ },
+	{ methods: ["GET"], path: /^\/notifications\/?$/ },
+	{ methods: ["POST"], path: /^\/notifications\/read(?:-all)?\/?$/ },
+	{ methods: ["POST"], path: /^\/notifications\/[^/%?#]+\/read\/?$/ },
 ];
 
 export const isAiUserRouteAllowed = (method: string, path: string): boolean => {
@@ -183,6 +230,7 @@ export const verifyAiUserAccess = async (
 				"org:read",
 			],
 			tokenType: "ai",
+			aiTokenId: token.id,
 		},
 	};
 };

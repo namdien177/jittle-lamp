@@ -18,3 +18,12 @@ release-artifacts/
 *.crt
 *.p12
 apps/backend/*.db
+
+# E2E runner local config (secrets)
+.env.e2e
+.env.e2e.*
+!.env.e2e.sample
+.e2e/
+
+# Runner pool deployment config (holds the registration token)
+deploy/runner/runner.env

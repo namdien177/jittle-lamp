@@ -35,6 +35,7 @@ import {
   getArchiveMergeGroups,
   getContiguousMergeableSelection,
   openMergeDialog as openMergeDialogState,
+  setStepFilter,
   selectActionRange,
   selectSingleAction,
   toggleActionSelection,
@@ -88,6 +89,9 @@ export type DesktopController = {
   openLocalSession: () => void;
   importZip: () => void;
   viewSession: (sessionId: string) => void;
+  // Opens uploaded evidence (a test run's recording) in the viewer, optionally filtered to one
+  // step and seeked to it. `fallbackOffsetMs` is used when the archive has no step annotation.
+  openRemoteEvidence: (evidenceId: string, options?: { stepId?: string | null; fallbackOffsetMs?: number | null }) => Promise<void>;
   openSessionFolder: (sessionId: string) => void;
   exportSessionZip: (sessionId: string) => Promise<{ savedPath: string }>;
   prepareSessionUpload: (sessionId: string) => Promise<{
@@ -111,6 +115,7 @@ export type DesktopController = {
   copyViewerValue: (value: string, label: string) => Promise<void>;
   setViewerSection: (section: TimelineSection) => void;
   setViewerSubtype: (value: ViewerState["networkSubtypeFilter"]) => void;
+  setViewerStepFilter: (stepId: string | null) => void;
   setViewerSearch: (value: string) => void;
   clickTimelineItem: (itemId: string, offsetMs: number, event: React.MouseEvent<HTMLButtonElement>) => void;
   openTimelineContext: (itemId: string, event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -231,6 +236,8 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
     };
   }, []);
   const contextTargetIdRef = useRef<string | null>(null);
+  // Seek target (ms) applied once the next viewer recording has loaded its metadata.
+  const pendingSeekMsRef = useRef<number | null>(null);
   const hasReportedViewerBootRef = useRef(false);
   const isAutoScrollingRef = useRef(false);
   const autoSyncInFlightRef = useRef<Set<string>>(new Set());
@@ -323,7 +330,7 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
     if (successText) patchState({ feedback: { tone: "success", text: successText } });
   };
 
-  const openViewer = (payload: ViewerPayload): void => {
+  const openViewer = (payload: ViewerPayload, initialStepId: string | null = null): void => {
     const previousPayload = viewerStateRef.current.payload;
     if (previousPayload && shouldClearViewerTempSession(previousPayload) && bridge) {
       const previousTempId = previousPayload.tempId;
@@ -335,6 +342,9 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
     setViewerState(() => {
       const next = createViewerState();
       applyViewerPayload(next, payload);
+      if (initialStepId && next.steps.some((step) => step.stepId === initialStepId)) {
+        setStepFilter(next, initialStepId);
+      }
       return next;
     });
     renderViewerPane();
@@ -526,9 +536,15 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
     if (!payload || !viewerState.open || !video) return;
 
     const recordingArtifact = payload.archive.artifacts.find((artifact) => artifact.kind === "recording.webm");
+    const seekMs = pendingSeekMsRef.current;
+    pendingSeekMsRef.current = null;
+    if (seekMs !== null) {
+      const seek = (): void => void seekVideo(video, seekMs / 1000).catch(() => undefined);
+      video.addEventListener("loadedmetadata", seek, { once: true });
+    }
     void loadViewerVideoSource({
       videoPath: payload.videoPath,
-      mimeType: recordingArtifact?.mimeType || "video/webm",
+      mimeType: payload.videoMimeType ?? (recordingArtifact?.mimeType || "video/webm"),
       viewerVideo: video,
       viewerVideoState: viewerVideoStateRef.current,
       desktopBridge: bridge,
@@ -776,6 +792,29 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
         }
       })();
     },
+    openRemoteEvidence: async (evidenceId, openOptions = {}) => {
+      if (!bridge) throw new Error("Desktop bridge unavailable.");
+      if (!options.getAuthToken) throw new Error("Sign in to open cloud evidence.");
+      if (viewerStateRef.current.isOpening) return;
+      updateViewer((next) => {
+        next.isOpening = true;
+      });
+      try {
+        const authToken = await options.getAuthToken();
+        if (!authToken) throw new Error("Sign in to open cloud evidence.");
+        // The main process resolves the playback links itself from the evidence ID.
+        const payload = await bridge.rpc.request.openRemoteEvidence({ evidenceId, authToken });
+        const stepId = openOptions.stepId ?? null;
+        const step = stepId ? payload.archive.annotations?.find((annotation) => annotation.kind === "step" && annotation.stepId === stepId) : undefined;
+        const stepOffset = step && step.kind === "step" ? step.videoOffsetMs : null;
+        pendingSeekMsRef.current = stepOffset ?? openOptions.fallbackOffsetMs ?? null;
+        openViewer(payload, stepId);
+      } finally {
+        updateViewer((next) => {
+          next.isOpening = false;
+        });
+      }
+    },
     openSessionFolder: (sessionId) => {
       if (!bridge) return;
       const session = stateRef.current.sessions.find((candidate) => candidate.sessionId === sessionId);
@@ -845,6 +884,15 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
         next.networkSubtypeFilter = value;
         next.networkDetailIndex = null;
       });
+    },
+    setViewerStepFilter: (stepId) => {
+      updateViewer((next) => {
+        setStepFilter(next, stepId);
+      });
+      const current = viewerStateRef.current;
+      const step = stepId === null ? undefined : current.steps.find((candidate) => candidate.stepId === stepId);
+      const video = viewerVideoRef.current;
+      if (step && video) void seekVideo(video, step.videoOffsetMs / 1000).catch(() => undefined);
     },
     setViewerSearch: (value) => {
       updateViewer((next) => {
@@ -937,7 +985,13 @@ export function useDesktopController(options: { authStatus?: string; getAuthToke
       const payload = current.payload;
       const video = viewerVideoRef.current;
       if (!payload || !video) return;
-      const items = deriveSectionTimeline(payload.archive, current.activeSection, current.networkSubtypeFilter, current.networkSearchQuery);
+      const items = deriveSectionTimeline(
+        payload.archive,
+        current.activeSection,
+        current.networkSubtypeFilter,
+        current.networkSearchQuery,
+        current.stepFilter
+      );
       const activeIndex = findActiveIndex(items, video.currentTime * 1000);
       updateViewer((next) => {
         next.activeIndex = activeIndex;

@@ -1,0 +1,42 @@
+# Self-hosted runner as a systemd service (docs/e2e-test-cases/runner-setup.md).
+#   sudo cp deploy/runner/jl-e2e-runner.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now jl-e2e-runner
+[Unit]
+Description=Jittle Lamp E2E runner (jl-e2e-runner)
+Documentation=https://github.com/namdien177/jittle-lamp/blob/main/docs/e2e-test-cases/runner-setup.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jl-runner
+Group=jl-runner
+# JL_API_ORIGIN, JL_RUNNER_TOKEN (first start only), optional HTTPS_PROXY / NODE_EXTRA_CA_CERTS.
+EnvironmentFile=/etc/jl-e2e-runner.env
+Environment=E2E_TELEMETRY_DISABLED=1
+Environment=JL_RUNNER_WORK_DIR=/var/lib/jl-e2e-runner
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/jl-e2e-runner/ms-playwright
+WorkingDirectory=/opt/jl-e2e-runner
+ExecStart=/usr/bin/node /opt/jl-e2e-runner/packages/e2e-runner/dist/daemon.js start --state /var/lib/jl-e2e-runner/state.json
+Restart=on-failure
+RestartSec=10
+# SIGTERM goes to the daemon only (KillMode=mixed): it stops claiming and lets the current case
+# finish; the browser processes are killed only when TimeoutStopSec runs out.
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=20min
+
+StateDirectory=jl-e2e-runner
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+# State (worker credential) and work dirs both live under StateDirectory.
+ReadWritePaths=/var/lib/jl-e2e-runner
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

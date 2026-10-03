@@ -45,9 +45,10 @@ import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Field } from "../components/ui/field";
-import { Select } from "../components/ui/select";
-import { ConfirmDialog, Dialog } from "../components/ui/dialog";
-import { EmptyState, Skeleton } from "../components/ui/misc";
+import { SimpleSelect } from "../components/ui/select";
+import { ConfirmDialog, SimpleDialog } from "../components/ui/dialog";
+import { EmptyState } from "../components/ui/empty";
+import { Skeleton } from "../components/ui/skeleton";
 import { cn } from "../lib/cn";
 import {
   Table,
@@ -87,6 +88,7 @@ import {
   useUpdateMemberRole,
 } from "../queries";
 import { useToast } from "../toast";
+import { Hint } from "../components/ui/tooltip";
 
 type SortKey = "name" | "joinedAt" | "role";
 type RoleFilter = "all" | OrganizationRoleKey;
@@ -276,7 +278,7 @@ export function OrganisationsListPage(): React.JSX.Element {
           <div className="flex items-center gap-2 text-base text-muted-foreground">
             <span>Order by</span>
             <div className="w-40">
-              <Select
+              <SimpleSelect
                 ariaLabel="Order organisations"
                 size="sm"
                 options={sortOptions}
@@ -555,7 +557,7 @@ export function OrgMembersTab(): React.JSX.Element {
           />
         </div>
         <div className="w-full sm:w-44">
-          <Select
+          <SimpleSelect
             ariaLabel="Filter members by role"
             options={roleFilterOptions}
             value={roleFilter}
@@ -617,7 +619,7 @@ export function OrgMembersTab(): React.JSX.Element {
                       <div className="flex items-center justify-end gap-1.5">
                         {editable ? (
                           <div className="w-32">
-                            <Select
+                            <SimpleSelect
                               ariaLabel={`Change role for ${memberName(member)}`}
                               size="sm"
                               options={editableRoleOptions}
@@ -675,27 +677,31 @@ export function OrgMembersTab(): React.JSX.Element {
           {result.total} member{result.total === 1 ? "" : "s"}
         </span>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Previous page"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-          </Button>
+          <Hint label="Previous page">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Previous page"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft className="size-4" aria-hidden />
+            </Button>
+          </Hint>
           <span className=" text-muted-foreground">
             Page {page} of {pages}
           </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Next page"
-            disabled={page >= pages}
-            onClick={() => setPage(page + 1)}
-          >
-            <ChevronRight className="size-4" aria-hidden />
-          </Button>
+          <Hint label="Next page">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Next page"
+              disabled={page >= pages}
+              onClick={() => setPage(page + 1)}
+            >
+              <ChevronRight className="size-4" aria-hidden />
+            </Button>
+          </Hint>
         </div>
       </div>
     </Card>
@@ -1061,7 +1067,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
       ) : null}
 
       {showCreate ? (
-        <Dialog
+        <SimpleDialog
           title="Create invitation code"
           description="Generate a reusable code your teammates can redeem to join."
           onClose={() => setShowCreate(false)}
@@ -1100,7 +1106,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
               <Input autoFocus {...form.register("label")} />
             </Field>
             <Field label="Role">
-              <Select
+              <SimpleSelect
                 ariaLabel="Invitation role"
                 options={editableRoleOptions}
                 value={roleValue}
@@ -1140,7 +1146,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
               />
             </Field>
             <Field label="Guest duration" className="sm:col-span-2">
-              <Select
+              <SimpleSelect
                 ariaLabel="Guest duration"
                 options={guestDayOptions}
                 value={guestDaysValue}
@@ -1153,11 +1159,11 @@ export function OrgInvitationsTab(): React.JSX.Element {
               />
             </Field>
           </form>
-        </Dialog>
+        </SimpleDialog>
       ) : null}
 
       {showDirectInvite ? (
-        <Dialog
+        <SimpleDialog
           title="Invite by email"
           description="Create a single-use invitation with a required role."
           onClose={() => setShowDirectInvite(false)}
@@ -1197,7 +1203,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
               <Input autoFocus {...directForm.register("email")} />
             </Field>
             <Field label="Role">
-              <Select
+              <SimpleSelect
                 ariaLabel="Invitation role"
                 options={editableRoleOptions}
                 value={directRoleValue}
@@ -1220,7 +1226,7 @@ export function OrgInvitationsTab(): React.JSX.Element {
               />
             </Field>
           </form>
-        </Dialog>
+        </SimpleDialog>
       ) : null}
     </div>
   );
@@ -1628,25 +1634,29 @@ export function OrgActivityTab(): React.JSX.Element {
         </TableBody>
       </Table>
       <div className="flex items-center justify-end gap-2 border-t border-border p-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Previous page"
-          disabled={page <= 1}
-          onClick={() => setPage(page - 1)}
-        >
-          <ChevronLeft className="size-4" aria-hidden />
-        </Button>
+        <Hint label="Previous page">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Previous page"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+          </Button>
+        </Hint>
         <span className=" text-muted-foreground">Page {page}</span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Next page"
-          disabled={logs.length < 25}
-          onClick={() => setPage(page + 1)}
-        >
-          <ChevronRight className="size-4" aria-hidden />
-        </Button>
+        <Hint label="Next page">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Next page"
+            disabled={logs.length < 25}
+            onClick={() => setPage(page + 1)}
+          >
+            <ChevronRight className="size-4" aria-hidden />
+          </Button>
+        </Hint>
       </div>
     </Card>
   );
@@ -1977,7 +1987,7 @@ function EvidenceTagDialog(props: {
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="sm"
@@ -2024,7 +2034,7 @@ function EvidenceTagDialog(props: {
           </div>
         </Field>
       </form>
-    </Dialog>
+    </SimpleDialog>
   );
 }
 
@@ -2196,20 +2206,22 @@ export function OrgLibraryTab(): React.JSX.Element {
                         >
                           Open
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!deletable || deleteEvidence.isPending}
-                          title={
-                            deletable
-                              ? "Delete evidence"
-                              : "Only the creator or evidence managers can delete this evidence"
-                          }
-                          onClick={() => setPendingDelete(evidence)}
+                        <Hint
+                          label="Only the creator or evidence managers can delete this evidence"
+                          disabled={deletable}
                         >
-                          <Trash2 aria-hidden />
-                          Delete
-                        </Button>
+                          <span className="inline-flex">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={!deletable || deleteEvidence.isPending}
+                              onClick={() => setPendingDelete(evidence)}
+                            >
+                              <Trash2 aria-hidden />
+                              Delete
+                            </Button>
+                          </span>
+                        </Hint>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -2395,7 +2407,7 @@ function CreateOrganizationDialog(props: {
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       title="Create organisation"
       description="Spin up a new workspace for your team’s evidence."
       onClose={props.onClose}
@@ -2431,7 +2443,7 @@ function CreateOrganizationDialog(props: {
         </Field>
       </form>
       {error ? <p className="text-base text-destructive">{error}</p> : null}
-    </Dialog>
+    </SimpleDialog>
   );
 }
 
@@ -2482,7 +2494,7 @@ function AcceptInvitationDialog(props: {
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       title="Accept invitation"
       description="Paste an invitation code an organisation owner shared with you."
       onClose={props.onClose}
@@ -2527,6 +2539,6 @@ function AcceptInvitationDialog(props: {
         ) : null}
       </form>
       {error ? <p className="text-base text-destructive">{error}</p> : null}
-    </Dialog>
+    </SimpleDialog>
   );
 }

@@ -29,13 +29,13 @@ export function PublicTopbar(): React.JSX.Element {
             <>
               <SignedOut>
                 <SignInButton mode="modal">
-                  <button className={cn(buttonVariants({ variant: "primary", size: "sm" }))}>
+                  <button className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
                     Sign in
                   </button>
                 </SignInButton>
               </SignedOut>
               <SignedIn>
-                <Link to="/" className={cn(buttonVariants({ variant: "primary", size: "sm" }))}>
+                <Link to="/" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
                   Open workspace
                 </Link>
               </SignedIn>

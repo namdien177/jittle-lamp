@@ -7,6 +7,7 @@ import { headerStyles } from "./header";
 import { notesStyles } from "./notes";
 import { responsiveStyles, stackedViewerStyles } from "./responsive";
 import { shellStyles } from "./shell";
+import { tooltipStyles } from "./tooltip";
 import { videoStyles } from "./video";
 
 export const VIEWER_MODAL_STYLE_ID = "jl-viewer-modal-styles";
@@ -25,5 +26,6 @@ export const viewerModalStyles = [
   feedbackStyles,
   responsiveStyles,
   compactStyles,
-  stackedViewerStyles
+  stackedViewerStyles,
+  tooltipStyles
 ].join("\n");

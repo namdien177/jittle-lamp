@@ -28,9 +28,10 @@ export type {
   JittleRouterMode
 } from "./routing";
 
-export { ViewerModal, buildCurl, getResponseBodyString } from "./viewer-modal";
+export { ViewerModal, buildCurl, buildViewerStepChips, getResponseBodyString } from "./viewer-modal";
 export type {
   ViewerModalProps,
+  ViewerStepChip,
   ViewerModalRow,
   ViewerSource,
   ViewerEvidenceTag,

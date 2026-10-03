@@ -11,6 +11,7 @@ import {
 
 import { clerkPublishableKey, devAuth, devAuthEnabled } from "./env";
 import { Button } from "./components/ui/button";
+import { Hint } from "./components/ui/tooltip";
 
 type AuthProviderProps = { children: React.ReactNode };
 type FetchTokenOptions = Parameters<ReturnType<typeof useClerkAuth>["getToken"]>[0];
@@ -119,14 +120,15 @@ export function UserButton(): React.JSX.Element {
     .toUpperCase();
 
   return (
-    <Button
-      aria-label={`Dev account: ${devAuth.email}`}
-      title={`${devAuth.name} · ${devAuth.email}`}
-      variant="outline"
-      size="icon-sm"
-      onClick={() => window.alert(`${devAuth.name}\n${devAuth.email}`)}
-    >
-      <span className="text-xs font-bold">{initials || "JL"}</span>
-    </Button>
+    <Hint label={`${devAuth.name} · ${devAuth.email}`}>
+      <Button
+        aria-label={`Dev account: ${devAuth.email}`}
+        variant="outline"
+        size="icon-sm"
+        onClick={() => window.alert(`${devAuth.name}\n${devAuth.email}`)}
+      >
+        <span className="text-xs font-bold">{initials || "JL"}</span>
+      </Button>
+    </Hint>
   );
 }

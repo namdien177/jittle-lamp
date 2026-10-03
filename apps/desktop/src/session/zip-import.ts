@@ -5,6 +5,7 @@ import { zipSync } from "fflate";
 
 import { recordingFileName, sessionArchiveFileName } from "@jittle-lamp/shared";
 
+import { loadRemoteEvidence, type RemoteEvidenceRequest } from "./remote-evidence";
 import { createDesktopSessionStrategies } from "./session-strategy";
 
 const activeTempSessions = new Map<string, { videoPath: string }>();
@@ -12,6 +13,17 @@ const activeTempSessions = new Map<string, { videoPath: string }>();
 export async function importZipBundle(zipBytes: Uint8Array) {
   const strategies = createDesktopSessionStrategies(activeTempSessions);
   return strategies.zip.load(zipBytes);
+}
+
+export async function openRemoteEvidence(input: RemoteEvidenceRequest, apiOrigin: string) {
+  return loadRemoteEvidence(input, activeTempSessions, { apiOrigin });
+}
+
+/** Removes every temp session file (ZIP imports and cloud evidence); called when the app quits. */
+export async function clearAllTempSessions(): Promise<void> {
+  const entries = [...activeTempSessions.values()];
+  activeTempSessions.clear();
+  await Promise.all(entries.map((entry) => rm(entry.videoPath, { force: true })));
 }
 
 export async function clearTempSession(tempId: string): Promise<void> {

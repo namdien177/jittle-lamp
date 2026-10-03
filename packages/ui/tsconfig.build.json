@@ -6,6 +6,11 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": ".",
+    "paths": {
+      "@jittle-lamp/shared": [
+        "../shared/dist/src/index.d.ts"
+      ]
+    }
   }
 }

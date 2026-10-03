@@ -1,0 +1,1 @@
+ALTER TABLE `test_run_batches` ADD `run_ids_json` text DEFAULT '[]' NOT NULL;

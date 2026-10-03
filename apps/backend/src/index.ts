@@ -1,16 +1,28 @@
 import { createApp } from "./app";
 import { cleanupExpiredDeviceAuthState } from "./services/desktop-auth";
 import {
+	applyTestRunRetention,
 	cleanupAbandonedEvidenceUploads,
 	purgeExpiredDeletedEvidences,
 } from "./services/evidence-maintenance";
 import { createMigrationWorker } from "./services/migration-worker";
 import { cleanupExpiredOrganizationActivityLogs } from "./services/organization-activity";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
+import { createTestSecrets } from "./services/test-config";
+import { createTestRunQueueWorker } from "./services/test-run-queue";
+import { createWebhookReportWorker } from "./services/test-webhooks";
 import { runDatabaseMigrations } from "./startup/run-database-migrations";
 
-const { app, runtime, logger, db, artifactStorage, organizationMigration } =
-	createApp(process.env);
+const {
+	app,
+	runtime,
+	logger,
+	db,
+	artifactStorage,
+	organizationMigration,
+	keyProvider,
+	outbound,
+} = createApp(process.env);
 
 if (
 	(runtime.nodeEnv === "production" || runtime.nodeEnv === "staging") &&
@@ -45,6 +57,18 @@ try {
 				"durable organization migration worker started",
 			);
 		}
+		// Test run queue: lease expiry, RUNNER_LOST, NO_RUNNER and offline runners.
+		createTestRunQueueWorker({ db, logger }).start();
+		logger.info("test run queue maintenance started");
+		// CI webhooks: pending and final commit statuses, MR notes and callbacks (design.md §10c).
+		createWebhookReportWorker({
+			db,
+			secrets: createTestSecrets({ db, keyProvider }),
+			fetch,
+			outbound,
+			webOrigin: runtime.webAppOrigin ?? null,
+			logger,
+		}).start();
 		const runMaintenance = async () => {
 			if (organizationMigration) {
 				try {
@@ -84,6 +108,15 @@ try {
 				}
 			} catch (err) {
 				logger.error({ err }, "failed to clean up abandoned evidence uploads");
+			}
+
+			try {
+				const binned = await applyTestRunRetention(db);
+				if (binned > 0) {
+					logger.info({ binned }, "expired test run evidence moved to the bin");
+				}
+			} catch (err) {
+				logger.error({ err }, "failed to apply test run evidence retention");
 			}
 
 			try {

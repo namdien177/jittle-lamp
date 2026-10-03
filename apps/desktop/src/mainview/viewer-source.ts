@@ -10,6 +10,8 @@ export function getViewerSourceLabel(source: ViewerSource): string {
       return "ZIP";
     case "local":
       return "Local";
+    case "cloud":
+      return "Cloud";
   }
 }
 
@@ -22,7 +24,7 @@ export function shouldPersistViewerReviewState(source: ViewerSource): boolean {
 }
 
 export function shouldClearViewerTempSession(payload: Pick<ViewerPayload, "source" | "tempId">): boolean {
-  return payload.source === "zip" && payload.tempId !== undefined;
+  return (payload.source === "zip" || payload.source === "cloud") && payload.tempId !== undefined;
 }
 
 export function getViewerReadOnlyNotice(source: ViewerSource): string | null {
@@ -33,5 +35,7 @@ export function getViewerReadOnlyNotice(source: ViewerSource): string | null {
       return "Local session — notes are read-only and not persisted.";
     case "zip":
       return "Notes are read-only for ZIP imports and are not saved.";
+    case "cloud":
+      return "Cloud evidence — notes are read-only here.";
   }
 }

@@ -21,6 +21,8 @@ import { JoinPage } from "./pages/join";
 import { LandingPage } from "./pages/landing";
 import { PrivacyPage } from "./pages/privacy";
 import { RouteError } from "./pages/route-error";
+import { legacyTestCaseSettingsRoutes, testingSettingsRoute } from "./pages/settings-test-cases/routes";
+import { testCaseAdminRoutes } from "./test-cases/admin-routes";
 
 /** Thin progress bar shown during route transitions. */
 function GlobalPendingBar(): React.JSX.Element | null {
@@ -101,8 +103,11 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/evidence" replace /> },
           { path: "evidence", lazy: async () => ({ Component: (await import("./pages/evidence-library")).EvidenceLibraryPage }) },
           { path: "evidence/:evidenceId", element: <CloudEvidencePage /> },
-          { path: "test-cases", element: <ComingSoonPage variant="test-cases" /> },
+          { path: "test-cases", lazy: async () => ({ Component: (await import("./pages/test-cases")).TestCasesPage }) },
+          { path: "test-runs/:runId", lazy: async () => ({ Component: (await import("./pages/test-run")).TestRunPage }) },
           { path: "documents", element: <ComingSoonPage variant="documents" /> },
+          ...testCaseAdminRoutes,
+          testingSettingsRoute,
           { path: "organisations", lazy: async () => ({ Component: (await import("./pages/organisations")).OrganisationsListPage }) },
           {
             path: "organisations/:orgId",
@@ -130,7 +135,8 @@ export const router = createBrowserRouter([
               { index: true, lazy: async () => ({ Component: (await import("./pages/settings")).SettingsOverviewPage }) },
               { path: "ai-tokens", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsAiTokensPage }) },
               { path: "api-tokens", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsApiTokensPage }) },
-              { path: "migration", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsMigrationPage }) }
+              { path: "migration", lazy: async () => ({ Component: (await import("./pages/settings")).SettingsMigrationPage }) },
+              ...legacyTestCaseSettingsRoutes
             ]
           }
         ]

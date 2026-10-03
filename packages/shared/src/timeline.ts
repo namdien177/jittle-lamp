@@ -81,6 +81,7 @@ export function buildTimeline(archive: SessionArchive): TimelineItem[] {
         label: prefixTabLabel(entry.payload.message, tabLabel, shouldShowTabLabels),
         ...(entry.tab ? { tab: entry.tab } : {}),
         ...(tabLabel ? { tabLabel } : {}),
+        ...(entry.tags ? { tags: entry.tags } : {}),
         payload: entry.payload
       };
     }),
@@ -97,6 +98,7 @@ export function buildTimeline(archive: SessionArchive): TimelineItem[] {
         label: prefixTabLabel(`${entry.payload.method} ${entry.payload.url}`, tabLabel, shouldShowTabLabels),
         ...(entry.tab ? { tab: entry.tab } : {}),
         ...(tabLabel ? { tabLabel } : {}),
+        ...(entry.tags ? { tags: entry.tags } : {}),
         subtype: entry.subtype,
         payload: entry.payload
       };

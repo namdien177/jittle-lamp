@@ -22,6 +22,10 @@
 !packages/viewer-core/package.json
 !packages/viewer-react/
 !packages/viewer-react/package.json
+!packages/e2e-runner/
+!packages/e2e-runner/package.json
+!packages/e2e-runner/src/
+!packages/e2e-runner/src/model/
 **/.env
 **/.env.*
 apps/backend/node_modules
@@ -41,5 +45,7 @@ packages/ui/node_modules
 packages/ui/dist
 packages/viewer-core/node_modules
 packages/viewer-core/dist
+packages/e2e-runner/node_modules
+packages/e2e-runner/dist
 packages/viewer-react/node_modules
 packages/viewer-react/dist

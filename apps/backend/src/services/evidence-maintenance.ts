@@ -1,4 +1,4 @@
-import { and, inArray, isNotNull, isNull, lt } from "drizzle-orm";
+import { and, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 
 import {
 	evidenceArtifacts,
@@ -148,5 +148,63 @@ export const purgeExpiredDeletedEvidences = async (
 		artifacts.map((artifact) => artifact.s3Key),
 	);
 
+	return evidenceIds.length;
+};
+
+export const DEFAULT_FAILED_RUN_RETENTION_DAYS = 180;
+export const DEFAULT_PASSED_RUN_RETENTION_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Retention for test run evidence (design.md §14): passed runs keep their evidence 30 days,
+ * failed, blocked and cancelled runs 180 days, per-organisation overrides in test_run_settings,
+ * and the latest run of every case always keeps its evidence. Expired evidence moves to the bin;
+ * purgeExpiredDeletedEvidences removes it after the bin retention like any other evidence.
+ */
+export const applyTestRunRetention = async (
+	db: BackendDb,
+	now = Date.now(),
+): Promise<number> => {
+	const candidates = await db.all<{ evidence_id: string; org_id: string }>(sql`
+		select ranked.evidence_id as evidence_id, ranked.org_id as org_id
+		from (
+			select r.evidence_id, r.org_id, r.outcome, r.finished_at,
+				row_number() over (partition by r.test_case_id order by r.finished_at desc) as rn
+			from test_runs r
+			join evidences e on e.id = r.evidence_id
+			where r.evidence_id is not null
+				and r.finished_at is not null
+				and e.deleted_at is null
+				and e.source_type = 'test-run'
+		) ranked
+		left join test_run_settings settings on settings.org_id = ranked.org_id
+		where ranked.rn > 1
+			and ranked.finished_at < ${now} - (
+				case when ranked.outcome = 'passed'
+					then coalesce(settings.retention_passed_days, ${DEFAULT_PASSED_RUN_RETENTION_DAYS})
+					else coalesce(settings.retention_failed_days, ${DEFAULT_FAILED_RUN_RETENTION_DAYS})
+				end
+			) * ${DAY_MS}
+	`);
+	const paused = await retentionPausedOrganizationIds(db);
+	const evidenceIds = [
+		...new Set(
+			candidates
+				.filter((candidate) => !paused.has(candidate.org_id))
+				.map((candidate) => candidate.evidence_id),
+		),
+	];
+	if (evidenceIds.length === 0) return 0;
+	await db
+		.update(evidences)
+		.set({
+			deletedAt: now,
+			deletedBy: null,
+			deletePurgesAt: now + EVIDENCE_BIN_RETENTION_MS,
+			updatedAt: now,
+		})
+		.where(
+			and(inArray(evidences.id, evidenceIds), isNull(evidences.deletedAt)),
+		);
 	return evidenceIds.length;
 };
