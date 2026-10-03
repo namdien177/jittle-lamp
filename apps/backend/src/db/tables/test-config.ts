@@ -236,7 +236,7 @@ export const testRunSettings = sqliteTable("test_run_settings", {
 		.$defaultFn(() => Date.now()),
 });
 
-// BYOK model settings (ADR 0002 decision 14). The provider key is a `model_key` credential.
+// BYOK model settings (ADR 0002 decision 14). Provider keys are `model_key` credentials.
 export const organizationModelSettings = sqliteTable(
 	"organization_model_settings",
 	{
@@ -251,6 +251,15 @@ export const organizationModelSettings = sqliteTable(
 			{ onDelete: "set null" },
 		),
 		keyLast4: text("key_last4"),
+		// Key for the judge model's provider when it differs from the act provider (ADR 0002
+		// amendment 2026-10-03). Null on rows saved before the amendment.
+		judgeKeyCredentialId: text("judge_key_credential_id").references(
+			() => testCredentials.id,
+			{ onDelete: "set null" },
+		),
+		judgeKeyLast4: text("judge_key_last4"),
+		// OPENAI_COMPATIBLE_BASE_URL for `openai-compatible/` models. Not a secret.
+		baseUrl: text("base_url"),
 		updatedBy: text("updated_by").references(() => users.id, {
 			onDelete: "set null",
 		}),

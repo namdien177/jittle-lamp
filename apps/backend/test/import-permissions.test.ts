@@ -140,4 +140,54 @@ describe("import permissions", () => {
 		expect(batch.body.items).toHaveLength(JIRA_IMPORT_MAX_ISSUES);
 		expect(modelCalls).toBe(JIRA_IMPORT_MAX_ISSUES);
 	});
+
+	it("generates Jira cases through an SSRF-guarded fetch with the organisation's base URL", async () => {
+		const seen: Array<{ apiKeys: Record<string, string>; blocked: string }> =
+			[];
+		const fixture = await createTestCaseFixture({
+			env: { JL_OUTBOUND_ALLOW_HOSTS: "vllm.internal" },
+			dependencies: {
+				generateText: async (input) => {
+					// The model endpoint is an address the organisation chose: private targets are
+					// refused at request time too, not only when the URL is saved.
+					const blocked = await (input.fetch ?? fetch)(
+						"http://169.254.169.254/latest/meta-data",
+						{},
+					).then(
+						() => "allowed",
+						(error: Error) => error.name,
+					);
+					seen.push({ apiKeys: input.apiKeys, blocked });
+					return "# Generated\n\n[Act] do it";
+				},
+			},
+		});
+		const saved = await fixture.call("/test-model-settings", {
+			method: "PUT",
+			token: fixture.admin.token,
+			body: {
+				actModel: "openai-compatible/llama-3.3-70b",
+				judgeModel: "openai-compatible/llama-3.3-70b",
+				baseUrl: "http://vllm.internal:8000/v1",
+			},
+		});
+		expect(saved.status).toBe(200);
+		const { server } = jiraServer(1);
+		const credentialId = await jiraCredential(fixture, server.port ?? 0);
+		const batch = await fixture.call<ImportBatch>("/test-cases/import", {
+			token: fixture.qa.token,
+			body: {
+				sourceKind: "jira",
+				jql: "project = PCF",
+				jiraCredentialId: credentialId,
+			},
+		});
+		expect(batch.status).toBe(201);
+		expect(seen).toEqual([
+			{
+				apiKeys: { OPENAI_COMPATIBLE_BASE_URL: "http://vllm.internal:8000/v1" },
+				blocked: "OutboundBlockedError",
+			},
+		]);
+	});
 });

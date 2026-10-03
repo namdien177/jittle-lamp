@@ -20,6 +20,11 @@ import {
 import { HttpError, notFound } from "../http/test-http";
 import { emitNotification, emitReviewPendingCount } from "./notifications";
 import {
+	defaultOutboundPolicy,
+	guardedFetch,
+	type OutboundPolicy,
+} from "./outbound-http";
+import {
 	createTestCase,
 	deriveCaseColumns,
 	findSimilarCases,
@@ -63,11 +68,17 @@ export type TextGenerator = (input: {
 	modelId: string;
 	apiKeys: Record<string, string>;
 	prompt: string;
+	// Every provider request goes through it; the backend passes an SSRF-guarded fetch because an
+	// OpenAI-compatible base URL is an address the organisation chose.
+	fetch?: typeof fetch;
 }) => Promise<string>;
 
 export const defaultTextGenerator: TextGenerator = async (input) => {
 	const { resolveModel } = await import("@jittle-lamp/e2e-runner/model");
-	const resolved = await resolveModel(input.modelId, { keys: input.apiKeys });
+	const resolved = await resolveModel(input.modelId, {
+		keys: input.apiKeys,
+		...(input.fetch ? { fetch: input.fetch } : {}),
+	});
 	const result = await resolved.model.doGenerate({
 		prompt: [
 			{
@@ -224,6 +235,7 @@ const jiraCandidates = async (
 		request: CreateImportRequest;
 		generateText: TextGenerator;
 		fetchImpl?: typeof fetch;
+		outbound?: OutboundPolicy;
 	},
 ): Promise<Array<ImportCandidate & { error?: string }>> => {
 	const { request } = input;
@@ -291,6 +303,14 @@ const jiraCandidates = async (
 		actorUserId: input.userId,
 		reason: "import.jira.generate",
 	});
+	const outbound = input.outbound ?? defaultOutboundPolicy;
+	const modelFetch = ((url: string | URL | Request, init?: RequestInit) =>
+		guardedFetch(
+			fetch,
+			outbound,
+			url instanceof Request ? url.url : String(url),
+			init ?? {},
+		)) as typeof fetch;
 	const out: Array<ImportCandidate & { error?: string }> = [];
 	for (const issue of issues.slice(0, JIRA_IMPORT_MAX_ISSUES)) {
 		const base = {
@@ -309,6 +329,7 @@ const jiraCandidates = async (
 				await input.generateText({
 					modelId: model.act,
 					apiKeys: model.apiKeys,
+					fetch: modelFetch,
 					prompt: jiraGenerationPrompt(issue),
 				}),
 			);
@@ -353,6 +374,7 @@ export const createImportBatch = async (
 		request: CreateImportRequest;
 		generateText: TextGenerator;
 		fetchImpl?: typeof fetch;
+		outbound?: OutboundPolicy;
 	},
 ): Promise<ImportBatchRow> => {
 	const { request } = input;

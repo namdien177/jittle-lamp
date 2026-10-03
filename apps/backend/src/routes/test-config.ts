@@ -42,6 +42,7 @@ import {
 	getRequestIpAddress,
 	recordOrganizationActivity,
 } from "../services/organization-activity";
+import type { OutboundPolicy } from "../services/outbound-http";
 import { createTestSecrets } from "../services/test-config";
 import { getRunSettings } from "../services/test-runs";
 import {
@@ -84,11 +85,27 @@ const toModelSettingsResponse = (
 		actModel: settings.actModel,
 		judgeModel: settings.judgeModel,
 		provider: settings.provider,
+		...(settings.judgeProvider
+			? { judgeProvider: settings.judgeProvider }
+			: {}),
 		keyConfigured: settings.keyConfigured,
 		keyLast4: settings.keyLast4,
+		judgeKeyRequired: settings.judgeKeyRequired,
+		judgeKeyConfigured: settings.judgeKeyConfigured,
+		judgeKeyLast4: settings.judgeKeyLast4,
+		baseUrl: settings.baseUrl,
+		missing: settings.missing,
 	});
 
-export const createTestConfigRoutes = (auth: ClerkAuthPlugin) =>
+export type TestConfigRouteOptions = {
+	// SSRF guard for the OpenAI-compatible base URL (services/outbound-http.ts).
+	outbound?: OutboundPolicy;
+};
+
+export const createTestConfigRoutes = (
+	auth: ClerkAuthPlugin,
+	options: TestConfigRouteOptions = {},
+) =>
 	new Elysia({ name: "test-config-routes" })
 		.use(auth)
 		// --- Environments ---------------------------------------------------------------
@@ -611,10 +628,15 @@ export const createTestConfigRoutes = (auth: ClerkAuthPlugin) =>
 				const who = await resolveTestActor(ctx);
 				await requireTestPermission(db, who, "test_config.manage");
 				const body = parseInput(updateModelSettingsRequestSchema, ctx.body);
-				await saveModelSettings(
+				const changed = await saveModelSettings(
 					db,
 					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
-					{ orgId: who.orgId, userId: who.userId, request: body },
+					{
+						orgId: who.orgId,
+						userId: who.userId,
+						request: body,
+						...(options.outbound ? { outbound: options.outbound } : {}),
+					},
 				);
 				await recordOrganizationActivity(db, {
 					organizationId: who.orgId,
@@ -623,7 +645,9 @@ export const createTestConfigRoutes = (auth: ClerkAuthPlugin) =>
 					entity: { type: "organization_model_settings", id: who.orgId },
 					message: `Set the test models to ${body.actModel} and ${body.judgeModel}`,
 					metadata: {
-						keyChanged: body.apiKey !== undefined,
+						keyChanged: changed.keyChanged,
+						judgeKeyChanged: changed.judgeKeyChanged,
+						baseUrlChanged: body.baseUrl !== undefined,
 					},
 				});
 				return toModelSettingsResponse(await getModelSettings(db, who.orgId));
