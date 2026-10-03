@@ -8,6 +8,7 @@ import {
   modelSettingsSchema,
   notificationChannelSchema,
   notificationListResponseSchema,
+  notificationSubscriptionsSchema,
   runnerPoolSchema,
   similarTestCasesResponseSchema,
   testCaseDetailSchema,
@@ -20,25 +21,20 @@ import {
   type BulkTestCaseRequest,
   type CreateImportRequest,
   type DuplicateTestCaseRequest,
+  type NotificationKind,
   type TestCaseStatus
 } from "@jittle-lamp/shared";
 
 import type { FetchToken } from "../api";
 import { apiOrigin } from "../env";
+import { TestApiError } from "./api";
 
 // Typed client for the test-case admin surfaces (import, review, duplicate, settings, notifications).
 // Every response is validated against the shared contract in packages/shared/src/test-api.ts.
 
-export class TestApiError extends Error {
-  readonly status: number;
-  readonly code: string | null;
-  constructor(message: string, status: number, code: string | null) {
-    super(message);
-    this.name = "TestApiError";
-    this.status = status;
-    this.code = code;
-  }
-}
+// One error type for both test-case clients; `details` keeps the whole error body (409
+// currentVersion, 429 retryAfter and depth).
+export { TestApiError };
 
 async function request<T>(getToken: FetchToken, path: string, schema: z.ZodType<T>, init: RequestInit = {}): Promise<T> {
   const token = await getToken();
@@ -49,13 +45,13 @@ async function request<T>(getToken: FetchToken, path: string, schema: z.ZodType<
   const response = await fetch(`${apiOrigin}${path}`, { ...init, headers });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string } } | null;
-    throw new TestApiError(payload?.error?.message ?? `Request failed (${response.status}).`, response.status, payload?.error?.code ?? null);
+    throw new TestApiError(payload?.error?.message ?? `Request failed (${response.status}).`, response.status, payload?.error?.code ?? null, payload);
   }
   if (response.status === 204) return schema.parse(undefined);
   const body: unknown = await response.json().catch(() => undefined);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    throw new TestApiError(`Unexpected response from ${path.split("?")[0]}.`, response.status, "INVALID_RESPONSE");
+    throw new TestApiError(`Unexpected response from ${path.split("?")[0]}.`, response.status, "INVALID_RESPONSE", body);
   }
   return parsed.data;
 }
@@ -205,6 +201,17 @@ export const testAdminApi = {
   listNotifications: (getToken: FetchToken) => request(getToken, "/notifications?limit=30", notificationListResponseSchema),
   markNotificationsRead: (getToken: FetchToken, body: { ids: string[] } | { all: true }) =>
     request(getToken, "/notifications/read", okSchema, json("POST", "all" in body ? { ids: [], all: true } : { ids: body.ids, all: false })),
-  listNotificationChannels: (getToken: FetchToken) =>
-    request(getToken, "/notification-channels", listOf(notificationChannelSchema, "channels"))
+  getNotificationSubscriptions: (getToken: FetchToken) =>
+    request(getToken, "/notifications/subscriptions", notificationSubscriptionsSchema),
+  putNotificationSubscriptions: (getToken: FetchToken, body: { subscribed: NotificationKind[]; unsubscribed: NotificationKind[] }) =>
+    request(getToken, "/notifications/subscriptions", notificationSubscriptionsSchema, json("PUT", body)),
+  // The channel routes land on another branch; until then a 404 means "in-app only".
+  listNotificationChannels: async (getToken: FetchToken) => {
+    try {
+      return await request(getToken, "/notification-channels", listOf(notificationChannelSchema, "channels"));
+    } catch (error) {
+      if (error instanceof TestApiError && error.status === 404) return [];
+      throw error;
+    }
+  }
 };

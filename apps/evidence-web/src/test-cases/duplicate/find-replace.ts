@@ -71,8 +71,18 @@ export function countReplacements(text: string, rows: readonly Replacement[]): n
   return count;
 }
 
-export function defaultDuplicateTitle(title: string): string {
-  return `${title} (copy)`;
+// The title the backend gives a copy when the request carries none: the replaced title when the
+// replacements change it, otherwise "<title> (copy)".
+export function defaultDuplicateTitle(title: string, rows: readonly Replacement[] = []): string {
+  const replaced = applyReplacements(title, rows);
+  return replaced !== title ? replaced : `${title} (copy)`;
+}
+
+// Only a title the user typed goes into the request; otherwise the backend derives it.
+export function duplicateTitleForRequest(input: { single: boolean; edited: boolean; title: string }): string | undefined {
+  if (!input.single || !input.edited) return undefined;
+  const trimmed = input.title.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export type InheritEstimate = { unchanged: number; total: number };

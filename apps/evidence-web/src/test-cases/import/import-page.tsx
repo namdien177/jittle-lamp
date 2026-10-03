@@ -109,7 +109,7 @@ export function TestCaseImportPage(): React.JSX.Element {
   const [fileError, setFileError] = useState<string | null>(null);
 
   const defaultTags = useMemo(() => parseTagInput(tagsInput), [tagsInput]);
-  const createImport = useTestAdminMutation((getToken, body: CreateImportRequest) => testAdminApi.createImport(getToken, body), [testAdminKeys.reviewQueue]);
+  const createImport = useTestAdminMutation((getToken, body: CreateImportRequest) => testAdminApi.createImport(getToken, body), [testAdminKeys.cases]);
 
   const documentPreview = useMemo(() => {
     if (kind !== "transcript-doc" && kind !== "gherkin") return null;

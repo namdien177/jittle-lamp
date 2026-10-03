@@ -11,6 +11,7 @@ import { isConflictError } from "./api";
 import { Kbd } from "./bits";
 import { SimilarHint, editorDocFromDetail, normalizedTranscript, useEditorCatalog, type EditorCatalog } from "./editor-support";
 import { formatRelative } from "./list-model";
+import { useTestOrgId } from "./org";
 import { scriptElementNames, testQueryKeys, useRunElementNames, useStepScripts, useTestCaseRuns, useTestCaseVersions, useTestRun, useUpdateTestCase } from "./queries";
 
 type Conflict = { mine: string };
@@ -23,6 +24,7 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
   const catalog = useEditorCatalog();
   const update = useUpdateTestCase();
   const queryClient = useQueryClient();
+  const orgId = useTestOrgId();
   const [doc, setDoc] = React.useState<EditorDoc>(() => editorDocFromDetail(detail));
   const [mode, setMode] = React.useState<TestCaseEditorMode>("steps");
   const [conflict, setConflict] = React.useState<Conflict | null>(null);
@@ -102,7 +104,7 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
         onError: (error) => {
           if (isConflictError(error)) {
             setConflict({ mine: transcript });
-            void queryClient.invalidateQueries({ queryKey: testQueryKeys.detail(detail.id) });
+            void queryClient.invalidateQueries({ queryKey: testQueryKeys.detail(orgId, detail.id) });
             return;
           }
           toast.error("Save failed", error instanceof Error ? error.message : undefined);

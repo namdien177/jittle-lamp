@@ -227,13 +227,17 @@ export function TestCaseDetailPanel(props: { testCaseId: string }): React.JSX.El
               {tag}
             </span>
           ))}
-          {detail.links
-            .filter((link) => isExternalHttpUrl(link.url))
-            .map((link) => (
+          {detail.links.map((link) =>
+            isExternalHttpUrl(link.url) ? (
               <button key={link.url} type="button" className="tc-link" onClick={() => web.openUrl(link.url)} title={link.url}>
                 {link.label ?? link.url}
               </button>
-            ))}
+            ) : (
+              <span key={link.url} className="tc-link" title={link.url}>
+                {link.label ?? link.url}
+              </span>
+            )
+          )}
         </div>
       </header>
 

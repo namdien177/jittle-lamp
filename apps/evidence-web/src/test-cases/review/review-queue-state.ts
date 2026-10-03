@@ -95,3 +95,17 @@ export function cleanCaseIds(items: readonly Pick<TestCaseSummary, "id" | "lintE
 export function caseEditorHref(id: string): string {
   return `/test-cases?case=${encodeURIComponent(id)}`;
 }
+
+// `shift+a` never approves directly: it opens this confirmation (null when nothing qualifies).
+export function approveCleanPrompt(
+  items: readonly Pick<TestCaseSummary, "id" | "lintErrors" | "lintWarnings">[]
+): { ids: string[]; title: string; confirmLabel: string; description: string } | null {
+  const ids = cleanCaseIds(items);
+  if (ids.length === 0) return null;
+  return {
+    ids,
+    title: `Approve ${ids.length} case${ids.length === 1 ? "" : "s"}?`,
+    confirmLabel: `Approve ${ids.length}`,
+    description: `Every case in the queue without lint errors or warnings (${ids.length} of ${items.length}) becomes active and runnable.`
+  };
+}

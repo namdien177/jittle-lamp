@@ -20,7 +20,6 @@ import {
 import { cn } from "../../lib/cn";
 import { UserButton } from "../../auth";
 import { useAccountProfile } from "../../queries";
-import { DuplicateDialogHost } from "../../test-cases/duplicate-dialog";
 import { NotificationBell } from "../../notifications/notification-bell";
 import { Badge } from "../ui/badge";
 import { buttonVariants } from "../ui/button";
@@ -375,7 +374,6 @@ export function WorkspaceShell({
         <main className="jl-main jl-scroll" data-flush={isEvidenceDetail ? "true" : "false"} data-fill={isFillPage ? "true" : "false"}>
           {children}
         </main>
-        <DuplicateDialogHost />
     </div>
   );
 }

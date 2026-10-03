@@ -59,7 +59,7 @@ export function TestCaseImportBatchPage(): React.JSX.Element {
 
   const patch = useTestAdminMutation(
     (getToken, body: { decisions?: Array<{ itemId: string; decision: ImportDecision }>; commit?: boolean }) => testAdminApi.patchImportBatch(getToken, batchId, body),
-    [testAdminKeys.reviewQueue]
+    [testAdminKeys.cases]
   );
 
   const applyPatch = async (body: { decisions?: Array<{ itemId: string; decision: ImportDecision }>; commit?: boolean }) => {

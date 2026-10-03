@@ -6,14 +6,25 @@ import { unzipSync, strFromU8 } from "fflate";
 
 const xmlEntities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
+// Out-of-range numeric entities (&#x110000;, &#99999999;) stay as written instead of throwing.
+function codePoint(value: number, fallback: string): string {
+  return Number.isInteger(value) && value >= 0 && value <= 0x10ffff ? String.fromCodePoint(value) : fallback;
+}
+
 export function decodeXmlText(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
     const lower = entity.toLowerCase();
-    if (lower.startsWith("#x")) return String.fromCodePoint(Number.parseInt(lower.slice(2), 16));
-    if (lower.startsWith("#")) return String.fromCodePoint(Number.parseInt(lower.slice(1), 10));
+    if (lower.startsWith("#x")) return codePoint(Number.parseInt(lower.slice(2), 16), match);
+    if (lower.startsWith("#")) return codePoint(Number.parseInt(lower.slice(1), 10), match);
     return xmlEntities[lower] ?? match;
   });
 }
+
+// Limits for the in-browser preview: the file itself and each unpacked part (zip bombs).
+export const maxXlsxBytes = 20 * 1024 * 1024;
+export const maxXlsxPartBytes = 100 * 1024 * 1024;
+
+const neededPart = /^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|sharedStrings\.xml|worksheets\/[^/]+\.xml)$/;
 
 // Concatenates every <t> run inside a shared string or inline string (rich text has several).
 function textRuns(xml: string): string {
@@ -51,12 +62,26 @@ function firstSheetPath(files: Record<string, Uint8Array>): string {
 }
 
 export function readXlsxRows(bytes: Uint8Array): string[][] {
+  if (bytes.byteLength > maxXlsxBytes) {
+    throw new Error(`This workbook is ${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB; the limit is ${maxXlsxBytes / 1024 / 1024} MB. Split it or export the sheet as CSV.`);
+  }
   let files: Record<string, Uint8Array>;
+  let oversized: string | null = null;
   try {
-    files = unzipSync(bytes);
+    files = unzipSync(bytes, {
+      filter: (file) => {
+        if (!neededPart.test(file.name)) return false;
+        if (file.originalSize > maxXlsxPartBytes) {
+          oversized = file.name;
+          return false;
+        }
+        return true;
+      }
+    });
   } catch {
     throw new Error("This file is not a valid .xlsx workbook.");
   }
+  if (oversized) throw new Error(`The workbook part ${oversized} unpacks to more than ${maxXlsxPartBytes / 1024 / 1024} MB.`);
   const sharedXml = readEntry(files, "xl/sharedStrings.xml");
   const shared = sharedXml ? [...sharedXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((match) => textRuns(match[1] ?? "")) : [];
   const sheet = readEntry(files, firstSheetPath(files));
