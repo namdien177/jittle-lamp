@@ -27,13 +27,17 @@ import { Button, buttonVariants } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { Select } from "../components/ui/select";
-import { EmptyState, Skeleton, Spinner } from "../components/ui/misc";
+import { SimpleSelect } from "../components/ui/select";
+import { EmptyState } from "../components/ui/empty";
+import { Skeleton } from "../components/ui/skeleton";
+import { Spinner } from "../components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
 } from "../components/ui/dropdown-menu";
 import {
   Table,
@@ -43,7 +47,7 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
-import { ConfirmDialog, Dialog } from "../components/ui/dialog";
+import { ConfirmDialog, SimpleDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { cn } from "../lib/cn";
 import type { ApiEvidenceSummary, ApiEvidenceTag, ApiOrganization, FetchToken } from "../api";
@@ -384,9 +388,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
     downloading: boolean,
     deleting: boolean,
   ): React.JSX.Element => (
-    <DropdownMenu
-      trigger={
-        <button
+    <DropdownMenu>
+<DropdownMenuTrigger render={<button
           type="button"
           aria-label="More actions"
           disabled={downloading || deleting}
@@ -397,9 +400,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
           ) : (
             <MoreVertical className="size-4" aria-hidden />
           )}
-        </button>
-      }
-    >
+        </button>} />
+<DropdownMenuContent>
       <DropdownMenuItem
         onClick={() => navigateToEvidence(evidence)}
       >
@@ -439,15 +441,15 @@ export function EvidenceLibraryPage(): React.JSX.Element {
         Download ZIP
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem
-        destructive
+      <DropdownMenuItem variant="destructive"
         disabled={!canDelete(evidence)}
         onClick={() => setPendingDelete(evidence)}
       >
         <Trash2 aria-hidden />
         Delete
       </DropdownMenuItem>
-    </DropdownMenu>
+    </DropdownMenuContent>
+</DropdownMenu>
   );
 
   return (
@@ -486,11 +488,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <DropdownMenu
-              align="end"
-              className="w-64"
-              trigger={
-                <button
+            <DropdownMenu>
+<DropdownMenuTrigger render={<button
                   type="button"
                   className={cn(
                     buttonVariants({ variant: "outline", size: "sm" }),
@@ -501,9 +500,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   {selectedCreatorIds.length === 0
                     ? "All people"
                     : `${selectedCreatorIds.length} selected`}
-                </button>
-              }
-            >
+                </button>} />
+<DropdownMenuContent align="end" className="w-64">
               <DropdownMenuLabel>Recorded by</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => setParam("people", "", "")}>
                 <span className="inline-flex size-4 items-center justify-center">
@@ -539,12 +537,10 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   );
                 })
               )}
-            </DropdownMenu>
-            <DropdownMenu
-              align="end"
-              className="w-64"
-              trigger={
-                <button
+            </DropdownMenuContent>
+</DropdownMenu>
+            <DropdownMenu>
+<DropdownMenuTrigger render={<button
                   type="button"
                   className={cn(
                     buttonVariants({ variant: "outline", size: "sm" }),
@@ -555,9 +551,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   {selectedTagIds.length === 0
                     ? "All tags"
                     : `${selectedTagIds.length} selected`}
-                </button>
-              }
-            >
+                </button>} />
+<DropdownMenuContent align="end" className="w-64">
               <DropdownMenuLabel>Tags</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => setParam("tags", "", "")}>
                 <span className="inline-flex size-4 items-center justify-center">
@@ -586,7 +581,8 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   );
                 })
               )}
-            </DropdownMenu>
+            </DropdownMenuContent>
+</DropdownMenu>
             <div className="flex items-center rounded-md bg-secondary p-0.5">
               <button
                 type="button"
@@ -1224,7 +1220,7 @@ function EvidenceTagsDialog(props: {
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="sm"
@@ -1272,7 +1268,7 @@ function EvidenceTagsDialog(props: {
           ))
         )}
       </div>
-    </Dialog>
+    </SimpleDialog>
   );
 }
 
@@ -1341,7 +1337,7 @@ function RenameEvidenceDialog(props: {
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="sm"
@@ -1382,7 +1378,7 @@ function RenameEvidenceDialog(props: {
           />
         </Field>
       </form>
-    </Dialog>
+    </SimpleDialog>
   );
 }
 
@@ -1429,7 +1425,7 @@ function WorkspaceEvidenceActionDialog(props: {
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="sm"
@@ -1465,7 +1461,7 @@ function WorkspaceEvidenceActionDialog(props: {
         </p>
       ) : (
         <Field label="Destination workspace">
-          <Select
+          <SimpleSelect
             ariaLabel="Destination workspace"
             value={targetOrgId}
             onValueChange={setTargetOrgId}
@@ -1476,6 +1472,6 @@ function WorkspaceEvidenceActionDialog(props: {
           />
         </Field>
       )}
-    </Dialog>
+    </SimpleDialog>
   );
 }

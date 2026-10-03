@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 
-import { Skeleton } from "../../components/ui/misc";
+import { Skeleton } from "../../components/ui/skeleton";
 import { cn } from "../../lib/cn";
 import { useAccountProfile } from "../../queries";
 import { useModelCosts } from "../../test-cases/admin-queries";

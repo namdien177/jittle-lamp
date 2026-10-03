@@ -16,7 +16,14 @@ import { bellAccessibleName, notificationHref, unreadBadgeLabel } from "./notifi
 
 type ListData = { items: Notification[]; unread: number };
 
-export function NotificationBell(): React.JSX.Element {
+export type NotificationTriggerState = { unread: number; badge: string | null; label: string };
+
+export function NotificationBell(props: {
+  side?: "top" | "bottom" | "left" | "right";
+  align?: "start" | "center" | "end";
+  // Receives an unstyled Popover trigger element to use as a `render` target.
+  children?: (trigger: React.ReactElement, state: NotificationTriggerState) => React.ReactNode;
+} = {}): React.JSX.Element {
   const navigate = useNavigate();
   const orgId = useActiveOrgId();
   const queryClient = useQueryClient();
@@ -48,38 +55,42 @@ export function NotificationBell(): React.JSX.Element {
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        aria-label={bellAccessibleName(unread)}
-        title="Notifications"
-        className={cn("jl-theme-toggle relative", pressable)}
-      >
-        <Bell aria-hidden />
-        {badge ? (
-          <span
-            aria-hidden
-            className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white tabular-nums"
-          >
-            {badge}
-          </span>
-        ) : null}
-      </Popover.Trigger>
+      {props.children ? (
+        props.children(<Popover.Trigger />, { unread, badge, label: bellAccessibleName(unread) })
+      ) : (
+        <Popover.Trigger
+          aria-label={bellAccessibleName(unread)}
+          title="Notifications"
+          className={cn("relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-4", pressable)}
+        >
+          <Bell aria-hidden />
+          {badge ? (
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white tabular-nums"
+            >
+              {badge}
+            </span>
+          ) : null}
+        </Popover.Trigger>
+      )}
       <Popover.Portal>
-        <Popover.Positioner className="z-[960]" align="end" sideOffset={8}>
+        <Popover.Positioner className="z-[960]" side={props.side ?? "bottom"} align={props.align ?? "end"} sideOffset={8}>
           <Popover.Popup
             className={cn(
-              "w-[min(24rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] overflow-hidden rounded-md border border-border-strong bg-popover text-popover-foreground shadow-pop outline-none",
+              "w-[min(24rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-pop outline-none",
               "transition-[opacity,transform] duration-200 ease-[cubic-bezier(.23,1,.32,1)] data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 motion-reduce:transition-none"
             )}
           >
-            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-              <Popover.Title className="font-display text-base font-bold">Notifications</Popover.Title>
+            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+              <Popover.Title className="text-[13px] font-semibold">Inbox</Popover.Title>
               <button
                 type="button"
-                className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold text-primary hover:bg-muted disabled:opacity-50", pressable)}
+                className={cn("inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50", pressable)}
                 disabled={unread === 0}
                 onClick={() => optimisticRead("all")}
               >
-                <CheckCheck className="size-4" aria-hidden />
+                <CheckCheck className="size-3.5" aria-hidden />
                 Mark all read
               </button>
             </div>

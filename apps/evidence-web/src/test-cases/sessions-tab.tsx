@@ -25,7 +25,7 @@ export function SessionsTab(props: { detail: TestCaseDetail }): React.JSX.Elemen
     <div className="jl-scroll overflow-x-auto">
       <table className="w-full border-collapse text-[13px]" aria-label="Test sessions">
         <thead>
-          <tr className="border-b border-border text-left text-[11px] uppercase tracking-[0.05em] text-muted-foreground">
+          <tr className="border-b border-border text-left text-[11px] text-muted-foreground">
             <th scope="col" className="py-1.5 pr-3 font-medium">Run</th>
             <th scope="col" className="py-1.5 pr-3 font-medium">Status</th>
             <th scope="col" className="py-1.5 pr-3 font-medium">Trigger · pool</th>

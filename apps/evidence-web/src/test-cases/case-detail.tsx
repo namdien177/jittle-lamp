@@ -5,7 +5,7 @@ import { linkLabel, safeExternalHref } from "@jittle-lamp/ui";
 
 import { cn } from "../lib/cn";
 import { Button } from "../components/ui/button";
-import { Skeleton } from "../components/ui/misc";
+import { Skeleton } from "../components/ui/skeleton";
 import { CaseStatusBadge, Kbd, OutcomeBadge, Stat, TagChip } from "./bits";
 import { formatCost, formatDuration, formatPassRate } from "./list-model";
 import { useTestCase } from "./queries";

@@ -24,10 +24,10 @@ export function runPollInterval(run: Pick<TestRunSummary, "status"> | undefined,
 }
 
 const blockedExplanations: Record<NonNullable<TestRunSummary["blockedReason"]>, string> = {
-  MISSING_VARIABLE: "A variable the case uses has no value in this environment or run params. Add it to the environment or declare a default.",
-  MISSING_CREDENTIAL: "A credential profile the case logs in with does not exist for this environment. Create it in Settings → Credentials.",
+  MISSING_VARIABLE: "A variable the case uses has no value in this environment or run params. Add it in Testing settings → Variables or declare a default.",
+  MISSING_CREDENTIAL: "A credential profile the case logs in with does not exist for this environment. Create it in Testing settings → Credentials.",
   MODEL_UNAVAILABLE: "The model provider did not answer. The app was not judged; run again later.",
-  MODEL_KEY_MISSING: "No model key is configured for the organisation. Add one in Settings → AI model.",
+  MODEL_KEY_MISSING: "No model key is configured for the organisation. Add one in Testing settings → Model.",
   APP_UNREACHABLE: "The runner could not reach the environment's base URL. Check VPN, DNS or the runner pool of this environment.",
   AUTH_CREDENTIAL_UNAVAILABLE: "The runner could not read the credential secrets for this run.",
   STEP_BUDGET_EXHAUSTED: "The agent ran out of actions for one step before it finished. Split the step or make it more specific.",

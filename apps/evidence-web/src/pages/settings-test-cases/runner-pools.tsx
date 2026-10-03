@@ -5,10 +5,11 @@ import type { RunnerPool } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { ConfirmDialog, Dialog } from "../../components/ui/dialog";
+import { ConfirmDialog, SimpleDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { EmptyState, Skeleton } from "../../components/ui/misc";
+import { EmptyState } from "../../components/ui/empty";
+import { Skeleton } from "../../components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { apiOrigin } from "../../env";
 import { cn } from "../../lib/cn";
@@ -189,7 +190,7 @@ function CreatePoolDialog(props: { onClose: () => void }): React.JSX.Element {
   if (created) return <TokenIssuedDialog title={`Pool ${created.pool.name} created`} token={created.token} onClose={props.onClose} />;
 
   return (
-    <Dialog
+    <SimpleDialog
       title="New runner pool"
       description="A self-hosted pool for a devbox or CI host you control."
       onClose={props.onClose}
@@ -220,14 +221,14 @@ function CreatePoolDialog(props: { onClose: () => void }): React.JSX.Element {
         </Field>
         <ErrorNote error={create.error} />
       </form>
-    </Dialog>
+    </SimpleDialog>
   );
 }
 
 function TokenIssuedDialog(props: { title: string; note?: string; token: string; onClose: () => void }): React.JSX.Element {
   const commands = runnerCommands({ apiOrigin: resolvedApiOrigin(), token: props.token });
   return (
-    <Dialog
+    <SimpleDialog
       title={props.title}
       onClose={props.onClose}
       size="lg"
@@ -251,6 +252,6 @@ function TokenIssuedDialog(props: { title: string; note?: string; token: string;
       <p className="text-sm text-muted-foreground">
         systemd and the full setup are in <code className="font-mono text-xs">docs/e2e-test-cases/runner-setup.md</code>. Bind an environment to this pool in Environments.
       </p>
-    </Dialog>
+    </SimpleDialog>
   );
 }

@@ -7,8 +7,9 @@ import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Field } from "../../components/ui/field";
-import { Input, Textarea } from "../../components/ui/input";
-import { Select } from "../../components/ui/select";
+import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
+import { SimpleSelect } from "../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { cn } from "../../lib/cn";
 import { testAdminApi } from "../admin-api";
@@ -238,8 +239,8 @@ export function TestCaseImportPage(): React.JSX.Element {
             {kind === "jira" ? (
               <AdminCard title="Jira issues" description="Acceptance criteria and description go through AI generation. The Jira key becomes a link and the external id.">
                 <div className="grid gap-4">
-                  <Field label="Jira credential" hint={jiraCredentials.length === 0 ? "Add a credential of kind jira in Settings → Credentials." : undefined}>
-                    <Select
+                  <Field label="Jira credential" hint={jiraCredentials.length === 0 ? "Add a credential of kind jira in Testing settings → Credentials." : undefined}>
+                    <SimpleSelect
                       ariaLabel="Jira credential"
                       value={jiraCredentialId}
                       onValueChange={setJiraCredentialId}
@@ -323,7 +324,7 @@ export function TestCaseImportPage(): React.JSX.Element {
                   <Input id="import-tags" value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="team:qa-pcf, import:sheet" />
                 </Field>
                 <Field label="Environment">
-                  <Select ariaLabel="Environment for imported cases" value={environmentId} onValueChange={setEnvironmentId} options={environmentOptions} />
+                  <SimpleSelect ariaLabel="Environment for imported cases" value={environmentId} onValueChange={setEnvironmentId} options={environmentOptions} />
                 </Field>
                 <ErrorNote error={createImport.error} />
                 <Button className={pressable} disabled={!canSubmit} onClick={() => void submit()}>
@@ -459,7 +460,7 @@ function TableSource(props: {
                   <p className="text-sm font-semibold text-foreground">{importFieldLabels[field]}</p>
                   <p className="text-xs text-muted-foreground">{importFieldHints[field]}</p>
                 </div>
-                <Select
+                <SimpleSelect
                   size="sm"
                   ariaLabel={`Column for ${importFieldLabels[field]}`}
                   value={mapping[field] ?? NONE}

@@ -12,10 +12,10 @@ import {
 import { useAuth } from "../auth";
 import { api, type ApiEvidenceSummary, type ApiOrganization, type ArtifactReadUrl, type FetchToken } from "../api";
 import { Button } from "../components/ui/button";
-import { Dialog } from "../components/ui/dialog";
+import { SimpleDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
-import { Select } from "../components/ui/select";
+import { SimpleSelect } from "../components/ui/select";
 import { StatusScreen } from "../components/status-screen";
 import { RequireAuth } from "../components/workspace/require-auth";
 import { EvidenceViewerContent } from "../evidence-viewer-content";
@@ -423,7 +423,7 @@ function RemoteEvidenceLoader(props: {
           onClose={() => setWorkspaceAction(null)}
         />
       ) : null}
-      <Dialog
+      <SimpleDialog
         open={renameOpen}
         onClose={() => setRenameOpen(false)}
         size="sm"
@@ -468,7 +468,7 @@ function RemoteEvidenceLoader(props: {
             />
           </Field>
         </form>
-      </Dialog>
+      </SimpleDialog>
     </>
   );
 }
@@ -515,7 +515,7 @@ function WorkspaceEvidenceActionDialog(props: {
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="sm"
@@ -546,7 +546,7 @@ function WorkspaceEvidenceActionDialog(props: {
         </p>
       ) : (
         <Field label="Destination workspace">
-          <Select
+          <SimpleSelect
             ariaLabel="Destination workspace"
             value={targetOrgId}
             onValueChange={setTargetOrgId}
@@ -557,7 +557,7 @@ function WorkspaceEvidenceActionDialog(props: {
           />
         </Field>
       )}
-    </Dialog>
+    </SimpleDialog>
   );
 }
 

@@ -4,11 +4,11 @@ import type { NotificationChannel, NotificationKind } from "@jittle-lamp/shared"
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { ConfirmDialog, Dialog } from "../../components/ui/dialog";
+import { ConfirmDialog, SimpleDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { Skeleton } from "../../components/ui/misc";
-import { Select } from "../../components/ui/select";
+import { Skeleton } from "../../components/ui/skeleton";
+import { SimpleSelect } from "../../components/ui/select";
 import { useToast } from "../../toast";
 import { testAdminApi } from "../../test-cases/admin-api";
 import {
@@ -194,7 +194,7 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
 
   if (signingSecret) {
     return (
-      <Dialog
+      <SimpleDialog
         title="Webhook channel added"
         onClose={props.onClose}
         size="md"
@@ -209,12 +209,12 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
           Every post carries <code className="font-mono text-xs">X-Jl-Signature-256: sha256=&lt;HMAC-SHA256 of the body&gt;</code>. Verify it with this secret; it is shown once.
         </p>
         <CopyBlock label="Signing secret" value={signingSecret} />
-      </Dialog>
+      </SimpleDialog>
     );
   }
 
   return (
-    <Dialog
+    <SimpleDialog
       title={props.channel ? "Edit channel" : "Add channel"}
       description="Slack posts a short message with the outcome, the case and a link to the run."
       onClose={props.onClose}
@@ -233,7 +233,7 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
       <div className="grid gap-4">
         {props.channel ? null : (
           <Field label="Kind" htmlFor="channel-kind">
-            <Select<ExternalKind>
+            <SimpleSelect<ExternalKind>
               ariaLabel="Channel kind"
               value={kind}
               onValueChange={setKind}
@@ -247,7 +247,7 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
         {kind === "slack" ? (
           <>
             <Field label="Slack webhook credential" htmlFor="channel-credential" hint="A slack_webhook credential whose secret field url holds the incoming-webhook URL.">
-              <Select<string>
+              <SimpleSelect<string>
                 ariaLabel="Slack webhook credential"
                 value={credentialId}
                 onValueChange={setCredentialId}
@@ -298,7 +298,7 @@ function ChannelDialog(props: { channel: NotificationChannel | null; onClose: ()
         ) : null}
         <ErrorNote error={save.error} />
       </div>
-    </Dialog>
+    </SimpleDialog>
   );
 }
 

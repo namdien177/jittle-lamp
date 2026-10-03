@@ -4,32 +4,33 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/cn";
 
 export const buttonVariants = cva(
-  "inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md text-base font-semibold transition-[background,border,color,box-shadow,transform] outline-none focus-visible:ring-2 focus-visible:ring-ring/55 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 select-none",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium outline-none transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-[cubic-bezier(.23,1,.32,1)] select-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] motion-reduce:active:scale-100 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        primary:
-          "bg-primary text-primary-foreground shadow-soft hover:bg-brand-400 hover:shadow-[0_4px_18px_-6px_var(--brand-500)]",
-        secondary:
-          "border border-border bg-secondary text-secondary-foreground hover:bg-muted hover:border-border-strong",
-        outline:
-          "border border-border-strong bg-transparent text-foreground hover:bg-muted hover:border-foreground/40",
-        ghost:
-          "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+        default:
+          "bg-primary text-primary-foreground shadow-soft hover:bg-primary/90",
         destructive:
-          "border border-destructive/45 bg-transparent text-destructive hover:bg-destructive/12",
-        link: "text-primary underline-offset-4 hover:underline px-0",
+          "bg-destructive text-destructive-foreground shadow-soft hover:bg-destructive/90 focus-visible:ring-destructive/40",
+        outline:
+          "border border-border bg-background text-foreground shadow-soft hover:bg-accent hover:text-accent-foreground dark:bg-transparent dark:hover:bg-accent",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-accent",
+        ghost:
+          "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        link: "h-auto px-0 text-primary underline-offset-4 hover:underline",
       },
       size: {
-        xs: "h-8 px-3 ",
-        sm: "h-9 px-3.5",
-        md: "h-10 px-4",
-        lg: "h-11 px-6",
-        icon: "size-10 p-0",
-        "icon-sm": "size-9 p-0",
+        default: "h-8 px-3 has-[>svg]:px-2.5",
+        xs: "h-6 gap-1 rounded-sm px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        sm: "h-7 gap-1 px-2.5 text-[13px] has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-9 px-4 has-[>svg]:px-3",
+        icon: "size-8",
+        "icon-sm": "size-7 [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3.5",
       },
     },
-    defaultVariants: { variant: "primary", size: "md" },
+    defaultVariants: { variant: "default", size: "default" },
   },
 );
 
@@ -41,6 +42,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
+        data-slot="button"
         type={type ?? "button"}
         className={cn(buttonVariants({ variant, size }), className)}
         {...props}

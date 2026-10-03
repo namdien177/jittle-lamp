@@ -4,11 +4,12 @@ import type { TestCredential, TestEnvironment } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { ConfirmDialog, Dialog } from "../../components/ui/dialog";
+import { ConfirmDialog, SimpleDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { EmptyState, Skeleton } from "../../components/ui/misc";
-import { Select } from "../../components/ui/select";
+import { EmptyState } from "../../components/ui/empty";
+import { Skeleton } from "../../components/ui/skeleton";
+import { SimpleSelect } from "../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../utils";
@@ -67,11 +68,11 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
         }
         bodyClassName="p-0 pt-0"
       >
-        <ErrorNote error={credentials.error ?? remove.error} className="m-5" />
+        <ErrorNote error={credentials.error ?? remove.error} className="m-4" />
         {credentials.isPending ? (
-          <Skeleton className="m-5 h-32" />
+          <Skeleton className="m-4 h-32" />
         ) : list.length === 0 ? (
-          <EmptyState className="m-5" icon={<KeyRound aria-hidden />} title="No credentials yet" description="Add a login profile per role, for example PCF_HQ_ADMIN with a username and a password." />
+          <EmptyState className="m-4" icon={<KeyRound aria-hidden />} title="No credentials yet" description="Add a login profile per role, for example PCF_HQ_ADMIN with a username and a password." />
         ) : (
           <Table>
             <TableHeader>
@@ -224,7 +225,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
   const kindOptions = (source?.kind === "model_key" ? (["model_key", ...editableKinds] as const) : editableKinds).map((value) => ({ label: kindLabels[value], value }));
 
   return (
-    <Dialog
+    <SimpleDialog
       title={source ? (props.readOnly ? source.profile : `Edit ${source.profile}`) : "New credential"}
       description={source ? `Key version ${source.keyVersion} · last used ${source.lastUsedAt ? formatRelativeTime(source.lastUsedAt) : "never"}` : "Secret values are encrypted on the server and never shown again."}
       onClose={props.onClose}
@@ -260,10 +261,10 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
               <Input id="cred-profile" value={profile} onChange={(event) => setProfile(event.target.value.toUpperCase())} className="font-mono" placeholder="PCF_HQ_ADMIN" />
             </Field>
             <Field label="Kind">
-              <Select ariaLabel="Credential kind" value={kind} onValueChange={setKind} options={kindOptions} disabled={props.readOnly} />
+              <SimpleSelect ariaLabel="Credential kind" value={kind} onValueChange={setKind} options={kindOptions} disabled={props.readOnly} />
             </Field>
             <Field label="Environment">
-              <Select
+              <SimpleSelect
                 ariaLabel="Environment scope"
                 value={environmentId}
                 onValueChange={setEnvironmentId}
@@ -274,7 +275,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
           </div>
 
           <div className="grid gap-2">
-            <span className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Public fields</span>
+            <span className="font-medium text-muted-foreground">Public fields</span>
             <KeyValueEditor rows={fields} onChange={setFields} keyLabel="Field" valueLabel="Value" keyPlaceholder="username" valuePlaceholder="qa-admin@example.com" addLabel="Add public field" disabled={props.readOnly} />
             {fieldResult.errors.map((error) => (
               <p key={error} className="text-sm text-destructive">
@@ -284,7 +285,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
           </div>
 
           <div className="grid gap-2">
-            <span className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Secret fields · write-only</span>
+            <span className="font-medium text-muted-foreground">Secret fields · write-only</span>
             {secrets.map((row, index) => (
               <div key={index} className={cn("grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_2.25rem] items-center gap-2", row.remove && "opacity-60")}>
                 {row.stored ? (
@@ -343,7 +344,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
         </fieldset>
         <ErrorNote error={save.error} />
       </form>
-    </Dialog>
+    </SimpleDialog>
   );
 }
 
@@ -363,7 +364,7 @@ function RotateDialog(props: { credential: TestCredential; onClose: () => void }
     props.onClose();
   };
   return (
-    <Dialog
+    <SimpleDialog
       title={`Rotate ${props.credential.profile}`}
       description="Enter a new value for every secret field. The old values are discarded and the credential is re-encrypted with the current key."
       onClose={props.onClose}
@@ -394,6 +395,6 @@ function RotateDialog(props: { credential: TestCredential; onClose: () => void }
         ))}
         <ErrorNote error={rotate.error} />
       </form>
-    </Dialog>
+    </SimpleDialog>
   );
 }

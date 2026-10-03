@@ -237,7 +237,7 @@ export function LandingPage(): React.JSX.Element {
               href={CHROME_EXTENSION_URL}
               target="_blank"
               rel="noreferrer"
-              className={cn(buttonVariants({ variant: "primary", size: "lg" }))}
+              className={cn(buttonVariants({ variant: "default", size: "lg" }))}
             >
               Add to Chrome
               <ExternalLink aria-hidden />

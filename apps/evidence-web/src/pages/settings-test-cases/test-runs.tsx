@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { Skeleton } from "../../components/ui/misc";
+import { Skeleton } from "../../components/ui/skeleton";
 import { useToast } from "../../toast";
 import { testAdminApi } from "../../test-cases/admin-api";
 import { testAdminKeys, useTestAdminMutation, useTestPermissions, useTestRunSettings } from "../../test-cases/admin-queries";

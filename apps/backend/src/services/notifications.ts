@@ -600,7 +600,7 @@ export const describeNotification = (
 						" ",
 					),
 				body: null,
-				url: "/settings/test-cases/runner-pools",
+				url: "/test-cases/settings/runner-pools",
 			};
 		default:
 			return { title: event.kind, body: null, url: null };

@@ -8,8 +8,8 @@ import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ui/dialog";
-import { Skeleton } from "../../components/ui/misc";
-import { Select } from "../../components/ui/select";
+import { Skeleton } from "../../components/ui/skeleton";
+import { SimpleSelect } from "../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../utils";
@@ -311,7 +311,7 @@ function BatchRow(props: {
             </div>
           ) : (
             <div className="grid gap-1">
-              <Select
+              <SimpleSelect
                 size="sm"
                 ariaLabel={`Decision for row ${item.ordinal + 1}`}
                 value={item.decision}

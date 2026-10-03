@@ -4,11 +4,13 @@ import type { MacroParam, TestMacro } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { ConfirmDialog, Dialog } from "../../components/ui/dialog";
+import { ConfirmDialog, SimpleDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
-import { Input, Textarea } from "../../components/ui/input";
-import { EmptyState, Skeleton } from "../../components/ui/misc";
-import { Select } from "../../components/ui/select";
+import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
+import { EmptyState } from "../../components/ui/empty";
+import { Skeleton } from "../../components/ui/skeleton";
+import { SimpleSelect } from "../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../utils";
@@ -17,7 +19,7 @@ import { testAdminKeys, useTestAdminMutation, useTestMacros, useTestPermissions 
 import { AdminCard, ErrorNote, LintFindingList, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { lintMacroBody } from "../../test-config/config-ui";
 
-// Settings → Macros (design.md §4, §13): named, parameterised step sequences such as Login.
+// Testing settings → Actions (design.md §4, §13 "macros"): named, parameterised step sequences such as Login.
 
 const macroNamePattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const paramNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -33,28 +35,28 @@ export function SettingsTestMacrosPage(): React.JSX.Element {
     <div className="grid gap-4">
       {!canManage && !permissions.loading ? <ReadOnlyNotice permission="test_config.manage" /> : null}
       <AdminCard
-        title="Macros"
-        description="Any tag that is not a built-in step calls a macro: [Login: PCF_HQ_ADMIN] runs Login with its first parameter. Editing a macro re-records only the steps it expands to."
+        title="Actions"
+        description="Reusable step sequences (macros). Any tag that is not a built-in step calls one: [Login: PCF_HQ_ADMIN] runs Login with its first parameter. Editing an action re-records only the steps it expands to."
         actions={
           canManage ? (
             <Button size="sm" className={pressable} onClick={() => setEditing("new")}>
               <Plus aria-hidden />
-              New macro
+              New action
             </Button>
           ) : null
         }
         bodyClassName="p-0 pt-0"
       >
-        <ErrorNote error={macros.error ?? remove.error} className="m-5" />
+        <ErrorNote error={macros.error ?? remove.error} className="m-4" />
         {macros.isPending ? (
-          <Skeleton className="m-5 h-32" />
+          <Skeleton className="m-4 h-32" />
         ) : (macros.data ?? []).length === 0 ? (
-          <EmptyState className="m-5" icon={<Puzzle aria-hidden />} title="No macros yet" description="Start with Login: open the login page, fill the profile's username and password, submit." />
+          <EmptyState className="m-4" icon={<Puzzle aria-hidden />} title="No actions yet" description="Start with Login: open the login page, fill the profile's username and password, submit." />
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-5">Macro</TableHead>
+                <TableHead className="pl-5">Action</TableHead>
                 <TableHead>Parameters</TableHead>
                 <TableHead className="w-24">Version</TableHead>
                 <TableHead className="w-24">Status</TableHead>
@@ -88,11 +90,11 @@ export function SettingsTestMacrosPage(): React.JSX.Element {
                   <TableCell className="text-sm text-muted-foreground">{formatRelativeTime(macro.updatedAt)}</TableCell>
                   <TableCell className="pr-5 text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} macro ${macro.name}`} onClick={() => setEditing(macro)}>
+                      <Button variant="ghost" size="icon-sm" aria-label={`${canManage ? "Edit" : "View"} action ${macro.name}`} onClick={() => setEditing(macro)}>
                         {canManage ? <Pencil aria-hidden /> : <Eye aria-hidden />}
                       </Button>
                       {canManage ? (
-                        <Button variant="ghost" size="icon-sm" aria-label={`Delete macro ${macro.name}`} onClick={() => setDeleting(macro)}>
+                        <Button variant="ghost" size="icon-sm" aria-label={`Delete action ${macro.name}`} onClick={() => setDeleting(macro)}>
                           <Trash2 aria-hidden />
                         </Button>
                       ) : null}
@@ -108,7 +110,7 @@ export function SettingsTestMacrosPage(): React.JSX.Element {
       <ConfirmDialog
         open={deleting !== null}
         destructive
-        title={`Delete macro ${deleting?.name ?? ""}?`}
+        title={`Delete action ${deleting?.name ?? ""}?`}
         description="Transcripts that call it will show an unknown-macro lint error."
         confirmLabel="Delete"
         busy={remove.isPending}
@@ -168,9 +170,9 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
   };
 
   return (
-    <Dialog
-      title={source ? (props.readOnly ? `[${source.name}]` : `Edit [${source.name}]`) : "New macro"}
-      description={source ? `Version ${source.version}. Saving a changed body creates version ${source.version + 1}.` : "Agent-created macros arrive as drafts; activate one when it is reviewed."}
+    <SimpleDialog
+      title={source ? (props.readOnly ? `[${source.name}]` : `Edit [${source.name}]`) : "New action"}
+      description={source ? `Version ${source.version}. Saving a changed body creates version ${source.version + 1}.` : "Agent-created actions arrive as drafts; activate one when it is reviewed."}
       onClose={props.onClose}
       size="xl"
       footer={
@@ -184,7 +186,7 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
               Cancel
             </Button>
             <Button size="sm" className={pressable} disabled={save.isPending} onClick={() => void submit()}>
-              {save.isPending ? "Saving…" : "Save macro"}
+              {save.isPending ? "Saving…" : "Save action"}
             </Button>
           </>
         )
@@ -202,7 +204,7 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
             <Field label="Name" htmlFor="macro-name" error={submitted ? nameError : undefined} hint="Called as [Name: value] or [Name: param=value, …]">
               <Input id="macro-name" value={name} onChange={(event) => setName(event.target.value)} className="font-mono" placeholder="Login" />
             </Field>
-            <div role="radiogroup" aria-label="Macro status" className="flex h-10 overflow-hidden rounded-md border border-border">
+            <div role="radiogroup" aria-label="Action status" className="flex h-10 overflow-hidden rounded-md border border-border">
               {(["draft", "active"] as const).map((value) => (
                 <button
                   key={value}
@@ -219,9 +221,9 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
           </div>
 
           <div className="grid gap-2">
-            <span className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Parameters</span>
+            <span className="font-medium text-muted-foreground">Parameters</span>
             {params.length > 0 ? (
-              <div className="grid grid-cols-[minmax(0,2fr)_8rem_6rem_minmax(0,2fr)_2.25rem] gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              <div className="grid grid-cols-[minmax(0,2fr)_8rem_6rem_minmax(0,2fr)_2.25rem] gap-2 text-xs font-medium text-muted-foreground">
                 <span>Name</span>
                 <span>Kind</span>
                 <span>Required</span>
@@ -232,7 +234,7 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
             {params.map((param, index) => (
               <div key={index} className="grid grid-cols-[minmax(0,2fr)_8rem_6rem_minmax(0,2fr)_2.25rem] items-center gap-2">
                 <Input aria-label={`Parameter ${index + 1} name`} value={param.name} className="font-mono text-sm" onChange={(event) => updateParam(index, { name: event.target.value })} />
-                <Select size="sm" ariaLabel={`Parameter ${param.name || index + 1} kind`} value={param.kind} onValueChange={(kind) => updateParam(index, { kind })} options={[...kindOptions]} disabled={props.readOnly} />
+                <SimpleSelect size="sm" ariaLabel={`Parameter ${param.name || index + 1} kind`} value={param.kind} onValueChange={(kind) => updateParam(index, { kind })} options={[...kindOptions]} disabled={props.readOnly} />
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={param.required} onChange={(event) => updateParam(index, { required: event.target.checked })} aria-label={`Parameter ${param.name || index + 1} required`} />
                   required
@@ -287,6 +289,6 @@ function MacroDialog(props: { macro: TestMacro | null; macros: readonly TestMacr
         </fieldset>
         <ErrorNote error={save.error} />
       </form>
-    </Dialog>
+    </SimpleDialog>
   );
 }

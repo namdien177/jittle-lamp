@@ -4,11 +4,12 @@ import type { WebhookEndpoint, WebhookRule } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { ConfirmDialog, Dialog } from "../../components/ui/dialog";
+import { ConfirmDialog, SimpleDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { EmptyState, Skeleton } from "../../components/ui/misc";
-import { Select } from "../../components/ui/select";
+import { EmptyState } from "../../components/ui/empty";
+import { Skeleton } from "../../components/ui/skeleton";
+import { SimpleSelect } from "../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { formatRelativeTime } from "../../utils";
 import { testAdminApi } from "../../test-cases/admin-api";
@@ -200,7 +201,7 @@ function Deliveries(props: { endpointId: string }): React.JSX.Element {
   const items = (deliveries.data ?? []).slice(0, 8);
   return (
     <div className="grid gap-1">
-      <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Recent deliveries</span>
+      <span className="text-xs font-medium text-muted-foreground">Recent deliveries</span>
       {deliveries.isPending ? (
         <Skeleton className="h-16" />
       ) : items.length === 0 ? (
@@ -272,7 +273,7 @@ function WebhookDialog(props: { endpoint: WebhookEndpoint | null; onClose: () =>
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       title={props.endpoint ? `${providerLabels[props.endpoint.provider]} webhook rules` : "New webhook"}
       description="Each matching rule starts the suite once per commit; a retriggered pipeline joins the running batch."
       onClose={props.onClose}
@@ -291,7 +292,7 @@ function WebhookDialog(props: { endpoint: WebhookEndpoint | null; onClose: () =>
       <div className="grid gap-4">
         {props.endpoint ? null : (
           <Field label="Provider" htmlFor="webhook-provider">
-            <Select<Provider>
+            <SimpleSelect<Provider>
               ariaLabel="Provider"
               value={provider}
               onValueChange={setProvider}
@@ -323,7 +324,7 @@ function WebhookDialog(props: { endpoint: WebhookEndpoint | null; onClose: () =>
         ) : null}
         <ErrorNote error={create.error ?? update.error} />
       </div>
-    </Dialog>
+    </SimpleDialog>
   );
 }
 
@@ -365,7 +366,7 @@ function RuleEditor(props: { index: number; provider: Provider; draft: RuleDraft
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Suite" htmlFor={`${id}-suite`}>
-          <Select<string>
+          <SimpleSelect<string>
             ariaLabel="Suite"
             value={draft.suiteId}
             onValueChange={(value) => set("suiteId", value)}
@@ -378,7 +379,7 @@ function RuleEditor(props: { index: number; provider: Provider; draft: RuleDraft
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Run against" htmlFor={`${id}-env-mode`}>
-          <Select<RuleDraft["environmentMode"]>
+          <SimpleSelect<RuleDraft["environmentMode"]>
             ariaLabel="Run against"
             value={draft.environmentMode}
             onValueChange={(value) => set("environmentMode", value)}
@@ -390,7 +391,7 @@ function RuleEditor(props: { index: number; provider: Provider; draft: RuleDraft
           />
         </Field>
         <Field label={draft.environmentMode === "fixed" ? "Environment" : "Base environment (variables, credentials, pool)"} htmlFor={`${id}-env`}>
-          <Select<string>
+          <SimpleSelect<string>
             ariaLabel="Environment"
             value={draft.environmentId}
             onValueChange={(value) => set("environmentId", value)}
@@ -423,7 +424,7 @@ function RuleEditor(props: { index: number; provider: Provider; draft: RuleDraft
                 : "A gitlab_token credential: a project or group access token (api scope) in the secret field token, and api_url (https://gitlab.example.com/api/v4). The token only goes to api_url."
             }
           >
-            <Select<string>
+            <SimpleSelect<string>
               ariaLabel="Report credential"
               value={draft.credentialId}
               onValueChange={(value) => set("credentialId", value)}
@@ -444,7 +445,7 @@ function RuleEditor(props: { index: number; provider: Provider; draft: RuleDraft
 
 function SecretDialog(props: { endpoint: WebhookEndpoint; secret: string; onClose: () => void }): React.JSX.Element {
   return (
-    <Dialog
+    <SimpleDialog
       title={`${providerLabels[props.endpoint.provider]} webhook ready`}
       onClose={props.onClose}
       size="lg"
@@ -466,6 +467,6 @@ function SecretDialog(props: { endpoint: WebhookEndpoint; secret: string; onClos
           <li key={step}>{step}</li>
         ))}
       </ol>
-    </Dialog>
+    </SimpleDialog>
   );
 }

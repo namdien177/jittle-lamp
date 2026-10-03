@@ -4,9 +4,17 @@ import type { TestCaseSummary, TestEnvironment, TestTag } from "@jittle-lamp/sha
 import { useVirtualWindow } from "@jittle-lamp/ui";
 
 import { cn } from "../lib/cn";
+import { PageHeader } from "../components/page";
 import { Button } from "../components/ui/button";
-import { DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "../components/ui/dropdown-menu";
-import { Skeleton } from "../components/ui/misc";
+import {
+  DropdownMenu,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+} from "../components/ui/dropdown-menu";
+import { Skeleton } from "../components/ui/skeleton";
 import { CaseStatusBadge, Kbd, OutcomeBadge, TagChip } from "./bits";
 import {
   activeFilterCount,
@@ -100,15 +108,21 @@ export function CaseListPane(props: {
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-border" aria-label="Test case list">
-      <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-        <h1 className="mr-auto text-[18px] font-semibold tracking-[-0.01em]">
-          Test cases <span className="ml-1 text-[13px] font-normal text-muted-foreground tabular-nums">{total.toLocaleString()}</span>
-        </h1>
-        {props.headerAccessory}
-        <Button size="xs" onClick={props.onQuickCreate} className="jl-tc-press" aria-keyshortcuts="c">
-          <Plus aria-hidden /> New case <Kbd>c</Kbd>
-        </Button>
-      </header>
+      <PageHeader
+        title={
+          <>
+            Test cases <span className="ml-1 font-normal text-muted-foreground tabular-nums">{total.toLocaleString()}</span>
+          </>
+        }
+        actions={
+          <>
+            {props.headerAccessory}
+            <Button size="xs" onClick={props.onQuickCreate} className="jl-tc-press" aria-keyshortcuts="c">
+              <Plus aria-hidden /> New case <Kbd>c</Kbd>
+            </Button>
+          </>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <label className="relative flex min-w-[220px] flex-1 items-center">
@@ -132,14 +146,11 @@ export function CaseListPane(props: {
           </span>
         </label>
 
-        <DropdownMenu
-          align="start"
-          trigger={
-            <Button size="xs" variant={filterCount > 0 ? "secondary" : "ghost"} className="jl-tc-press" aria-label={`Filters${filterCount > 0 ? `, ${filterCount} active` : ""}`}>
+        <DropdownMenu>
+<DropdownMenuTrigger render={<Button size="xs" variant={filterCount > 0 ? "secondary" : "ghost"} className="jl-tc-press" aria-label={`Filters${filterCount > 0 ? `, ${filterCount} active` : ""}`}>
               <Filter aria-hidden /> Filters{filterCount > 0 ? ` · ${filterCount}` : ""}
-            </Button>
-          }
-        >
+            </Button>} />
+<DropdownMenuContent align="start">
           <DropdownMenuLabel>Status</DropdownMenuLabel>
           {(["draft", "review", "active", "archived"] as const).map((status) => (
             <CheckItem key={status} checked={filters.status.includes(status)} onClick={() => setFilters({ status: toggleValue(filters.status, status) })}>
@@ -180,16 +191,14 @@ export function CaseListPane(props: {
               No runs in {days} days
             </CheckItem>
           ))}
-        </DropdownMenu>
+        </DropdownMenuContent>
+</DropdownMenu>
 
-        <DropdownMenu
-          align="end"
-          trigger={
-            <Button size="xs" variant="ghost" className="jl-tc-press" aria-label="Sort">
+        <DropdownMenu>
+<DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label="Sort">
               <ArrowDownUp aria-hidden /> {sortLabel(props.sort)}
-            </Button>
-          }
-        >
+            </Button>} />
+<DropdownMenuContent align="end">
           <DropdownMenuLabel>Sort by</DropdownMenuLabel>
           {(["updated", "created", "key", "title", "last-run"] as const).map((sort) => (
             <CheckItem key={sort} checked={props.sort.sort === sort} onClick={() => props.onSortChange({ ...props.sort, sort })}>
@@ -203,16 +212,14 @@ export function CaseListPane(props: {
           <CheckItem checked={props.sort.order === "asc"} onClick={() => props.onSortChange({ ...props.sort, order: "asc" })}>
             Ascending
           </CheckItem>
-        </DropdownMenu>
+        </DropdownMenuContent>
+</DropdownMenu>
 
-        <DropdownMenu
-          align="end"
-          trigger={
-            <Button size="xs" variant="ghost" className="jl-tc-press" aria-label="Columns">
+        <DropdownMenu>
+<DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label="Columns">
               <Columns3 aria-hidden />
-            </Button>
-          }
-        >
+            </Button>} />
+<DropdownMenuContent align="end">
           <DropdownMenuLabel>Columns</DropdownMenuLabel>
           {listColumnIds
             .filter((column) => column !== "title")
@@ -228,7 +235,8 @@ export function CaseListPane(props: {
                 {listColumnLabels[column]}
               </CheckItem>
             ))}
-        </DropdownMenu>
+        </DropdownMenuContent>
+</DropdownMenu>
       </div>
 
       {filterCount > 0 ? (
@@ -292,7 +300,7 @@ export function CaseListPane(props: {
       <div
         role="row"
         aria-rowindex={1}
-        className="grid items-center gap-2 border-b border-border px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground"
+        className="grid items-center gap-2 border-b border-border px-4 py-1.5 text-[11px] font-medium text-muted-foreground"
         style={{ gridTemplateColumns: template }}
       >
         <span role="columnheader">
@@ -392,13 +400,9 @@ function sortLabel(sort: ListSort): string {
 
 function CheckItem(props: { checked: boolean; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
   return (
-    <DropdownMenuItem onClick={props.onClick} closeOnClick={false}>
-      <span className={cn("grid size-3.5 place-items-center rounded-sm border text-[10px] leading-none", props.checked ? "border-primary bg-primary text-primary-foreground" : "border-border-strong")} aria-hidden>
-        {props.checked ? "✓" : ""}
-      </span>
-      <span className="sr-only">{props.checked ? "Selected: " : ""}</span>
+    <DropdownMenuCheckboxItem checked={props.checked} onCheckedChange={() => props.onClick()}>
       {props.children}
-    </DropdownMenuItem>
+    </DropdownMenuCheckboxItem>
   );
 }
 

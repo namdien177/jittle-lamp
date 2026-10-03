@@ -1,49 +1,81 @@
 import React from "react";
-import { NavLink } from "react-router";
-import { Bell, Bot, CircleDollarSign, Gauge, Globe, KeyRound, NotebookPen, Puzzle, Server, Tags, Webhook } from "lucide-react";
+import { Outlet, useLocation } from "react-router";
+import {
+  Bell,
+  Bot,
+  CircleDollarSign,
+  Gauge,
+  Globe,
+  KeyRound,
+  NotebookPen,
+  Server,
+  Tags,
+  Variable,
+  Webhook,
+  Zap
+} from "lucide-react";
 
-import { cn } from "../../lib/cn";
+import { PageHeader, SettingsLayout, SettingsNav, type SettingsNavGroup } from "../../components/page";
+import { testingSettingsBase } from "./routes";
 
-// Settings → Test cases section (unit 1c.5, ops.4). Rendered under the main settings nav.
+// Testing → Settings: organisation-wide configuration for test cases, reached from the Testing
+// section of the sidebar. Laid out like Vercel's project settings.
 
-export const testCaseSettingsTabs = [
-  { to: "/settings/test-cases/environments", label: "Environments", icon: Globe },
-  { to: "/settings/test-cases/credentials", label: "Credentials", icon: KeyRound },
-  { to: "/settings/test-cases/macros", label: "Macros", icon: Puzzle },
-  { to: "/settings/test-cases/tags", label: "Tags", icon: Tags },
-  { to: "/settings/test-cases/ai-model", label: "AI model", icon: Bot },
-  { to: "/settings/test-cases/model-spend", label: "Model spend", icon: CircleDollarSign },
-  { to: "/settings/test-cases/runner-pools", label: "Runner pools", icon: Server },
-  { to: "/settings/test-cases/test-runs", label: "Test runs", icon: Gauge },
-  { to: "/settings/test-cases/notifications", label: "Notifications", icon: Bell },
-  { to: "/settings/test-cases/webhooks", label: "Webhooks", icon: Webhook },
-  { to: "/settings/test-cases/agent-notes", label: "Agent notes", icon: NotebookPen }
-] as const;
+export const testingSettingsGroups = [
+  {
+    label: "Run inputs",
+    items: [
+      { to: `${testingSettingsBase}/variables`, label: "Variables", icon: Variable },
+      { to: `${testingSettingsBase}/environments`, label: "Environments", icon: Globe },
+      { to: `${testingSettingsBase}/credentials`, label: "Credentials", icon: KeyRound },
+      { to: `${testingSettingsBase}/actions`, label: "Actions", icon: Zap }
+    ]
+  },
+  {
+    label: "Authoring",
+    items: [
+      { to: `${testingSettingsBase}/tags`, label: "Tags", icon: Tags },
+      { to: `${testingSettingsBase}/agent-notes`, label: "Agent notes", icon: NotebookPen }
+    ]
+  },
+  {
+    label: "AI",
+    items: [
+      { to: `${testingSettingsBase}/ai-model`, label: "Model", icon: Bot },
+      { to: `${testingSettingsBase}/model-spend`, label: "Spend", icon: CircleDollarSign }
+    ]
+  },
+  {
+    label: "Execution",
+    items: [
+      { to: `${testingSettingsBase}/runner-pools`, label: "Runner pools", icon: Server },
+      { to: `${testingSettingsBase}/test-runs`, label: "Run limits", icon: Gauge }
+    ]
+  },
+  {
+    label: "Integrations",
+    items: [
+      { to: `${testingSettingsBase}/notifications`, label: "Notifications", icon: Bell },
+      { to: `${testingSettingsBase}/webhooks`, label: "Webhooks", icon: Webhook }
+    ]
+  }
+] as const satisfies readonly SettingsNavGroup[];
 
-export function TestCaseSettingsNav(): React.JSX.Element {
+export function testingSettingsLabel(pathname: string): string | null {
+  for (const group of testingSettingsGroups) {
+    for (const item of group.items) if (pathname.startsWith(item.to)) return item.label;
+  }
+  return null;
+}
+
+export function TestingSettingsLayout(): React.JSX.Element {
+  const location = useLocation();
   return (
-    <nav aria-label="Test case settings" className="mt-3 rounded-md border border-border bg-card p-2 shadow-soft">
-      <div className="mb-2 px-2 py-1 font-mono text-xs font-semibold uppercase text-muted-foreground">Test cases</div>
-      <div className="grid gap-1">
-        {testCaseSettingsTabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <NavLink
-              key={tab.to}
-              to={tab.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-base font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                  isActive && "bg-secondary text-foreground shadow-soft"
-                )
-              }
-            >
-              <Icon className="size-4" aria-hidden />
-              <span>{tab.label}</span>
-            </NavLink>
-          );
-        })}
-      </div>
-    </nav>
+    <>
+      <PageHeader title={testingSettingsLabel(location.pathname) ?? "Settings"} />
+      <SettingsLayout nav={<SettingsNav label="Testing settings" groups={testingSettingsGroups} />}>
+        <Outlet />
+      </SettingsLayout>
+    </>
   );
 }

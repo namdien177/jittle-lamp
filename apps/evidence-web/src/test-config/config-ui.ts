@@ -78,6 +78,114 @@ export function isHttpUrl(value: string): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Variables (Vercel-style view over every environment's variables)
+// ---------------------------------------------------------------------------------------------
+
+type EnvironmentVariables = { id: string; name: string; variables: Readonly<Record<string, string>> };
+
+// One row per key and value; environments that share both are listed together.
+export type VariableRow = { key: string; value: string; environmentIds: string[] };
+
+export function groupVariables(environments: readonly EnvironmentVariables[]): VariableRow[] {
+  const rows = new Map<string, VariableRow>();
+  const ordered = [...environments].sort((left, right) => left.name.localeCompare(right.name));
+  for (const environment of ordered) {
+    for (const [key, value] of Object.entries(environment.variables)) {
+      const id = JSON.stringify([key, value]);
+      const row = rows.get(id) ?? { key, value, environmentIds: [] };
+      row.environmentIds.push(environment.id);
+      rows.set(id, row);
+    }
+  }
+  return [...rows.values()].sort((left, right) => left.key.localeCompare(right.key) || left.value.localeCompare(right.value));
+}
+
+export type VariableChange = {
+  // Taken out of these environments first (an edit removes the old key, then sets the new one).
+  remove?: { key: string; environmentIds: readonly string[] };
+  set?: { entries: readonly KeyValueRow[]; environmentIds: readonly string[] };
+};
+
+// The next `variables` of every environment the change touches; untouched ones are left out.
+export function applyVariableChange(environments: readonly EnvironmentVariables[], change: VariableChange): Map<string, Record<string, string>> {
+  const next = new Map<string, Record<string, string>>();
+  const draft = (id: string): Record<string, string> | null => {
+    const existing = next.get(id);
+    if (existing) return existing;
+    const environment = environments.find((item) => item.id === id);
+    if (!environment) return null;
+    const copy = { ...environment.variables };
+    next.set(id, copy);
+    return copy;
+  };
+  for (const id of change.remove?.environmentIds ?? []) {
+    const record = draft(id);
+    if (record && change.remove) delete record[change.remove.key];
+  }
+  for (const id of change.set?.environmentIds ?? []) {
+    const record = draft(id);
+    if (!record) continue;
+    for (const entry of change.set?.entries ?? []) record[entry.key] = entry.value;
+  }
+  for (const [id, record] of next) {
+    const before = environments.find((item) => item.id === id)?.variables ?? {};
+    if (JSON.stringify(Object.entries(before).sort()) === JSON.stringify(Object.entries(record).sort())) next.delete(id);
+  }
+  return next;
+}
+
+// Keys a save would overwrite with a different value, per environment name.
+export function variableConflicts(
+  environments: readonly EnvironmentVariables[],
+  entries: readonly KeyValueRow[],
+  environmentIds: readonly string[],
+  ignore?: { key: string; environmentIds: readonly string[] }
+): string[] {
+  const conflicts: string[] = [];
+  for (const environment of environments) {
+    if (!environmentIds.includes(environment.id)) continue;
+    for (const entry of entries) {
+      if (ignore && ignore.key === entry.key && ignore.environmentIds.includes(environment.id)) continue;
+      const current = environment.variables[entry.key];
+      if (current !== undefined && current !== entry.value) conflicts.push(`${entry.key} in ${environment.name}`);
+    }
+  }
+  return conflicts;
+}
+
+// A quoted value ends at its closing quote, so a trailing `# comment` and a `#` inside the quotes
+// both work; an unquoted value ends at ` #`.
+function dotenvValue(raw: string): string {
+  const quote = raw[0];
+  if (quote === '"' || quote === "'") {
+    for (let index = 1; index < raw.length; index++) {
+      if (quote === '"' && raw[index] === "\\") {
+        index++;
+        continue;
+      }
+      if (raw[index] === quote) {
+        const inner = raw.slice(1, index);
+        return quote === '"' ? inner.replace(/\\n/g, "\n").replace(/\\(["\\])/g, "$1") : inner;
+      }
+    }
+  }
+  return raw.replace(/\s+#.*$/, "").trimEnd();
+}
+
+// `.env` text (pasted or imported): KEY=VALUE lines, `export` prefixes, quotes and comments.
+export function parseDotenv(text: string): KeyValueRow[] {
+  const rows: KeyValueRow[] = [];
+  for (const raw of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = /^(?:export\s+)?([^=\s]+)\s*=\s*(.*)$/.exec(line);
+    if (!match) continue;
+    rows.push({ key: match[1] ?? "", value: dotenvValue(match[2] ?? "") });
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------------------------
 // AI model (BYOK)
 // ---------------------------------------------------------------------------------------------
 

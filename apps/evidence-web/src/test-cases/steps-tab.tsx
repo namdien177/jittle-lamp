@@ -5,7 +5,13 @@ import type { TestCaseDetail } from "@jittle-lamp/shared";
 import { TestCaseEditor, serializeEditorDoc, type EditorDoc, type StepEditorRowStatus, type TestCaseEditorMode } from "@jittle-lamp/ui";
 
 import { Button } from "../components/ui/button";
-import { DropdownMenu, DropdownMenuItem, DropdownMenuLabel } from "../components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+} from "../components/ui/dropdown-menu";
 import { useToast } from "../toast";
 import { useTestPermissions } from "./admin-queries";
 import { ReadOnlyNotice } from "./admin-ui";
@@ -195,14 +201,11 @@ function EditorToolbar(props: {
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2">
-      <DropdownMenu
-        align="end"
-        trigger={
-          <Button size="xs" variant="ghost" className="jl-tc-press" aria-label={`Version ${props.version}, show history`}>
+      <DropdownMenu>
+<DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label={`Version ${props.version}, show history`}>
             <History aria-hidden /> v{props.version}
-          </Button>
-        }
-      >
+          </Button>} />
+<DropdownMenuContent align="end">
         <DropdownMenuLabel>Versions</DropdownMenuLabel>
         {props.versions.length === 0 ? <DropdownMenuItem disabled>Loading…</DropdownMenuItem> : null}
         {props.versions.slice(0, 12).map((version) => (
@@ -212,7 +215,8 @@ function EditorToolbar(props: {
             {version.changeNote ? <span className="truncate">{version.changeNote}</span> : null}
           </DropdownMenuItem>
         ))}
-      </DropdownMenu>
+      </DropdownMenuContent>
+</DropdownMenu>
       {props.dirty && !props.readOnly ? (
         <>
           <span className="text-[12px] text-muted-foreground">Unsaved</span>

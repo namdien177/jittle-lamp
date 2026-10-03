@@ -4,10 +4,10 @@ import type { TestCaseDetail, TestCaseSummary } from "@jittle-lamp/shared";
 
 import { cn } from "../lib/cn";
 import { Button } from "../components/ui/button";
-import { Dialog } from "../components/ui/dialog";
+import { SimpleDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
-import { Select } from "../components/ui/select";
+import { SimpleSelect } from "../components/ui/select";
 import { useAccountProfile } from "../queries";
 import { useToast } from "../toast";
 import { CaseDetailPane, type DetailTab } from "../test-cases/case-detail";
@@ -349,7 +349,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
       ) : null}
 
       {pendingLeave ? (
-        <Dialog
+        <SimpleDialog
           open
           onClose={() => setPendingLeave(null)}
           size="sm"
@@ -376,7 +376,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           }
         >
           <p className="text-[13.5px] text-muted-foreground">Save with ⌘S first to keep them.</p>
-        </Dialog>
+        </SimpleDialog>
       ) : null}
       {quickCreate ? (
         <QuickCreateDialog
@@ -448,7 +448,7 @@ function BulkDialogView(props: {
     props.onSubmit({});
   };
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="sm"
@@ -459,7 +459,7 @@ function BulkDialogView(props: {
           <Button size="sm" variant="ghost" onClick={props.onClose} disabled={props.busy}>
             Cancel
           </Button>
-          <Button size="sm" variant={dialog.action === "archive" ? "destructive" : "primary"} className="jl-tc-press" onClick={submit} disabled={props.busy}>
+          <Button size="sm" variant={dialog.action === "archive" ? "destructive" : "default"} className="jl-tc-press" onClick={submit} disabled={props.busy}>
             {props.busy ? "Working…" : dialog.action === "archive" ? "Archive" : "Apply"}
           </Button>
         </>
@@ -485,9 +485,9 @@ function BulkDialogView(props: {
       ) : null}
       {dialog.action === "set-environment" ? (
         <Field label="Environment">
-          <Select ariaLabel="Environment" value={environmentId} onValueChange={setEnvironmentId} options={props.environments} />
+          <SimpleSelect ariaLabel="Environment" value={environmentId} onValueChange={setEnvironmentId} options={props.environments} />
         </Field>
       ) : null}
-    </Dialog>
+    </SimpleDialog>
   );
 }

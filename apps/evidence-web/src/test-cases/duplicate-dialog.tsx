@@ -6,10 +6,10 @@ import type { DuplicateTestCaseRequest, TestCaseDetail } from "@jittle-lamp/shar
 
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Dialog } from "../components/ui/dialog";
+import { SimpleDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
-import { Skeleton } from "../components/ui/misc";
+import { Skeleton } from "../components/ui/skeleton";
 import { cn } from "../lib/cn";
 import { useAuth } from "../auth";
 import { testAdminApi } from "./admin-api";
@@ -125,7 +125,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
     const failed = results.filter((result): result is Extract<DuplicateResult, { error: string }> => "error" in result);
     const inherited = ok.reduce((sum, result) => sum + result.inheritedScripts, 0);
     return (
-      <Dialog
+      <SimpleDialog
         title={ok.length === 1 ? `Created ${ok[0]?.newKey}` : `Created ${ok.length} cases`}
         description={`${inherited} step script${inherited === 1 ? "" : "s"} inherited. Those steps replay on the first run instead of calling the agent.`}
         onClose={props.onClose}
@@ -155,12 +155,12 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
             </li>
           ))}
         </ul>
-      </Dialog>
+      </SimpleDialog>
     );
   }
 
   return (
-    <Dialog
+    <SimpleDialog
       title={titleLabel}
       description={single ? undefined : "The same find/replace and options apply to every selected case. Each copy takes the replaced title, or “<title> (copy)” when the replacements leave it unchanged."}
       onClose={props.onClose}
@@ -201,7 +201,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
             ) : null}
 
             <fieldset className="grid gap-2">
-              <legend className="mb-1 font-semibold uppercase tracking-[0.06em] text-muted-foreground">Find → replace</legend>
+              <legend className="mb-1 font-medium text-muted-foreground">Find → replace</legend>
               {rows.map((row, index) => (
                 <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2">
                   <Input aria-label={`Find ${index + 1}`} placeholder="HQ_ADMIN" value={row.find} className="font-mono text-sm" onChange={(event) => updateRow(index, { find: event.target.value })} />
@@ -220,7 +220,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
             </fieldset>
 
             <fieldset className="grid gap-2">
-              <legend className="mb-1 font-semibold uppercase tracking-[0.06em] text-muted-foreground">Copy</legend>
+              <legend className="mb-1 font-medium text-muted-foreground">Copy</legend>
               <div className="grid grid-cols-2 gap-2">
                 <Toggle label="Links" checked={copy.links} onChange={(links) => setCopy((current) => ({ ...current, links }))} />
                 <Toggle label="Tags" checked={copy.tags} onChange={(tags) => setCopy((current) => ({ ...current, tags }))} />
@@ -230,7 +230,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
             </fieldset>
 
             <fieldset className="grid gap-2" role="radiogroup">
-              <legend className="mb-1 font-semibold uppercase tracking-[0.06em] text-muted-foreground">Mode</legend>
+              <legend className="mb-1 font-medium text-muted-foreground">Mode</legend>
               {(
                 [
                   ["copy", "Independent copy", "A new case with its own steps."],
@@ -257,7 +257,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
 
           <div className="grid content-start gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-semibold uppercase tracking-[0.06em] text-muted-foreground">Preview</p>
+              <p className="font-medium text-muted-foreground">Preview</p>
               {!single && sources.length > 1 ? (
                 <div className="flex flex-wrap gap-1" role="tablist" aria-label="Preview case">
                   {sources.map((source, index) => (
@@ -296,7 +296,7 @@ export function DuplicateTestCaseDialog(props: { caseIds: readonly string[]; onC
           </div>
         </form>
       )}
-    </Dialog>
+    </SimpleDialog>
   );
 }
 

@@ -137,7 +137,7 @@ export function CaseSidebar(props: {
 }
 
 function SidebarHeading(props: { children: React.ReactNode }): React.JSX.Element {
-  return <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{props.children}</p>;
+  return <p className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">{props.children}</p>;
 }
 
 function SidebarButton(props: { active: boolean; inset?: boolean; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
@@ -147,9 +147,9 @@ function SidebarButton(props: { active: boolean; inset?: boolean; onClick: () =>
       aria-pressed={props.active}
       onClick={props.onClick}
       className={cn(
-        "jl-tc-press flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-[13px]",
+        "jl-tc-press flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[13px]",
         props.inset && "pl-6",
-        props.active ? "bg-primary/12 font-medium text-foreground" : "text-foreground/80 hover:bg-muted hover:text-foreground"
+        props.active ? "bg-accent font-medium text-foreground" : "text-foreground/80 hover:bg-accent hover:text-foreground"
       )}
     >
       {props.children}

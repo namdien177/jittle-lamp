@@ -3,9 +3,9 @@ import { Link } from "react-router";
 import type { CreateTestRunResponse, TestCaseSummary, TestEnvironment } from "@jittle-lamp/shared";
 
 import { Button } from "../components/ui/button";
-import { Dialog } from "../components/ui/dialog";
+import { SimpleDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
-import { Select } from "../components/ui/select";
+import { SimpleSelect } from "../components/ui/select";
 import { CopyCommand } from "./bits";
 import { cliRunCommand } from "./list-model";
 import { useCreateTestRun } from "./queries";
@@ -59,7 +59,7 @@ export function RunDialog(props: {
   const command = cliRunCommand({ caseId: props.testCase.id, environmentId: environment?.id ?? null });
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="md"
@@ -111,7 +111,7 @@ export function RunDialog(props: {
       ) : (
         <div className="jl-tc-scope space-y-4">
           <Field label="Environment">
-            <Select
+            <SimpleSelect
               ariaLabel="Environment"
               value={environmentId}
               onValueChange={setEnvironmentId}
@@ -119,7 +119,7 @@ export function RunDialog(props: {
             />
           </Field>
           <Field label="Cache">
-            <Select ariaLabel="Cache mode" value={cacheMode} onValueChange={(value) => setCacheMode(value as CacheMode)} options={(Object.keys(cacheModeLabels) as CacheMode[]).map((value) => ({ value, label: cacheModeLabels[value] }))} />
+            <SimpleSelect ariaLabel="Cache mode" value={cacheMode} onValueChange={(value) => setCacheMode(value as CacheMode)} options={(Object.keys(cacheModeLabels) as CacheMode[]).map((value) => ({ value, label: cacheModeLabels[value] }))} />
           </Field>
           <label className="flex items-center gap-2 text-[13.5px]">
             <input type="checkbox" className="accent-[var(--primary)]" checked={force} onChange={(event) => setForce(event.currentTarget.checked)} />
@@ -141,6 +141,6 @@ export function RunDialog(props: {
           </Field>
         </div>
       )}
-    </Dialog>
+    </SimpleDialog>
   );
 }

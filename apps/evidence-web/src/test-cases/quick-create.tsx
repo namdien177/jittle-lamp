@@ -3,7 +3,7 @@ import { parseTranscriptDocument, serializeTestCase } from "@jittle-lamp/shared"
 import { TestCaseEditor, emptyEditorDoc, serializeEditorDoc, type EditorDoc, type TestCaseEditorMode } from "@jittle-lamp/ui";
 
 import { Button } from "../components/ui/button";
-import { Dialog } from "../components/ui/dialog";
+import { SimpleDialog } from "../components/ui/dialog";
 import { useToast } from "../toast";
 import { SimilarHint, useEditorCatalog } from "./editor-support";
 import { useCreateTestCase } from "./queries";
@@ -62,7 +62,7 @@ export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids:
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={props.onClose}
       size="xl"
@@ -116,6 +116,6 @@ export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids:
           onMultiCasePaste={(document, cases) => setSplit({ document, cases })}
         />
       </div>
-    </Dialog>
+    </SimpleDialog>
   );
 }

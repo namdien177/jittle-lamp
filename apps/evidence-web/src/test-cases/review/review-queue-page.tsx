@@ -8,8 +8,9 @@ import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ui/dialog";
-import { Textarea } from "../../components/ui/input";
-import { EmptyState, Skeleton } from "../../components/ui/misc";
+import { Textarea } from "../../components/ui/textarea";
+import { EmptyState } from "../../components/ui/empty";
+import { Skeleton } from "../../components/ui/skeleton";
 import { cn } from "../../lib/cn";
 import { useToast } from "../../toast";
 import { formatRelativeTime } from "../../utils";
@@ -287,7 +288,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                       <dl className="grid gap-3 text-sm">
                         {detail.data.sourceRef ? (
                           <div>
-                            <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{detail.data.source === "import" ? "Import batch" : "Reference"}</dt>
+                            <dt className="text-xs font-medium text-muted-foreground">{detail.data.source === "import" ? "Import batch" : "Reference"}</dt>
                             <dd className="break-all font-mono text-foreground">
                               {detail.data.source === "import" ? (
                                 <Link to={importBatchHref(detail.data.sourceRef)} className="text-primary hover:underline">
@@ -301,19 +302,19 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                         ) : null}
                         {detail.data.externalId ? (
                           <div>
-                            <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">External id</dt>
+                            <dt className="text-xs font-medium text-muted-foreground">External id</dt>
                             <dd className="font-mono text-foreground">{detail.data.externalId}</dd>
                           </div>
                         ) : null}
                         {detail.data.description ? (
                           <div>
-                            <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Description</dt>
+                            <dt className="text-xs font-medium text-muted-foreground">Description</dt>
                             <dd className="whitespace-pre-wrap rounded-md border border-border bg-muted px-3 py-2 text-foreground">{detail.data.description}</dd>
                           </div>
                         ) : null}
                         {detail.data.links.length > 0 ? (
                           <div>
-                            <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Links</dt>
+                            <dt className="text-xs font-medium text-muted-foreground">Links</dt>
                             <dd className="grid gap-1">
                               {detail.data.links.map((link) => {
                                 const href = safeExternalHref(link.url);
@@ -333,7 +334,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                         ) : null}
                         {detail.data.tags.length > 0 ? (
                           <div>
-                            <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Tags</dt>
+                            <dt className="text-xs font-medium text-muted-foreground">Tags</dt>
                             <dd className="flex flex-wrap gap-1">
                               {detail.data.tags.map((tag) => (
                                 <Badge key={tag} variant="outline">
@@ -344,7 +345,7 @@ export function TestCaseReviewQueuePage(): React.JSX.Element {
                           </div>
                         ) : null}
                         <div>
-                          <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Similar cases</dt>
+                          <dt className="text-xs font-medium text-muted-foreground">Similar cases</dt>
                           <dd>
                             {similar.data && similar.data.items.length > 0 ? (
                               <ul className="grid gap-1">

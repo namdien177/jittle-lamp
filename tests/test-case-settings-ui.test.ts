@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 
 import {
   agentInstructionsCounter,
+  applyVariableChange,
   groupTagsByNamespace,
+  groupVariables,
+  parseDotenv,
+  variableConflicts,
   lintMacroBody,
   tagLabel,
   credentialFieldPattern,
@@ -234,13 +238,14 @@ describe("notification links", () => {
     expect(notificationHref({ ...base, kind: "run.finished" })).toBe("/test-runs/run_1");
     expect(notificationHref({ ...base, kind: "import.finished", subjectType: "import_batch", subjectId: "b1" })).toBe("/test-cases/import/b1");
     expect(notificationHref({ ...base, kind: "review.pending_count" })).toBe("/test-cases/review");
-    expect(notificationHref({ ...base, kind: "runner.offline" })).toBe("/settings/test-cases/runner-pools");
+    expect(notificationHref({ ...base, kind: "runner.offline" })).toBe("/test-cases/settings/runner-pools");
     expect(notificationHref({ ...base, kind: "run.finished", url: "/test-cases?case=x" })).toBe("/test-cases?case=x");
     expect(notificationHref({ ...base, kind: "run.finished", url: "https://app.example/test-cases/review?x=1" }, "https://app.example")).toBe("/test-cases/review?x=1");
     expect(notificationHref({ ...base, kind: "run.finished", url: "https://evil.example/x" }, "https://app.example")).toBe("/test-runs/run_1");
     expect(notificationHref({ ...base, kind: "run.finished", url: "//evil.example/x" })).toBe("/test-runs/run_1");
     expect(notificationHref({ ...base, kind: "review.pending_count", url: "/test-cases?status=review" })).toBe("/test-cases/review");
-    expect(notificationHref({ ...base, kind: "runner.offline", url: "/settings/runner-pools" })).toBe("/settings/test-cases/runner-pools");
+    expect(notificationHref({ ...base, kind: "runner.offline", url: "/settings/runner-pools" })).toBe("/test-cases/settings/runner-pools");
+    expect(notificationHref({ ...base, kind: "runner.offline", url: "/settings/test-cases/runner-pools" })).toBe("/test-cases/settings/runner-pools");
   });
 
   it("caps the badge and names the bell for screen readers", () => {
@@ -275,6 +280,78 @@ describe("macro and tag helpers", () => {
       ["feature", ["enrolment", "login"]],
       ["team", ["qa-pcf"]],
       ["", ["smoke"]]
+    ]);
+  });
+});
+
+describe("variables", () => {
+  const environments = [
+    { id: "env-uat", name: "pcf-uat", variables: { PARENT_URL: "https://parent.uat", LOCALE: "en" } },
+    { id: "env-pre", name: "preprod", variables: { PARENT_URL: "https://parent.pre", LOCALE: "en" } }
+  ];
+
+  it("groups environments that share a key and value", () => {
+    expect(groupVariables(environments)).toEqual([
+      { key: "LOCALE", value: "en", environmentIds: ["env-uat", "env-pre"] },
+      { key: "PARENT_URL", value: "https://parent.pre", environmentIds: ["env-pre"] },
+      { key: "PARENT_URL", value: "https://parent.uat", environmentIds: ["env-uat"] }
+    ]);
+  });
+
+  it("returns the next variables only for environments a change touches", () => {
+    const next = applyVariableChange(environments, { set: { entries: [{ key: "TIMEOUT", value: "30" }], environmentIds: ["env-uat"] } });
+    expect([...next.keys()]).toEqual(["env-uat"]);
+    expect(next.get("env-uat")).toEqual({ PARENT_URL: "https://parent.uat", LOCALE: "en", TIMEOUT: "30" });
+  });
+
+  it("renames a key by removing it before setting the new one", () => {
+    const next = applyVariableChange(environments, {
+      remove: { key: "LOCALE", environmentIds: ["env-uat", "env-pre"] },
+      set: { entries: [{ key: "LANG", value: "en" }], environmentIds: ["env-pre"] }
+    });
+    expect(next.get("env-uat")).toEqual({ PARENT_URL: "https://parent.uat" });
+    expect(next.get("env-pre")).toEqual({ PARENT_URL: "https://parent.pre", LANG: "en" });
+  });
+
+  it("drops environments whose variables end up unchanged", () => {
+    const next = applyVariableChange(environments, { set: { entries: [{ key: "LOCALE", value: "en" }], environmentIds: ["env-uat", "env-pre"] } });
+    expect(next.size).toBe(0);
+  });
+
+  it("reports keys a save would overwrite, except the row being edited", () => {
+    const entries = [{ key: "PARENT_URL", value: "https://parent.new" }];
+    expect(variableConflicts(environments, entries, ["env-uat", "env-pre"])).toEqual(["PARENT_URL in pcf-uat", "PARENT_URL in preprod"]);
+    expect(variableConflicts(environments, entries, ["env-uat"], { key: "PARENT_URL", environmentIds: ["env-uat"] })).toEqual([]);
+  });
+
+  it("parses .env text", () => {
+    const text = ["# comment", "export API_URL=https://api.example", "QUOTED=\"a b\"", "SINGLE='x=1'", "TRAILING=value # note", "", "not a pair"].join("\n");
+    expect(parseDotenv(text)).toEqual([
+      { key: "API_URL", value: "https://api.example" },
+      { key: "QUOTED", value: "a b" },
+      { key: "SINGLE", value: "x=1" },
+      { key: "TRAILING", value: "value" }
+    ]);
+  });
+
+  it("ends a quoted value at its closing quote, before a trailing comment", () => {
+    const text = [
+      'PARENT_URL="https://example.test" # UAT',
+      "SINGLE='a b' # note",
+      'HASH_INSIDE="color #fff"',
+      "SINGLE_HASH='x # y'",
+      "PLAIN=https://example.test#anchor # comment",
+      'ESCAPED="say \\"hi\\"" # quoted',
+      'UNCLOSED="abc # rest'
+    ].join("\n");
+    expect(parseDotenv(text)).toEqual([
+      { key: "PARENT_URL", value: "https://example.test" },
+      { key: "SINGLE", value: "a b" },
+      { key: "HASH_INSIDE", value: "color #fff" },
+      { key: "SINGLE_HASH", value: "x # y" },
+      { key: "PLAIN", value: "https://example.test#anchor" },
+      { key: "ESCAPED", value: 'say "hi"' },
+      { key: "UNCLOSED", value: '"abc' }
     ]);
   });
 });

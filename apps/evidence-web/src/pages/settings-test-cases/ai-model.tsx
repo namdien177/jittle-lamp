@@ -9,8 +9,8 @@ import { Button } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { Skeleton } from "../../components/ui/misc";
-import { Select } from "../../components/ui/select";
+import { Skeleton } from "../../components/ui/skeleton";
+import { SimpleSelect } from "../../components/ui/select";
 import { useToast } from "../../toast";
 import { testAdminApi } from "../../test-cases/admin-api";
 import { testAdminKeys, useModelSettings, useTestAdminMutation, useTestPermissions } from "../../test-cases/admin-queries";
@@ -187,7 +187,7 @@ export function SettingsTestAiModelPage(): React.JSX.Element {
         title="AI model"
         description="Runs use any AI SDK provider with the organisation's own keys. Spend is attributed to the user who requested the run."
         actions={
-          <Link to="/settings/test-cases/model-spend" className="text-sm font-semibold text-primary hover:underline">
+          <Link to="/test-cases/settings/model-spend" className="text-sm font-semibold text-primary hover:underline">
             Model spend
           </Link>
         }
@@ -207,7 +207,7 @@ export function SettingsTestAiModelPage(): React.JSX.Element {
             <ErrorNote error={settings.error} />
             <fieldset disabled={!canManage} className="grid gap-5">
               <Field label="Provider" hint="Fills both model ids with an example for that provider; edit them freely.">
-                <Select ariaLabel="Provider" value={presetForModels(form.actModel)} onValueChange={pickPreset} options={pickerOptions} disabled={!canManage} />
+                <SimpleSelect ariaLabel="Provider" value={presetForModels(form.actModel)} onValueChange={pickPreset} options={pickerOptions} disabled={!canManage} />
               </Field>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Act model" htmlFor="model-act">

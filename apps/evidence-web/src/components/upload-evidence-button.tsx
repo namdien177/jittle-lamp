@@ -13,7 +13,7 @@ import {
 } from "../manual-upload";
 import { useToast } from "../toast";
 import { Button, type ButtonProps } from "./ui/button";
-import { Spinner } from "./ui/misc";
+import { Spinner } from "./ui/spinner";
 
 const uploadAccept =
   ".zip,.mp4,.webm,.webp,application/zip,application/x-zip-compressed,video/mp4,video/webm,image/webp";
@@ -28,16 +28,20 @@ type UploadEvidenceButtonProps = {
   onUploaded?: (result: ManualEvidenceUploadResult) => void;
 };
 
-export function UploadEvidenceButton(
-  props: UploadEvidenceButtonProps,
-): React.JSX.Element {
+type UploadEvidenceOptions = Pick<UploadEvidenceButtonProps, "navigateOnUpload" | "onUploaded">;
+
+/** File picker + upload flow, for buttons and menu items that start an evidence upload. */
+export function useUploadEvidence(props: UploadEvidenceOptions = {}): {
+  uploading: boolean;
+  pick: () => void;
+  input: React.ReactElement;
+} {
   const auth = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
-  const label = props.label ?? "Upload";
   const getToken: FetchToken = () => auth.getToken();
 
   const handleFile = async (file: File): Promise<void> => {
@@ -87,31 +91,43 @@ export function UploadEvidenceButton(
     }
   };
 
+  const input = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={uploadAccept}
+      className="hidden"
+      onChange={(event) => {
+        const file = event.currentTarget.files?.[0];
+        event.currentTarget.value = "";
+        if (file) void handleFile(file);
+      }}
+    />
+  );
+
+  return { uploading, pick: () => inputRef.current?.click(), input };
+}
+
+export function UploadEvidenceButton(
+  props: UploadEvidenceButtonProps,
+): React.JSX.Element {
+  const { uploading, pick, input } = useUploadEvidence(props);
+  const label = props.label ?? "Upload";
   return (
     <>
       <Button
-        variant={props.variant ?? "primary"}
+        variant={props.variant ?? "default"}
         size={props.size ?? (props.iconOnly ? "icon-sm" : "sm")}
         className={props.className}
         disabled={uploading}
         aria-label={props.iconOnly ? "Upload evidence" : undefined}
         title={props.iconOnly ? "Upload evidence" : undefined}
-        onClick={() => inputRef.current?.click()}
+        onClick={pick}
       >
         {uploading ? <Spinner /> : <UploadCloud aria-hidden />}
         {props.iconOnly ? null : uploading ? "Uploading..." : label}
       </Button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={uploadAccept}
-        className="hidden"
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = "";
-          if (file) void handleFile(file);
-        }}
-      />
+      {input}
     </>
   );
 }

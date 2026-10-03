@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import { NotebookPen } from "lucide-react";
 
 import { Button } from "../../components/ui/button";
-import { Textarea } from "../../components/ui/input";
-import { Skeleton } from "../../components/ui/misc";
+import { Textarea } from "../../components/ui/textarea";
+import { Skeleton } from "../../components/ui/skeleton";
 import { cn } from "../../lib/cn";
 import { useAccountProfile, useOrganizationMembers } from "../../queries";
 import { useToast } from "../../toast";

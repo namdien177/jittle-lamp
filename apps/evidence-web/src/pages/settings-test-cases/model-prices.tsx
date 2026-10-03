@@ -8,7 +8,7 @@ import { Button } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { Skeleton } from "../../components/ui/misc";
+import { Skeleton } from "../../components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { useToast } from "../../toast";
 import { testAdminApi } from "../../test-cases/admin-api";

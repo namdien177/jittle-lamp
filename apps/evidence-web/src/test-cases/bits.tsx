@@ -8,9 +8,7 @@ import { runLabel, runTone } from "./run-model";
 
 // Small presentational pieces shared by the test case pages.
 
-export function Kbd(props: { children: React.ReactNode }): React.JSX.Element {
-  return <kbd className="rounded border border-border-strong bg-secondary px-1 font-mono text-[11px] leading-4 text-muted-foreground">{props.children}</kbd>;
-}
+export { Kbd } from "../components/ui/kbd";
 
 const statusVariant: Record<TestCaseStatus, "brand" | "warning" | "muted" | "outline"> = {
   active: "outline",
@@ -76,7 +74,7 @@ export function TagChip(props: { tag: string; color?: string | null; onClick?: (
 export function Stat(props: { label: string; value: React.ReactNode; hint?: string | undefined }): React.JSX.Element {
   return (
     <div className="min-w-0" title={props.hint}>
-      <div className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground">{props.label}</div>
+      <div className="text-[11px] text-muted-foreground">{props.label}</div>
       <div className="truncate font-mono text-[13.5px] tabular-nums text-foreground">{props.value}</div>
     </div>
   );

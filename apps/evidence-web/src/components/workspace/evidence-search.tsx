@@ -8,12 +8,17 @@ import type { ApiEvidenceSummary } from "../../api";
 import { useEvidences, useRenameEvidence } from "../../queries";
 import { useToast } from "../../toast";
 import { formatRelativeTime } from "../../utils";
-import { Spinner } from "../ui/misc";
+import { Spinner } from "../ui/spinner";
 
 const isMac =
   typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
 
-export function EvidenceSearch(): React.JSX.Element {
+export const searchShortcutLabel = `${isMac ? "⌘" : "Ctrl+"}K`;
+
+export function EvidenceSearch(props: {
+  // Custom trigger; defaults to the search field button.
+  renderTrigger?: (open: () => void) => React.ReactNode;
+} = {}): React.JSX.Element {
   const [open, setOpen] = useState(false);
 
   // Global ⌘K / Ctrl+K toggle.
@@ -28,32 +33,26 @@ export function EvidenceSearch(): React.JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  if (props.renderTrigger) {
+    return (
+      <>
+        {props.renderTrigger(() => setOpen(true))}
+        {open ? <SearchPalette onClose={() => setOpen(false)} /> : null}
+      </>
+    );
+  }
+
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Search evidence"
-        className="relative hidden h-9 w-[280px] items-center gap-2 rounded-md border border-transparent bg-secondary pl-8 pr-3 text-sm text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-popover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 sm:inline-flex"
+        className="relative inline-flex h-7 w-56 items-center gap-2 rounded-md border border-border bg-background pl-7 pr-1.5 text-[13px] text-muted-foreground outline-none transition-colors hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        <Search
-          aria-hidden
-          className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <span className="inline-flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate">Search evidence…</span>
-        </span>
-        <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-          {isMac ? "⌘" : "Ctrl"}K
-        </kbd>
-      </button>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Search evidence"
-        className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:hidden"
-      >
-        <Search aria-hidden className="size-4" />
+        <Search aria-hidden className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+        <span className="min-w-0 flex-1 truncate text-left">Search evidence…</span>
+        <kbd className="rounded border border-border bg-muted px-1 font-sans text-[11px]">{searchShortcutLabel}</kbd>
       </button>
       {open ? <SearchPalette onClose={() => setOpen(false)} /> : null}
     </>

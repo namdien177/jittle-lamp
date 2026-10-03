@@ -14,12 +14,14 @@ export function importBatchHref(batchId: string): string {
 }
 
 export const reviewQueueHref = "/test-cases/review";
-export const runnerPoolsHref = "/settings/test-cases/runner-pools";
+export const runnerPoolsHref = "/test-cases/settings/runner-pools";
 
 // Backend URLs whose screens live elsewhere in the web app.
 const pathAliases: Record<string, string> = {
   "/test-cases?status=review": reviewQueueHref,
-  "/settings/runner-pools": runnerPoolsHref
+  "/settings/runner-pools": runnerPoolsHref,
+  // Testing settings moved from /settings/test-cases; older notifications still carry it.
+  "/settings/test-cases/runner-pools": runnerPoolsHref
 };
 
 function localPath(url: string, origin?: string): string | null {

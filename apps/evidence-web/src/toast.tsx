@@ -1,5 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
+
+import { Button } from "./components/ui/button";
+import { cn } from "./lib/cn";
 
 export type ToastTone = "neutral" | "success" | "error" | "warning";
 
@@ -27,6 +30,9 @@ type ToastApi = {
 };
 
 const ToastContext = createContext<ToastApi | null>(null);
+
+const toneIcon = { neutral: Info, success: CheckCircle2, error: XCircle, warning: AlertTriangle } as const;
+const toneClass = { neutral: "text-muted-foreground", success: "text-primary", error: "text-destructive", warning: "text-warning" } as const;
 
 const DEFAULT_DURATION = 4500;
 
@@ -90,32 +96,39 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="toast-viewport" role="region" aria-live="polite">
-        {items.map((toast) => (
-          <div key={toast.id} className="toast" data-tone={toast.tone} role="status">
-            <div className="toast-body">
-              <span className="toast-title">{toast.title}</span>
-              {toast.description ? <span className="toast-description">{toast.description}</span> : null}
-            </div>
-            <div className="toast-actions">
+      <div className="pointer-events-none fixed bottom-4 right-4 z-[1100] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2" role="region" aria-live="polite">
+        {items.map((toast) => {
+          const Icon = toneIcon[toast.tone];
+          return (
+            <div
+              key={toast.id}
+              data-tone={toast.tone}
+              role="status"
+              className="pointer-events-auto flex animate-rise items-start gap-2.5 rounded-lg border border-border bg-popover px-3 py-2.5 text-popover-foreground shadow-pop"
+            >
+              <Icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", toneClass[toast.tone])} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium leading-snug">{toast.title}</p>
+                {toast.description ? <p className="mt-0.5 break-words text-xs text-muted-foreground">{toast.description}</p> : null}
+              </div>
               {toast.action ? (
-                <button
-                  className="button ghost xs"
-                  type="button"
+                <Button
+                  variant="outline"
+                  size="xs"
                   onClick={() => {
                     toast.action?.onClick();
                     dismiss(toast.id);
                   }}
                 >
                   {toast.action.label}
-                </button>
+                </Button>
               ) : null}
-              <button className="toast-dismiss" type="button" aria-label="Dismiss" onClick={() => dismiss(toast.id)}>
-                <X aria-hidden size={14} strokeWidth={2} />
+              <button type="button" aria-label="Dismiss" className="-mr-1 grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => dismiss(toast.id)}>
+                <X aria-hidden className="size-3.5" />
               </button>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );

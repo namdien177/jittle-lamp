@@ -30,31 +30,29 @@ export function AdminCard(props: {
   bodyClassName?: string;
 }): React.JSX.Element {
   return (
-    <Card className={cn("jl-proto-card min-w-0 p-0", props.className)}>
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
+    <Card className={cn("min-w-0 overflow-hidden", props.className)}>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0 space-y-0.5">
-          <h2 className="font-display text-base font-bold">{props.title}</h2>
-          {props.description ? <p className="text-sm text-muted-foreground">{props.description}</p> : null}
+          <h2 className="text-sm font-semibold">{props.title}</h2>
+          {props.description ? <p className="max-w-2xl text-[13px] text-muted-foreground">{props.description}</p> : null}
         </div>
         {props.actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{props.actions}</div> : null}
       </div>
-      <CardContent className={cn("p-5 pt-5", props.bodyClassName)}>{props.children}</CardContent>
+      <CardContent className={cn("p-4", props.bodyClassName)}>{props.children}</CardContent>
     </Card>
   );
 }
 
 export function ReadOnlyNotice(props: { permission: string }): React.JSX.Element {
   return (
-    <p className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground" role="note">
+    <p className="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-[13px] text-muted-foreground" role="note">
       <Lock className="size-3.5 shrink-0" aria-hidden />
       Read-only. Editing needs the <code className="font-mono text-xs">{props.permission}</code> permission.
     </p>
   );
 }
 
-export function Kbd(props: { children: React.ReactNode }): React.JSX.Element {
-  return <kbd className="rounded border border-border-strong bg-muted px-1.5 py-px font-mono text-[11px] font-medium text-muted-foreground">{props.children}</kbd>;
-}
+export { Kbd } from "../components/ui/kbd";
 
 export function ErrorNote(props: { error: unknown; className?: string }): React.JSX.Element | null {
   if (!props.error) return null;
@@ -196,7 +194,7 @@ export function CopyBlock(props: { label: string; value: string; secret?: boolea
   };
   return (
     <div className="grid gap-1">
-      <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{props.label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{props.label}</span>
       <div className="flex items-start gap-2 overflow-hidden rounded-md border border-border bg-muted py-1 pl-3 pr-1.5 font-mono text-[13px]">
         <code className={cn("min-w-0 flex-1 py-1.5 text-foreground", props.multiline ? "whitespace-pre-wrap break-all" : "truncate")}>{props.value}</code>
         <button
@@ -247,7 +245,7 @@ export function KeyValueEditor(props: {
   return (
     <div className="grid gap-2">
       {props.rows.length > 0 ? (
-        <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_2.25rem] gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_2.25rem] gap-2 text-xs font-medium text-muted-foreground">
           <span>{props.keyLabel}</span>
           <span>{props.valueLabel}</span>
           <span />
@@ -296,7 +294,7 @@ export function KeyValueEditor(props: {
 export function StatTile(props: { label: string; value: React.ReactNode; detail?: React.ReactNode; tone?: "default" | "success" | "warning" | "danger" }): React.JSX.Element {
   return (
     <div className="rounded-md border border-border bg-card px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{props.label}</p>
+      <p className="text-xs font-medium text-muted-foreground">{props.label}</p>
       <p
         className={cn(
           "mt-1 font-display text-2xl font-bold tabular-nums",

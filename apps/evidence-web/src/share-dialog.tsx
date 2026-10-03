@@ -2,12 +2,13 @@ import React, { useState } from "react";
 import { Check, Copy, Link2 } from "lucide-react";
 
 import type { ApiEvidenceSummary } from "./api";
-import { Dialog } from "./components/ui/dialog";
+import { SimpleDialog } from "./components/ui/dialog";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import { Field } from "./components/ui/field";
-import { Select } from "./components/ui/select";
-import { EmptyState, Skeleton } from "./components/ui/misc";
+import { SimpleSelect } from "./components/ui/select";
+import { EmptyState } from "./components/ui/empty";
+import { Skeleton } from "./components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -88,7 +89,7 @@ export function ShareDialog(props: {
   const inactiveLinks = shareLinks.filter((l) => !(l.revokedAt === null && (l.expiresAt === 0 || l.expiresAt > Date.now())));
 
   return (
-    <Dialog
+    <SimpleDialog
       open
       onClose={onClose}
       size="lg"
@@ -102,7 +103,7 @@ export function ShareDialog(props: {
     >
       <div className="flex items-end gap-2 rounded-lg border border-border bg-black/20 p-3">
         <Field label="Expires after" className="w-44">
-          <Select
+          <SimpleSelect
             ariaLabel="Link expiry"
             options={EXPIRY_OPTIONS}
             value={expiry}
@@ -117,7 +118,7 @@ export function ShareDialog(props: {
 
       {createdLink ? (
         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/[0.07] p-3">
-          <p className="text-base font-semibold uppercase tracking-[0.06em] text-brand-300">
+          <p className="text-base font-medium text-brand-300">
             Share URL ready
           </p>
           <div className="flex items-center gap-2">
@@ -225,6 +226,6 @@ export function ShareDialog(props: {
           </div>
         </section>
       ) : null}
-    </Dialog>
+    </SimpleDialog>
   );
 }

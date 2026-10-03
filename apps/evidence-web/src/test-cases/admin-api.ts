@@ -161,6 +161,9 @@ export const testAdminApi = {
     request(getToken, "/test-environments", oneOf(testEnvironmentSchema, "environment"), json("POST", body)),
   updateEnvironment: (getToken: FetchToken, environmentId: string, body: EnvironmentInput) =>
     request(getToken, `/test-environments/${id(environmentId)}`, oneOf(testEnvironmentSchema, "environment"), json("PATCH", body)),
+  // PATCH keeps every other field; the Variables page writes one environment's map at a time.
+  updateEnvironmentVariables: (getToken: FetchToken, environmentId: string, variables: Record<string, string>) =>
+    request(getToken, `/test-environments/${id(environmentId)}`, oneOf(testEnvironmentSchema, "environment"), json("PATCH", { variables })),
   deleteEnvironment: (getToken: FetchToken, environmentId: string) =>
     request(getToken, `/test-environments/${id(environmentId)}`, okSchema, { method: "DELETE" }),
 

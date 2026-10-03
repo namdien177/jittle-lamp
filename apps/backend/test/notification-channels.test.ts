@@ -328,7 +328,7 @@ describe("Slack and webhook notification channels", () => {
 		);
 		expect(at("batch.finished", {})).toBeNull();
 		expect(at("review.pending_count", { count: 2 })).toBe("/test-cases/review");
-		expect(at("runner.offline", {})).toBe("/settings/test-cases/runner-pools");
+		expect(at("runner.offline", {})).toBe("/test-cases/settings/runner-pools");
 		expect(at("import.finished", {})).toBe("/test-cases/import/subject-1");
 
 		const message = slackMessage(

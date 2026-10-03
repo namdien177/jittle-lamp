@@ -3,10 +3,11 @@ import { Pencil, Plus, Tags, Trash2 } from "lucide-react";
 import type { TestTag } from "@jittle-lamp/shared";
 
 import { Button } from "../../components/ui/button";
-import { ConfirmDialog, Dialog } from "../../components/ui/dialog";
+import { ConfirmDialog, SimpleDialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { EmptyState, Skeleton } from "../../components/ui/misc";
+import { EmptyState } from "../../components/ui/empty";
+import { Skeleton } from "../../components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { cn } from "../../lib/cn";
 import { testAdminApi, type TagInput } from "../../test-cases/admin-api";
@@ -43,11 +44,11 @@ export function SettingsTestTagsPage(): React.JSX.Element {
         }
         bodyClassName="p-0 pt-0"
       >
-        <ErrorNote error={tags.error ?? remove.error} className="m-5" />
+        <ErrorNote error={tags.error ?? remove.error} className="m-4" />
         {tags.isPending ? (
-          <Skeleton className="m-5 h-32" />
+          <Skeleton className="m-4 h-32" />
         ) : groups.length === 0 ? (
-          <EmptyState className="m-5" icon={<Tags aria-hidden />} title="No tags yet" description="Define team:, feature: and module: tags so cases group in the sidebar." />
+          <EmptyState className="m-4" icon={<Tags aria-hidden />} title="No tags yet" description="Define team:, feature: and module: tags so cases group in the sidebar." />
         ) : (
           <Table>
             <TableHeader>
@@ -64,7 +65,7 @@ export function SettingsTestTagsPage(): React.JSX.Element {
               {groups.map((group) => (
                 <React.Fragment key={group.namespace}>
                   <TableRow className="bg-muted/60 hover:bg-muted/60">
-                    <TableCell colSpan={4} className="pl-5 font-mono text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                    <TableCell colSpan={4} className="pl-5 font-mono text-xs font-medium text-muted-foreground">
                       {group.namespace || "free tags"} · {group.tags.length}
                     </TableCell>
                   </TableRow>
@@ -134,7 +135,7 @@ function TagDialog(props: { tag: TestTag | null; onClose: () => void }): React.J
   };
 
   return (
-    <Dialog
+    <SimpleDialog
       title={source ? `Edit ${tagLabel(source)}` : "New tag"}
       onClose={props.onClose}
       size="md"
@@ -165,7 +166,7 @@ function TagDialog(props: { tag: TestTag | null; onClose: () => void }): React.J
           </Field>
         </div>
         <fieldset>
-          <legend className="mb-2 font-semibold uppercase tracking-[0.06em] text-muted-foreground">Colour</legend>
+          <legend className="mb-2 font-medium text-muted-foreground">Colour</legend>
           <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Tag colour">
             {tagColors.map((swatch) => (
               <button
@@ -197,6 +198,6 @@ function TagDialog(props: { tag: TestTag | null; onClose: () => void }): React.J
         </p>
         <ErrorNote error={save.error} />
       </form>
-    </Dialog>
+    </SimpleDialog>
   );
 }
