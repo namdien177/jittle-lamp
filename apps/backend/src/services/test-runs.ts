@@ -50,6 +50,7 @@ import { withBusyRetry } from "./db-busy";
 import { emitNotification, emitRunOutcome } from "./notifications";
 import { caseSteps, parseJsonColumn, type TestCaseRow } from "./test-cases";
 import type { LiveHub } from "./test-live";
+import { BUDGET_EXCEEDED, dailyBudgetState } from "./test-run-budget";
 import {
 	createOpaqueToken,
 	hashToken,
@@ -382,6 +383,8 @@ const insertRun = async (
 		now: number;
 		retryOf?: TestRunRow;
 		baseUrlOverride?: string | null;
+		// The organisation spent its daily model budget: the run waits unclaimable.
+		overBudget?: boolean;
 	},
 ): Promise<TestRunRow | null> => {
 	const { plan } = input;
@@ -419,7 +422,11 @@ const insertRun = async (
 					: poolReference || CLOUD_POOL_NAME,
 			runnerPoolId: pool?.id ?? null,
 			status: "queued",
-			blockedReason: live ? null : "NO_RUNNER",
+			blockedReason: input.overBudget
+				? BUDGET_EXCEEDED
+				: live
+					? null
+					: "NO_RUNNER",
 			batchId: input.batchId,
 			retryAttempt: input.retryOf ? input.retryOf.retryAttempt + 1 : 1,
 			retryOfRunId: input.retryOf?.id ?? null,
@@ -606,6 +613,11 @@ export const requestRuns = async (
 		}
 	}
 
+	const budget =
+		toCreate.length > 0
+			? await dailyBudgetState(db, input.orgId, settings.dailyBudgetUsd, now)
+			: null;
+
 	let batchId: string | null = null;
 	const isBatch = Boolean(input.batch) || plans.length > 1;
 	if (isBatch) {
@@ -663,6 +675,7 @@ export const requestRuns = async (
 				batchId,
 				now,
 				baseUrlOverride: input.baseUrlOverride ?? null,
+				overBudget: budget?.exceeded ?? false,
 			});
 			if (run) {
 				created = { runId: run.id, attached: false };
@@ -1023,6 +1036,8 @@ export const queuePlacement = async (
 		0,
 	);
 	const freeSlots = Math.max(0, concurrency - running.length);
+	// A run waiting on the daily budget has no start estimate.
+	const overBudget = run.blockedReason === BUDGET_EXCEEDED;
 	const waitMs =
 		ahead.length < freeSlots
 			? 0
@@ -1034,7 +1049,7 @@ export const queuePlacement = async (
 	return {
 		position: ahead.length,
 		depth: Number(depth?.value ?? 0),
-		estimatedStartAt: Math.round(now + waitMs),
+		estimatedStartAt: overBudget ? null : Math.round(now + waitMs),
 	};
 };
 
