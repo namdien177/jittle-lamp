@@ -8,7 +8,7 @@ import {
   type MacroParam
 } from "@jittle-lamp/shared";
 
-import { editorKeyCommand, isMacPlatform, type EditorCommand } from "./keyboard";
+import { editorCommandAllowed, editorKeyCommand, isMacPlatform, type EditorCommand } from "./keyboard";
 import {
   applyFixToDoc,
   applyTypePick,
@@ -46,6 +46,7 @@ import {
   toggleRowDisabled,
   typeOptions,
   variableOptions,
+  withBuiltinMacros,
   type CredentialOption,
   type EditorCredential,
   type EditorDoc,
@@ -113,6 +114,9 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   const mod = isMac ? "⌘" : "Ctrl";
 
   const [focusedRowId, setFocusedRowId] = React.useState<string | null>(null);
+  // Roving tabindex: only the last focused row (or the first row) is in the tab order; ↑/↓ move
+  // between rows, so Tab leaves the editor instead of walking every row.
+  const [activeRowId, setActiveRowId] = React.useState<string | null>(null);
   const [pendingFocus, setPendingFocus] = React.useState<{ rowId: string; caret: number | "end" } | null>(null);
   const [picker, setPicker] = React.useState<PickerState | null>(null);
   const [dragRowId, setDragRowId] = React.useState<string | null>(null);
@@ -122,14 +126,17 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   const listId = React.useId();
 
   const parsed = React.useMemo(() => testCaseFromDoc(doc), [doc]);
+  // The runner ships a built-in Login macro (packages/e2e-runner/macros); an org macro of that
+  // name overrides it, so [Login: X] is never an unknown macro.
+  const lintMacros = React.useMemo(() => withBuiltinMacros(macros), [macros]);
   const findings = React.useMemo(
     () =>
       lintTestCase(parsed, {
-        ...(props.macrosLoaded ? { macros } : {}),
+        ...(props.macrosLoaded ? { macros: lintMacros } : {}),
         ...(props.environmentVariables ? { environmentVariables } : {}),
         elementNames
       }),
-    [parsed, props.macrosLoaded, macros, props.environmentVariables, environmentVariables, elementNames]
+    [parsed, props.macrosLoaded, lintMacros, props.environmentVariables, environmentVariables, elementNames]
   );
   const rowSteps = React.useMemo(() => mapRowsToSteps(doc, parsed).steps, [doc, parsed]);
   const lint = React.useMemo(() => lintByRow(doc, parsed, findings), [doc, parsed, findings]);
@@ -163,7 +170,15 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Every edit goes through here or `change`; read-only editors never call onChange.
+  const change = (next: EditorDoc) => {
+    if (!readOnly) onChange(next);
+  };
   const commit = (next: EditorDoc, focus?: { rowId: string | null; caret?: number | "end" }) => {
+    if (readOnly) {
+      if (focus?.rowId) setPendingFocus({ rowId: focus.rowId, caret: focus.caret ?? "end" });
+      return;
+    }
     onChange(next);
     if (focus?.rowId) setPendingFocus({ rowId: focus.rowId, caret: focus.caret ?? "end" });
   };
@@ -250,6 +265,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
 
   const runCommand = (command: EditorCommand, row: EditorRow, event: React.KeyboardEvent): boolean => {
     const index = doc.rows.findIndex((candidate) => candidate.rowId === row.rowId);
+    if (!editorCommandAllowed(command, readOnly)) return false;
     switch (command) {
       case "picker-next":
         setPicker((current) => (current ? { ...current, index: Math.min(choiceCount - 1, current.index + 1), viaKeyboard: true } : current));
@@ -266,7 +282,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
       case "type-next":
       case "type-prev":
         if (row.kind !== "step") return false;
-        onChange(cycleRowType(doc, row.rowId, command === "type-next" ? 1 : -1));
+        change(cycleRowType(doc, row.rowId, command === "type-next" ? 1 : -1));
         return true;
       case "run":
         props.onRun?.();
@@ -289,7 +305,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
         return true;
       }
       case "toggle-disabled":
-        onChange(toggleRowDisabled(doc, row.rowId));
+        change(toggleRowDisabled(doc, row.rowId));
         return true;
       case "new-row": {
         const result = insertRowAfter(doc, row.rowId);
@@ -346,7 +362,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
       commit(result.doc, { rowId: result.focusRowId });
       return;
     }
-    onChange(setRowText(doc, row.rowId, value));
+    change(setRowText(doc, row.rowId, value));
     if (row.kind !== "step") return;
     const trigger = detectTrigger(value, caret);
     if (!trigger) {
@@ -359,6 +375,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   };
 
   const onFieldPaste = (row: EditorRow, event: React.ClipboardEvent<HTMLInputElement>) => {
+    if (readOnly) return;
     const text = event.clipboardData.getData("text/plain");
     const result = pasteIntoRow(doc, row.rowId, text);
     if (result.kind === "none") return;
@@ -375,7 +392,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   // ------------------------------------------------------------------------------------------
 
   const onDragOver = (row: EditorRow, event: React.DragEvent<HTMLDivElement>) => {
-    if (dragRowId === null) return;
+    if (dragRowId === null || readOnly) return;
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
     const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
@@ -384,11 +401,11 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
 
   const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    if (dragRowId !== null && drop !== null && drop.rowId !== dragRowId) {
+    if (!readOnly && dragRowId !== null && drop !== null && drop.rowId !== dragRowId) {
       const without = doc.rows.filter((row) => row.rowId !== dragRowId);
       const target = without.findIndex((row) => row.rowId === drop.rowId);
       const result = moveRowTo(doc, dragRowId, drop.position === "before" ? target : target + 1);
-      onChange(result.doc);
+      change(result.doc);
     }
     setDragRowId(null);
     setDrop(null);
@@ -401,6 +418,8 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   const counts = { error: 0, warning: 0, info: 0 };
   for (const finding of findings) counts[finding.severity] += 1;
   let ordinal = 0;
+
+  const tabRowId = doc.rows.some((row) => row.rowId === activeRowId) ? activeRowId : (doc.rows[0]?.rowId ?? null);
 
   return (
     <div className="jl-se" role="grid" aria-label={props.ariaLabel ?? "Test steps"} aria-readonly={readOnly}>
@@ -468,7 +487,11 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
                   if (element) inputRefs.current.set(row.rowId, element);
                   else inputRefs.current.delete(row.rowId);
                 }}
-                onFocus={() => setFocusedRowId(row.rowId)}
+                onFocus={() => {
+                  setFocusedRowId(row.rowId);
+                  setActiveRowId(row.rowId);
+                }}
+                tabbable={tabRowId === row.rowId}
                 onBlur={() => setFocusedRowId((current) => (current === row.rowId ? null : current))}
                 onChange={(event) => onFieldChange(row, event)}
                 onKeyDown={(event) => onFieldKeyDown(row, event)}
@@ -496,7 +519,11 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
                   if (element) chipRefs.current.set(row.rowId, element);
                   else chipRefs.current.delete(row.rowId);
                 }}
-                onFocus={() => setFocusedRowId(row.rowId)}
+                onFocus={() => {
+                  setFocusedRowId(row.rowId);
+                  setActiveRowId(row.rowId);
+                }}
+                tabbable={tabRowId === row.rowId}
                 onBlur={(event) => {
                   const related = event.relatedTarget as Node | null;
                   if (related && event.currentTarget.closest(".jl-se-row")?.contains(related)) return;
@@ -570,7 +597,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
         <span><kbd>{"{"}</kbd>variable</span>
         <span><kbd>@</kbd>credential, file</span>
         <span><kbd>#</kbd>checkpoint</span>
-        <span><kbd>Tab</kbd>on the chip cycles type</span>
+        <span><kbd>Alt ↑↓</kbd>change type</span>
         <span><kbd>{mod}↵</kbd>run</span>
         <span><kbd>{mod}D</kbd>duplicate</span>
         <span><kbd>{mod}⇧↑↓</kbd>move</span>
@@ -582,6 +609,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
 
 function HeadingRowView(props: {
   row: HeadingRow;
+  tabbable: boolean;
   focused: boolean;
   readOnly: boolean;
   inputRef: (element: HTMLInputElement | null) => void;
@@ -604,6 +632,7 @@ function HeadingRowView(props: {
           value={props.row.title}
           placeholder="What this group of asserts proves"
           aria-label="Checkpoint title"
+          tabIndex={props.tabbable ? 0 : -1}
           readOnly={props.readOnly}
           onFocus={props.onFocus}
           onBlur={props.onBlur}
@@ -613,7 +642,7 @@ function HeadingRowView(props: {
       </div>
       <div className="jl-se-status">
         {!props.readOnly ? (
-          <button type="button" className="jl-se-iconbtn" aria-label="Remove checkpoint heading" onClick={props.onRemove}>
+          <button type="button" className="jl-se-iconbtn" aria-label="Remove checkpoint heading" tabIndex={props.tabbable ? 0 : -1} onClick={props.onRemove}>
             ✕
           </button>
         ) : null}
@@ -624,6 +653,7 @@ function HeadingRowView(props: {
 
 function StepRowView(props: {
   row: StepRow;
+  tabbable: boolean;
   ordinal: number | null;
   focused: boolean;
   readOnly: boolean;
@@ -671,7 +701,9 @@ function StepRowView(props: {
           type="button"
           className="jl-se-chip"
           data-type={type}
-          aria-label={`Step type ${chip.tag}. Tab or Shift+Tab to change, Enter to pick a type or macro`}
+          aria-label={`Step type ${chip.tag}. Alt+Up or Alt+Down to change, Enter to pick a type or macro`}
+          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+          tabIndex={props.tabbable ? 0 : -1}
           disabled={props.readOnly}
           onKeyDown={props.onChipKeyDown}
           onClick={props.onChipClick}
@@ -685,6 +717,7 @@ function StepRowView(props: {
             type="button"
             className="jl-se-params"
             aria-label={`Edit ${chip.tag} parameters: ${chip.params}`}
+            tabIndex={props.tabbable ? 0 : -1}
             disabled={props.readOnly}
             onClick={props.onParamsClick}
             onFocus={props.onFocus}
@@ -706,6 +739,7 @@ function StepRowView(props: {
           value={row.text}
           placeholder={phrasingTemplates[type]}
           aria-label={`Step ${props.ordinal ?? "new"} instruction`}
+          tabIndex={props.tabbable ? 0 : -1}
           aria-autocomplete="list"
           aria-expanded={props.pickerOpen}
           aria-controls={props.pickerOpen ? props.listId : undefined}

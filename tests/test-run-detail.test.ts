@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { testRunDetailSchema, type TestRunDetail, type TestRunStep } from "@jittle-lamp/shared";
+import { parseTranscriptDocument, testRunDetailSchema, type TestRunDetail, type TestRunStep } from "@jittle-lamp/shared";
 
 import {
   canCancelRun,
@@ -103,9 +103,9 @@ describe("run detail model", () => {
 
   test("queue pill shows position, depth when known, and the estimated start", () => {
     const now = 1_000_000;
-    expect(formatQueuePill({ status: "queued", queuePosition: 2, queueDepth: 3, estimatedStartAt: now + 90_000 }, now)).toBe("queued · #2 of 3 · starts in ~2 min");
-    expect(formatQueuePill({ status: "queued", queuePosition: 1, estimatedStartAt: now + 20_000 }, now)).toBe("queued · #1 · starts in ~20s");
-    expect(formatQueuePill({ status: "queued", queuePosition: 1, estimatedStartAt: now - 4_000 }, now)).toBe("queued · #1 · starts soon");
+    expect(formatQueuePill({ status: "queued", queuePosition: 1, queueDepth: 3, estimatedStartAt: now + 90_000 }, now)).toBe("queued · #2 of 3 · starts in ~2 min");
+    expect(formatQueuePill({ status: "queued", queuePosition: 0, estimatedStartAt: now + 20_000 }, now)).toBe("queued · #1 · starts in ~20s");
+    expect(formatQueuePill({ status: "queued", queuePosition: 0, queueDepth: 1, estimatedStartAt: now - 4_000 }, now)).toBe("queued · #1 of 1 · starts soon");
     expect(formatQueuePill({ status: "queued", queuePosition: null, estimatedStartAt: null }, now)).toBe("queued");
     expect(formatQueuePill({ status: "running", queuePosition: null, estimatedStartAt: null }, now)).toBeNull();
   });
@@ -158,5 +158,60 @@ describe("run detail model", () => {
     expect(formatModelId("mock:/home/qa/fixtures/fixture-logout.mock.json")).toBe("mock:fixture-logout.mock.json");
     expect(formatModelId("anthropic/claude-opus-5-5")).toBe("anthropic/claude-opus-5-5");
     expect(formatModelId(null)).toBe("—");
+  });
+});
+
+describe("live progress of expanded macro steps", () => {
+  test("rows `<parent>.<n>` without parent, ordinal or label are re-attached under their parent", () => {
+    const steps = [
+      runStep({ stepId: "st_login", ordinal: 2, type: "login", label: "sign in as the fixture admin", status: "running" }),
+      runStep({ stepId: "st_login.2", ordinal: 1, label: "", status: "running" }),
+      runStep({ stepId: "st_open", ordinal: 1, type: "open", label: "/login" }),
+      runStep({ stepId: "st_login.1", ordinal: 1, label: "", status: "passed" }),
+      runStep({ stepId: "st_assert", ordinal: 3, type: "assert", label: "dashboard", status: "pending" })
+    ];
+    const rows = toRunStepListSteps(steps);
+    expect(rows.map((row) => [row.stepId, row.parentStepId, row.ordinal])).toEqual([
+      ["st_open", null, 1],
+      ["st_login", null, 2],
+      ["st_login.1", "st_login", 2],
+      ["st_login.2", "st_login", 2],
+      ["st_assert", null, 3]
+    ]);
+    expect(rows[2]?.label).toBe("sign in as the fixture admin · step 1");
+    expect(runProgress(steps)).toEqual({ done: 1, total: 3 });
+  });
+});
+
+describe("live progress rows created before finalisation", () => {
+  test("rows with default ordinal, type and empty label take them from the run transcript", () => {
+    const transcript = "# Case\n\n[Open] /login\n[Login: ADMIN] sign in as the fixture admin\n[Assert] the dashboard shows the welcome heading";
+    const parsed = parseTranscriptDocument(transcript).cases[0]?.steps ?? [];
+    const [open, login, assert] = parsed;
+    if (!open || !login || !assert) throw new Error("fixture");
+    const steps = [
+      runStep({ stepId: login.stepId, ordinal: 1, type: "act", label: "", status: "running" }),
+      runStep({ stepId: `${login.stepId}.1`, ordinal: 1, type: "act", label: "", status: "passed" }),
+      runStep({ stepId: open.stepId, ordinal: 1, type: "act", label: "", status: "passed" }),
+      runStep({ stepId: assert.stepId, ordinal: 3, type: "assert", label: "the dashboard shows the welcome heading", status: "pending" })
+    ];
+    const rows = toRunStepListSteps(steps, transcript);
+    expect(rows.map((row) => [row.ordinal, row.type, row.label, row.parentStepId === null])).toEqual([
+      [1, "open", "/login", true],
+      [2, "login", "sign in as the fixture admin", true],
+      [2, "act", "sign in as the fixture admin · step 1", false],
+      [3, "assert", "the dashboard shows the welcome heading", true]
+    ]);
+    expect(runProgress(steps, transcript)).toEqual({ done: 1, total: 3 });
+  });
+});
+
+describe("run polling backs off on errors", () => {
+  test("2 s while active, doubling per consecutive failure up to 30 s, back to 2 s after a success", () => {
+    const active = { status: "running" as const };
+    expect([0, 1, 2, 3, 4, 5, 9].map((failures) => runPollInterval(active, failures))).toEqual([2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000]);
+    expect(runPollInterval(undefined, 2)).toBe(8_000);
+    expect(runPollInterval({ status: "completed" }, 3)).toBe(false);
+    expect(runPollInterval(active, 0)).toBe(2_000);
   });
 });

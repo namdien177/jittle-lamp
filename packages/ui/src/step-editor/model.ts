@@ -2,6 +2,7 @@ import {
   applyLintFix,
   emptyTranscriptMetadata,
   loginProfileArg,
+  parseStepLine,
   parseTranscriptDocument,
   resolveStepType,
   serializeStepLine,
@@ -146,8 +147,26 @@ function emptyParsedCase(): ParsedTestCase {
   return { title: "", line: 1, metadata: emptyTranscriptMetadata(), checkpoints: [], steps: [], dataset: null };
 }
 
+// A plain `## title` heading whose title itself reads as `Checkpoint: …` or `Dataset…` would
+// parse back as something else, so it is written in the prefixed form.
 function headingLine(row: HeadingRow): string {
-  return row.prefixed ? `## Checkpoint: ${row.title}`.trimEnd() : `## ${row.title}`.trimEnd();
+  const prefixed = row.prefixed || /^(?:checkpoint\s*:|dataset(?:\s*:|\s*$))/i.test(row.title.trim());
+  return prefixed ? `## Checkpoint: ${row.title}`.trimEnd() : `## ${row.title}`.trimEnd();
+}
+
+// Bare text is an Act, but a bare line that starts like a heading, a disabled marker, a tag
+// (`[x] done`) or a table row would parse back as something else and the step would be lost or
+// moved. Such rows are written with an explicit [Act] tag, which keeps the same instruction key.
+export function bareTextNeedsTag(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (/^#/.test(trimmed) || /^\/\/\s/.test(trimmed) || /^\/\/$/.test(trimmed) || trimmed.startsWith("|")) return true;
+  return parseStepLine(trimmed).tag !== null;
+}
+
+export function serializeRowLine(row: StepRow): string {
+  if (row.tag === null && bareTextNeedsTag(row.text)) return serializeStepLine({ ...row, tag: "Act" });
+  return serializeStepLine(row);
 }
 
 // Same layout as serializeTestCase: metadata, then steps without a checkpoint, then one block per
@@ -171,7 +190,7 @@ export function serializeEditorDoc(doc: EditorDoc): string {
       continue;
     }
     if (isBlankRow(row)) continue;
-    block.push(serializeStepLine(row));
+    block.push(serializeRowLine(row));
   }
   pushBlock(block);
 
@@ -180,6 +199,14 @@ export function serializeEditorDoc(doc: EditorDoc): string {
     pushBlock(datasetText.split("\n"));
   }
   return lines.join("\n");
+}
+
+// Text mode edit: a single case replaces the doc; text holding several `# title` cases keeps the
+// doc as it was (null) so switching back never drops cases.
+export function textModeUpdate(text: string, doc: EditorDoc): { doc: EditorDoc | null; cases: number } {
+  const cases = parseTranscriptDocument(text).cases.filter((testCase) => testCase.title.trim().length > 0).length;
+  if (cases > 1) return { doc: null, cases };
+  return { doc: docFromTranscript(text, doc.baseSteps, doc), cases };
 }
 
 export function testCaseFromDoc(doc: EditorDoc): ParsedTestCase {
@@ -500,6 +527,14 @@ const builtinDescriptions: Record<(typeof stepTypeCycle)[number], string> = {
 };
 
 export type EditorMacro = { name: string; params: MacroParam[]; transcript?: string; version?: number };
+
+// The runner ships a built-in Login macro (packages/e2e-runner/macros/login.transcript.md); an
+// organisation macro named Login overrides it. Lint must not call [Login: X] an unknown macro.
+export const builtinLoginMacro: EditorMacro = { name: "Login", params: [{ name: "profile", required: true, default: null, kind: "credential" }] };
+
+export function withBuiltinMacros(macros: readonly EditorMacro[]): EditorMacro[] {
+  return macros.some((macro) => macro.name.toLowerCase() === "login") ? [...macros] : [...macros, builtinLoginMacro];
+}
 
 export function typeOptions(query: string, macros: readonly EditorMacro[]): TypeOption[] {
   const needle = query.trim().toLowerCase();

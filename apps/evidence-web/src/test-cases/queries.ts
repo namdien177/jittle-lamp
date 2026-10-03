@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   parseSessionArchiveJson,
@@ -113,11 +114,24 @@ export function useTestCaseRuns(testCaseId: string | null, enabled = true) {
 export function useTestRun(runId: string | null) {
   const getToken = useAuthToken();
   const orgId = useTestOrgId();
+  // Consecutive failed polls; TanStack's fetchFailureCount restarts at every fetch, so it cannot
+  // drive a backoff across polls.
+  const failures = useRef(0);
   return useQuery({
     queryKey: testQueryKeys.run(orgId, runId ?? "none"),
-    queryFn: ({ signal }) => testApi.getRun(getToken, runId ?? "", signal),
+    queryFn: async ({ signal }) => {
+      try {
+        const run = await testApi.getRun(getToken, runId ?? "", signal);
+        failures.current = 0;
+        return run;
+      } catch (error) {
+        failures.current += 1;
+        throw error;
+      }
+    },
     enabled: useSignedIn() && runId !== null,
-    refetchInterval: (query) => runPollInterval(query.state.data),
+    retry: false,
+    refetchInterval: (query) => runPollInterval(query.state.data, failures.current),
     refetchIntervalInBackground: false
   });
 }

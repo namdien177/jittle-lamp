@@ -7,6 +7,8 @@ import { TestCaseEditor, serializeEditorDoc, type EditorDoc, type StepEditorRowS
 import { Button } from "../components/ui/button";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuLabel } from "../components/ui/dropdown-menu";
 import { useToast } from "../toast";
+import { useTestPermissions } from "./admin-queries";
+import { ReadOnlyNotice } from "./admin-ui";
 import { isConflictError } from "./api";
 import { Kbd } from "./bits";
 import { SimilarHint, editorDocFromDetail, normalizedTranscript, useEditorCatalog, type EditorCatalog } from "./editor-support";
@@ -27,6 +29,9 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
   const orgId = useTestOrgId();
   const [doc, setDoc] = React.useState<EditorDoc>(() => editorDocFromDetail(detail));
   const [mode, setMode] = React.useState<TestCaseEditorMode>("steps");
+  // Without test_case.update the editor is read-only: no edits, no save.
+  const permissions = useTestPermissions();
+  const readOnly = !permissions.loading && !permissions.can("test_case.update");
   const [conflict, setConflict] = React.useState<Conflict | null>(null);
   const [engaged, setEngaged] = React.useState(false);
   const multiCaseWarned = React.useRef(0);
@@ -85,7 +90,7 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
   const environment = catalog.environmentFor(doc, detail.environmentId);
 
   const save = (options: { force?: boolean } = {}) => {
-    if (!dirty || update.isPending) return;
+    if (readOnly || !dirty || update.isPending) return;
     const transcript = current;
     update.mutate(
       {
@@ -124,6 +129,7 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
         }
       }}
     >
+      {readOnly ? <ReadOnlyNotice permission="test_case.update" /> : null}
       {conflict ? (
         <ConflictBanner
           detailVersion={detail.transcriptVersion}
@@ -139,6 +145,7 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
       <TestCaseEditor
         doc={doc}
         onChange={setDoc}
+        readOnly={readOnly}
         mode={mode}
         onModeChange={setMode}
         macros={catalog.macros}
@@ -163,6 +170,7 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
         }}
         toolbar={
           <EditorToolbar
+            readOnly={readOnly}
             dirty={dirty}
             saving={update.isPending}
             version={detail.transcriptVersion}
@@ -177,6 +185,7 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
 }
 
 function EditorToolbar(props: {
+  readOnly: boolean;
   dirty: boolean;
   saving: boolean;
   version: number;
@@ -204,7 +213,7 @@ function EditorToolbar(props: {
           </DropdownMenuItem>
         ))}
       </DropdownMenu>
-      {props.dirty ? (
+      {props.dirty && !props.readOnly ? (
         <>
           <span className="text-[12px] text-muted-foreground">Unsaved</span>
           <Button size="xs" variant="ghost" className="jl-tc-press" onClick={props.onDiscard} disabled={props.saving}>
@@ -212,9 +221,11 @@ function EditorToolbar(props: {
           </Button>
         </>
       ) : null}
-      <Button size="xs" className="jl-tc-press" onClick={props.onSave} disabled={!props.dirty || props.saving} aria-keyshortcuts="Meta+S">
-        {props.saving ? "Saving…" : "Save"} <Kbd>⌘S</Kbd>
-      </Button>
+      {props.readOnly ? null : (
+        <Button size="xs" className="jl-tc-press" onClick={props.onSave} disabled={!props.dirty || props.saving} aria-keyshortcuts="Meta+S">
+          {props.saving ? "Saving…" : "Save"} <Kbd>⌘S</Kbd>
+        </Button>
+      )}
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import React from "react";
 import { safeExternalHref } from "../safe-url";
-import { parseTranscriptDocument, serializeTestCase, type ParamDeclaration, type TranscriptDataset } from "@jittle-lamp/shared";
+import { serializeTestCase, type ParamDeclaration, type TranscriptDataset } from "@jittle-lamp/shared";
 
 import {
   docFromTranscript,
+  textModeUpdate,
   groupTagsByNamespace,
   linkLabel,
   setDataset,
@@ -38,10 +39,28 @@ export function TestCaseEditor(props: TestCaseEditorProps): React.JSX.Element {
   const { mode, onModeChange, doc, onChange } = props;
   const [text, setText] = React.useState(() => serializeTestCase(testCaseFromDoc(doc)));
   const lastSyncedDoc = React.useRef(doc);
+  const [extraCases, setExtraCases] = React.useState(0);
+  const notifiedCases = React.useRef(0);
+  const onMultiCasePaste = props.onMultiCasePaste;
+
+  // Tell the host once the typing settles, not on every keystroke.
+  React.useEffect(() => {
+    if (extraCases < 2) {
+      notifiedCases.current = 0;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (notifiedCases.current === extraCases) return;
+      notifiedCases.current = extraCases;
+      onMultiCasePaste?.(text, extraCases);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [extraCases, text, onMultiCasePaste]);
 
   // Entering Text mode shows the current document; leaving it parses the text back.
   const switchMode = (next: TestCaseEditorMode) => {
     if (next === mode) return;
+    if (next === "steps" && extraCases > 1) return;
     if (next === "text") {
       setText(serializeTestCase(testCaseFromDoc(doc)));
       lastSyncedDoc.current = doc;
@@ -82,6 +101,8 @@ export function TestCaseEditor(props: TestCaseEditorProps): React.JSX.Element {
               data-variant={mode === value ? "primary" : undefined}
               style={{ border: 0, background: mode === value ? undefined : "transparent" }}
               onClick={() => switchMode(value)}
+              disabled={value === "steps" && mode === "text" && extraCases > 1}
+              title={value === "steps" && extraCases > 1 ? "The text holds more than one case" : undefined}
             >
               {value === "steps" ? "Steps" : "Text"}
             </button>
@@ -101,11 +122,12 @@ export function TestCaseEditor(props: TestCaseEditorProps): React.JSX.Element {
           onChange={(event) => {
             const value = event.currentTarget.value;
             setText(value);
-            const titled = parseTranscriptDocument(value).cases.filter((testCase) => testCase.title.trim().length > 0).length;
-            if (titled > 1) props.onMultiCasePaste?.(value, titled);
-            const next = docFromTranscript(value, doc.baseSteps, doc);
-            lastSyncedDoc.current = next;
-            onChange(next);
+            const update = textModeUpdate(value, doc);
+            setExtraCases(update.cases > 1 ? update.cases : 0);
+            // While the text holds several cases the doc keeps its last single-case state.
+            if (update.doc === null) return;
+            lastSyncedDoc.current = update.doc;
+            onChange(update.doc);
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && props.onRun) {
@@ -115,6 +137,12 @@ export function TestCaseEditor(props: TestCaseEditorProps): React.JSX.Element {
           }}
         />
       )}
+      {mode === "text" && extraCases > 1 ? (
+        <p role="status" style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: "color-mix(in srgb, var(--warning, #f59e0b) 75%, var(--foreground, #222))" }}>
+          This text holds {extraCases} cases (# headings). One case fits here: remove the extra headings to keep editing, or use New case to split the
+          document. Until then the steps view keeps the last single-case version.
+        </p>
+      ) : null}
     </div>
   );
 }
