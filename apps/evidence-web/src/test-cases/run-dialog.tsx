@@ -90,7 +90,7 @@ export function RunDialog(props: {
       }
     >
       {result ? (
-        <div className="space-y-3 text-[13.5px]" role="status">
+        <div className="space-y-3 text-base" role="status">
           {result.attached ? (
             <p>
               <strong>Attached</strong> to a run {result.status === "completed" ? "that finished moments ago" : `already ${result.status}`}
@@ -121,18 +121,18 @@ export function RunDialog(props: {
           <Field label="Cache">
             <SimpleSelect ariaLabel="Cache mode" value={cacheMode} onValueChange={(value) => setCacheMode(value as CacheMode)} options={(Object.keys(cacheModeLabels) as CacheMode[]).map((value) => ({ value, label: cacheModeLabels[value] }))} />
           </Field>
-          <label className="flex items-center gap-2 text-[13.5px]">
+          <label className="flex items-center gap-2 text-base">
             <input type="checkbox" className="accent-[var(--primary)]" checked={force} onChange={(event) => setForce(event.currentTarget.checked)} />
             Run again even if the same run is queued or just finished
           </label>
           {props.hasDataset ? (
-            <label className="flex items-center gap-2 text-[13.5px]">
+            <label className="flex items-center gap-2 text-base">
               <input type="checkbox" className="accent-[var(--primary)]" checked={dataset} onChange={(event) => setDataset(event.currentTarget.checked)} />
               Run every dataset row as a batch
             </label>
           ) : null}
           {error ? (
-            <p role="alert" className="text-[13px] text-destructive">
+            <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           ) : null}

@@ -412,7 +412,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
             </>
           }
         >
-          <p className="text-[13px] text-muted-foreground">Save with {isMacPlatform() ? "⌘S" : "Ctrl+S"} first to keep them.</p>
+          <p className="text-sm text-muted-foreground">Save with {isMacPlatform() ? "⌘S" : "Ctrl+S"} first to keep them.</p>
         </SimpleDialog>
       ) : null}
       {quickCreate ? (

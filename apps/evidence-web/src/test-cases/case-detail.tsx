@@ -36,7 +36,7 @@ export function CaseDetailPane(props: {
   if (query.isError) {
     return (
       <section className="flex flex-col gap-2 p-6" aria-label="Test case detail">
-        <p className="text-[13.5px] text-destructive">{query.error instanceof Error ? query.error.message : "Unable to load the case."}</p>
+        <p className="text-base text-destructive">{query.error instanceof Error ? query.error.message : "Unable to load the case."}</p>
         <Button size="xs" variant="ghost" onClick={props.onClose}>
           Close
         </Button>
@@ -61,7 +61,7 @@ export function CaseDetailPane(props: {
   return (
     <section className="jl-scroll flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto" aria-label={`Test case ${detail.key}`}>
       <header className="flex flex-col gap-2 px-6 pb-4 pt-4">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[12px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-xs text-muted-foreground">
           <span className="flex min-w-0 items-center gap-2 whitespace-nowrap">
             <span className="font-mono">{detail.key}</span>
             <CaseStatusBadge status={detail.status} />
@@ -85,31 +85,31 @@ export function CaseDetailPane(props: {
           </span>
         </div>
         <h2 className="text-lg font-semibold leading-snug">{detail.title || "Untitled case"}</h2>
-        {detail.description ? <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted-foreground">{detail.description}</p> : null}
+        {detail.description ? <p className="whitespace-pre-wrap text-base leading-relaxed text-muted-foreground">{detail.description}</p> : null}
         <div className="flex flex-wrap items-center gap-1.5">
           {detail.links.map((link) => {
             const href = safeExternalHref(link.url);
             return href ? (
               <Hint key={link.url} label={link.url}>
-                <a href={href} target="_blank" rel="noreferrer" className="jl-tc-press inline-flex items-center gap-1 rounded border border-border px-1.5 text-[12px] leading-5 hover:bg-muted">
+                <a href={href} target="_blank" rel="noreferrer" className="jl-tc-press inline-flex items-center gap-1 rounded border border-border px-1.5 text-xs leading-5 hover:bg-muted">
                   {link.label ?? linkLabel(link.url)} <ExternalLink className="size-3" aria-hidden />
                 </a>
               </Hint>
             ) : (
               <Hint key={link.url} label={link.url}>
-                <span className="inline-flex items-center rounded border border-border px-1.5 text-[12px] leading-5 text-muted-foreground">{link.label ?? link.url}</span>
+                <span className="inline-flex items-center rounded border border-border px-1.5 text-xs leading-5 text-muted-foreground">{link.label ?? link.url}</span>
               </Hint>
             );
           })}
           {detail.tags.map((tag) => (
             <TagChip key={tag} tag={tag} color={tagColors.get(tag) ?? null} onClick={() => props.onTagClick(tag)} />
           ))}
-          <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 font-mono text-[12px] leading-5 text-muted-foreground">
+          <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 font-mono text-xs leading-5 text-muted-foreground">
             env: {environment?.name ?? "none"}
           </span>
         </div>
         {required.variables.length + required.credentials.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1 text-[12px]">
+          <div className="flex flex-wrap items-center gap-1 text-xs">
             <span className="text-muted-foreground">Needs</span>
             {[...[...new Set(required.credentials)].map((name) => ({ name, kind: "credential" })), ...[...new Set(required.variables)].map((name) => ({ name, kind: "variable" }))].map((entry) => (
               <Hint key={`${entry.kind}:${entry.name}`} label={unresolved.has(entry.name) ? `${entry.name} is not set in ${environment?.name ?? "the environment"}` : `${entry.kind} resolved`}>
@@ -136,7 +136,7 @@ export function CaseDetailPane(props: {
           <Stat label="Avg cost" value={formatCost(stats.avgCostUsd)} />
           <Stat label="Avg tokens" value={stats.avgTokens === null ? "—" : formatTokens(Math.round(stats.avgTokens))} hint={stats.avgModelCalls === null ? undefined : `${stats.avgModelCalls.toFixed(1)} model calls per run`} />
         </div>
-        <div className="text-[12px] text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           {stats.runs} run{stats.runs === 1 ? "" : "s"} · {stats.cachedSteps} cached step{stats.cachedSteps === 1 ? "" : "s"}
           {stats.staleSteps > 0 ? <span className="text-warning"> · {stats.staleSteps} stale</span> : null}
           {stats.derivedCases > 0 ? ` · ${stats.derivedCases} derived case${stats.derivedCases === 1 ? "" : "s"}` : ""}
@@ -157,7 +157,7 @@ export function CaseDetailPane(props: {
             role="tab"
             aria-selected={props.tab === tab}
             className={cn(
-              "-mb-px border-b-2 py-2.5 text-[13px] font-medium transition-colors",
+              "-mb-px border-b-2 py-2.5 text-sm font-medium transition-colors",
               props.tab === tab ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             )}
             onClick={() => props.onTabChange(tab)}

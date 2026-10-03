@@ -108,7 +108,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
             >
               <Icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", toneClass[toast.tone])} />
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium leading-snug">{toast.title}</p>
+                <p className="text-sm font-medium leading-snug">{toast.title}</p>
                 {toast.description ? <p className="mt-0.5 break-words text-xs text-muted-foreground">{toast.description}</p> : null}
               </div>
               {toast.action ? (

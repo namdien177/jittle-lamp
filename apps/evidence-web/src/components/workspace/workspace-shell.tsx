@@ -197,7 +197,7 @@ function SidebarUser({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: ()
       <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
         <UserButton />
         <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-          <p className="truncate text-[13px] font-medium text-foreground">{user?.displayName ?? "Signed in"}</p>
+          <p className="truncate text-sm font-medium text-foreground">{user?.displayName ?? "Signed in"}</p>
           <p className="truncate text-xs text-muted-foreground">{user?.email ?? ""}</p>
         </div>
       </div>
@@ -263,7 +263,7 @@ function InsetHeader({ crumbs, titleRef, actionsRef }: { crumbs: Crumb[]; titleR
     <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2 md:px-3">
       <SidebarTrigger className="-ml-0.5" />
       <Separator orientation="vertical" className="mr-1 h-4" />
-      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-muted-foreground">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-muted-foreground">
         {parents.map((crumb) => (
           <React.Fragment key={crumb.label}>
             {crumb.to ? (
@@ -307,7 +307,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }): Rea
           {/* The evidence viewer brings its own header bar (back, title, share, download). */}
           {!isEvidenceDetail ? <InsetHeader crumbs={breadcrumbsFor(location.pathname)} titleRef={setTitleSlot} actionsRef={setActionsSlot} /> : null}
           {migrationReadOnly ? (
-            <div role="status" className="border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-center text-[13px] text-foreground">
+            <div role="status" className="border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-center text-sm text-foreground">
               This organisation is read-only during migration.{" "}
               <Link className="font-medium underline underline-offset-2" to="/settings/migration">
                 View migration

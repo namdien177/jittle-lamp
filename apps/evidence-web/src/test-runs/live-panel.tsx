@@ -262,7 +262,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#0d0e10] text-white/85">
-      <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-2 text-[12.5px]">
+      <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-2 text-sm">
         <span className="inline-flex items-center gap-1.5 font-semibold text-white">
           <Radio className={cn("size-3.5", age.stale ? "text-white/40" : "text-red-400")} aria-hidden />
           Live
@@ -271,10 +271,10 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
           frame {age.label} · {viewport.width}×{viewport.height}
         </span>
                 {live.framesHidden ? (
-          <span className="text-[11.5px] text-white/55">frames hidden after a secret was entered</span>
+          <span className="text-xs text-white/55">frames hidden after a secret was entered</span>
         ) : null}
         {paused ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/40 bg-amber-300/10 px-2 py-0.5 text-[11.5px] font-semibold text-amber-200">
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/40 bg-amber-300/10 px-2 py-0.5 text-xs font-semibold text-amber-200">
             <PauseCircle className="size-3.5" aria-hidden /> paused
           </span>
         ) : null}
@@ -292,15 +292,15 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
       </div>
 
       {holding ? (
-        <div role="status" className="jl-tc-enter flex items-center gap-2 border-b border-amber-300/30 bg-amber-300/12 px-4 py-2 text-[13px] text-amber-100">
+        <div role="status" className="jl-tc-enter flex items-center gap-2 border-b border-amber-300/30 bg-amber-300/12 px-4 py-2 text-sm text-amber-100">
           <MousePointerClick className="size-4 shrink-0" aria-hidden />
                     <span>
             <strong className="font-semibold">Paused: you control the browser.</strong> Nothing you do is cached. Keys go to the run;{" "}
-            <kbd className="rounded border border-amber-200/40 px-1 font-mono text-[11.5px]">{LEAVE_CHORD_LABEL}</kbd> moves focus to Release.
+            <kbd className="rounded border border-amber-200/40 px-1 font-mono text-xs">{LEAVE_CHORD_LABEL}</kbd> moves focus to Release.
           </span>
         </div>
       ) : role === "other" ? (
-        <div role="status" className="jl-tc-enter border-b border-white/10 bg-white/5 px-4 py-2 text-[13px] text-white/75">
+        <div role="status" className="jl-tc-enter border-b border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75">
           Paused: someone else controls the browser.
         </div>
       ) : null}
@@ -334,16 +334,16 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
               style={{ left: shown.left, top: shown.top, width: shown.width, height: shown.height }}
             />
           ) : (
-            <p className="grid h-full place-items-center text-[13.5px] text-white/60">Waiting for the first frame…</p>
+            <p className="grid h-full place-items-center text-base text-white/60">Waiting for the first frame…</p>
           )}
         </div>
       </div>
 
-      <p className="flex items-center gap-2 border-t border-white/10 px-4 py-2 text-[13px] text-white/70" aria-live="polite">
+      <p className="flex items-center gap-2 border-t border-white/10 px-4 py-2 text-sm text-white/70" aria-live="polite">
         {current ? (
           <>
             {run.status === "paused" ? (
-              <span className="rounded bg-amber-300/15 px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-amber-200">step paused</span>
+              <span className="rounded bg-amber-300/15 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-amber-200">step paused</span>
             ) : (
               <span className="jl-tc-pulse inline-block size-2 rounded-full bg-primary" aria-hidden />
             )}

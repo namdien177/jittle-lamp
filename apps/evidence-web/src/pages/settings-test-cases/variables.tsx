@@ -205,7 +205,7 @@ function VariableListRow(props: {
   return (
     <li className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 sm:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)_auto]">
       <div className="min-w-0">
-        <TruncatedText render={<p />} className="font-mono text-[13px] font-medium text-foreground">
+        <TruncatedText render={<p />} className="font-mono text-sm font-medium text-foreground">
           {props.row.key}
         </TruncatedText>
         <div className="mt-0.5 flex flex-wrap gap-1">
@@ -227,11 +227,11 @@ function VariableListRow(props: {
           </Button>
         </Hint>
         {revealed ? (
-          <TruncatedText render={<code />} className="font-mono text-[13px] text-foreground">
+          <TruncatedText render={<code />} className="font-mono text-sm text-foreground">
             {props.row.value || "(empty)"}
           </TruncatedText>
         ) : (
-          <code className="min-w-0 truncate font-mono text-[13px] tracking-widest text-muted-foreground">••••••••••</code>
+          <code className="min-w-0 truncate font-mono text-sm tracking-widest text-muted-foreground">••••••••••</code>
         )}
       </div>
       <div className="col-start-2 row-start-1 flex items-center gap-2 sm:col-start-3">
@@ -278,7 +278,7 @@ function EnvironmentPicker(props: {
     <div className="flex flex-col gap-2">
       <FieldLabel>Environments</FieldLabel>
       <div className="flex flex-wrap gap-x-4 gap-y-2">
-        <label className="flex items-center gap-2 text-[13px] font-medium">
+        <label className="flex items-center gap-2 text-sm font-medium">
           <Checkbox
             checked={all}
             indeterminate={!all && props.selected.length > 0}
@@ -287,7 +287,7 @@ function EnvironmentPicker(props: {
           All environments
         </label>
         {props.environments.map((environment) => (
-          <label key={environment.id} className="flex items-center gap-2 font-mono text-[13px]">
+          <label key={environment.id} className="flex items-center gap-2 font-mono text-sm">
             <Checkbox checked={props.selected.includes(environment.id)} onCheckedChange={(checked) => toggle(environment.id, checked)} />
             {environment.name}
           </label>

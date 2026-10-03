@@ -68,7 +68,7 @@ export function NotificationBell(props: {
           {badge ? (
             <span
               aria-hidden
-              className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white tabular-nums"
+              className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-2xs font-bold leading-none text-white tabular-nums"
             >
               {badge}
             </span>
@@ -84,7 +84,7 @@ export function NotificationBell(props: {
             )}
           >
             <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-              <Popover.Title className="text-[13px] font-semibold">Inbox</Popover.Title>
+              <Popover.Title className="text-sm font-semibold">Inbox</Popover.Title>
               <button
                 type="button"
                 className={cn("inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50", pressable)}

@@ -32,7 +32,7 @@ export const headerStyles = `
 .jl-vm-title {
   margin: 0;
   color: inherit;
-  font-size: 13px;
+  font-size:calc(13px * var(--jl-font-scale, 1));
   font-weight: 600;
   line-height: 1.3;
   white-space: nowrap;
@@ -43,7 +43,7 @@ export const headerStyles = `
 
 .jl-vm-title-meta {
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -68,7 +68,7 @@ export const headerStyles = `
   background: transparent;
   color: var(--jl-vm-text, #efefef);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--jl-font-scale, 1));
   font-weight: 500;
   line-height: 1;
   height: 28px;

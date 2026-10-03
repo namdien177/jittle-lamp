@@ -215,7 +215,7 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
             <Input id="env-base-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} className="font-mono" inputMode="url" />
           </Field>
           {source ? (
-            <p className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-[13px] text-muted-foreground">
+            <p className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
               <span>
                 {Object.keys(source.variables).length} variable{Object.keys(source.variables).length === 1 ? "" : "s"} in this environment.
               </span>

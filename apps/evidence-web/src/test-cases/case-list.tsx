@@ -140,7 +140,7 @@ export function CaseListPane(props: {
             placeholder="Search key, title, transcript, tags…"
             aria-label="Search test cases"
             aria-keyshortcuts="/"
-            className="h-7 w-full rounded-md border border-input bg-background pl-8 pr-8 text-[13px] shadow-soft outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/25 dark:bg-input/30"
+            className="h-7 w-full rounded-md border border-input bg-background pl-8 pr-8 text-sm shadow-soft outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/25 dark:bg-input/30"
           />
           <span className="pointer-events-none absolute right-2">
             <Kbd>/</Kbd>
@@ -243,7 +243,7 @@ export function CaseListPane(props: {
       </div>
 
       {filterCount > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-1.5 text-[12px]">
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-1.5 text-xs">
           {filters.status.map((status) => (
             <FilterChip key={`s-${status}`} label={`status: ${status}`} onRemove={() => setFilters({ status: filters.status.filter((value) => value !== status) })} />
           ))}
@@ -267,7 +267,7 @@ export function CaseListPane(props: {
 
       {selectedCount > 0 ? (
         <div className={cn(!props.instant && "jl-tc-enter", "flex flex-wrap items-center gap-1.5 border-b border-primary/30 bg-primary/8 px-4 py-1.5")} role="toolbar" aria-label="Bulk actions">
-          <span className="mr-1 text-[13px] font-semibold tabular-nums">{selectedCount} selected</span>
+          <span className="mr-1 text-sm font-semibold tabular-nums">{selectedCount} selected</span>
           {(
             [
               ["run", "Run"],
@@ -280,7 +280,7 @@ export function CaseListPane(props: {
               ["archive", "Archive"]
             ] as const
           ).map(([action, label]) => (
-            <Button key={action} size="xs" variant={action === "archive" ? "ghost" : "secondary"} className="jl-tc-press h-7 px-2.5 text-[12.5px]" disabled={props.bulkBusy} onClick={() => props.onBulk(action)}>
+            <Button key={action} size="xs" variant={action === "archive" ? "ghost" : "secondary"} className="jl-tc-press h-7 px-2.5 text-sm" disabled={props.bulkBusy} onClick={() => props.onBulk(action)}>
               {label}
             </Button>
           ))}
@@ -305,7 +305,7 @@ export function CaseListPane(props: {
       <div
         role="row"
         aria-rowindex={1}
-        className="grid items-center gap-2 border-b border-border px-4 py-1.5 text-[11px] font-medium text-muted-foreground"
+        className="grid items-center gap-2 border-b border-border px-4 py-1.5 text-xs font-medium text-muted-foreground"
         style={{ gridTemplateColumns: template }}
       >
         <span role="columnheader">
@@ -326,9 +326,9 @@ export function CaseListPane(props: {
 
       <div ref={scrollRef} className="jl-scroll relative min-h-0 flex-1 overflow-y-auto" role="rowgroup">
         {props.error ? (
-          <p className="p-6 text-[13.5px] text-destructive">{props.error}</p>
+          <p className="p-6 text-base text-destructive">{props.error}</p>
         ) : !props.loading && items.length === 0 ? (
-          <div className="p-8 text-center text-[13.5px] text-muted-foreground">
+          <div className="p-8 text-center text-base text-muted-foreground">
             {activeFilterCount(filters) > 0 ? "No case matches these filters." : "No test cases yet. Press c to write the first one."}
           </div>
         ) : (
@@ -368,7 +368,7 @@ export function CaseListPane(props: {
       </div>
       </div>
 
-      <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-1.5 text-[11.5px] text-muted-foreground">
+      <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-1.5 text-xs text-muted-foreground">
         <span>
           <Kbd>j</Kbd> <Kbd>k</Kbd> move
         </span>
@@ -442,18 +442,18 @@ const CaseRow = React.memo(function CaseRow(props: {
   const cell = (column: ListColumnId): React.ReactNode => {
     switch (column) {
       case "key":
-        return <span className="font-mono text-[12px] text-muted-foreground">{item.key}</span>;
+        return <span className="font-mono text-xs text-muted-foreground">{item.key}</span>;
       case "title":
         return (
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[13.5px] text-foreground">{item.title || "Untitled case"}</span>
+            <span className="truncate text-base text-foreground">{item.title || "Untitled case"}</span>
             {item.status !== "active" ? <CaseStatusBadge status={item.status} /> : null}
             {item.lintErrors > 0 ? (
               <Hint label={`${item.lintErrors} lint error${item.lintErrors === 1 ? "" : "s"}`}>
-                <span className="shrink-0 text-[11px] text-destructive">● {item.lintErrors}</span>
+                <span className="shrink-0 text-xs text-destructive">● {item.lintErrors}</span>
               </Hint>
             ) : null}
-            {item.stats.derivedCases > 0 ? <span className="shrink-0 text-[11px] text-muted-foreground">{item.stats.derivedCases} variants</span> : null}
+            {item.stats.derivedCases > 0 ? <span className="shrink-0 text-xs text-muted-foreground">{item.stats.derivedCases} variants</span> : null}
           </span>
         );
       case "tags":
@@ -462,7 +462,7 @@ const CaseRow = React.memo(function CaseRow(props: {
             {item.tags.slice(0, 3).map((tag) => (
               <TagChip key={tag} tag={tag} color={props.tagColors.get(tag) ?? null} />
             ))}
-            {item.tags.length > 3 ? <span className="text-[11px] text-muted-foreground">+{item.tags.length - 3}</span> : null}
+            {item.tags.length > 3 ? <span className="text-xs text-muted-foreground">+{item.tags.length - 3}</span> : null}
           </span>
         );
       case "status":
@@ -472,24 +472,24 @@ const CaseRow = React.memo(function CaseRow(props: {
           <span className="flex items-center gap-1">
             <OutcomeBadge outcome={item.stats.lastOutcome} />
             <Hint label={`${item.stats.staleSteps} stale cached step${item.stats.staleSteps === 1 ? "" : "s"}`}>
-              <span className="text-[10.5px] text-warning">stale</span>
+              <span className="text-2xs text-warning">stale</span>
             </Hint>
           </span>
         ) : (
           <OutcomeBadge outcome={item.stats.lastOutcome} />
         );
       case "passRate":
-        return <span className="block text-right font-mono text-[12.5px] tabular-nums">{formatPassRate(item.stats.passRate)}</span>;
+        return <span className="block text-right font-mono text-sm tabular-nums">{formatPassRate(item.stats.passRate)}</span>;
       case "costAvg":
-        return <span className="block text-right font-mono text-[12.5px] tabular-nums">{formatCost(item.stats.avgCostUsd)}</span>;
+        return <span className="block text-right font-mono text-sm tabular-nums">{formatCost(item.stats.avgCostUsd)}</span>;
       case "environment":
-        return <span className="truncate text-[12.5px] text-muted-foreground">{props.environmentName ?? "—"}</span>;
+        return <span className="truncate text-sm text-muted-foreground">{props.environmentName ?? "—"}</span>;
       case "steps":
-        return <span className="block text-right font-mono text-[12.5px] tabular-nums">{item.stepCount}</span>;
+        return <span className="block text-right font-mono text-sm tabular-nums">{item.stepCount}</span>;
       case "updated":
-        return <span className="text-[12px] text-muted-foreground">{formatRelative(item.updatedAt)}</span>;
+        return <span className="text-xs text-muted-foreground">{formatRelative(item.updatedAt)}</span>;
       case "lastRun":
-        return <span className="text-[12px] text-muted-foreground">{formatRelative(item.stats.lastRunAt)}</span>;
+        return <span className="text-xs text-muted-foreground">{formatRelative(item.stats.lastRunAt)}</span>;
     }
   };
   return (

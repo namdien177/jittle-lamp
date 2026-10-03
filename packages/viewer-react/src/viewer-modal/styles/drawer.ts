@@ -19,7 +19,7 @@ export const drawerStyles = `
   min-height: 40px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.1));
-  font-size: 13px;
+  font-size:calc(13px * var(--jl-font-scale, 1));
   color: var(--jl-vm-text, #efefef);
   font-weight: 600;
 }
@@ -49,7 +49,7 @@ export const drawerStyles = `
 }
 
 .jl-vm-drawer-label {
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
   font-weight: 500;
 }
@@ -58,7 +58,7 @@ export const drawerStyles = `
   display: grid;
   grid-template-columns: 110px 1fr;
   gap: 8px;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   align-items: baseline;
 }
 
@@ -92,7 +92,7 @@ export const drawerStyles = `
   border-radius: 8px;
   padding: 8px 10px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   white-space: pre-wrap;
   word-break: break-word;
   margin: 0;
@@ -112,7 +112,7 @@ export const drawerStyles = `
 }
 
 .jl-vm-empty-line {
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
   font-family: var(--font-mono, ui-monospace, monospace);
 }
@@ -138,7 +138,7 @@ export const drawerStyles = `
   grid-template-columns: minmax(80px, 0.4fr) minmax(0, 1fr);
   gap: 8px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
 }
 
 .jl-vm-cookie-main strong,
@@ -154,7 +154,7 @@ export const drawerStyles = `
 .jl-vm-cookie-meta,
 .jl-vm-cookie-blocked {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size:calc(11px * var(--jl-font-scale, 1));
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
 }
 

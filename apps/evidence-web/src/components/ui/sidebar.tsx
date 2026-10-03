@@ -276,7 +276,7 @@ export function SidebarMenuItem({ className, ...props }: React.LiHTMLAttributes<
 
 export const sidebarMenuButtonVariants = cva(
   [
-    "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md px-2 text-left text-[13px] font-medium text-sidebar-foreground outline-none ring-sidebar-ring transition-[width,height,padding,background-color,color] duration-150",
+    "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md px-2 text-left text-sm font-medium text-sidebar-foreground outline-none ring-sidebar-ring transition-[width,height,padding,background-color,color] duration-150",
     "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50",
     "aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
     "group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2!",
@@ -333,7 +333,7 @@ export function SidebarMenuBadge({ className, ...props }: React.HTMLAttributes<H
     <span
       data-slot="sidebar-menu-badge"
       className={cn(
-        "pointer-events-none absolute right-1.5 top-1/2 flex h-4 min-w-4 -translate-y-1/2 select-none items-center justify-center rounded px-1 text-[11px] font-medium tabular-nums text-muted-foreground",
+        "pointer-events-none absolute right-1.5 top-1/2 flex h-4 min-w-4 -translate-y-1/2 select-none items-center justify-center rounded px-1 text-xs font-medium tabular-nums text-muted-foreground",
         "group-data-[collapsible=icon]:hidden",
         className
       )}
@@ -384,7 +384,7 @@ export function SidebarMenuSubButton({ render, className, isActive, ...props }: 
         "data-slot": "sidebar-menu-sub-button",
         "data-active": isActive ? "true" : undefined,
         className: cn(
-          "flex h-6 min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 text-[13px] text-sidebar-foreground/80 outline-none ring-sidebar-ring transition-colors",
+          "flex h-6 min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 text-sm text-sidebar-foreground/80 outline-none ring-sidebar-ring transition-colors",
           "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2",
           "aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
           "[&>span:last-child]:truncate [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",

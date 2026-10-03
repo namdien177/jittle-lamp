@@ -49,11 +49,11 @@ export function EvidenceSearch(props: {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Search evidence"
-        className="relative inline-flex h-7 w-56 items-center gap-2 rounded-md border border-border bg-background pl-7 pr-1.5 text-[13px] text-muted-foreground outline-none transition-colors hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="relative inline-flex h-7 w-56 items-center gap-2 rounded-md border border-border bg-background pl-7 pr-1.5 text-sm text-muted-foreground outline-none transition-colors hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
       >
         <Search aria-hidden className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
         <span className="min-w-0 flex-1 truncate text-left">Search evidence…</span>
-        <kbd className="rounded border border-border bg-muted px-1 font-sans text-[11px]">{searchShortcutLabel}</kbd>
+        <kbd className="rounded border border-border bg-muted px-1 font-sans text-xs">{searchShortcutLabel}</kbd>
       </button>
       {open ? <SearchPalette onClose={() => setOpen(false)} /> : null}
     </>

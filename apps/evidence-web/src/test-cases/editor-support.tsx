@@ -75,7 +75,7 @@ export function SimilarHint(props: { title: string; excludeId?: string | null })
     <span className="relative">
       <button
         type="button"
-        className="jl-tc-press rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-[12.5px] font-medium text-foreground"
+        className="jl-tc-press rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-sm font-medium text-foreground"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
@@ -88,12 +88,12 @@ export function SimilarHint(props: { title: string; excludeId?: string | null })
               key={item.id}
               role="listitem"
               to={`/test-cases?case=${encodeURIComponent(item.id)}`}
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] hover:bg-muted"
+              className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
               onClick={() => setOpen(false)}
             >
-              <span className="font-mono text-[11.5px] text-muted-foreground">{item.key}</span>
+              <span className="font-mono text-xs text-muted-foreground">{item.key}</span>
               <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              <span className="font-mono text-[11.5px] tabular-nums text-muted-foreground">{item.exact ? "exact" : `${Math.round(item.score * 100)}%`}</span>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">{item.exact ? "exact" : `${Math.round(item.score * 100)}%`}</span>
             </Link>
           ))}
         </span>

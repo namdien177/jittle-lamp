@@ -30,12 +30,12 @@ export function ScriptsTab(props: { detail: TestCaseDetail }): React.JSX.Element
       }
     );
 
-  if (scriptsQuery.isPending) return <p className="py-6 text-[13.5px] text-muted-foreground">Loading scripts…</p>;
-  if (scriptsQuery.isError) return <p className="py-6 text-[13.5px] text-destructive">{scriptsQuery.error instanceof Error ? scriptsQuery.error.message : "Unable to load scripts."}</p>;
+  if (scriptsQuery.isPending) return <p className="py-6 text-base text-muted-foreground">Loading scripts…</p>;
+  if (scriptsQuery.isError) return <p className="py-6 text-base text-destructive">{scriptsQuery.error instanceof Error ? scriptsQuery.error.message : "Unable to load scripts."}</p>;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2 text-[13px] text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>
           {scripts.filter((script) => script.status === "active").length} of {detail.steps.length} steps cached
         </span>
@@ -50,15 +50,15 @@ export function ScriptsTab(props: { detail: TestCaseDetail }): React.JSX.Element
         return (
           <section key={step.stepId} className="rounded-md border border-border bg-card/50" aria-label={`Step ${step.ordinal} script`}>
             <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-              <span className="font-mono text-[12px] text-muted-foreground">{step.ordinal}</span>
-              <span className="rounded border border-border bg-secondary px-1.5 text-[11px] font-semibold leading-[18px]">{step.tag ?? "Act"}</span>
-              <span className="min-w-0 flex-1 truncate text-[13.5px]">{step.text || step.args.map((arg) => arg.value).join(", ")}</span>
-              {entries.length === 0 ? <span className="text-[12px] text-muted-foreground">{step.type === "note" || step.type === "screenshot" || step.type === "open" ? "not cached (deterministic)" : "no script yet"}</span> : null}
+              <span className="font-mono text-xs text-muted-foreground">{step.ordinal}</span>
+              <span className="rounded border border-border bg-secondary px-1.5 text-xs font-semibold leading-[18px]">{step.tag ?? "Act"}</span>
+              <span className="min-w-0 flex-1 truncate text-base">{step.text || step.args.map((arg) => arg.value).join(", ")}</span>
+              {entries.length === 0 ? <span className="text-xs text-muted-foreground">{step.type === "note" || step.type === "screenshot" || step.type === "open" ? "not cached (deterministic)" : "no script yet"}</span> : null}
             </header>
             {entries.map((script) => (
               <div key={script.id} className="flex flex-col gap-1.5 px-3 py-2">
-                <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
-                  <Badge variant={script.status === "active" ? "success" : "warning"} className="px-1.5 py-0 text-[11px]">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant={script.status === "active" ? "success" : "warning"} className="px-1.5 py-0 text-xs">
                     {script.status}
                   </Badge>
                   <span className="font-mono">v{script.version}</span>
@@ -70,11 +70,11 @@ export function ScriptsTab(props: { detail: TestCaseDetail }): React.JSX.Element
                     </Link>
                   ) : null}
                   {script.staleReason ? <span className="text-warning">{script.staleReason}</span> : null}
-                  <Button size="xs" variant="ghost" className="jl-tc-press ml-auto h-6 px-2 text-[12px]" onClick={() => clearScripts(step.stepId)} disabled={clear.isPending} aria-label={`Clear cached script of step ${step.ordinal}`}>
+                  <Button size="xs" variant="ghost" className="jl-tc-press ml-auto h-6 px-2 text-xs" onClick={() => clearScripts(step.stepId)} disabled={clear.isPending} aria-label={`Clear cached script of step ${step.ordinal}`}>
                     Clear
                   </Button>
                 </div>
-                <pre className="jl-scroll max-h-56 overflow-auto rounded border border-border bg-background px-3 py-2 font-mono text-[12px] leading-relaxed">
+                <pre className="jl-scroll max-h-56 overflow-auto rounded border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed">
                   <code>{script.renderedCode || "// no rendered code"}</code>
                 </pre>
               </div>

@@ -82,7 +82,7 @@ export const evidenceStyles = `
   writing-mode: vertical-rl;
   text-orientation: mixed;
   color: inherit;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-weight: 500;
 }
 
@@ -103,7 +103,7 @@ export const evidenceStyles = `
 }
 
 .jl-vm-pane-heading strong {
-  font-size: 14px;
+  font-size:calc(14px * var(--jl-font-scale, 1));
   line-height: 1.2;
 }
 
@@ -127,7 +127,7 @@ export const evidenceStyles = `
   background: var(--jl-vm-surface-2, #171a1b);
   color: var(--jl-vm-soft, rgba(239, 239, 239, 0.68));
   padding: 2px 6px;
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--jl-font-scale, 1));
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
@@ -155,7 +155,7 @@ export const evidenceStyles = `
 
 .jl-vm-eyebrow {
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-weight: 500;
 }
 
@@ -206,7 +206,7 @@ export const evidenceStyles = `
   border: 0;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
   font-family: inherit;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--jl-font-scale, 1));
   font-weight: 500;
   padding: 0 10px;
   border-radius: 5px;
@@ -237,7 +237,7 @@ export const evidenceStyles = `
   border-radius: 6px;
   padding: 0 10px;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--jl-font-scale, 1));
   outline: none;
 }
 
@@ -268,7 +268,7 @@ export const evidenceStyles = `
   background: transparent;
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
   font-family: inherit;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-weight: 500;
   padding: 3px 8px;
   border-radius: 5px;
@@ -336,7 +336,7 @@ export const evidenceStyles = `
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--jl-font-scale, 1));
   color: var(--jl-vm-text, #efefef);
   align-items: center;
   min-width: 0;
@@ -364,7 +364,7 @@ export const evidenceStyles = `
 
 .jl-vm-row-offset {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--jl-font-scale, 1));
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
   font-variant-numeric: tabular-nums;
 }
@@ -382,7 +382,7 @@ export const evidenceStyles = `
 
 .jl-vm-row-method {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size:calc(11.5px * var(--jl-font-scale, 1));
   font-weight: 600;
   color: var(--jl-vm-soft, rgba(239, 239, 239, 0.68));
 }
@@ -411,14 +411,14 @@ export const evidenceStyles = `
 
 .jl-vm-row[data-kind="network"] .jl-vm-row-label {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
 }
 
 .jl-vm-row-sub,
 .jl-vm-row-duration {
   font-family: var(--font-mono, ui-monospace, monospace);
   color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
-  font-size: 11px;
+  font-size:calc(11px * var(--jl-font-scale, 1));
 }
 
 .jl-vm-row-status {
@@ -458,7 +458,7 @@ export const evidenceStyles = `
 
 .jl-vm-about-card strong {
   color: var(--jl-vm-text, #efefef);
-  font-size: 13px;
+  font-size:calc(13px * var(--jl-font-scale, 1));
   line-height: 1.25;
 }
 
@@ -474,12 +474,12 @@ export const evidenceStyles = `
   gap: 12px;
   padding: 7px 0;
   border-top: 1px solid var(--jl-vm-border, rgba(239, 239, 239, 0.08));
-  font-size: 12.5px;
+  font-size:calc(12.5px * var(--jl-font-scale, 1));
 }
 
 .jl-vm-about-row dd {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
 }
 
 .jl-vm-about-row dt {
@@ -503,7 +503,7 @@ export const evidenceStyles = `
   border-radius: 6px;
   padding: 5px 10px;
   font-family: inherit;
-  font-size: 12px;
+  font-size:calc(12px * var(--jl-font-scale, 1));
   font-weight: 500;
   cursor: pointer;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);

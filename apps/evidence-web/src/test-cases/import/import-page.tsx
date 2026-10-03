@@ -5,7 +5,7 @@ import { lintTestCase, parseTranscriptDocument, type CreateImportRequest } from 
 
 import { PageBody, PageHeader } from "../../components/page";
 import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
+import { Button, buttonVariants } from "../../components/ui/button";
 import { Field } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
@@ -198,7 +198,7 @@ export function TestCaseImportPage(): React.JSX.Element {
         title="Import test cases"
         description="Every import becomes transcript documents with lint and duplicate checks. Imported cases land in the review queue."
         actions={
-          <Link to="/test-cases/review" className="text-sm font-semibold text-primary hover:underline">
+          <Link to="/test-cases/review" className={buttonVariants({ variant: "ghost", size: "sm" })}>
             Open review queue
           </Link>
         }

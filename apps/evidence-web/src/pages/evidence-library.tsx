@@ -578,7 +578,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
 
         {hasSelection ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/60 py-1.5 pl-3 pr-1.5">
-            <span className="text-[13px] font-medium text-foreground">{selectedEvidences.length} selected</span>
+            <span className="text-sm font-medium text-foreground">{selectedEvidences.length} selected</span>
             {selectedUndeletableCount > 0 ? (
               <span className="text-xs text-muted-foreground">{selectedUndeletableCount} recorded by someone else cannot be deleted</span>
             ) : null}
@@ -660,7 +660,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       <Badge variant="secondary" className="absolute bottom-2 left-2">Pending</Badge>
                     ) : null}
                     {evidence.durationMs !== null ? (
-                      <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
+                      <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
                         {formatDuration(evidence.durationMs)}
                       </span>
                     ) : null}
@@ -679,7 +679,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                   </span>
                   <div className="flex items-start gap-1 p-3 pr-1.5">
                     <button type="button" onClick={() => navigateToEvidence(evidence)} className="min-w-0 flex-1 text-left">
-                      <span className="block truncate text-[13px] font-medium text-foreground">{evidence.title}</span>
+                      <span className="block truncate text-sm font-medium text-foreground">{evidence.title}</span>
                       <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                         {memberNameById.get(evidence.createdBy) ?? evidence.createdBy} · {formatRelativeTime(evidence.createdAt)}
                       </span>
@@ -740,7 +740,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                       <div className="flex min-w-0 items-center gap-3">
                         <EvidenceThumbnail evidence={evidence} className="h-8 w-14" />
                         <span className="min-w-0">
-                          <span className="block truncate text-[13px] font-medium text-foreground">{evidence.title}</span>
+                          <span className="block truncate text-sm font-medium text-foreground">{evidence.title}</span>
                           <EvidenceStats evidence={evidence} />
                         </span>
                       </div>
@@ -755,7 +755,7 @@ export function EvidenceLibraryPage(): React.JSX.Element {
                     <TableCell className="hidden py-1.5 md:table-cell">
                       <EvidenceTagStack tags={evidence.tags} />
                     </TableCell>
-                    <TableCell className="hidden whitespace-nowrap py-1.5 text-[13px] text-muted-foreground lg:table-cell">
+                    <TableCell className="hidden whitespace-nowrap py-1.5 text-sm text-muted-foreground lg:table-cell">
                       {formatRelativeTime(evidence.createdAt)}
                     </TableCell>
                     <TableCell className="py-1.5 pr-3" onClick={(event) => event.stopPropagation()}>
@@ -960,7 +960,7 @@ function EvidenceTagStack({ tags }: { tags: ApiEvidenceTag[] }): React.JSX.Eleme
         <EvidenceTagBadge key={tag.id} tag={tag} />
       ))}
       {hiddenCount > 0 ? (
-        <span className="inline-flex items-center rounded-sm bg-secondary px-1.5 py-px text-[11px] font-medium text-muted-foreground">
+        <span className="inline-flex items-center rounded-sm bg-secondary px-1.5 py-px text-xs font-medium text-muted-foreground">
           +{hiddenCount}
         </span>
       ) : null}
@@ -971,7 +971,7 @@ function EvidenceTagStack({ tags }: { tags: ApiEvidenceTag[] }): React.JSX.Eleme
 function EvidenceTagBadge({ tag }: { tag: ApiEvidenceTag }): React.JSX.Element {
   return (
     <span
-      className="inline-flex max-w-28 items-center gap-1 rounded-sm border px-1.5 py-px text-[11px] font-medium"
+      className="inline-flex max-w-28 items-center gap-1 rounded-sm border px-1.5 py-px text-xs font-medium"
       style={{
         borderColor: `${tag.color}55`,
         backgroundColor: `${tag.color}18`,
@@ -1008,9 +1008,9 @@ function RecordedByCell(props: {
           event.stopPropagation();
           props.onClick();
         }}
-        className="flex max-w-[200px] items-center gap-2 rounded-md text-left text-[13px] text-foreground hover:text-foreground/80"
+        className="flex max-w-[200px] items-center gap-2 rounded-md text-left text-sm text-foreground hover:text-foreground/80"
       >
-        <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-brand-300">
+        <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-2xs font-semibold text-brand-300">
           {getInitials(name)}
         </span>
         <span className="min-w-0 truncate">{name}</span>

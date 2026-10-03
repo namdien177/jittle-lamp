@@ -72,7 +72,18 @@ export type OrganizationPermission =
 	| "roles.manage"
 	| "members.assign_role"
 	| "members.kick"
-	| "activity.view";
+	| "activity.view"
+	| "test_case.view"
+	| "test_case.create"
+	| "test_case.update"
+	| "test_case.approve"
+	| "test_case.delete"
+	| "test_run.create"
+	| "test_run.cancel"
+	| "test_run.cancel_any"
+	| "test_run.view"
+	| "test_config.manage"
+	| "test_config.use";
 
 export type ApiOrganization = {
 	id: string;

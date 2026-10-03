@@ -23,7 +23,7 @@ export const shellStyles = `
   background: var(--jl-vm-bg);
   color: var(--jl-vm-text);
   font-family: var(--font-sans, "Inter", system-ui, -apple-system, "Segoe UI", sans-serif);
-  font-size: 13px;
+  font-size:calc(13px * var(--jl-font-scale, 1));
   border: 1px solid var(--jl-vm-border-strong);
   border-radius: 12px;
   overflow: hidden;

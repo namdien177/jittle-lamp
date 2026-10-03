@@ -75,7 +75,7 @@ export function CaseDetailsForm(props: {
             autoFocus={props.autoFocusTitle}
             aria-invalid={props.titleError ? true : undefined}
             placeholder="What the case proves, e.g. HQ admin logout returns a clean login form"
-            className={cn("font-medium", stacked ? "h-9 text-[15px]" : "")}
+            className={cn("font-medium", stacked ? "h-9 text-lg" : "")}
             onChange={(event) => onChange(setTitle(doc, event.currentTarget.value))}
             onKeyDown={(event) => {
               if (event.key === "Enter" && props.onTitleEnter) {

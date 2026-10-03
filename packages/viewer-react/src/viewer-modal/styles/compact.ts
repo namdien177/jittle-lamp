@@ -3,14 +3,14 @@
 // fixed-height rows (evidenceRowHeight in row-window.ts).
 export const compactStyles = `
 [data-compact="true"].jl-vm-root, [data-compact="true"].jl-vm-modal {
-  min-height: 0; height: 100dvh; font-size: 13px; line-height: 1.45;
+  min-height: 0; height: 100dvh; font-size:calc(13px * var(--jl-font-scale, 1)); line-height: 1.45;
 }
 [data-compact="true"] .jl-vm-header { min-height: 44px; padding: 0 10px 0 8px; gap: 8px; background: var(--jl-vm-bg); }
 [data-compact="true"] .jl-vm-heading { gap: 8px; }
-[data-compact="true"] .jl-vm-title { font: inherit; font-size: 13px; font-weight: 600; }
-[data-compact="true"] .jl-vm-title-meta { font: inherit; font-size: 12px; color: var(--jl-vm-muted); }
+[data-compact="true"] .jl-vm-title { font: inherit; font-size:calc(13px * var(--jl-font-scale, 1)); font-weight: 600; }
+[data-compact="true"] .jl-vm-title-meta { font: inherit; font-size:calc(12px * var(--jl-font-scale, 1)); color: var(--jl-vm-muted); }
 [data-compact="true"] .jl-vm-actions { gap: 4px; flex-wrap: nowrap; }
-[data-compact="true"] .jl-vm-btn { height: 28px; min-height: 28px; padding: 0 10px; font: inherit; font-size: 12.5px; font-weight: 500; border-radius: 6px; box-shadow: none; }
+[data-compact="true"] .jl-vm-btn { height: 28px; min-height: 28px; padding: 0 10px; font: inherit; font-size:calc(12.5px * var(--jl-font-scale, 1)); font-weight: 500; border-radius: 6px; box-shadow: none; }
 [data-compact="true"] .jl-vm-header-left > .jl-vm-btn-icon { width: 28px; padding: 0; border-color: transparent; color: var(--jl-vm-muted); }
 [data-compact="true"] .jl-vm-header-left > .jl-vm-btn-icon:hover { color: var(--jl-vm-text); background: var(--jl-vm-surface-2); }
 [data-compact="true"] .jl-vm-btn-primary { background: var(--jl-vm-accent); color: var(--jl-vm-accent-on); border-color: transparent; }
@@ -26,20 +26,20 @@ export const compactStyles = `
 [data-compact="true"] .jl-vm-left { min-width: 0; }
 [data-compact="true"] .jl-vm-video-wrap { flex: 1 1 auto; }
 [data-compact="true"] .jl-vm-secondary { flex: 0 0 auto; max-height: none; overflow: auto; border-top: 1px solid var(--jl-vm-border); background: var(--jl-vm-bg); }
-.jl-vm-secondary > summary { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; color: var(--jl-vm-soft); font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.jl-vm-secondary > summary { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; color: var(--jl-vm-soft); font-size:calc(12.5px * var(--jl-font-scale, 1)); font-weight: 500; cursor: pointer; }
 .jl-vm-secondary > summary:hover { color: var(--jl-vm-text); }
 .jl-vm-secondary-content { padding-bottom: 8px; }
 [data-compact="true"] .jl-vm-discussion { padding: 0 14px 8px; }
 [data-compact="true"] .jl-vm-tabs-row { padding: 8px 10px; gap: 8px; }
-[data-compact="true"] .jl-vm-tab { padding: 0 9px; border-radius: 5px; font-size: 12.5px; }
-[data-compact="true"] .jl-vm-search { width: 100px; min-width: 70px; flex: 1; font-size: 12.5px; }
+[data-compact="true"] .jl-vm-tab { padding: 0 9px; border-radius: 5px; font-size:calc(12.5px * var(--jl-font-scale, 1)); }
+[data-compact="true"] .jl-vm-search { width: 100px; min-width: 70px; flex: 1; font-size:calc(12.5px * var(--jl-font-scale, 1)); }
 [data-compact="true"] .jl-vm-filters { padding: 6px 10px; }
 [data-compact="true"] .jl-vm-list { display: block; padding: 4px 6px; overflow-anchor: none; }
 [data-compact="true"] .jl-vm-row { width: 100%; height: 40px; min-height: 40px; max-height: 40px; margin: 0; padding: 0 8px; border-radius: 6px; border: 0; box-sizing: border-box; contain: layout style; }
-[data-compact="true"] .jl-vm-row-label { font-size: 12.5px; }
-[data-compact="true"] .jl-vm-row[data-kind="network"] .jl-vm-row-label { font-size: 12px; }
-[data-compact="true"] .jl-vm-row-offset { font-size: 11px; }
-[data-compact="true"] .jl-vm-row-sub { font-size: 11px; line-height: 1.2; }
+[data-compact="true"] .jl-vm-row-label { font-size:calc(12.5px * var(--jl-font-scale, 1)); }
+[data-compact="true"] .jl-vm-row[data-kind="network"] .jl-vm-row-label { font-size:calc(12px * var(--jl-font-scale, 1)); }
+[data-compact="true"] .jl-vm-row-offset { font-size:calc(11px * var(--jl-font-scale, 1)); }
+[data-compact="true"] .jl-vm-row-sub { font-size:calc(11px * var(--jl-font-scale, 1)); line-height: 1.2; }
 [data-compact="true"] .jl-vm-row-main { gap: 0; }
 [data-compact="true"] .jl-vm-vc-bar { border-radius: 10px; }
 @media (max-width: 900px) {

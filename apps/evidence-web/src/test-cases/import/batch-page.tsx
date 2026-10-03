@@ -295,7 +295,7 @@ function BatchRow(props: {
                       </Link>
                     </Hint>
                     <span className="tabular-nums text-muted-foreground">{Math.round(similar.score * 100)}%</span>
-                    {similar.exact ? <Badge variant="warning" className="px-1.5 py-0 text-[11px]">exact</Badge> : null}
+                    {similar.exact ? <Badge variant="warning" className="px-1.5 py-0 text-xs">exact</Badge> : null}
                   </li>
                 ))}
             </ul>
