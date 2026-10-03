@@ -172,6 +172,11 @@ describe("jl-e2e-runner daemon", () => {
     // Step ids are the server's, so progress maps onto test_run_steps.
     const reported = new Set((progress.get("run_1") ?? []).flatMap((body) => body.steps.map((step) => step.stepId)));
     for (const step of steps) expect(reported.has(step.stepId)).toBe(true);
+    // The first update of a step names it, so a step row created mid-run is never blank.
+    const started = (progress.get("run_1") ?? []).flatMap((body) => body.steps.filter((step) => step.status === "running"));
+    for (const step of steps) {
+      expect(started.find((update) => update.stepId === step.stepId)).toMatchObject({ ordinal: step.ordinal, type: step.type, label: expect.stringMatching(/\S/) });
+    }
     expect((progress.get("run_1") ?? []).some((body) => body.screenshot?.mimeType === "image/jpeg")).toBe(true);
 
     const files = evidence.get("run_1") ?? {};

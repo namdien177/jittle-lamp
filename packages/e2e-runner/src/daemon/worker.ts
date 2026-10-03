@@ -10,7 +10,8 @@ import {
   type FinalizeTestRunRequest,
   type RunReport,
   type RunStepResult,
-  type TestRunProgressRequest
+  type TestRunProgressRequest,
+  transcriptStepTypeSchema
 } from "@jittle-lamp/shared";
 
 import { resolveRunConfig, type OrgRunConfig } from "../config/resolve";
@@ -116,7 +117,19 @@ function toOrgConfig(config: Awaited<ReturnType<BackendClient["config"]>>): OrgR
 }
 
 function stepUpdate(event: Extract<StepLogEvent, { type: "step-started" | "step-finished" }>): TestRunProgressRequest["steps"][number] {
-  if (event.type === "step-started") return { stepId: event.stepId, status: "running", startedAt: event.at };
+  if (event.type === "step-started") {
+    // Name the step on its first update: the backend creates the row from this patch.
+    const type = transcriptStepTypeSchema.safeParse(event.kind);
+    return {
+      stepId: event.stepId,
+      parentStepId: event.parentStepId,
+      ordinal: event.ordinal,
+      ...(type.success ? { type: type.data } : {}),
+      label: event.label,
+      status: "running",
+      startedAt: event.at
+    };
+  }
   return {
     stepId: event.stepId,
     status: event.status,
