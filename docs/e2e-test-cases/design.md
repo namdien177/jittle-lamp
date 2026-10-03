@@ -519,6 +519,8 @@ Designed now, delivered in phase 2. A CI pipeline or a merge request should be a
 | **2. Platform** | GitLab and GitHub webhooks with status reporting, Slack channel, live view of cloud browsers with take-over, agent notes (org memory), GitHub Actions and GitLab CI templates, strict cache mode in CI, JUnit export, Jira comment integration (reuse `littlelives-jira-evidence-comment` flow), run comparison | CI pipeline runs a group of cases with an automation token and posts results |
 | **3. Bridges** | Import existing evidence as test-case evidence (cross links in both views); generate a transcript from a manual recording (archive interactions → model → draft transcript with `[Act]`/`[Assert]` suggestions, user edits before save) | A legacy recording can be attached to a case; a manual session produces a runnable draft |
 
+Deployment, environments and operations for these phases: [deployment.md](deployment.md).
+
 ## 13. Decided and open questions
 
 Decided on 2026-10-03:

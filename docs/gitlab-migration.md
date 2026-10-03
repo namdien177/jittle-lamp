@@ -65,6 +65,11 @@ LittleLives-owned accounts as protected, environment-scoped GitLab variables:
 - `CLERK_AUTHORIZED_PARTIES`
 - `WEB_APP_ORIGIN`
 - `JITTLE_LAMP_API_ORIGIN`
+- `JL_SECRETS_MASTER_KEY` (test-case secrets; keep it apart from database backups)
+- `JL_SECRETS_MASTER_KEY_PREVIOUS` (only while rotating the master key)
+- `JL_OUTBOUND_ALLOW_HOSTS` when a self-managed GitLab or other internal host must be called
+
+See `docs/e2e-test-cases/deployment.md` for every backend variable and the deploy order.
 
 Rotate credentials during cutover instead of reusing credentials owned by the
 previous personal accounts.

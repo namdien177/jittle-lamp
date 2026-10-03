@@ -11,6 +11,8 @@ Ask an organisation admin for these (Settings → Test cases):
 - **A model key** (Settings → AI model). Runs are blocked until one is configured.
 - **A role** with the test-case permissions (QA Engineer by default).
 
+Admins and operators setting up the backend, runners and integrations: see [deployment.md](deployment.md).
+
 ## 2. Write a case
 
 Open **Test cases** and press `c` (or **New case**). Give the case a title, then add steps. Each row is one step: a type chip, then the instruction.
