@@ -134,6 +134,40 @@ export function applyVariableChange(environments: readonly EnvironmentVariables[
   return next;
 }
 
+// Environment maps are PATCHed one by one. When one fails after others saved, the error says
+// which environments already have the change, so the user retries knowing the real state.
+export class PartialVariableSaveError extends Error {
+  constructor(
+    readonly saved: readonly string[],
+    readonly failed: string,
+    override readonly cause: unknown
+  ) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(saved.length > 0 ? `Updated ${saved.join(", ")}; ${failed} failed: ${reason}` : `${failed} failed: ${reason}`);
+    this.name = "PartialVariableSaveError";
+  }
+}
+
+export async function saveVariableMaps<T>(
+  next: ReadonlyMap<string, Record<string, string>>,
+  nameOf: (environmentId: string) => string,
+  save: (environmentId: string, variables: Record<string, string>) => Promise<T>,
+  onSaved: (result: T) => void
+): Promise<number> {
+  const saved: string[] = [];
+  for (const [environmentId, variables] of next) {
+    let result: T;
+    try {
+      result = await save(environmentId, variables);
+    } catch (error) {
+      throw new PartialVariableSaveError(saved, nameOf(environmentId), error);
+    }
+    saved.push(nameOf(environmentId));
+    onSaved(result);
+  }
+  return saved.length;
+}
+
 // Keys a save would overwrite with a different value, per environment name.
 export function variableConflicts(
   environments: readonly EnvironmentVariables[],

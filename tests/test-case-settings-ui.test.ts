@@ -6,6 +6,8 @@ import {
   groupTagsByNamespace,
   groupVariables,
   parseDotenv,
+  PartialVariableSaveError,
+  saveVariableMaps,
   variableConflicts,
   lintMacroBody,
   tagLabel,
@@ -332,6 +334,36 @@ describe("variables", () => {
       { key: "SINGLE", value: "x=1" },
       { key: "TRAILING", value: "value" }
     ]);
+  });
+
+  it("reports which environments saved when a later PATCH fails, after handing each save over", async () => {
+    const next = new Map([
+      ["env-uat", { A: "1" }],
+      ["env-pre", { A: "1" }],
+      ["env-local", { A: "1" }]
+    ]);
+    const names: Record<string, string> = { "env-uat": "pcf-uat", "env-pre": "preprod", "env-local": "local" };
+    const handed: string[] = [];
+    const attempted: string[] = [];
+    const failure = saveVariableMaps(
+      next,
+      (id) => names[id] ?? id,
+      async (id) => {
+        attempted.push(id);
+        if (id === "env-pre") throw new Error("409 conflict");
+        return id;
+      },
+      (id) => handed.push(id)
+    );
+    await expect(failure).rejects.toBeInstanceOf(PartialVariableSaveError);
+    await failure.catch((error: PartialVariableSaveError) => {
+      expect(error.saved).toEqual(["pcf-uat"]);
+      expect(error.failed).toBe("preprod");
+      expect(error.message).toBe("Updated pcf-uat; preprod failed: 409 conflict");
+    });
+    expect(handed).toEqual(["env-uat"]);
+    expect(attempted).toEqual(["env-uat", "env-pre"]);
+    expect(await saveVariableMaps(new Map([["env-uat", {}]]), (id) => id, async (id) => id, () => undefined)).toBe(1);
   });
 
   it("ends a quoted value at its closing quote, before a trailing comment", () => {

@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { Copy, Eye, EyeOff, FileUp, MoreHorizontal, Pencil, Plus, Search, Trash2, Variable, X } from "lucide-react";
 import type { TestEnvironment } from "@jittle-lamp/shared";
@@ -20,7 +21,7 @@ import { cn } from "../../lib/cn";
 import { useToast } from "../../toast";
 import { copyToClipboard } from "../../utils";
 import { testAdminApi } from "../../test-cases/admin-api";
-import { testAdminKeys, useTestAdminMutation, useTestEnvironments, useTestPermissions } from "../../test-cases/admin-queries";
+import { testAdminKeys, useActiveOrgId, useTestEnvironments, useTestPermissions, useTokenGetter } from "../../test-cases/admin-queries";
 import { ErrorNote, ReadOnlyNotice } from "../../test-cases/admin-ui";
 import {
   applyVariableChange,
@@ -28,6 +29,7 @@ import {
   groupVariables,
   parseDotenv,
   rowsToRecord,
+  saveVariableMaps,
   variableConflicts,
   type KeyValueRow,
   type VariableChange,
@@ -42,13 +44,23 @@ import { testingSettingsBase } from "./routes";
 const ALL = "all";
 
 function useSaveVariables(environments: readonly TestEnvironment[]) {
-  return useTestAdminMutation(async (getToken, change: VariableChange) => {
-    const next = applyVariableChange(environments, change);
-    for (const [environmentId, variables] of next) {
-      await testAdminApi.updateEnvironmentVariables(getToken, environmentId, variables);
-    }
-    return next.size;
-  }, [testAdminKeys.environments]);
+  const getToken = useTokenGetter();
+  const queryClient = useQueryClient();
+  const orgId = useActiveOrgId();
+  const key = testAdminKeys.environments(orgId);
+  return useMutation({
+    mutationFn: (change: VariableChange) =>
+      saveVariableMaps(
+        applyVariableChange(environments, change),
+        (id) => environments.find((environment) => environment.id === id)?.name ?? id,
+        (id, variables) => testAdminApi.updateEnvironmentVariables(getToken, id, variables),
+        // Each saved environment goes into the cache at once, so a later edit starts from it
+        // even if a following PATCH fails.
+        (saved) => queryClient.setQueryData<TestEnvironment[]>(key, (current) => current?.map((environment) => (environment.id === saved.id ? saved : environment)))
+      ),
+    // Success or not, reload before the caller continues.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: key })
+  });
 }
 
 export function SettingsTestVariablesPage(): React.JSX.Element {
@@ -61,7 +73,7 @@ export function SettingsTestVariablesPage(): React.JSX.Element {
   const [environmentFilter, setEnvironmentFilter] = useState<string>(ALL);
   const [editing, setEditing] = useState<VariableRow | null>(null);
   const [removing, setRemoving] = useState<VariableRow | null>(null);
-  const save = useSaveVariables(environments);
+  const remove = useSaveVariables(environments);
   const toast = useToast();
 
   const visible = rows.filter(
@@ -119,7 +131,7 @@ export function SettingsTestVariablesPage(): React.JSX.Element {
                 options={[{ label: "All environments", value: ALL }, ...environments.map((environment) => ({ label: environment.name, value: environment.id }))]}
               />
             </div>
-            <ErrorNote error={environmentsQuery.error ?? save.error} className="m-3" />
+            <ErrorNote error={environmentsQuery.error} className="m-3" />
             {visible.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">{rows.length === 0 ? "No variables yet." : "No variables match."}</p>
             ) : (
@@ -149,16 +161,30 @@ export function SettingsTestVariablesPage(): React.JSX.Element {
         open={removing !== null}
         destructive
         title={`Remove ${removing?.key ?? "variable"}?`}
-        description={removing ? `It is removed from ${removing.environmentIds.map(environmentName).join(", ")}. Cases that use {${removing.key}} there stop with MISSING_VARIABLE.` : undefined}
+        description={
+          removing ? (
+            <>
+              It is removed from {removing.environmentIds.map(environmentName).join(", ")}. Cases that use {`{${removing.key}}`} there stop with MISSING_VARIABLE.
+              {remove.error ? <ErrorNote error={remove.error} className="mt-3" /> : null}
+            </>
+          ) : undefined
+        }
         confirmLabel="Remove"
-        busy={save.isPending}
-        onCancel={() => setRemoving(null)}
+        busy={remove.isPending}
+        onCancel={() => {
+          remove.reset();
+          setRemoving(null);
+        }}
         onConfirm={() => {
           if (!removing) return;
-          void save
+          // On failure the dialog stays open with the error so the user can retry.
+          remove
             .mutateAsync({ remove: { key: removing.key, environmentIds: removing.environmentIds } })
-            .then(() => toast.success("Variable removed", removing.key))
-            .finally(() => setRemoving(null));
+            .then(() => {
+              toast.success("Variable removed", removing.key);
+              setRemoving(null);
+            })
+            .catch(() => undefined);
         }}
       />
     </div>
@@ -289,7 +315,11 @@ function AddVariablesCard(props: { environments: readonly TestEnvironment[] }): 
   const submit = async () => {
     setSubmitted(true);
     if (errors.length > 0) return;
-    await save.mutateAsync({ set: { entries, environmentIds: selected } });
+    try {
+      await save.mutateAsync({ set: { entries, environmentIds: selected } });
+    } catch {
+      return;
+    }
     toast.success(entries.length === 1 ? "Variable saved" : `${entries.length} variables saved`, selected.length === props.environments.length ? "All environments" : `${selected.length} environment${selected.length === 1 ? "" : "s"}`);
     setRows([emptyRow()]);
     setSubmitted(false);
@@ -403,10 +433,14 @@ function EditVariableDialog(props: { row: VariableRow; environments: readonly Te
 
   const submit = async () => {
     if (keyError || selected.length === 0) return;
-    await save.mutateAsync({
-      remove: { key: props.row.key, environmentIds: props.row.environmentIds },
-      set: { entries: [{ key: trimmedKey, value }], environmentIds: selected }
-    });
+    try {
+      await save.mutateAsync({
+        remove: { key: props.row.key, environmentIds: props.row.environmentIds },
+        set: { entries: [{ key: trimmedKey, value }], environmentIds: selected }
+      });
+    } catch {
+      return;
+    }
     toast.success("Variable updated", trimmedKey);
     props.onClose();
   };

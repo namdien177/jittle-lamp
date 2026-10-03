@@ -164,7 +164,7 @@ export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element | nu
         </>
       }
     >
-      {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+      {description ? <div className="text-sm text-muted-foreground">{description}</div> : null}
     </SimpleDialog>
   );
 }

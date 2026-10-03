@@ -11,7 +11,7 @@ import { testKeys } from "./query-keys";
 // TanStack Query hooks for the test-case admin surfaces. Keys carry the active organisation so a
 // workspace switch never shows another organisation's configuration.
 
-function useTokenGetter(): FetchToken {
+export function useTokenGetter(): FetchToken {
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
