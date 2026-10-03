@@ -263,3 +263,60 @@ export function createMergeGroup(args: {
 export function getArchiveMergeGroups(archive: SessionArchive): ActionMergeGroup[] {
   return (archive.annotations ?? []).filter((annotation): annotation is ActionMergeGroup => annotation.kind === "merge-group");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Skip gaps: during review, playback jumps over idle stretches to just before the next step.
+// ---------------------------------------------------------------------------------------------
+
+export type GapSkipOptions = {
+  // Land this long before the next step.
+  leadMs: number;
+  // Let a step play out for this long before skipping on.
+  settleMs: number;
+  // Skip only when it saves at least this much.
+  minSkipMs: number;
+};
+
+export const defaultGapSkipOptions: GapSkipOptions = { leadMs: 1500, settleMs: 1500, minSkipMs: 1000 };
+
+/**
+ * Video offsets (ms, ascending) that count as steps for skipping: the run's step offsets when the
+ * host has them, else the archive's step annotations, else its interactions and errors (an
+ * extension recording has no steps).
+ */
+export function deriveGapMarkers(archive: SessionArchive, stepOffsetsMs?: Readonly<Record<string, number>> | null): number[] {
+  const fromRun = stepOffsetsMs ? Object.values(stepOffsetsMs) : [];
+  const fromSteps = fromRun.length > 0 ? fromRun : getStepAnnotations(archive).map((step) => step.videoOffsetMs);
+  const offsets =
+    fromSteps.length > 0
+      ? fromSteps
+      : buildTimeline(archive)
+          .filter((item) => item.kind === "interaction" || item.kind === "error")
+          .map((item) => item.offsetMs);
+  return [...new Set(offsets.filter((offset) => Number.isFinite(offset) && offset >= 0))].sort((a, b) => a - b);
+}
+
+/**
+ * Where to jump from `currentMs`, or null to keep playing. The start of the video counts as a
+ * step, so a long idle intro is skipped too; after the last step playback runs to the end.
+ */
+export function gapSkipTarget(markersMs: readonly number[], currentMs: number, options: GapSkipOptions = defaultGapSkipOptions): number | null {
+  let previous = 0;
+  let next: number | null = null;
+  for (const marker of markersMs) {
+    if (marker <= currentMs) previous = marker;
+    else {
+      next = marker;
+      break;
+    }
+  }
+  if (next === null) return null;
+  if (currentMs < previous + options.settleMs) return null;
+  const target = next - options.leadMs;
+  return target - currentMs >= options.minSkipMs ? target : null;
+}
+
+/** The first marker after `currentMs`, used to stop skipping inside a gap the user sought into. */
+export function nextGapMarker(markersMs: readonly number[], currentMs: number): number | null {
+  return markersMs.find((marker) => marker > currentMs) ?? null;
+}

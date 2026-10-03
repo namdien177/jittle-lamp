@@ -392,4 +392,8 @@ export const videoStyles = `
     left: max(8px, env(safe-area-inset-left));
   }
 }
+
+.jl-vm-video-inner button.jl-vm-vc-skip[data-active="true"] {
+  color: var(--jl-vm-accent, #22c55e);
+}
 `;

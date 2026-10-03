@@ -12,6 +12,7 @@ import {
 } from "@jittle-lamp/shared";
 import {
   createMergeGroup,
+  deriveGapMarkers,
   filterTimelineByStep,
   getContiguousMergeableSelection,
   selectActionRange,
@@ -200,6 +201,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     () => formatRecordingMeta(loadedArchive, recordedBy?.displayName ?? null),
     [loadedArchive, recordedBy]
   );
+  const gapMarkersMs = useMemo(() => deriveGapMarkers(loadedArchive, stepOffsetsMs ?? null), [loadedArchive, stepOffsetsMs]);
   const videoDurationHintMs = useMemo(
     () => getVideoDurationHintMs(loadedArchive, loadedTimeline),
     [loadedArchive, loadedTimeline]
@@ -516,6 +518,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       videoRef={videoRef}
       videoSrc={videoSrc}
       videoDurationHintMs={videoDurationHintMs}
+      gapMarkersMs={gapMarkersMs}
       notesValue=""
       notesReadOnly
       notesSaving={false}
