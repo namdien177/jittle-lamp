@@ -26,11 +26,12 @@ export function SheetContent({
 }: React.ComponentProps<typeof BaseDialog.Popup> & { side?: keyof typeof sideClass; showCloseButton?: boolean }): React.JSX.Element {
   return (
     <BaseDialog.Portal>
-      <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-black/40 transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+      {/* Below Dialog (900/901): a dialog opened from a sheet sits on top and dims it. */}
+      <BaseDialog.Backdrop className="fixed inset-0 z-[880] bg-black/40 transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
       <BaseDialog.Popup
         data-slot="sheet-content"
         className={cn(
-          "fixed z-[901] flex flex-col bg-background shadow-pop outline-none transition-transform duration-200 ease-[cubic-bezier(.32,.72,0,1)] motion-reduce:transition-none",
+          "fixed z-[881] flex flex-col bg-background shadow-pop outline-none transition-transform duration-200 ease-[cubic-bezier(.32,.72,0,1)] motion-reduce:transition-none",
           sideClass[side],
           className
         )}

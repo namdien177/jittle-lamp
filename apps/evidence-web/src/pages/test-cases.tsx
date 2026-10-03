@@ -1,13 +1,14 @@
 import React from "react";
 import { useSearchParams } from "react-router";
 import type { TestCaseDetail, TestCaseSummary } from "@jittle-lamp/shared";
+import { isMacPlatform } from "@jittle-lamp/ui";
 
-import { cn } from "../lib/cn";
 import { Button } from "../components/ui/button";
 import { SimpleDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { SimpleSelect } from "../components/ui/select";
+import { Sheet, SheetContent, SheetTitle } from "../components/ui/sheet";
 import { useAccountProfile } from "../queries";
 import { useToast } from "../toast";
 import { CaseDetailPane, type DetailTab } from "../test-cases/case-detail";
@@ -44,14 +45,18 @@ export type TestCasesPageProps = {
   renderDuplicateDialog?: (input: { ids: string[]; onClose: () => void }) => React.ReactNode;
 };
 
-// With the detail pane open the list keeps only the columns that fit next to it.
-const compactColumns = new Set<ListColumnId>(["key", "title", "lastOutcome", "status"]);
 
 type BulkDialog = { action: "tag" | "untag" | "set-environment" | "archive"; ids: string[] } | null;
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.closest("[role='dialog'],[role='menu'],[role='listbox']") !== null;
+}
+
+// A field the user types into (not just any element inside a dialog).
+function isTextEntry(target: Element | null): target is HTMLElement {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && !["checkbox", "radio", "button", "submit"].includes((target as HTMLInputElement).type));
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -267,9 +272,14 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
   });
 
   const detailOpen = openId !== null;
+  // Keeps the case on screen while the sheet animates closed.
+  const lastOpenId = React.useRef<string | null>(null);
+  if (openId) lastOpenId.current = openId;
+  const shownId = openId ?? lastOpenId.current;
+  const sheetRef = React.useRef<HTMLDivElement | null>(null);
 
   return (
-    <div className={cn("jl-tc-scope grid h-full min-h-0 grid-cols-1", detailOpen ? "lg:grid-cols-[208px_minmax(360px,1fr)_minmax(480px,1.15fr)]" : "lg:grid-cols-[208px_minmax(0,1fr)]")}>
+    <div className="jl-tc-scope grid h-full min-h-0 grid-cols-1 lg:grid-cols-[208px_minmax(0,1fr)]">
       <div className="hidden min-h-0 lg:flex">
         <CaseSidebar
           filters={filters}
@@ -282,7 +292,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           onDeleteView={(id) => persistViews(savedViews.filter((view) => view.id !== id))}
         />
       </div>
-      <div className={cn("min-h-0 min-w-0", detailOpen ? "hidden lg:flex" : "flex")}>
+      <div className="flex min-h-0 min-w-0">
         <CaseListPane
           items={items}
           total={list.total}
@@ -302,7 +312,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           searchRef={searchRef}
           sort={sort}
           onSortChange={setSort}
-          columns={detailOpen ? columns.filter((column) => compactColumns.has(column)) : columns}
+          columns={columns}
           onColumnsChange={setColumns}
           environments={environments}
           tagDefinitions={tagDefinitions}
@@ -330,11 +340,34 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           instant={keyboardDriven}
         />
       </div>
-      {detailOpen ? (
-        <div className="flex min-h-0 min-w-0" data-pane="detail">
+      {/* The open case slides in from the right over the list, like a dialog. */}
+      <Sheet
+        open={detailOpen}
+        onOpenChange={(open, details) => {
+          if (open) return;
+          // Escape while typing leaves the field first; a second Escape closes the case.
+          if (details.reason === "escape-key" && isTextEntry(document.activeElement)) {
+            document.activeElement.blur();
+            sheetRef.current?.focus();
+            return;
+          }
+          closeCase();
+        }}
+      >
+        <SheetContent
+          ref={sheetRef}
+          // Focus the sheet itself, not its first button; Tab moves into the case from there.
+          initialFocus={sheetRef}
+          side="right"
+          showCloseButton={false}
+          data-pane="detail"
+          className="jl-tc-scope w-full p-0 sm:w-[70vw] sm:min-w-[560px] sm:max-w-[1000px]"
+        >
+          <SheetTitle className="sr-only">Test case</SheetTitle>
+          {shownId ? (
           <CaseDetailPane
-            key={openId}
-            caseId={openId}
+            key={shownId}
+            caseId={shownId}
             tab={tab}
             onTabChange={(next: DetailTab) => guardDetail({ caseId: openId, tab: next }, () => setParams({ tab: next === "steps" ? null : next }))}
             onDirtyChange={setDetailDirty}
@@ -343,10 +376,14 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
             onRun={(detail: TestCaseDetail) => runCase(detail, detail.dataset !== null && detail.dataset.rows.length > 0)}
             onDuplicate={onDuplicate}
             onClose={closeCase}
-            onTagClick={(tag) => setFilters((current) => ({ ...current, tags: current.tags.includes(tag) ? current.tags : [...current.tags, tag] }))}
+            onTagClick={(tag) => {
+              setFilters((current) => ({ ...current, tags: current.tags.includes(tag) ? current.tags : [...current.tags, tag] }));
+              closeCase();
+            }}
           />
-        </div>
-      ) : null}
+          ) : null}
+        </SheetContent>
+      </Sheet>
 
       {pendingLeave ? (
         <SimpleDialog
@@ -375,7 +412,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
             </>
           }
         >
-          <p className="text-[13.5px] text-muted-foreground">Save with ⌘S first to keep them.</p>
+          <p className="text-[13px] text-muted-foreground">Save with {isMacPlatform() ? "⌘S" : "Ctrl+S"} first to keep them.</p>
         </SimpleDialog>
       ) : null}
       {quickCreate ? (

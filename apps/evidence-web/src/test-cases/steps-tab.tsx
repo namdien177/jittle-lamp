@@ -2,9 +2,10 @@ import React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { History } from "lucide-react";
 import type { TestCaseDetail } from "@jittle-lamp/shared";
-import { TestCaseEditor, serializeEditorDoc, type EditorDoc, type StepEditorRowStatus, type TestCaseEditorMode } from "@jittle-lamp/ui";
+import { TestCaseEditor, isMacPlatform, serializeEditorDoc, type EditorDoc, type StepEditorRowStatus, type TestCaseEditorMode } from "@jittle-lamp/ui";
 
 import { Button } from "../components/ui/button";
+import { Separator } from "../components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -17,6 +18,7 @@ import { useTestPermissions } from "./admin-queries";
 import { ReadOnlyNotice } from "./admin-ui";
 import { isConflictError } from "./api";
 import { Kbd } from "./bits";
+import { CaseDetailsForm } from "./case-details-form";
 import { SimilarHint, editorDocFromDetail, normalizedTranscript, useEditorCatalog, type EditorCatalog } from "./editor-support";
 import { formatRelative } from "./list-model";
 import { useTestOrgId } from "./org";
@@ -148,6 +150,16 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
           busy={update.isPending}
         />
       ) : null}
+      <CaseDetailsForm
+        doc={doc}
+        onChange={setDoc}
+        readOnly={readOnly}
+        environments={catalog.environments}
+        tagSuggestions={catalog.tagSuggestions}
+        titleAccessory={<SimilarHint title={doc.title} excludeId={detail.id} />}
+        environmentFallback={catalog.environments.find((candidate) => candidate.id === detail.environmentId)?.name ?? null}
+      />
+      <Separator className="my-1" />
       <TestCaseEditor
         doc={doc}
         onChange={setDoc}
@@ -157,14 +169,10 @@ export function StepsTab(props: { detail: TestCaseDetail; onRun: () => void; onD
         macros={catalog.macros}
         macrosLoaded={catalog.macrosLoaded}
         credentials={catalog.credentials}
-        environments={catalog.environments}
         environmentVariables={environment ? Object.keys(environment.variables) : []}
         environmentName={environment?.name ?? null}
-        tagSuggestions={catalog.tagSuggestions}
         elementNames={elementNames}
         stepStatus={stepStatus}
-        titleAccessory={<SimilarHint title={doc.title} excludeId={detail.id} />}
-        environmentFallback={catalog.environments.find((candidate) => candidate.id === detail.environmentId)?.name ?? null}
         onRun={() => {
           if (dirty) save();
           props.onRun();
@@ -202,7 +210,7 @@ function EditorToolbar(props: {
   return (
     <div className="flex items-center gap-2">
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button size="xs" variant="ghost" className="jl-tc-press" aria-label={`Version ${props.version}, show history`}>
+        <DropdownMenuTrigger render={<Button size="sm" variant="ghost" className="jl-tc-press" aria-label={`Version ${props.version}, show history`}>
             <History aria-hidden /> v{props.version}
           </Button>} />
         <DropdownMenuContent align="end">
@@ -220,14 +228,14 @@ function EditorToolbar(props: {
       {props.dirty && !props.readOnly ? (
         <>
           <span className="text-[12px] text-muted-foreground">Unsaved</span>
-          <Button size="xs" variant="ghost" className="jl-tc-press" onClick={props.onDiscard} disabled={props.saving}>
+          <Button size="sm" variant="ghost" className="jl-tc-press" onClick={props.onDiscard} disabled={props.saving}>
             Discard
           </Button>
         </>
       ) : null}
       {props.readOnly ? null : (
-        <Button size="xs" className="jl-tc-press" onClick={props.onSave} disabled={!props.dirty || props.saving} aria-keyshortcuts="Meta+S">
-          {props.saving ? "Saving…" : "Save"} <Kbd>⌘S</Kbd>
+        <Button size="sm" className="jl-tc-press" onClick={props.onSave} disabled={!props.dirty || props.saving} aria-keyshortcuts="Meta+S">
+          {props.saving ? "Saving…" : "Save"} <Kbd>{isMacPlatform() ? "⌘S" : "Ctrl+S"}</Kbd>
         </Button>
       )}
     </div>

@@ -6,7 +6,7 @@ import { linkLabel, safeExternalHref } from "@jittle-lamp/ui";
 import { cn } from "../lib/cn";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
-import { CaseStatusBadge, Kbd, OutcomeBadge, Stat, TagChip } from "./bits";
+import { CaseStatusBadge, OutcomeBadge, Stat, TagChip } from "./bits";
 import { formatCost, formatDuration, formatPassRate } from "./list-model";
 import { useTestCase } from "./queries";
 import { formatTokens } from "./run-model";
@@ -59,30 +59,32 @@ export function CaseDetailPane(props: {
   const unresolved = new Set(required.unresolved);
 
   return (
-    <section className="jl-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto" aria-label={`Test case ${detail.key}`}>
-      <header className="flex flex-col gap-2 border-b border-border px-5 pb-3 pt-4">
-        <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <span className="font-mono">{detail.key}</span>
-          <CaseStatusBadge status={detail.status} />
-          <span>·</span>
-          <span>source: {detail.source}</span>
-          <span>·</span>
-          <span>v{detail.transcriptVersion}</span>
+    <section className="jl-scroll flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto" aria-label={`Test case ${detail.key}`}>
+      <header className="flex flex-col gap-2 px-6 pb-4 pt-4">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[12px] text-muted-foreground">
+          <span className="flex min-w-0 items-center gap-2 whitespace-nowrap">
+            <span className="font-mono">{detail.key}</span>
+            <CaseStatusBadge status={detail.status} />
+            <span aria-hidden>·</span>
+            <span>source: {detail.source}</span>
+            <span aria-hidden>·</span>
+            <span>v{detail.transcriptVersion}</span>
+          </span>
           <span className="ml-auto flex items-center gap-1">
-            <Button size="xs" variant="ghost" className="jl-tc-press" onClick={() => props.onDuplicate([detail.id])} aria-keyshortcuts="d">
+            <Button size="sm" variant="ghost" className="jl-tc-press" onClick={() => props.onDuplicate([detail.id])}>
               <Copy aria-hidden /> Duplicate
             </Button>
-            <Button size="xs" className="jl-tc-press" onClick={() => props.onRun(detail)} aria-keyshortcuts="r">
-              <Play aria-hidden /> Run <Kbd>r</Kbd>
+            <Button size="sm" className="jl-tc-press" onClick={() => props.onRun(detail)}>
+              <Play aria-hidden /> Run
             </Button>
             <Hint label="Close">
-              <button type="button" className="jl-tc-press rounded p-1 text-muted-foreground hover:text-foreground" aria-label="Close detail" onClick={props.onClose}>
-                <X className="size-4" aria-hidden />
-              </button>
+              <Button variant="ghost" size="icon-sm" className="jl-tc-press" aria-label="Close detail" onClick={props.onClose}>
+                <X aria-hidden />
+              </Button>
             </Hint>
           </span>
         </div>
-        <h2 className="text-[19px] font-semibold leading-snug tracking-[-0.01em]">{detail.title || "Untitled case"}</h2>
+        <h2 className="text-lg font-semibold leading-snug">{detail.title || "Untitled case"}</h2>
         {detail.description ? <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted-foreground">{detail.description}</p> : null}
         <div className="flex flex-wrap items-center gap-1.5">
           {detail.links.map((link) => {
@@ -126,7 +128,7 @@ export function CaseDetailPane(props: {
             ))}
           </div>
         ) : null}
-        <div className="mt-1 grid grid-cols-3 gap-x-4 gap-y-2 rounded-md border border-border bg-card/40 px-3 py-2 sm:grid-cols-6" aria-label="Ten-run averages">
+        <div className="mt-1 grid grid-cols-3 gap-x-4 gap-y-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 sm:grid-cols-6" aria-label="Ten-run averages">
           <Stat label="Last" value={<OutcomeBadge outcome={stats.lastOutcome} />} />
           <Stat label="Pass rate" value={formatPassRate(stats.passRate)} hint="Over the last ten finished runs" />
           <Stat label="Flaky" value={formatPassRate(stats.flakyRate)} />
@@ -141,7 +143,7 @@ export function CaseDetailPane(props: {
         </div>
       </header>
 
-      <div role="tablist" aria-label="Case sections" className="flex gap-1 border-b border-border px-5">
+      <div role="tablist" aria-label="Case sections" className="sticky top-0 z-10 flex gap-4 border-b border-border bg-background px-6">
         {(
           [
             ["steps", "Steps"],
@@ -155,8 +157,8 @@ export function CaseDetailPane(props: {
             role="tab"
             aria-selected={props.tab === tab}
             className={cn(
-              "jl-tc-press -mb-px border-b-2 px-3 py-2 text-[13.5px] font-semibold",
-              props.tab === tab ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              "-mb-px border-b-2 py-2.5 text-[13px] font-medium transition-colors",
+              props.tab === tab ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             )}
             onClick={() => props.onTabChange(tab)}
           >
@@ -166,7 +168,7 @@ export function CaseDetailPane(props: {
         ))}
       </div>
 
-      <div className="px-5 py-4" role="tabpanel">
+      <div className="px-6 py-5" role="tabpanel">
         {props.tab === "steps" ? <StepsTab key={detail.id} detail={detail} onRun={() => props.onRun(detail)} {...(props.onDirtyChange ? { onDirtyChange: props.onDirtyChange } : {})} /> : null}
         {props.tab === "sessions" ? <SessionsTab detail={detail} /> : null}
         {props.tab === "scripts" ? <ScriptsTab detail={detail} /> : null}

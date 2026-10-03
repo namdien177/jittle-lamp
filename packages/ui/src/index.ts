@@ -15,6 +15,6 @@ export { editorCommandAllowed, editorKeyCommand, isMacPlatform } from "./step-ed
 export type { EditorCommand, EditorKey, EditorKeyContext } from "./step-editor/keyboard";
 export { StepEditor, InstructionTokenView } from "./step-editor/step-editor";
 export type { StepEditorProps, StepEditorRowStatus } from "./step-editor/step-editor";
-export { TestCaseEditor, MetadataForm } from "./step-editor/test-case-editor";
+export { TestCaseEditor } from "./step-editor/test-case-editor";
 export type { TestCaseEditorMode, TestCaseEditorProps } from "./step-editor/test-case-editor";
 export { safeExternalHref } from "./safe-url";
