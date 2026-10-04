@@ -1,8 +1,8 @@
 import React from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { ArrowLeft, Ban, Users } from "lucide-react";
+import { ArrowLeft, Ban, Info, Users } from "lucide-react";
 import type { TestRunDetail, TestRunStep } from "@jittle-lamp/shared";
-import { RunStepList, formatCostUsd, formatStepDuration } from "@jittle-lamp/ui";
+import { RunStepList, formatCostUsd } from "@jittle-lamp/ui";
 
 import { cn } from "../lib/cn";
 import { Badge } from "../components/ui/badge";
@@ -11,7 +11,8 @@ import { StatusScreen } from "../components/status-screen";
 import { useAccountProfile } from "../queries";
 import { useToast } from "../toast";
 import { EmbeddedEvidenceViewer } from "./evidence-viewer";
-import { RunStatusBadge, Stat } from "../test-cases/bits";
+import { Hint } from "../components/ui/tooltip";
+import { RunStatusBadge } from "../test-cases/bits";
 import { formatDuration, formatRelative } from "../test-cases/list-model";
 import { useTestPermissions } from "../test-cases/admin-queries";
 import { useCancelTestRun, useTestRun } from "../test-cases/queries";
@@ -32,7 +33,8 @@ import {
 
 // Run detail (design.md §7 "Run detail", §10.4): step list on the left, the shared viewer on the
 // run's evidence on the right. While the run is queued or executing the page polls every 2 s and
-// shows live step progress with the per-step screenshots.
+// shows live step progress with the per-step screenshots. The header stays two short lines so
+// the recording keeps most of the screen.
 export function TestRunPage(): React.JSX.Element {
   const { runId } = useParams();
   const query = useTestRun(runId ?? null);
@@ -50,6 +52,8 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
   const cancel = useCancelTestRun();
   const [activeStepId, setActiveStepId] = React.useState<string | null>(null);
   const [expandMacros, setExpandMacros] = React.useState(false);
+  const [playingStepId, setPlayingStepId] = React.useState<string | null>(null);
+  const [actionsContainer, setActionsContainer] = React.useState<HTMLSpanElement | null>(null);
   const active = isRunActive(run.status);
   const listSteps = React.useMemo(() => toRunStepListSteps(run.steps, run.transcript), [run.steps, run.transcript]);
   const stepOffsetsMs = React.useMemo(() => {
@@ -58,7 +62,7 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
     return offsets;
   }, [run.steps]);
   const failures = failedAsserts(run.steps);
-  const selected = normalizeRunSteps(run.steps, run.transcript).find((step) => step.stepId === activeStepId) ?? null;
+  const stepsById = React.useMemo(() => new Map(normalizeRunSteps(run.steps, run.transcript).map((step) => [step.stepId, step])), [run.steps, run.transcript]);
   const progress = runProgress(run.steps, run.transcript);
   const currentUserIds = [account.data?.localUserId, account.data?.userId].filter((value): value is string => typeof value === "string");
   const permissions = useTestPermissions();
@@ -68,6 +72,16 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
   const queuePill = formatQueuePill(run);
   const caseLink = `/test-cases?case=${encodeURIComponent(run.testCaseId)}`;
   const metrics = run.metrics;
+  const runBy = run.createdByName ?? (run.createdBy !== null && currentUserIds.includes(run.createdBy) ? "you" : "unknown");
+
+  // A failed run opens on its first failure: the list expands it and the video seeks there.
+  const firstFailureId = failures[0]?.stepId ?? null;
+  const openedOnFailure = React.useRef(false);
+  React.useEffect(() => {
+    if (openedOnFailure.current || !run.evidenceId || !firstFailureId) return;
+    openedOnFailure.current = true;
+    setActiveStepId((current) => current ?? firstFailureId);
+  }, [run.evidenceId, firstFailureId]);
 
   const requestCancel = () =>
     cancel.mutate(
@@ -80,50 +94,37 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
 
   return (
     <div className="jl-tc-scope grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-      <header className="flex flex-col gap-2 border-b border-border px-5 py-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <Link to={caseLink} className="jl-tc-press inline-flex items-center gap-1 rounded hover:text-foreground">
-            <ArrowLeft className="size-3.5" aria-hidden /> {run.testCaseKey}
-          </Link>
-          <span>/</span>
-          <span className="truncate text-foreground">{run.testCaseTitle}</span>
-          <span>· v{run.transcriptVersion}</span>
-          <span className="ml-auto flex items-center gap-2">
-            {props.refreshing && active ? <span className="text-xs">updating…</span> : null}
-            {mayCancel ? (
-              <Button size="xs" variant="destructive" className="jl-tc-press" onClick={requestCancel} disabled={cancel.isPending}>
-                <Ban aria-hidden /> {cancel.isPending ? "Cancelling…" : "Cancel run"}
-              </Button>
-            ) : null}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold tracking-[-0.01em]">Run {formatRelative(run.queuedAt)}</h1>
-          <RunStatusBadge run={run} />
-          {run.status === "completed" || run.status === "failed" || run.status === "cancelled" ? <Badge variant="muted" className="px-1.5 py-0 text-xs">{run.status}</Badge> : null}
-          {run.flaky ? <Badge variant="warning" className="px-1.5 py-0 text-xs">flaky</Badge> : null}
-          <span className="text-sm text-muted-foreground">
-            {run.trigger} · {run.createdByName ?? (run.createdBy !== null && currentUserIds.includes(run.createdBy) ? "you" : "unknown")} · {run.environmentName ?? "no environment"} · pool {run.runnerPool} · cache {run.cacheMode}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-x-7 gap-y-2" aria-label="Run metrics">
-          <Stat label="Act model" value={formatModelId(metrics.modelId)} {...(metrics.modelId ? { hint: metrics.modelId } : {})} />
-          <Stat label="Judge model" value={formatModelId(metrics.judgeModelId)} {...(metrics.judgeModelId ? { hint: metrics.judgeModelId } : {})} />
-          <Stat
-            label="Tokens"
-            value={`${formatTokens(metrics.inputTokens)} in · ${formatTokens(metrics.outputTokens)} out`}
-            hint={`${metrics.cachedInputTokens} cached input · ${metrics.reasoningTokens} reasoning · ${metrics.modelCalls} model calls`}
-          />
-          <Stat label="Cost" value={metrics.costUsd === null ? "—" : formatCostUsd(metrics.costUsd)} {...(metrics.priceTableVersion ? { hint: `price table ${metrics.priceTableVersion}` } : {})} />
-          <Stat label="Duration" value={formatDuration(metrics.durationMs)} />
-          <Stat label="Replayed" value={`${metrics.stepsReplayed} / ${metrics.stepsTotal}`} hint="Steps replayed from cached scripts with zero model calls" />
-          <Stat label="Agent" value={metrics.stepsAgent} />
-          <Stat label="Hand-off" value={metrics.stepsHandoff} hint="Cached script failed and the agent took over" />
-        </div>
+      <header className="flex min-w-0 items-center gap-2 border-b border-border px-4 py-2">
+        <Link to={caseLink} className="jl-tc-press inline-flex shrink-0 items-center gap-1 rounded text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-3.5" aria-hidden /> {run.testCaseKey}
+        </Link>
+        <h1 className="min-w-0 truncate text-base font-semibold tracking-[-0.01em]" title={run.testCaseTitle}>
+          {run.testCaseTitle}
+        </h1>
+        <RunStatusBadge run={run} />
+        {run.status === "cancelled" ? <Badge variant="muted" className="px-1.5 py-0 text-xs">cancelled</Badge> : null}
+        {run.flaky ? <Badge variant="warning" className="px-1.5 py-0 text-xs">flaky</Badge> : null}
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {formatRelative(run.queuedAt)} · {formatDuration(metrics.durationMs)} · {metrics.costUsd === null ? "—" : formatCostUsd(metrics.costUsd)}
+        </span>
+        <Hint label={<RunDetails run={run} who={runBy} />} side="bottom" align="start">
+          <button type="button" className="jl-tc-press grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Run details">
+            <Info className="size-3.5" aria-hidden />
+          </button>
+        </Hint>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {props.refreshing && active ? <span className="text-xs text-muted-foreground">updating…</span> : null}
+          <span ref={setActionsContainer} className="flex items-center" />
+          {mayCancel ? (
+            <Button size="xs" variant="destructive" className="jl-tc-press" onClick={requestCancel} disabled={cancel.isPending}>
+              <Ban aria-hidden /> {cancel.isPending ? "Cancelling…" : "Cancel run"}
+            </Button>
+          ) : null}
+        </span>
       </header>
 
-      <div className="grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)]">
-        <aside className="jl-scroll flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-border px-4 py-3" aria-label="Run steps">
+      <div className="grid min-h-0 grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] 2xl:grid-cols-[380px_minmax(0,1fr)]">
+        <aside className="jl-scroll flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-border px-2 py-2" aria-label="Run steps">
           {run.outcome === "blocked" || run.blockedReason ? (
             <section role="alert" className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2">
               <p className="font-mono text-sm font-semibold text-foreground">{run.blockedReason ?? "BLOCKED"}</p>
@@ -154,13 +155,13 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
             </section>
           ) : null}
 
-          {failures.length > 0 ? (
+          {failures.length > 0 && !run.evidenceId ? (
             <section className="flex flex-col gap-2" aria-label="Failed asserts">
               {failures.map((failure) => (
                 <button
                   key={failure.stepId}
                   type="button"
-                  className={cn("jl-tc-press rounded-md border px-3 py-2 text-left", activeStepId === failure.stepId ? "border-destructive/60 bg-destructive/12" : "border-destructive/35 bg-destructive/6 hover:bg-destructive/10")}
+                  className={cn("jl-tc-press rounded-md border px-2.5 py-2 text-left", activeStepId === failure.stepId ? "border-destructive/60 bg-destructive/12" : "border-destructive/35 bg-destructive/6 hover:bg-destructive/10")}
                   onClick={() => setActiveStepId(failure.stepId)}
                 >
                   <ExpectedObserved expected={failure.expected} observed={failure.observed} error={failure.error} screenshotUrl={failure.screenshotUrl} />
@@ -169,20 +170,28 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
             </section>
           ) : null}
 
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {progress.done} of {progress.total} steps
-            </span>
+          <div className="flex items-center justify-between px-2 pt-1 text-xs text-muted-foreground">
+            <span>{progress.done === progress.total ? `${progress.total} steps` : `${progress.done} of ${progress.total} steps`}</span>
             {run.steps.some((step) => step.parentStepId !== null) ? (
               <label className="flex items-center gap-1.5">
                 <input type="checkbox" className="accent-[var(--primary)]" checked={expandMacros} onChange={(event) => setExpandMacros(event.currentTarget.checked)} />
-                Show macro steps
+                Macro steps
               </label>
             ) : null}
           </div>
-          <RunStepList steps={listSteps} activeStepId={activeStepId} expandMacros={expandMacros} screenshots={run.evidenceId ? "active" : "all"} onSelect={(step) => setActiveStepId((current) => (current === step.stepId ? null : step.stepId))} />
-
-          {selected ? <SelectedStep step={selected} /> : null}
+          <RunStepList
+            steps={listSteps}
+            activeStepId={activeStepId}
+            playingStepId={playingStepId}
+            meta="duration"
+            expandMacros={expandMacros}
+            screenshots={run.evidenceId ? "active" : "all"}
+            onSelect={(step) => setActiveStepId((current) => (current === step.stepId ? null : step.stepId))}
+            renderDetail={(step) => {
+              const detail = stepsById.get(step.stepId);
+              return detail ? <SelectedStep step={detail} /> : null;
+            }}
+          />
         </aside>
 
         <section className="jl-tc-run-pane flex min-h-0 min-w-0 flex-col" aria-label="Run evidence">
@@ -192,6 +201,8 @@ function RunDetailView(props: { run: TestRunDetail; refreshing: boolean }): Reac
               activeStepId={activeStepId}
               onActiveStepIdChange={setActiveStepId}
               stepOffsetsMs={stepOffsetsMs}
+              onPlayingStepIdChange={setPlayingStepId}
+              actionsContainer={actionsContainer}
               onClose={() => navigate(caseLink)}
             />
           ) : active && run.status !== "queued" ? (
@@ -216,38 +227,59 @@ function ExpectedObserved(props: { expected: string; observed: string | null; er
       <span className="text-foreground">{props.expected}</span>
       <span className="text-muted-foreground">Observed</span>
       <span className="text-destructive">{props.observed ?? props.error ?? "No observation recorded."}</span>
-      {props.screenshotUrl ? <img src={props.screenshotUrl} alt="Screen when the assert failed" className="col-span-2 mt-1 max-h-48 rounded border border-border object-contain" loading="lazy" /> : null}
+      {props.screenshotUrl ? <img src={props.screenshotUrl} alt="Screen when the assert failed" className="col-span-2 mt-1 max-h-32 rounded border border-border object-contain object-left" loading="lazy" /> : null}
     </div>
   );
 }
 
+// Under the selected step in the list: how it ran. The row above already shows label and result.
 function SelectedStep(props: { step: TestRunStep }): React.JSX.Element {
   const { step } = props;
   return (
-    <section className="rounded-md border border-border bg-card/40 px-3 py-2 text-sm" aria-label={`Step ${step.ordinal} details`}>
-      <p className="font-semibold text-foreground">
-        {step.ordinal}. [{step.type}] {step.label}
-      </p>
-      <dl className="mt-1 grid grid-cols-[96px_1fr] gap-x-2 gap-y-0.5 text-muted-foreground">
-        <dt>Mode</dt>
-        <dd className="text-foreground">{step.mode ?? "—"}{step.cacheReason && step.cacheReason !== "hit" ? ` · cache: ${step.cacheReason}` : ""}</dd>
-        <dt>Duration</dt>
-        <dd className="text-foreground">{formatStepDuration(step.durationMs) || "—"}</dd>
-        <dt>Video at</dt>
-        <dd className="font-mono text-foreground">{step.videoOffsetMs === null ? "—" : formatDuration(step.videoOffsetMs)}</dd>
-        <dt>Model</dt>
-        <dd className="text-foreground">
-          {step.usage.modelCalls} call{step.usage.modelCalls === 1 ? "" : "s"} · {formatTokens(step.usage.inputTokens + step.usage.outputTokens)} tokens · {step.usage.costUsd === null ? "—" : formatCostUsd(step.usage.costUsd)}
-        </dd>
-      </dl>
-      {step.status === "failed" && (step.type === "assert" || step.type === "wait") ? (
-        <div className="mt-2">
-          <ExpectedObserved expected={step.label} observed={step.observed} error={step.error ? `${step.error.code}: ${step.error.message}` : null} screenshotUrl={step.screenshotUrl} />
-        </div>
-      ) : step.observed ? (
-        <p className="mt-1 text-foreground/85">{step.observed}</p>
+    <dl className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-0.5 rounded-md bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground" aria-label={`Step ${step.ordinal} details`}>
+      <dt>Mode</dt>
+      <dd className="text-foreground">{step.mode ?? "—"}{step.cacheReason && step.cacheReason !== "hit" ? ` · cache: ${step.cacheReason}` : ""}</dd>
+      <dt>Model</dt>
+      <dd className="text-foreground">
+        {step.usage.modelCalls} call{step.usage.modelCalls === 1 ? "" : "s"} · {formatTokens(step.usage.inputTokens + step.usage.outputTokens)} tokens · {step.usage.costUsd === null ? "—" : formatCostUsd(step.usage.costUsd)}
+      </dd>
+      {step.observed && step.status !== "failed" ? (
+        <>
+          <dt>Observed</dt>
+          <dd className="text-foreground/85">{step.observed}</dd>
+        </>
       ) : null}
-    </section>
+    </dl>
+  );
+}
+
+// Everything about the run that is not needed to review it, behind the header's info button.
+function RunDetails(props: { run: TestRunDetail; who: string }): React.JSX.Element {
+  const { run } = props;
+  const metrics = run.metrics;
+  const rows: Array<[string, string]> = [
+    ["Version", `v${run.transcriptVersion}`],
+    ["Trigger", `${run.trigger} by ${props.who}`],
+    ["Environment", run.environmentName ?? "none"],
+    ["Runner", `pool ${run.runnerPool} · cache ${run.cacheMode}`],
+    ...(metrics.modelId === metrics.judgeModelId
+      ? ([["Model", metrics.modelId ?? "—"]] as Array<[string, string]>)
+      : ([
+          ["Act model", metrics.modelId ?? "—"],
+          ["Judge model", metrics.judgeModelId ?? "—"]
+        ] as Array<[string, string]>)),
+    ["Tokens", `${formatTokens(metrics.inputTokens)} in · ${formatTokens(metrics.outputTokens)} out · ${metrics.modelCalls} calls`],
+    ["Steps", `${metrics.stepsReplayed}/${metrics.stepsTotal} replayed · ${metrics.stepsAgent} agent · ${metrics.stepsHandoff} hand-off`]
+  ];
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+      {rows.map(([label, value]) => (
+        <React.Fragment key={label}>
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="whitespace-nowrap tabular-nums">{value}</dd>
+        </React.Fragment>
+      ))}
+    </dl>
   );
 }
 

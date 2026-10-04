@@ -42,6 +42,11 @@ export const compactStyles = `
 [data-compact="true"] .jl-vm-row-sub { font-size:calc(11px * var(--jl-font-scale, 1)); line-height: 1.2; }
 [data-compact="true"] .jl-vm-row-main { gap: 0; }
 [data-compact="true"] .jl-vm-vc-bar { border-radius: 10px; }
+/* Embedded in the run page: no header of its own (the page has one), a slim stream rail. */
+[data-embedded="true"].jl-vm-root { grid-template-rows: minmax(0, 1fr); }
+[data-embedded="true"] .jl-vm-tabs-row { padding: 6px 8px; }
+[data-embedded="true"] .jl-vm-right[data-collapsed="true"] { flex-basis: 36px; width: 36px; }
+[data-embedded="true"] .jl-vm-stream-rail { width: 36px; grid-template-rows: auto; align-content: start; padding-top: 10px; }
 @media (max-width: 900px) {
   [data-compact="true"].jl-vm-root, [data-compact="true"].jl-vm-modal { height: 100dvh; min-height: 0; }
   [data-compact="true"] .jl-vm-body { flex-direction: column; overflow: hidden; }

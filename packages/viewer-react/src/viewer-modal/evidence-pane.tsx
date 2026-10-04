@@ -1,13 +1,13 @@
 import { evidenceRowHeight, getRowWindow } from "./row-window";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
-import { ChevronsLeft, ChevronsRight, GripVertical } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, GripVertical, ListTree } from "lucide-react";
 
 import { formatOffset, type NetworkSubtype, type TimelineSection } from "@jittle-lamp/shared";
 
 import { NetworkDrawer } from "./drawers";
 import { statusTone } from "./format";
-import type { ViewerModalProps, ViewerModalRow } from "./types";
+import type { ViewerModalProps, ViewerModalRow, ViewerStepChip } from "./types";
 
 const NETWORK_SUBTYPE_OPTIONS: ReadonlyArray<{ value: NetworkSubtype | "all"; label: string }> = [
   { value: "all", label: "All" },
@@ -25,6 +25,18 @@ const NETWORK_SUBTYPE_OPTIONS: ReadonlyArray<{ value: NetworkSubtype | "all"; la
 
 type EvidenceTab = TimelineSection | "about";
 const DEFAULT_STREAM_WIDTH = 560;
+const EMBEDDED_STREAM_WIDTH = 400;
+// Embedded beside the run's step list the actions stream mostly repeats the steps, so it starts
+// folded away; whatever the reviewer chooses is remembered on this device.
+const EMBEDDED_COLLAPSED_KEY = "jl-viewer-run-stream-collapsed";
+
+function readEmbeddedCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(EMBEDDED_COLLAPSED_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
 const MIN_STREAM_WIDTH = 320;
 const MAX_STREAM_WIDTH = 760;
 
@@ -60,8 +72,17 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   const timelineRef = props.timelineRef ?? localRef;
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [activeTab, setActiveTab] = useState<EvidenceTab>(props.activeSection);
-  const [collapsed, setCollapsed] = useState(false);
-  const [streamWidth, setStreamWidth] = useState(DEFAULT_STREAM_WIDTH);
+  const [collapsed, setCollapsedState] = useState(() => (props.embedded && typeof window !== "undefined" ? readEmbeddedCollapsed() : false));
+  const setCollapsed = (next: boolean): void => {
+    setCollapsedState(next);
+    if (!props.embedded) return;
+    try {
+      window.localStorage.setItem(EMBEDDED_COLLAPSED_KEY, String(next));
+    } catch {
+      // Storage can be unavailable (private mode); the choice then lasts for this view.
+    }
+  };
+  const [streamWidth, setStreamWidth] = useState(props.embedded ? EMBEDDED_STREAM_WIDTH : DEFAULT_STREAM_WIDTH);
   useEffect(() => setActiveTab(props.activeSection), [props.activeSection]);
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent): void => {
@@ -136,11 +157,11 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
           type="button"
           className="jl-vm-stream-rail"
           aria-label="Expand Evidence stream"
-          data-tip="Expand" data-tip-side="left"
+          data-tip={props.embedded ? "Actions, requests and logs" : "Expand"} data-tip-side="left"
           onClick={() => setCollapsed(false)}
         >
-          <ChevronsLeft aria-hidden size={16} strokeWidth={2} />
-          <span>Evidence stream</span>
+          {props.embedded ? <ListTree aria-hidden size={16} strokeWidth={2} /> : <ChevronsLeft aria-hidden size={16} strokeWidth={2} />}
+          {props.embedded ? null : <span>Evidence stream</span>}
         </button>
       ) : (
         <div
@@ -224,7 +245,10 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
             />
           )}
         </div>
-        {activeTab !== "about" && props.steps && props.steps.length > 0 ? (
+        {activeTab !== "about" && props.embedded && props.activeStepId ? (
+          <ActiveStepFilter step={props.steps?.find((step) => step.stepId === props.activeStepId) ?? null} onClear={() => props.onStepSelect?.(null)} />
+        ) : null}
+        {activeTab !== "about" && !props.embedded && props.steps && props.steps.length > 0 ? (
           <div className="jl-vm-filters" role="group" aria-label="Filter by test step">
             <button
               type="button"
@@ -466,4 +490,21 @@ function applyClientSearch(
   if (!trimmed) return rows;
   if (section === "network") return rows;
   return rows.filter((row) => row.label.toLowerCase().includes(trimmed));
+}
+
+// Embedded beside the run's step list: the list picks the step, the stream only says which one
+// it is filtered to and lets the reviewer clear it.
+function ActiveStepFilter(props: { step: ViewerStepChip | null; onClear: () => void }): React.JSX.Element {
+  return (
+    <div className="jl-vm-filters jl-vm-step-filter" role="status">
+      <span className="jl-vm-step-filter-label" data-status={props.step?.status ?? "passed"}>
+        <span className="jl-vm-step-filter-dot" aria-hidden />
+        Step {props.step?.ordinal ?? "?"}
+        {props.step ? <span className="jl-vm-step-filter-text">{props.step.label}</span> : null}
+      </span>
+      <button type="button" className="jl-vm-chip" onClick={props.onClear}>
+        Show all
+      </button>
+    </div>
+  );
 }

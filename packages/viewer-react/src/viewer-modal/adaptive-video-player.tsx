@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import videojs from "video.js";
 import type Player from "video.js/dist/types/player";
 import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
 import { SkipGapsButton, useGapSkipper, useSkipGapsPreference } from "./gap-skip";
+import { SeekBar, StepCaption, StepNavButtons, buildStepSegments } from "./seek-bar";
+import type { ViewerStepChip } from "./types";
 
 export type VideoPlayerProps = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -14,6 +16,9 @@ export type VideoPlayerProps = {
   onVideoError?: () => void;
   // Video offsets (ms) of the steps, for Skip gaps; see viewer-core deriveGapMarkers.
   gapMarkersMs?: readonly number[];
+  // Test-run steps: drawn on the seek bar, with previous/next step buttons.
+  steps?: readonly ViewerStepChip[];
+  activeStepId?: string | null;
 };
 
 const playbackRates = [1, 1.5, 2, 0.5];
@@ -290,6 +295,13 @@ export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.
     if (player) player.currentTime(next);
   }, [gapSkipper]);
 
+  const seekToStep = useCallback((seconds: number): void => {
+    const player = playerRef.current;
+    setCurrentTime(seconds);
+    gapSkipper.onManualSeek(seconds);
+    if (player) player.currentTime(seconds);
+  }, [gapSkipper]);
+
   const handleVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
     const player = playerRef.current;
     const next = Number(event.target.value);
@@ -322,7 +334,7 @@ export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.
     setRate(next);
   }, []);
 
-  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const segments = useMemo(() => buildStepSegments(props.steps, duration), [props.steps, duration]);
   const volumePct = muted ? 0 : volume * 100;
 
   return (
@@ -386,20 +398,12 @@ export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.
               <Play aria-hidden size={17} fill="currentColor" />
             )}
           </button>
+          <StepNavButtons segments={segments} currentTime={currentTime} onSeekTo={seekToStep} />
 
           <span className="jl-vm-vc-time">{formatTime(currentTime)}</span>
-          <input
-            type="range"
-            className="jl-vm-vc-range jl-vm-vc-progress"
-            min={0}
-            max={duration || 0}
-            step={0.1}
-            value={Math.min(currentTime, duration || currentTime)}
-            onChange={handleSeek}
-            style={rangeFill(progressPct)}
-            aria-label="Seek"
-          />
+          <SeekBar currentTime={currentTime} duration={duration} segments={segments} activeStepId={props.activeStepId} onSeek={handleSeek} />
           <span className="jl-vm-vc-time jl-vm-vc-time-total">{formatTime(duration)}</span>
+          <StepCaption segments={segments} currentTime={currentTime} />
 
           <button
             type="button"

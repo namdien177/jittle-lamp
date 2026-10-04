@@ -301,6 +301,42 @@ export const evidenceStyles = `
 .jl-vm-step-chip[data-status="failed"]::before { background: #ef4444; }
 .jl-vm-step-chip[data-status="blocked"]::before { background: #f59e0b; }
 
+.jl-vm-step-filter {
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jl-vm-step-filter-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--jl-vm-text, #efefef);
+  font-size: calc(12px * var(--jl-font-scale, 1));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.jl-vm-step-filter-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--jl-vm-soft, #b4b7be);
+  font-weight: 400;
+}
+
+.jl-vm-step-filter-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+.jl-vm-step-filter-label[data-status="failed"] .jl-vm-step-filter-dot { background: #ef4444; }
+.jl-vm-step-filter-label[data-status="blocked"] .jl-vm-step-filter-dot { background: #f59e0b; }
+
 .jl-vm-list-wrap {
   flex: 1;
   min-height: 0;
