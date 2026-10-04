@@ -70,7 +70,8 @@ export const explorationConfigSchema = z.object({
     agentInstructions: z.string().nullable(),
     dataLocale: z.string().nullable().default(null)
   }),
-  credentials: z.array(z.object({ profile: z.string().min(1), fields: z.record(z.string(), z.string()), secretFields: z.record(z.string(), z.string()) })),
+  credentials: z.array(z.object({ profile: z.string().min(1), fields: z.record(z.string(), z.string()), loginField: z.string().regex(/^[a-z][a-z0-9_]*$/).nullable().default(null),
+      secretFields: z.record(z.string(), z.string()) })),
   model: z.object({ act: z.string().nullable(), judge: z.string().nullable(), apiKeys: z.record(z.string(), z.string()) }).nullable()
 });
 

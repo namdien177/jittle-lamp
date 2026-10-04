@@ -141,6 +141,7 @@ describe("test run routes and runner contract", () => {
 				profile: "PCF_HQ_ADMIN",
 				fields: { username: "hq.admin@example.test" },
 				secretFields: { password: FAKE_PASSWORD },
+				loginField: null,
 			},
 		]);
 		expect(config.body.model).toEqual({

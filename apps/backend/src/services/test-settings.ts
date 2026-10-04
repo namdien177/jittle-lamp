@@ -12,6 +12,7 @@ import {
 	modelIdProblem,
 	parseTestCaseTranscript,
 	resolveCredentialAlias,
+	resolveLoginField,
 	modelProviderOf as sharedModelProviderOf,
 	type TestCredential,
 	type TestEnvironment,
@@ -238,6 +239,7 @@ export const toCredential = (row: CredentialRow): TestCredential => ({
 	keyVersion: row.keyVersion,
 	lastUsedAt: row.lastUsedAt,
 	loginMacroId: row.loginMacroId,
+	loginField: row.loginField,
 	createdAt: row.createdAt,
 	updatedAt: row.updatedAt,
 });
@@ -301,6 +303,63 @@ export const saveCredential = async (
 ): Promise<CredentialRow> => {
 	const now = Date.now();
 	const { request } = input;
+	const existingCredential = input.id
+		? await getCredentialRow(db, input.orgId, input.id)
+		: null;
+	const loginField =
+		request.kind === "login"
+			? request.loginField !== undefined
+				? request.loginField
+				: (existingCredential?.loginField ?? null)
+			: null;
+	const secretNames = new Set(
+		input.replaceSecrets
+			? []
+			: parseJsonColumn(
+					existingCredential?.secretFieldNamesJson ?? "[]",
+					stringArray,
+					[],
+				),
+	);
+	for (const [name, value] of Object.entries(request.secretFields)) {
+		if (value === null) secretNames.delete(name);
+		else secretNames.add(name);
+	}
+	if (Object.keys(request.fields).some((name) => secretNames.has(name)))
+		throw new HttpError(
+			422,
+			"CREDENTIAL_FIELD_OVERLAP",
+			"A field cannot be both public and secret",
+		);
+	const existingFields = parseJsonColumn(
+		existingCredential?.fieldsJson ?? "{}",
+		stringRecord,
+		{},
+	);
+	const publicFieldsChanged =
+		Object.keys(existingFields).length !== Object.keys(request.fields).length ||
+		Object.entries(request.fields).some(
+			([name, value]) => existingFields[name] !== value,
+		);
+	const loginSelectionChanged =
+		!existingCredential ||
+		existingCredential.kind !== request.kind ||
+		loginField !== existingCredential.loginField ||
+		publicFieldsChanged;
+	if (
+		request.kind === "login" &&
+		loginSelectionChanged &&
+		(loginField !== null || Object.keys(request.fields).length > 0)
+	) {
+		const selection = resolveLoginField(request.fields, loginField);
+		if (selection.error)
+			throw new HttpError(
+				422,
+				"CREDENTIAL_LOGIN_FIELD_INVALID",
+				selection.error,
+			);
+	}
+
 	if (Object.keys(request.secretFields).length > 0 || input.replaceSecrets) {
 		secrets.assertAvailable();
 	}
@@ -333,6 +392,7 @@ export const saveCredential = async (
 						? { environmentId: request.environmentId }
 						: {}),
 					fieldsJson: JSON.stringify(request.fields),
+					loginField,
 					...(request.loginMacroId !== undefined
 						? { loginMacroId: request.loginMacroId }
 						: {}),
@@ -351,6 +411,7 @@ export const saveCredential = async (
 					kind: request.kind,
 					environmentId: request.environmentId ?? null,
 					fieldsJson: JSON.stringify(request.fields),
+					loginField,
 					loginMacroId: request.loginMacroId ?? null,
 					createdBy: input.userId,
 					createdAt: now,
@@ -1113,6 +1174,7 @@ export const resolveRunConfig = async (
 			credentials.push({
 				profile,
 				fields: parseJsonColumn(row.fieldsJson, stringRecord, {}),
+				loginField: row.loginField,
 				secretFields,
 			});
 		}
@@ -1200,6 +1262,20 @@ export const renderEnvironmentFile = async (
 	}
 	for (const row of chosen.values()) {
 		const prefix = `JL_CRED_${envName(row.profile)}`;
+		if (row.loginField)
+			lines.push(
+				`JL_CREDENTIAL_${row.profile}_LOGIN_FIELD=${quoteEnv(row.loginField)}`,
+			);
+		lines.push(
+			`JL_CREDENTIAL_${row.profile}_PUBLIC_FIELDS=${quoteEnv(
+				Object.keys(parseJsonColumn(row.fieldsJson, stringRecord, {}))
+					.sort()
+					.join(","),
+			)}`,
+		);
+		lines.push(
+			`JL_CREDENTIAL_${row.profile}_SECRET_FIELDS=${quoteEnv(parseJsonColumn(row.secretFieldNamesJson, stringArray, []).join(","))}`,
+		);
 		for (const [field, value] of Object.entries(
 			parseJsonColumn(row.fieldsJson, stringRecord, {}),
 		)) {

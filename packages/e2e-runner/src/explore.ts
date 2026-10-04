@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { explorationRecordSchema, type ExplorationRecord, type ExplorationResultRequest } from "@jittle-lamp/shared";
 
-import { collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
+import { credentialLoginContext, collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
 import { e2eNodeModulesDir, renderConfigFile } from "./generate/project";
 import { e2ePackageDir } from "./paths";
 import { createRedactor, redactJson } from "./redact";
@@ -61,15 +61,18 @@ export function toExplorationRecord(raw: unknown): ExplorationRecord | null {
 }
 
 // Before a browser starts: every profile the instructions name must exist with a login identifier
-// (username, or email/login as the resolver maps it) and a password. Otherwise the agent signs in
+// (the selected public field) and a secret password. Otherwise the agent signs in
 // with nothing and guesses accounts (production 2026-10-04, AUTH_CREDENTIAL_UNAVAILABLE).
-export function explorationPreflight(config: Pick<ResolvedRunConfig, "credentials">, missingProfiles: readonly string[] = []): string | null {
+export function explorationPreflight(config: Pick<ResolvedRunConfig, "credentials"> & Partial<Pick<ResolvedRunConfig, "credentialErrors" | "loginFields">>, missingProfiles: readonly string[] = []): string | null {
   if (missingProfiles.length > 0) {
     return `No login credential named ${missingProfiles.join(", ")} for this environment; add it in Testing settings → Credentials`;
   }
   for (const [profile, fields] of config.credentials) {
-    if (!fields.get("username")?.value) return `Credential ${profile} has no username, email or login field`;
-    if (!fields.get("password")?.value) return `Credential ${profile} has no password`;
+    const problem = config.credentialErrors?.get(profile);
+    if (problem) return `Credential ${profile}: ${problem}`;
+    const identifier = fields.get(config.loginFields?.get(profile) ?? "username");
+    if (!identifier?.value || identifier.secret) return `Credential ${profile} needs a public login field`;
+    if (!fields.get("password")?.value || !fields.get("password")?.secret) return `Credential ${profile} needs a secret password field; exploration does not support PIN or accessKey login`;
   }
   return null;
 }
@@ -116,7 +119,7 @@ export async function runExploration(options: RunExplorationOptions): Promise<Ex
   const args = [
     join(e2ePackageDir, "dist/cli/bin.js"),
     "explore",
-    options.goal,
+    [options.goal, credentialLoginContext(config)].filter(Boolean).join("\n\n"),
     "--config",
     configPath,
     "--max-steps",

@@ -239,6 +239,13 @@
       "when": 1791054639104,
       "tag": "0033_import_explorations",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1791091165080,
+      "tag": "0034_credential_login_field",
+      "breakpoints": true
     }
   ]
 }

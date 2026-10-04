@@ -157,6 +157,7 @@ export const testCredentials = sqliteTable(
 			{ onDelete: "set null" },
 		),
 		fieldsJson: text("fields_json").notNull().default("{}"),
+		loginField: text("login_field"),
 		// AES-256-GCM envelope of the secret fields object; never returned by any route.
 		secretFieldsEnc: text("secret_fields_enc"),
 		// Names only, so lists can show which secret fields exist without decrypting.

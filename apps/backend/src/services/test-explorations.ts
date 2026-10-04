@@ -323,6 +323,7 @@ export const explorationConfig = async (
 		if (!credential) continue;
 		credentials.push({
 			profile,
+			loginField: credential.loginField,
 			fields: parseJsonColumn(
 				credential.fieldsJson,
 				z.record(z.string(), z.string()),

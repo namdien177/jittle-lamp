@@ -567,6 +567,7 @@ export const testRunConfigSchema = z.object({
     z.object({
       profile: z.string().min(1),
       fields: z.record(z.string(), z.string()),
+      loginField: z.string().regex(/^[a-z][a-z0-9_]*$/).nullable().default(null),
       secretFields: z.record(z.string(), z.string())
     })
   ),
@@ -618,6 +619,7 @@ export const testCredentialSchema = z.object({
   fields: z.record(z.string(), z.string()),
   // Names only; values never leave the server (§9.3).
   secretFieldNames: z.array(z.string()),
+  loginField: z.string().nullable().default(null),
   keyVersion: z.number().int().positive(),
   lastUsedAt: epochMs.nullable(),
   loginMacroId: id.nullable(),
@@ -631,6 +633,7 @@ export const upsertTestCredentialRequestSchema = z.object({
   fields: z.record(z.string().regex(/^[a-z][a-z0-9_]*$/), z.string()).default({}),
   // Write-only. Omitted fields keep their stored value; null removes the field.
   secretFields: z.record(z.string().regex(/^[a-z][a-z0-9_]*$/), z.string().min(1).nullable()).default({}),
+  loginField: z.string().regex(/^[a-z][a-z0-9_]*$/).nullable().optional(),
   loginMacroId: id.nullable().optional()
 });
 

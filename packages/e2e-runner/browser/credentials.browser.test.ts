@@ -65,4 +65,26 @@ describe("email-only credential profiles in a real browser", () => {
     expect(result.explore?.steps[0]).toMatchObject({ title: "Check the sign in form", status: "passed" });
     expect(JSON.stringify(result)).not.toContain(PASSWORD);
   }, 240_000);
+  test("nickname role reaches the engine account inventory and a run without losing the original username", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "jl-cred-nickname-"));
+    const nick = "qa-nickname";
+    const input = org(app.url, "");
+    input.credentials[0] = { profile: "ILHAM_ALL_ACCESS_ACCOUNT", fields: { username: "original-username", nickname: nick, email: EMAIL }, secretFields: { password: PASSWORD }, loginField: "nickname" };
+    const base = JSON.parse(readFileSync(join(fixtures, "explore.mock.json"), "utf8"));
+    base.turns[0].match.promptIncludes.push("- ILHAM_ALL_ACCESS_ACCOUNT (username: qa-nickname)");
+    const mock = join(cwd, "nickname.mock.json");
+    writeFileSync(mock, JSON.stringify(base));
+    input.model!.act = `mock:${mock}`;
+    const exploration = await runExploration({ explorationId: "nickname", goal: "Check the sign in form", maxSteps: 3, timeoutMs: 180_000, cwd, env: hostEnv(), org: input });
+    expect(exploration.status).toBe("done");
+    expect(exploration.error).toBeNull();
+    const noTurns = join(cwd, "no-turns.mock.json");
+    writeFileSync(noTurns, JSON.stringify({ schemaVersion: 1, turns: [] }));
+    input.model!.act = `mock:${noTurns}`;
+    const run = await runTranscript({ transcript: "# Chosen role\n[Open] /people/{cred:ILHAM_ALL_ACCESS_ACCOUNT}\n[Screenshot] chosen field", transcriptPath: "nickname.md", cwd: join(cwd,"run"), env: hostEnv(), org: input });
+    expect(run.report.outcome).toBe("passed");
+    expect(app.requests).toContain(`GET /people/${nick}`);
+    expect(JSON.stringify(run.report)).not.toContain(PASSWORD);
+  }, 240_000);
+
 });

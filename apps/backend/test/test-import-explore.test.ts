@@ -195,6 +195,7 @@ describe("explored imports", () => {
 		expect(
 			config.body.credentials.map((credential) => credential.profile),
 		).toEqual(["PCF_HQ_ADMIN"]);
+		expect(config.body.credentials[0]?.loginField).toBeNull();
 		expect(config.body.credentials[0]?.secretFields.password).toBe(
 			FAKE_PASSWORD,
 		);

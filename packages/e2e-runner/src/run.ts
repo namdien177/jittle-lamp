@@ -14,7 +14,7 @@ import {
   type TranscriptStep, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
 
 import { loadEnvFiles, type EnvFile } from "./config/env-files";
-import { collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
+import { credentialLoginContext, collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
 import { generateProject, type GeneratedProject } from "./generate/project";
 import { e2ePackageDir, engineVersion, runnerVersion } from "./paths";
 import { ModelResolutionError, resolveModel } from "./model/providers";
@@ -149,6 +149,8 @@ export function buildChildEnv(input: {
   for (const [name, value] of Object.entries(input.plan.params)) env[`JL_VAR_${name}`] = value;
   for (const [profile, fields] of input.config.credentials) {
     for (const [field, value] of fields) env[`JL_CRED_${profile}_${field.toUpperCase()}`] = value.value;
+    const loginField = input.config.loginFields.get(profile);
+    if (loginField) env[`JL_LOGIN_${profile}_IDENTIFIER`] = fields.get(loginField)!.value;
   }
   for (const [name, value] of input.config.providerKeys) env[name] = value.value;
   if (input.config.actModel) env.JL_MODEL = input.config.actModel.value;
@@ -180,6 +182,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     ? [...loadMacros([]).filter((macro) => !options.macros?.some((org) => org.name.toLowerCase() === macro.name.toLowerCase())), ...options.macros]
     : loadMacros([...(options.macroDirs ?? []), join(transcriptDir, "../macros"), join(options.cwd, "e2e/macros")]);
   const cases = options.cases ?? loadCaseDir(transcriptDir);
+  config.agentInstructions = [config.agentInstructions, credentialLoginContext(config)].filter(Boolean).join("\n\n") || null;
   const plan = buildRunPlan({
     transcript: options.transcript,
     config,

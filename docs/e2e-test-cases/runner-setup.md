@@ -118,3 +118,18 @@ jl-e2e run --suite <suite id> --env <environment id> --wait --junit out.xml   # 
 In `--headed` runs, a transparent shield covers the page between agent actions. If you click or type, the run pauses ("Paused: you interacted with the page") until you press Resume. Nothing you do while it is paused is recorded as a step.
 
 Model ids pick the provider: `openrouter/<vendor>/<model>` (`OPENROUTER_API_KEY`), `openai-compatible/<model>` (`OPENAI_COMPATIBLE_BASE_URL`, optional `OPENAI_COMPATIBLE_API_KEY`), `gateway/<provider>/<model>` (`AI_GATEWAY_API_KEY`), `openai/…` (`OPENAI_API_KEY`), `anthropic/…` (`ANTHROPIC_API_KEY`), `google/…` (`GOOGLE_GENERATIVE_AI_API_KEY`), `xai/…` (`XAI_API_KEY`), or `mock:<fixture.json>` (recorded turns, no network). Put the key for each provider your `JL_MODEL` and `JL_JUDGE_MODEL` use in `.env.e2e`; keys are masked in `jl-e2e config` and redacted from logs and reports, the base URL is not. `claude-code/…` uses a local Claude Code login through `--allow-claude-code` and is for development only. See [Choosing a model provider](onboarding-qa.md#choosing-a-model-provider).
+
+## Local credential field metadata
+
+`jl-e2e env pull` exports public/secret classification separately from values, so arbitrary field names work without runner code changes:
+
+```dotenv
+JL_CREDENTIAL_DEMO_PUBLIC_FIELDS="nickname,email"
+JL_CREDENTIAL_DEMO_SECRET_FIELDS="password"
+JL_CREDENTIAL_DEMO_LOGIN_FIELD="nickname"
+JL_CRED_DEMO_NICKNAME="qa-nick"
+JL_CRED_DEMO_EMAIL="qa@example.test"
+JL_CRED_DEMO_PASSWORD=""
+```
+
+Fill the password locally. Omit `JL_CREDENTIAL_DEMO_LOGIN_FIELD` for automatic selection (`username`, otherwise the only public field). Classification from an organisation also applies to local value overrides, and an organisation secret cannot be made public by local metadata. Without metadata, legacy field-name secrecy rules still apply.

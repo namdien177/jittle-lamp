@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Eye, KeyRound, Lock, Pencil, Plus, RotateCw, Trash2, Undo2 } from "lucide-react";
-import type { TestCredential, TestEnvironment } from "@jittle-lamp/shared";
+import { resolveLoginField, type TestCredential, type TestEnvironment } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -73,7 +73,7 @@ export function SettingsTestCredentialsPage(): React.JSX.Element {
         {credentials.isPending ? (
           <Skeleton className="m-4 h-32" />
         ) : list.length === 0 ? (
-          <EmptyState className="m-4" icon={<KeyRound aria-hidden />} title="No credentials yet" description="Add a login profile per role, for example PCF_HQ_ADMIN with a username and a password." />
+          <EmptyState className="m-4" icon={<KeyRound aria-hidden />} title="No credentials yet" description="Add a login profile per role, for example PCF_HQ_ADMIN with a login field and a secret password." />
         ) : (
           <Table>
             <TableHeader>
@@ -201,6 +201,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
     source ? source.secretFieldNames.map((name) => ({ name, value: "", stored: true, remove: false })) : [{ name: "password", value: "", stored: false, remove: false }]
   );
   const [submitted, setSubmitted] = useState(false);
+  const [loginField, setLoginField] = useState(source?.loginField ?? "__auto__");
 
   const save = useTestAdminMutation(
     (getToken, body: CredentialInput) => (source ? testAdminApi.updateCredential(getToken, source.id, body) : testAdminApi.createCredential(getToken, body)),
@@ -212,7 +213,9 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
     .filter((row) => !row.stored && (row.name || row.value))
     .flatMap((row) => (credentialFieldPattern.test(row.name) ? [] : [`Secret field "${row.name || "(empty)"}" is not a valid name.`]));
   const profileError = profilePattern.test(profile) ? undefined : "Upper-case letters, digits and underscores, starting with a letter.";
-  const valid = !profileError && fieldResult.errors.length === 0 && secretErrors.length === 0;
+  const loginSelection = resolveLoginField(fieldResult.record, loginField === "__auto__" ? null : loginField);
+  const loginError = kind === "login" ? loginSelection.error : null;
+  const valid = !profileError && fieldResult.errors.length === 0 && secretErrors.length === 0 && !loginError;
 
   const updateSecret = (index: number, patch: Partial<SecretRow>) => setSecrets((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
 
@@ -224,7 +227,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
       if (row.stored && row.remove) secretFields[row.name] = null;
       else if (row.value.length > 0 && row.name) secretFields[row.name] = row.value;
     }
-    await save.mutateAsync({ profile, kind, environmentId: environmentId === SHARED ? null : environmentId, fields: fieldResult.record, secretFields });
+    await save.mutateAsync({ profile, kind, environmentId: environmentId === SHARED ? null : environmentId, fields: fieldResult.record, secretFields, loginField: kind === "login" && loginField !== "__auto__" ? loginField : null });
     setSecrets((current) => current.map((row) => ({ ...row, value: "" })));
     props.onClose();
   };
@@ -290,6 +293,14 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
               </p>
             ))}
           </div>
+
+          {kind === "login" ? (
+            <Field label="Field used to sign in" error={submitted ? loginError ?? undefined : undefined}>
+              <SimpleSelect ariaLabel="Field used to sign in" value={loginField} onValueChange={setLoginField} disabled={props.readOnly}
+                options={[{ label: loginField === "__auto__" && loginSelection.field ? `Automatic · ${loginSelection.field}` : "Automatic", value: "__auto__" }, ...Object.keys(fieldResult.record).sort().map((name) => ({ label: name, value: name }))]} />
+              <p className="text-sm text-muted-foreground">Uses username or the only public field automatically. With several other fields, choose the one used to sign in.</p>
+            </Field>
+          ) : null}
 
           <div className="grid gap-2">
             <span className="font-medium text-muted-foreground">Secret fields · write-only</span>
