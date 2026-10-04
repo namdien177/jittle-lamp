@@ -54,11 +54,12 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
       className={mode === "page" ? "jl-vm-root" : "jl-vm-modal"}
       data-jl-theme={theme}
       data-compact={props.compact ? "true" : "false"}
+      data-embedded={props.embedded ? "true" : "false"}
       role={mode === "modal" ? "dialog" : undefined}
       aria-modal={mode === "modal" ? "true" : undefined}
       aria-label={props.title}
     >
-      <ViewerModalHeader {...props} mode={mode} />
+      {props.embedded ? null : <ViewerModalHeader {...props} mode={mode} />}
       <div className="jl-vm-body">
         <div className="jl-vm-left"><EvidenceVideoPlayer {...props} /></div>
         <EvidencePane {...props} />

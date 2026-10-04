@@ -23,8 +23,12 @@ export type ViewerStepChip = {
   stepId: string;
   ordinal: number;
   label: string;
+  type: string;
   status: "running" | "passed" | "failed" | "blocked" | "skipped";
   mode: "agent" | "replayed" | "handoff" | "deterministic" | null;
+  // Where the step sits in the recording; the seek bar draws one segment per step.
+  startMs: number;
+  endMs: number | null;
 };
 
 export type ViewerSource = "local" | "zip" | "cloud" | "share";
@@ -62,6 +66,10 @@ export type ViewerModalProps = {
   onClose: () => void;
   mode?: "modal" | "page";
   compact?: boolean;
+  /** Embedded beside a test run's step list: that list is the step filter and the page header
+   * carries the title and actions, so the viewer drops its header and step chips, and folds the
+   * evidence stream away until asked for. */
+  embedded?: boolean;
   onDetailsOpen?: () => void;
   onInfoOpen?: () => void;
   /** Color theme for the viewer chrome. Defaults to "dark". The video well stays dark in both. */

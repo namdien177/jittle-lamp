@@ -623,6 +623,8 @@ export function EmbeddedEvidenceViewer(props: {
   activeStepId: string | null;
   onActiveStepIdChange: (stepId: string | null) => void;
   stepOffsetsMs?: Readonly<Record<string, number>>;
+  onPlayingStepIdChange?: (stepId: string | null) => void;
+  actionsContainer?: HTMLElement | null;
   onClose: () => void;
 }): React.JSX.Element {
   const auth = useAuth();
@@ -688,6 +690,9 @@ export function EmbeddedEvidenceViewer(props: {
       activeStepId={props.activeStepId}
       onActiveStepIdChange={props.onActiveStepIdChange}
       {...(props.stepOffsetsMs ? { stepOffsetsMs: props.stepOffsetsMs } : {})}
+      embedded
+      {...(props.onPlayingStepIdChange ? { onPlayingStepIdChange: props.onPlayingStepIdChange } : {})}
+      actionsContainer={props.actionsContainer ?? null}
     />
   );
 }

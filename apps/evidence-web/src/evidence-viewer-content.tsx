@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Download } from "lucide-react";
 import {
   buildVisibleActionRows,
   buildSectionTimeline,
@@ -36,6 +38,8 @@ import type { ActionMergeGroup } from "@jittle-lamp/shared";
 
 import { buildReviewedArchive } from "./archive-export";
 import { buildReviewedZipBlob } from "./adapters";
+import { Button } from "./components/ui/button";
+import { Hint } from "./components/ui/tooltip";
 import { scrollElementWithinContainer } from "./contained-scroll";
 
 export type FeedbackTone = "neutral" | "success" | "error";
@@ -81,6 +85,12 @@ export type EvidenceViewerContentProps = {
   onActiveStepIdChange?: (stepId: string | null) => void;
   // Video offsets from the run's steps; used before the archive's step annotations.
   stepOffsetsMs?: Readonly<Record<string, number>>;
+  // Run detail page: the viewer sits beside the run's step list (see ViewerModalProps.embedded).
+  embedded?: boolean;
+  // The top-level step under the playhead, so the run's step list can mark it while playing.
+  onPlayingStepIdChange?: (stepId: string | null) => void;
+  // Embedded: where the page header wants the viewer's actions (Download ZIP).
+  actionsContainer?: HTMLElement | null;
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -158,7 +168,10 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     renamingEvidence = false,
     copyingLlmPrompt = false,
     recordedBy = null,
-    stepOffsetsMs
+    stepOffsetsMs,
+    embedded = false,
+    onPlayingStepIdChange,
+    actionsContainer = null
   } = props;
 
   const appTheme = useAppTheme();
@@ -208,7 +221,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
   );
 
   const stepAnnotations = useMemo(() => getStepAnnotations(archive), [archive]);
-  const stepChips = useMemo(() => buildViewerStepChips(archive), [archive]);
+  const stepChips = useMemo(() => buildViewerStepChips(archive, stepOffsetsMs ?? null), [archive, stepOffsetsMs]);
+  const playingStepIdRef = useRef<string | null>(null);
 
   const seekToStep = useCallback(
     (stepId: string | null) => {
@@ -404,6 +418,12 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
     // `sectionItems` already equals the section timeline for the active section
     // (memoized), so reuse it instead of rebuilding on every video time update.
     setActiveIndex(findActiveIndex(sectionItems, currentMs));
+    if (!onPlayingStepIdChange) return;
+    let playing: string | null = null;
+    for (const chip of stepChips) if (chip.startMs <= currentMs + 50) playing = chip.stepId;
+    if (playing === playingStepIdRef.current) return;
+    playingStepIdRef.current = playing;
+    onPlayingStepIdChange(playing);
   };
 
   const onCopy = (value: string, label: string): void => {
@@ -488,148 +508,165 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       : base;
   }), [sectionItems, activeSection, selectedActionIds]);
 
+  // Embedded in the run page the viewer has no header; its one action joins the page header.
+  const embeddedActions =
+    embedded && actionsContainer
+      ? createPortal(
+          <Hint label={downloadingZip ? "Preparing ZIP…" : "Download ZIP"}>
+            <Button size="icon-sm" variant="ghost" aria-label="Download ZIP" disabled={downloadingZip} onClick={() => void handleDownloadZip()}>
+              <Download aria-hidden />
+            </Button>
+          </Hint>,
+          actionsContainer
+        )
+      : null;
+
   return (
-    <ViewerModal
-      open
-      {...(props.onInfoOpen ? { onInfoOpen: props.onInfoOpen } : {})}
-      compact
-      {...(props.onDetailsOpen ? { onDetailsOpen: props.onDetailsOpen } : {})}
-      onClose={closeViewer}
-      mode={viewerMode}
-      theme={appTheme}
-      {...(viewerMode === "page" ? { closeLabel: "Back to evidence" } : {})}
-      title={archive.name}
-      titleMeta={recordingMeta}
-      aboutEvidence={archive.recorder}
-      recordedBy={recordedBy}
-      tags={[]}
-      source={source}
-      isOwner={isOwner}
-      shareLinkUrl={shareLinkUrl}
-      {...(shareLinkUrl ? { onCopyShareLink: () => onCopy(shareLinkUrl, "share link") } : {})}
-      {...(onRenameEvidence ? { onRename: onRenameEvidence } : {})}
-      {...(onRenameEvidence ? { renaming: renamingEvidence } : {})}
-      {...(onCopyEvidence ? { onCopyEvidence } : {})}
-      {...(onCopyLlmPrompt ? { onCopyLlmPrompt } : {})}
-      {...(onCopyLlmPrompt ? { copyingLlmPrompt } : {})}
-      {...(onTransferEvidence ? { onTransferEvidence } : {})}
-      onDownloadZip={() => void handleDownloadZip()}
-      downloadingZip={downloadingZip}
-      videoRef={videoRef}
-      videoSrc={videoSrc}
-      videoDurationHintMs={videoDurationHintMs}
-      gapMarkersMs={gapMarkersMs}
-      notesValue=""
-      notesReadOnly
-      notesSaving={false}
-      notesDirty={false}
-      notesNotice={null}
-      onNotesChange={() => undefined}
-      onSaveNotes={() => undefined}
-      discussionComments={discussionComments ?? []}
-      discussionValue={discussionValue ?? ""}
-      discussionReadOnly={false}
-      discussionSaving={discussionSaving}
-      discussionNotice={discussionNotice ?? null}
-      onDiscussionChange={onDiscussionChange ?? (() => undefined)}
-      onSubmitDiscussion={onSubmitDiscussion ?? (() => undefined)}
-      evidenceTags={evidenceTags ?? []}
-      availableEvidenceTags={availableEvidenceTags ?? []}
-      canUpdateEvidenceTags={canUpdateEvidenceTags}
-      evidenceTagsSaving={evidenceTagsSaving}
-      onEvidenceTagsChange={onEvidenceTagsChange ?? (() => undefined)}
-      onVideoTimeUpdate={updateHighlight}
-      onVideoError={() => {
-        if (videoRef.current) onVideoError(videoRef.current);
-      }}
-      activeSection={activeSection}
-      onSectionChange={(section) => {
-        setActiveSection(section);
-        setActiveIndex(-1);
-        setNetworkDetailIndex(null);
-      }}
-      searchQuery={networkSearchQuery}
-      onSearchChange={(query) => {
-        setNetworkSearchQuery(query);
-        setNetworkDetailIndex(null);
-      }}
-      subtypeFilter={networkSubtypeFilter}
-      onSubtypeFilterChange={(subtype) => {
-        setNetworkSubtypeFilter(subtype);
-        setNetworkDetailIndex(null);
-      }}
-      rows={rows}
-      steps={stepChips}
-      activeStepId={activeStepId}
-      onStepSelect={(stepId) => {
-        setActiveStepId(stepId);
-        setActiveIndex(-1);
-        setNetworkDetailIndex(null);
-        setSelectedActionIds(new Set());
-        setAnchorActionId(null);
-        seekToStep(stepId);
-      }}
-      activeItemId={activeItemId}
-      autoFollow={autoFollow}
-      onItemClick={(row, event) => {
-        handleTimelineItemClick(event, row.id, row.offsetMs);
-        if (activeSection === "console") {
-          const idx = loadedTimeline.findIndex((item) => item.id === row.id);
-          if (idx !== -1) {
-            setNetworkDetailIndex((prev) => (prev === idx ? null : idx));
+    <>
+      <ViewerModal
+        open
+        {...(props.onInfoOpen ? { onInfoOpen: props.onInfoOpen } : {})}
+        compact
+        embedded={embedded}
+        {...(props.onDetailsOpen ? { onDetailsOpen: props.onDetailsOpen } : {})}
+        onClose={closeViewer}
+        mode={viewerMode}
+        theme={appTheme}
+        {...(viewerMode === "page" ? { closeLabel: "Back to evidence" } : {})}
+        title={archive.name}
+        titleMeta={recordingMeta}
+        aboutEvidence={archive.recorder}
+        recordedBy={recordedBy}
+        tags={[]}
+        source={source}
+        isOwner={isOwner}
+        shareLinkUrl={shareLinkUrl}
+        {...(shareLinkUrl ? { onCopyShareLink: () => onCopy(shareLinkUrl, "share link") } : {})}
+        {...(onRenameEvidence ? { onRename: onRenameEvidence } : {})}
+        {...(onRenameEvidence ? { renaming: renamingEvidence } : {})}
+        {...(onCopyEvidence ? { onCopyEvidence } : {})}
+        {...(onCopyLlmPrompt ? { onCopyLlmPrompt } : {})}
+        {...(onCopyLlmPrompt ? { copyingLlmPrompt } : {})}
+        {...(onTransferEvidence ? { onTransferEvidence } : {})}
+        onDownloadZip={() => void handleDownloadZip()}
+        downloadingZip={downloadingZip}
+        videoRef={videoRef}
+        videoSrc={videoSrc}
+        videoDurationHintMs={videoDurationHintMs}
+        gapMarkersMs={gapMarkersMs}
+        notesValue=""
+        notesReadOnly
+        notesSaving={false}
+        notesDirty={false}
+        notesNotice={null}
+        onNotesChange={() => undefined}
+        onSaveNotes={() => undefined}
+        discussionComments={discussionComments ?? []}
+        discussionValue={discussionValue ?? ""}
+        discussionReadOnly={false}
+        discussionSaving={discussionSaving}
+        discussionNotice={discussionNotice ?? null}
+        onDiscussionChange={onDiscussionChange ?? (() => undefined)}
+        onSubmitDiscussion={onSubmitDiscussion ?? (() => undefined)}
+        evidenceTags={evidenceTags ?? []}
+        availableEvidenceTags={availableEvidenceTags ?? []}
+        canUpdateEvidenceTags={canUpdateEvidenceTags}
+        evidenceTagsSaving={evidenceTagsSaving}
+        onEvidenceTagsChange={onEvidenceTagsChange ?? (() => undefined)}
+        onVideoTimeUpdate={updateHighlight}
+        onVideoError={() => {
+          if (videoRef.current) onVideoError(videoRef.current);
+        }}
+        activeSection={activeSection}
+        onSectionChange={(section) => {
+          setActiveSection(section);
+          setActiveIndex(-1);
+          setNetworkDetailIndex(null);
+        }}
+        searchQuery={networkSearchQuery}
+        onSearchChange={(query) => {
+          setNetworkSearchQuery(query);
+          setNetworkDetailIndex(null);
+        }}
+        subtypeFilter={networkSubtypeFilter}
+        onSubtypeFilterChange={(subtype) => {
+          setNetworkSubtypeFilter(subtype);
+          setNetworkDetailIndex(null);
+        }}
+        rows={rows}
+        steps={stepChips}
+        activeStepId={activeStepId}
+        onStepSelect={(stepId) => {
+          setActiveStepId(stepId);
+          setActiveIndex(-1);
+          setNetworkDetailIndex(null);
+          setSelectedActionIds(new Set());
+          setAnchorActionId(null);
+          seekToStep(stepId);
+        }}
+        activeItemId={activeItemId}
+        autoFollow={autoFollow}
+        onItemClick={(row, event) => {
+          handleTimelineItemClick(event, row.id, row.offsetMs);
+          if (activeSection === "console") {
+            const idx = loadedTimeline.findIndex((item) => item.id === row.id);
+            if (idx !== -1) {
+              setNetworkDetailIndex((prev) => (prev === idx ? null : idx));
+            }
           }
+        }}
+        onItemContextMenu={(row, event) => {
+          if (activeSection === "actions") {
+            handleTimelineItemContextMenu(event, row.id);
+            return;
+          }
+          if (activeSection === "network") {
+            setContextMenu({
+              open: true,
+              x: event.clientX,
+              y: event.clientY,
+              rowId: row.id,
+              kind: "network",
+              canMerge: false,
+              canUnmerge: false
+            });
+          }
+        }}
+        onAutoFollowToggle={() => {
+          setAutoFollow(true);
+        }}
+        onUserScroll={() => setAutoFollow(false)}
+        timelineRef={timelineRef}
+        drawerItem={drawerItem}
+        onDrawerClose={() => setNetworkDetailIndex(null)}
+        onCopy={onCopy}
+        contextMenu={contextMenu}
+        onContextMenuClose={closeContextMenu}
+        onContextMenuMerge={handleContextMenuMerge}
+        onContextMenuUnmerge={handleContextMenuUnmerge}
+        onCopyCurl={(rowId) => {
+          const item = findNetworkItem(rowId);
+          if (item && item.payload.kind === "network") onCopy(buildCurl(item.payload), "cURL command");
+        }}
+        onCopyResponse={(rowId) => {
+          const item = findNetworkItem(rowId);
+          if (item && item.payload.kind === "network") onCopy(getResponseBodyString(item.payload), "response body");
+        }}
+        mergeDialog={{
+          open: mergeDialog.mergeDialogOpen,
+          value: mergeDialog.mergeDialogValue,
+          error: mergeDialog.mergeDialogError
+        }}
+        onMergeValueChange={(value) =>
+          setMergeDialog((prev) => ({ ...prev, mergeDialogValue: value, mergeDialogError: null }))
         }
-      }}
-      onItemContextMenu={(row, event) => {
-        if (activeSection === "actions") {
-          handleTimelineItemContextMenu(event, row.id);
-          return;
-        }
-        if (activeSection === "network") {
-          setContextMenu({
-            open: true,
-            x: event.clientX,
-            y: event.clientY,
-            rowId: row.id,
-            kind: "network",
-            canMerge: false,
-            canUnmerge: false
-          });
-        }
-      }}
-      onAutoFollowToggle={() => {
-        setAutoFollow(true);
-      }}
-      onUserScroll={() => setAutoFollow(false)}
-      timelineRef={timelineRef}
-      drawerItem={drawerItem}
-      onDrawerClose={() => setNetworkDetailIndex(null)}
-      onCopy={onCopy}
-      contextMenu={contextMenu}
-      onContextMenuClose={closeContextMenu}
-      onContextMenuMerge={handleContextMenuMerge}
-      onContextMenuUnmerge={handleContextMenuUnmerge}
-      onCopyCurl={(rowId) => {
-        const item = findNetworkItem(rowId);
-        if (item && item.payload.kind === "network") onCopy(buildCurl(item.payload), "cURL command");
-      }}
-      onCopyResponse={(rowId) => {
-        const item = findNetworkItem(rowId);
-        if (item && item.payload.kind === "network") onCopy(getResponseBodyString(item.payload), "response body");
-      }}
-      mergeDialog={{
-        open: mergeDialog.mergeDialogOpen,
-        value: mergeDialog.mergeDialogValue,
-        error: mergeDialog.mergeDialogError
-      }}
-      onMergeValueChange={(value) =>
-        setMergeDialog((prev) => ({ ...prev, mergeDialogValue: value, mergeDialogError: null }))
-      }
-      onMergeConfirm={submitMergeDialog}
-      onMergeCancel={cancelMergeDialog}
-      feedback={feedback}
-      onFeedbackDismiss={dismissFeedback}
-    />
+        onMergeConfirm={submitMergeDialog}
+        onMergeCancel={cancelMergeDialog}
+        feedback={feedback}
+        onFeedbackDismiss={dismissFeedback}
+      />
+      {embeddedActions}
+    </>
   );
 }
 
