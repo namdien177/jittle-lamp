@@ -49,7 +49,7 @@ function substituteParams(text: string, params: Readonly<Record<string, string>>
 export function compileStep(
   step: PlannedStep,
   plan: Pick<RunPlan, "credentialAliases" | "params">,
-  config: Pick<ResolvedRunConfig, "vars">,
+  config: Pick<ResolvedRunConfig, "vars"> & Partial<Pick<ResolvedRunConfig, "credentials" | "loginFields">>,
   extractedNames: ReadonlySet<string>
 ): CompiledStep {
   const bindings: Record<string, Binding> = {};
@@ -59,11 +59,12 @@ export function compileStep(
       const ref = substituteParams(token.slice("cred:".length), plan.params);
       const dot = ref.lastIndexOf(".");
       const name = dot === -1 ? ref : ref.slice(0, dot);
-      const field = (dot === -1 ? "username" : ref.slice(dot + 1)).toLowerCase();
       const profile = plan.credentialAliases[name] ?? name;
+      const field = (dot === -1 ? config.loginFields?.get(profile) ?? "username" : ref.slice(dot + 1)).toLowerCase();
       const param = `${paramSafe(profile)}__${paramSafe(field)}`;
-      if (field === "password") bindings[param] = { kind: "cred-password", profile };
-      else if (isSecretCredentialField(field)) bindings[param] = { kind: "secret", name: `${profile}.${field}` };
+      const secret = config.credentials?.get(profile)?.get(field)?.secret ?? isSecretCredentialField(field);
+      if (field === "password" && secret) bindings[param] = { kind: "cred-password", profile };
+      else if (secret) bindings[param] = { kind: "secret", name: `${profile}.${field}` };
       else bindings[param] = { kind: "cred", profile, field };
       return `{${param}}`;
     }
@@ -193,7 +194,7 @@ export function renderConfigFile(input: {
   const credentials = input.credentialProfiles
     .map(
       (profile) =>
-        `    ${q(profile)}: { username: process.env[${q(`JL_CRED_${profile}_USERNAME`)}] ?? "", password: () => process.env[${q(`JL_CRED_${profile}_PASSWORD`)}] ?? "" }`
+        `    ${q(profile)}: { username: process.env[${q(`JL_LOGIN_${profile}_IDENTIFIER`)}] ?? process.env[${q(`JL_CRED_${profile}_USERNAME`)}] ?? "", password: () => process.env[${q(`JL_CRED_${profile}_PASSWORD`)}] ?? "" }`
     )
     .join(",\n");
   const secrets = input.secretNames.map(({ name, env }) => `    ${q(name)}: () => process.env[${q(env)}] ?? ""`).join(",\n");

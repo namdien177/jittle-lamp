@@ -442,6 +442,7 @@ export async function executeClaimedExploration(input: {
         credentials: config.credentials,
         model: config.model
       },
+      missingProfiles: config.missingProfiles,
       cwd: input.workDir,
       env: input.hostEnv,
       headed: input.headed,
@@ -479,12 +480,14 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
   const concurrency = Number.isFinite(requested) ? Math.min(50, Math.max(1, Math.floor(requested))) : 1;
   const pollMs = options.pollMs ?? 3_000;
   const active = new Map<string, Promise<void>>();
+  // Heartbeats name a run the worker holds; explorations are not runs.
+  const activeRuns = new Set<string>();
   let stopping = false;
   let fatal: unknown = null;
   log(`registered as worker ${state.workerId} in pool ${state.poolId}; concurrency ${concurrency}`);
 
   const heartbeat = setInterval(() => {
-    void client.heartbeat(state.workerToken, [...active.keys()][0] ?? null, active.size).catch((error: unknown) => {
+    void client.heartbeat(state.workerToken, [...activeRuns][0] ?? null, active.size).catch((error: unknown) => {
       log(`heartbeat failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   }, state.heartbeatMs);
@@ -564,8 +567,12 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
       })
         .then(() => undefined)
         .catch((error: unknown) => log(`run ${run.runId} crashed: ${error instanceof Error ? error.message : String(error)}`))
-        .finally(() => active.delete(run.runId));
+        .finally(() => {
+          active.delete(run.runId);
+          activeRuns.delete(run.runId);
+        });
       active.set(run.runId, task);
+      activeRuns.add(run.runId);
       if (options.once) {
         await task;
         break;

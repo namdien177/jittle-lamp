@@ -1,0 +1,1 @@
+ALTER TABLE `test_credentials` ADD `login_field` text;

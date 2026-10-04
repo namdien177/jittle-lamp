@@ -133,8 +133,13 @@ function renderInstruction(
       const ref = token.slice("cred:".length);
       const dot = ref.lastIndexOf(".");
       const profileName = dot === -1 ? ref : ref.slice(0, dot);
-      const field = dot === -1 ? "username" : ref.slice(dot + 1).toLowerCase();
       const profile = aliases.get(profileName) ?? profileName;
+      const field = dot === -1 ? config.loginFields.get(profile) ?? "username" : ref.slice(dot + 1).toLowerCase();
+      if (dot === -1 && config.credentialErrors.has(profile)) {
+        missing.add(`credential('${profileName}').loginField: ${config.credentialErrors.get(profile)}`);
+        missingKinds.add("credential");
+        return match;
+      }
       const value = config.credentials.get(profile)?.get(field);
       if (!value) {
         missing.add(`credential('${profileName}').${field}`);

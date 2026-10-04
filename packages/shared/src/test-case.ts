@@ -1019,6 +1019,19 @@ export const linkedCaseSchema = z.object({
   transcript: z.string()
 });
 
+// Macros the runner ships (packages/e2e-runner/macros). An organisation macro of the same name
+// overrides one, so lint must know them wherever it checks [Login: X].
+export const builtinMacroSignatures: ReadonlyArray<{ name: string; params: Array<z.infer<typeof macroParamSchema>> }> = [
+  { name: "Login", params: [{ name: "profile", required: true, default: null, kind: "credential" }] }
+];
+
+export function withBuiltinMacroSignatures<T extends { name: string; params: Array<z.infer<typeof macroParamSchema>> }>(
+  macros: readonly T[]
+): Array<T | (typeof builtinMacroSignatures)[number]> {
+  const names = new Set(macros.map((macro) => macro.name.toLowerCase()));
+  return [...macros, ...builtinMacroSignatures.filter((macro) => !names.has(macro.name.toLowerCase()))];
+}
+
 export type MacroParam = z.infer<typeof macroParamSchema>;
 export type LinkedCase = z.infer<typeof linkedCaseSchema>;
 export type MacroDefinition = z.infer<typeof macroDefinitionSchema>;

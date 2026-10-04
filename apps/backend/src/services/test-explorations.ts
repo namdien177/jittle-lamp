@@ -1,10 +1,13 @@
 import {
 	type ClaimedExploration,
 	type ExplorationConfig,
+	type ExplorationOutcome,
 	type ExplorationRecord,
 	type ExplorationResultRequest,
+	explorationDraftTranscript,
 	explorationFallbackTranscript,
 	explorationGoal,
+	explorationOutcome,
 	explorationRecordSchema,
 	explorationTranscriptPrompt,
 	type ImportItemExploration,
@@ -12,6 +15,8 @@ import {
 	resolveCredentialAlias,
 	serializeTestCase,
 	summarizeExploration,
+	type TranscriptGrounding,
+	transcriptProblems,
 } from "@jittle-lamp/shared";
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod/v4";
@@ -33,7 +38,7 @@ import {
 	guardedFetch,
 	type OutboundPolicy,
 } from "./outbound-http";
-import { parseJsonColumn } from "./test-cases";
+import { loadLintContext, parseJsonColumn } from "./test-cases";
 import type { TestSecrets } from "./test-config";
 import { extractTranscript } from "./test-import-parsers";
 import { analyseCandidate, type TextGenerator } from "./test-imports";
@@ -252,8 +257,26 @@ const mentions = (text: string, name: string) =>
 		"i",
 	).test(text);
 
-// The environment, the model and the login profiles the instructions name (by profile or by a
-// unique prefix, as [Login: PCF] does). Nothing else is decrypted.
+// Login profiles the instructions name, by profile or by a unique prefix as [Login: PCF] does,
+// and PROFILE_LIKE names the organisation has no login credential for.
+export const profilesNamedIn = (
+	instructions: string,
+	available: readonly string[],
+): { named: Set<string>; missing: string[] } => {
+	const profiles = new Set(available);
+	const named = new Set<string>();
+	const missing = new Set<string>();
+	for (const word of instructions.match(/[A-Za-z][A-Za-z0-9_]{1,}/g) ?? []) {
+		if (!mentions(instructions, word)) continue;
+		const profile = resolveCredentialAlias(word, profiles);
+		if (profile) named.add(profile);
+		else if (/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(word)) missing.add(word);
+	}
+	return { named, missing: [...missing].sort() };
+};
+
+// The environment, the model and the login profiles the instructions name. Nothing else is
+// decrypted.
 export const explorationConfig = async (
 	db: BackendDb,
 	secrets: TestSecrets,
@@ -284,13 +307,10 @@ export const explorationConfig = async (
 			credential.environmentId === null ||
 			credential.environmentId === environment.id,
 	);
-	const profiles = new Set(rows.map((credential) => credential.profile));
-	const named = new Set<string>();
-	for (const word of row.instructions.match(/[A-Za-z][A-Za-z0-9_]{1,}/g) ??
-		[]) {
-		const profile = resolveCredentialAlias(word, profiles);
-		if (profile && mentions(row.instructions, word)) named.add(profile);
-	}
+	const { named, missing } = profilesNamedIn(
+		row.instructions,
+		rows.map((credential) => credential.profile),
+	);
 	const credentials: ExplorationConfig["credentials"] = [];
 	for (const profile of named) {
 		const candidates = rows.filter(
@@ -303,6 +323,7 @@ export const explorationConfig = async (
 		if (!credential) continue;
 		credentials.push({
 			profile,
+			loginField: credential.loginField,
 			fields: parseJsonColumn(
 				credential.fieldsJson,
 				z.record(z.string(), z.string()),
@@ -328,6 +349,7 @@ export const explorationConfig = async (
 		reason: "import.explore",
 	});
 	return {
+		missingProfiles: missing,
 		environment: {
 			name: environment.name,
 			baseUrl: environment.baseUrl,
@@ -355,15 +377,40 @@ const transcriptFromRecord = async (
 		record: ExplorationRecord;
 		generateText: TextGenerator | null;
 		outbound?: OutboundPolicy;
+		sleep?: (ms: number) => Promise<void>;
 	},
-): Promise<{ transcript: string; note: string | null }> => {
+): Promise<{
+	transcript: string;
+	note: string | null;
+	outcome: ExplorationOutcome;
+	reason: string | null;
+}> => {
+	const { outcome, reason } = explorationOutcome(input.record);
+	// A blocked, failed or incomplete exploration proved nothing: keep the instructions as written
+	// rather than turn what the agent saw while failing into a test.
+	if (outcome !== "passed") {
+		return {
+			transcript: explorationDraftTranscript({
+				title: input.row.title,
+				instructions: input.row.instructions,
+				environmentName: input.environmentName,
+				outcome,
+				reason,
+			}),
+			note: `Exploration ${outcome}${reason ? `: ${reason}` : ""}`,
+			outcome,
+			reason,
+		};
+	}
 	const fallback = () =>
 		explorationFallbackTranscript({
 			title: input.row.title,
 			record: input.record,
 			environmentName: input.environmentName,
 		});
-	if (!input.generateText) return { transcript: fallback(), note: null };
+	if (!input.generateText)
+		return { transcript: fallback(), note: null, outcome, reason };
+	const grounding = await explorationGrounding(db, input.row);
 	try {
 		const model = await resolveModelKeys(db, secrets, {
 			orgId: input.row.orgId,
@@ -378,19 +425,31 @@ const transcriptFromRecord = async (
 				url instanceof Request ? url.url : String(url),
 				init ?? {},
 			)) as typeof fetch;
+		const generateText = input.generateText;
 		const generated = extractTranscript(
-			await input.generateText({
-				modelId: model.act,
-				apiKeys: model.apiKeys,
-				fetch: modelFetch,
-				prompt: explorationTranscriptPrompt({
-					title: input.row.title,
-					instructions: input.row.instructions,
-					environmentName: input.environmentName,
-					record: input.record,
-				}),
-			}),
+			await withRateLimitRetry(
+				() =>
+					generateText({
+						modelId: model.act,
+						apiKeys: model.apiKeys,
+						fetch: modelFetch,
+						prompt: explorationTranscriptPrompt({
+							title: input.row.title,
+							instructions: input.row.instructions,
+							environmentName: input.environmentName,
+							record: input.record,
+							grounding,
+						}),
+					}),
+				input.sleep,
+			),
 		);
+		// Only a transcript that runs as written: no unknown macro, no profile the exploration
+		// was not given, no parse or lint error.
+		const problems = transcriptProblems(generated, grounding);
+		if (problems.length > 0) {
+			throw new Error(`invalid transcript: ${problems.slice(0, 3).join("; ")}`);
+		}
 		const parsed = parseTranscriptDocument(generated).cases[0];
 		if (!parsed || parsed.steps.length === 0) throw new Error("no steps");
 		const titled = {
@@ -405,12 +464,94 @@ const transcriptFromRecord = async (
 		return {
 			transcript: `${serializeTestCase(titled, { forceHeading: true })}\n`,
 			note: null,
+			outcome,
+			reason,
 		};
 	} catch (error) {
 		return {
 			transcript: fallback(),
 			note: `The model did not write the transcript (${error instanceof Error ? error.message : "unknown error"}); it lists the explored steps`,
+			outcome,
+			reason,
 		};
+	}
+};
+
+// What a written transcript may use: the organisation's macros plus the built-in ones, and the
+// login profiles the exploration was given.
+const explorationGrounding = async (
+	db: BackendDb,
+	row: ExplorationRow,
+): Promise<TranscriptGrounding> => {
+	const context = await loadLintContext(db, row.orgId, row.environmentId);
+	const credentials = await db.query.testCredentials.findMany({
+		where: and(
+			eq(testCredentials.orgId, row.orgId),
+			eq(testCredentials.kind, "login"),
+			isNull(testCredentials.deletedAt),
+		),
+		columns: { profile: true, environmentId: true },
+	});
+	const available = credentials
+		.filter(
+			(credential) =>
+				credential.environmentId === null ||
+				credential.environmentId === row.environmentId,
+		)
+		.map((credential) => credential.profile);
+	return {
+		macros: context.macros,
+		profiles: [...profilesNamedIn(row.instructions, available).named],
+	};
+};
+
+// A rate-limited model call (429) is tried once more after the provider's Retry-After when that
+// is short; anything else, or a longer wait, falls through to the step-by-step transcript.
+export const RATE_LIMIT_MAX_WAIT_MS = 20_000;
+
+export const retryAfterMs = (error: unknown): number | null => {
+	if (!error || typeof error !== "object") return null;
+	const record = error as {
+		statusCode?: unknown;
+		status?: unknown;
+		responseHeaders?: Record<string, string | undefined>;
+		message?: unknown;
+	};
+	const status = record.statusCode ?? record.status;
+	const message = typeof record.message === "string" ? record.message : "";
+	if (
+		status !== 429 &&
+		!/\b429\b|rate limit|too many requests/i.test(message)
+	) {
+		return null;
+	}
+	const header = record.responseHeaders?.["retry-after"];
+	if (header !== undefined && /^\d+(\.\d+)?$/.test(header.trim())) {
+		return Math.round(Number(header.trim()) * 1000);
+	}
+	const inText = /retry[\s-]*after[:\s]*(\d+(?:\.\d+)?)\s*(ms|s)?/i.exec(
+		message,
+	);
+	if (inText?.[1]) {
+		return Math.round(
+			Number(inText[1]) * (inText[2]?.toLowerCase() === "ms" ? 1 : 1000),
+		);
+	}
+	return null;
+};
+
+const withRateLimitRetry = async <T>(
+	call: () => Promise<T>,
+	sleep: (ms: number) => Promise<void> = (ms) =>
+		new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<T> => {
+	try {
+		return await call();
+	} catch (error) {
+		const wait = retryAfterMs(error);
+		if (wait === null || wait > RATE_LIMIT_MAX_WAIT_MS) throw error;
+		await sleep(wait);
+		return call();
 	}
 };
 
@@ -423,6 +564,9 @@ export const completeExploration = async (
 		generateText: TextGenerator | null;
 		outbound?: OutboundPolicy;
 		now?: number;
+		// "Stop waiting": the user chose to review the instructions unexplored.
+		reviewedWithoutExploring?: boolean;
+		sleep?: (ms: number) => Promise<void>;
 	},
 ): Promise<void> => {
 	const { row, request } = input;
@@ -439,6 +583,10 @@ export const completeExploration = async (
 	const explored = request.status === "done" && request.explore !== null;
 	let transcript = item?.transcript ?? "";
 	let note: string | null = request.error;
+	// Why the item is not a test yet, shown on the row; null once a passing exploration wrote it.
+	let notWritten: string | null = input.reviewedWithoutExploring
+		? null
+		: `Not explored${request.error ? `: ${request.error}` : ""}. Review the instructions before creating a case`;
 	if (explored && request.explore) {
 		const written = await transcriptFromRecord(db, secrets, {
 			row,
@@ -446,9 +594,14 @@ export const completeExploration = async (
 			record: request.explore,
 			generateText: input.generateText,
 			...(input.outbound ? { outbound: input.outbound } : {}),
+			...(input.sleep ? { sleep: input.sleep } : {}),
 		});
 		transcript = written.transcript;
 		note = written.note;
+		notWritten =
+			written.outcome === "passed"
+				? null
+				: `Exploration ${written.outcome}${written.reason ? ` at ${written.reason}` : ""}; the instructions were kept, not written as a test`;
 	}
 	await db
 		.update(testExplorations)
@@ -477,9 +630,11 @@ export const completeExploration = async (
 				lintJson: JSON.stringify(analysed.lint),
 				similarJson: JSON.stringify(analysed.similar),
 				parsedJson: analysed.parsedJson,
-				decision: analysed.state === "error" ? "skip" : analysed.decision,
+				// An item the exploration did not prove is skipped unless a reviewer decides otherwise.
+				decision:
+					analysed.state === "error" || notWritten ? "skip" : analysed.decision,
 				state: analysed.state,
-				error: analysed.error,
+				error: analysed.error ?? notWritten,
 				resultTestCaseId: analysed.existingId,
 				updatedAt: now,
 			})
@@ -625,6 +780,7 @@ export const cancelQueuedExplorations = async (
 			request: { status: "failed", explore: null, error: STOPPED_WAITING },
 			generateText: null,
 			now,
+			reviewedWithoutExploring: true,
 		});
 	}
 	return cancelled;

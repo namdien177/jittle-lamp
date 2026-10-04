@@ -327,6 +327,7 @@ export const createTestConfigRoutes = (
 					kind: current.kind,
 					environmentId: current.environmentId,
 					fields: current.fields,
+					loginField: current.loginField,
 					...(ctx.body as Record<string, unknown> | null),
 				});
 				const row = await saveCredential(
@@ -374,6 +375,7 @@ export const createTestConfigRoutes = (
 							kind: current.kind,
 							environmentId: current.environmentId,
 							fields: current.fields,
+							loginField: current.loginField,
 							secretFields: body.secretFields,
 						},
 					},

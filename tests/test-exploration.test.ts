@@ -1,7 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  builtinMacroSignatures,
   claimRunResponseSchema,
+  explorationDraftTranscript,
+  explorationOutcome,
+  summarizeExploration,
+  transcriptProblems,
+  withBuiltinMacroSignatures,
   explorationFallbackTranscript,
   explorationGoal,
   explorationTranscriptPrompt,
@@ -18,9 +24,9 @@ const record: ExplorationRecord = {
   ended: "finished",
   summary: "The   new interest\nis listed.",
   steps: [
-    { index: 1, title: "Sign in", instruction: "Sign in as the HQ admin", status: "passed", summary: "Dashboard shown" },
-    { index: 2, title: "Blocked", instruction: "Open billing", status: "blocked", summary: null },
-    { index: 3, title: "Add", instruction: "Open Interests and click New interest", status: "exhausted", summary: null }
+    { index: 1, title: "Sign in", instruction: "Sign in as the HQ admin", status: "passed", summary: "Dashboard shown", errorCode: null },
+    { index: 2, title: "Blocked", instruction: "Open billing", status: "blocked", summary: null, errorCode: null },
+    { index: 3, title: "Add", instruction: "Open Interests and click New interest", status: "exhausted", summary: null, errorCode: null }
   ],
   findings: [{ kind: "issue", severity: 4, title: "Save does nothing", expected: "saved", actual: "nothing" }]
 };
@@ -50,7 +56,7 @@ describe("general instructions", () => {
     expect(prompt).toContain("Environment: pcf-uat");
     expect(prompt).toContain("1. [passed] Sign in: Sign in as the HQ admin\n   observed: Dashboard shown");
     expect(prompt).toContain("- issue (severity 4): Save does nothing. Expected: saved. Actual: nothing");
-    expect(prompt).toContain("never write passwords");
+    expect(prompt).toContain("Never write passwords");
   });
 
   it("without a model: one Act per step that ran, the assessment as the Assert", () => {
@@ -71,7 +77,7 @@ describe("general instructions", () => {
   });
 
   it("labels an item's exploration on the batch page", () => {
-    const base = { environmentName: "pcf-uat", runnerPoolName: "cloud", runnersOnline: null, attempts: 1, error: null, ended: null, steps: 0, findings: 0 };
+    const base = { outcome: null, environmentName: "pcf-uat", runnerPoolName: "cloud", runnersOnline: null, attempts: 1, error: null, ended: null, steps: 0, findings: 0 };
     expect(explorationLabel({ exploration: null })).toBeNull();
     expect(explorationLabel({ exploration: { ...base, status: "queued", runnersOnline: 2 } })).toEqual({ text: "Waiting for a runner on pcf-uat · 2 online in pool cloud", tone: "muted" });
     // Production 2026-10-04: a General instructions import on pcf-uat (pool cloud, no worker) read
@@ -93,7 +99,7 @@ describe("general instructions", () => {
 
   it("names the pools a batch waits on with no runner online", () => {
     const queued = (runnerPoolName: string, runnersOnline: number) => ({
-      exploration: { status: "queued" as const, environmentName: "pcf-uat", runnerPoolName, runnersOnline, attempts: 0, error: null, ended: null, steps: 0, findings: 0 }
+      exploration: { status: "queued" as const, outcome: null, environmentName: "pcf-uat", runnerPoolName, runnersOnline, attempts: 0, error: null, ended: null, steps: 0, findings: 0 }
     });
     expect(poolsWithoutRunner([queued("cloud", 0), queued("cloud", 0), queued("vpn", 1), { exploration: null }])).toEqual(["cloud"]);
     expect(poolsWithoutRunner([queued("vpn", 1)])).toEqual([]);
@@ -125,6 +131,91 @@ describe("runner pool readiness and queue accounting", () => {
     expect(poolQueueSummary({ running: 0, queued: 0, explorationsRunning: 0, explorationsQueued: 1 })).toBe("0 running · 0 queued · 1 import waiting");
     expect(poolQueueSummary({ running: 1, queued: 2, explorationsRunning: 1, explorationsQueued: 2 })).toBe(
       "1 running · 2 queued · 3 imports exploring (1 running, 2 waiting)"
+    );
+  });
+});
+
+describe("explorations that did not pass are not written as tests", () => {
+  // Shape of the production ILHAM exploration 01a10397-69eb-…: e2e said `ended: finished`, but the
+  // only step was blocked by AUTH_CREDENTIAL_UNAVAILABLE and the summary reported the failure.
+  const blockedLogin: ExplorationRecord = {
+    goal: "Đăng nhập bằng ILHAM_ALL_ACCESS_ACCOUNT",
+    ended: "finished",
+    summary: "Login failed: the credential has no username, so the goal was not achieved.",
+    steps: [{ index: 1, title: "Sign in", instruction: "Sign in with ILHAM_ALL_ACCESS_ACCOUNT", status: "blocked", summary: "username is empty", errorCode: "AUTH_CREDENTIAL_UNAVAILABLE" }],
+    findings: []
+  };
+  const passedStep = { index: 1, title: "Sign in", instruction: "Sign in", status: "passed" as const, summary: null, errorCode: null };
+
+  it("classifies a finished run with a blocked step as blocked, and only a clean run as passed", () => {
+    expect(explorationOutcome(blockedLogin)).toEqual({ outcome: "blocked", reason: 'step 1 "Sign in" blocked (AUTH_CREDENTIAL_UNAVAILABLE)' });
+    expect(explorationOutcome({ ...blockedLogin, steps: [{ ...passedStep, status: "failed" }] }).outcome).toBe("failed");
+    expect(explorationOutcome({ ...blockedLogin, steps: [passedStep], findings: [{ kind: "issue", severity: 4, title: "No menu", expected: "menu", actual: "none" }] }).outcome).toBe("failed");
+    expect(explorationOutcome({ ...blockedLogin, steps: [passedStep], ended: "step-limit" }).outcome).toBe("incomplete");
+    expect(explorationOutcome({ ...blockedLogin, steps: [] }).outcome).toBe("incomplete");
+    expect(explorationOutcome({ ...blockedLogin, steps: [passedStep] })).toEqual({ outcome: "passed", reason: null });
+  });
+
+  it("keeps the instructions, with the expected outcome, instead of asserting the failure", () => {
+    const instructions = "Mở trang đăng nhập. Đăng nhập bằng ILHAM_ALL_ACCESS_ACCOUNT.\nKiểm tra đăng nhập thành công: trang chính hiển thị menu điều hướng.";
+    const draft = explorationDraftTranscript({ title: "ILHAM - Đăng nhập thành công", instructions, environmentName: "ilham-uat", ...explorationOutcome(blockedLogin) });
+    const { testCase } = parseTestCaseTranscript(draft);
+    expect(testCase.steps.map((step) => step.type)).toEqual(["note", "note", "note"]);
+    expect(testCase.steps[0]?.text).toBe('Exploration blocked: step 1 "Sign in" blocked (AUTH_CREDENTIAL_UNAVAILABLE). Not written from the exploration; review the instructions below.');
+    expect(testCase.steps[2]?.text).toBe("Kiểm tra đăng nhập thành công: trang chính hiển thị menu điều hướng.");
+    // Nothing replayable and nothing claiming the login failed or succeeded.
+    expect(draft).not.toContain("[Act]");
+    expect(draft).not.toContain("[Assert]");
+    expect(draft).not.toContain("Login failed");
+    expect(transcriptProblems(draft, { macros: withBuiltinMacroSignatures([]), profiles: ["ILHAM_ALL_ACCESS_ACCOUNT"] })).toEqual(["no executable steps"]);
+  });
+
+  it("the summary reports the outcome", () => {
+    expect(summarizeExploration(blockedLogin)).toEqual({ ended: "finished", steps: 1, findings: 0, outcome: "blocked" });
+  });
+});
+
+describe("written transcripts are grounded in the DSL, macros and given profiles", () => {
+  // The transcript the model wrote for production PCF batch 01a10397-7868-…
+  const pcf = [
+    "# PCF - Đăng nhập thành công",
+    "Tags: source:exploration",
+    "Env: pcf-uat",
+    "[Open] https://uat.pcf.sv.littlelives.com",
+    "## Checkpoint: Truy cập giao diện ban đầu",
+    "[Assert] Trang chủ hiển thị form đăng nhập",
+    "[Login: PCF_ALL_ACCESS_ACCOUNT]",
+    "## Checkpoint: Xác nhận đăng nhập thành công",
+    "[Assert] Form đăng nhập biến mất khỏi giao diện",
+    "[Assert] Trang chính hiển thị menu điều hướng"
+  ].join("\n");
+  const grounding = { macros: withBuiltinMacroSignatures([]), profiles: ["PCF_ALL_ACCESS_ACCOUNT"] };
+
+  it("[Login: PROFILE] is the built-in macro, not an unknown one", () => {
+    expect(builtinMacroSignatures.map((macro) => macro.name)).toEqual(["Login"]);
+    expect(transcriptProblems(pcf, grounding)).toEqual([]);
+    // Without the built-in, lint reports what production showed: "No macro named Login."
+    expect(transcriptProblems(pcf, { ...grounding, macros: [] })).toEqual(['line 7: No macro named "Login".']);
+  });
+
+  it("rejects a hallucinated macro, a profile the exploration was not given, and a missing profile", () => {
+    expect(transcriptProblems(pcf.replace("[Login: PCF_ALL_ACCESS_ACCOUNT]", "[Signin: PCF_ALL_ACCESS_ACCOUNT]"), grounding)).toEqual(['line 7: No macro named "Signin".']);
+    expect(transcriptProblems(pcf.replace("PCF_ALL_ACCESS_ACCOUNT]", "PCF_SUPER_ADMIN]"), grounding)).toEqual([
+      "credential profile PCF_SUPER_ADMIN was not part of the exploration"
+    ]);
+    expect(transcriptProblems(pcf.replace("[Login: PCF_ALL_ACCESS_ACCOUNT]", "[Login]"), grounding)).toEqual([
+      "line 7: [Login] needs a credential profile, e.g. [Login: PCF_HQ_ADMIN].",
+      'line 7: Login needs "profile".'
+    ]);
+  });
+
+  it("the prompt lists the allowed tags, the macros and only the given profiles", () => {
+    const prompt = explorationTranscriptPrompt({ title: "T", instructions: "i", environmentName: "pcf-uat", record, grounding });
+    expect(prompt).toContain("  [Login: profile]");
+    expect(prompt).toContain("only these credential profiles: PCF_ALL_ACCESS_ACCOUNT.");
+    expect(prompt).toContain("Do not add steps for stopping");
+    expect(explorationTranscriptPrompt({ title: "T", instructions: "i", environmentName: null, record, grounding: { ...grounding, profiles: [] } })).toContain(
+      "No credential profile was given; do not write [Login] steps."
     );
   });
 });

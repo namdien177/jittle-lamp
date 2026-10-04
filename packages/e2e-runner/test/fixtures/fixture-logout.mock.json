@@ -3,10 +3,10 @@
   "description": "Recorded turns for fixture-logout.transcript.md against test/fixtures/app/server.ts",
   "modelId": "mock-act",
   "turns": [
-    { "match": { "tools": ["type"], "promptIncludes": ["into the email or username field"] },
+    { "match": { "tools": ["type"], "promptIncludes": ["into the login identifier field"] },
       "content": [{ "type": "tool-call", "toolName": "type", "input": { "target": { "$refFor": { "role": "textbox", "name": "Email" } }, "value": "admin@example.test" } }],
       "usage": { "inputTokens": 1800, "cachedInputTokens": 400, "outputTokens": 60, "reasoningTokens": 20 } },
-    { "match": { "tools": ["complete_step"], "promptIncludes": ["into the email or username field"] },
+    { "match": { "tools": ["complete_step"], "promptIncludes": ["into the login identifier field"] },
       "content": [{ "type": "tool-call", "toolName": "complete_step", "input": { "status": "passed", "summary": "Typed the admin email into Email." } }],
       "usage": { "inputTokens": 1900, "cachedInputTokens": 1500, "outputTokens": 30, "reasoningTokens": 0 } },
     { "match": { "tools": ["type_secret"], "promptIncludes": ["into the password field"] },

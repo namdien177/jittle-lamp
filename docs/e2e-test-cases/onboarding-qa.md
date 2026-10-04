@@ -7,11 +7,19 @@ This guide takes you from your first test case to reviewing its runs. A test cas
 Ask an organisation admin for these (Settings → Test cases):
 
 - **An environment** for the app you test, for example `pcf-uat`. It has the base URL, shared variables such as `PARENT_URL`, the runner pool that can reach it, and agent instructions such as "never delete existing records".
-- **A credential profile** for each account you log in with, for example `PCF_HQ_ADMIN`. You only ever see the profile name and the username. Passwords are typed into the page by the runner itself; you and the AI never see them.
+- **A credential profile** for each account you log in with, for example `PCF_HQ_ADMIN`. Public fields such as email or nickname are visible; secret values are hidden. Passwords are typed into the page by the runner itself; you and the AI never see them.
 - **A model and its key** (Settings → AI model). Any supported provider works; see [Choosing a model provider](#choosing-a-model-provider). Runs are blocked with `MODEL_KEY_MISSING` until the key is configured.
 - **A role** with the test-case permissions (QA Engineer by default).
 
 Admins and operators setting up the backend, runners and integrations: see [deployment.md](deployment.md).
+
+### Choosing the field used to sign in
+
+In **Credentials**, add public fields with their real names (`email`, `nickname`, `employee_code`, etc.) and set **Field used to sign in**. Automatic uses `username` if it exists, otherwise the only public field. When several other public fields exist, choose one explicitly; the form and API reject ambiguous selections.
+
+For example, a profile with public `nickname` and `email` can select `nickname` for login while keeping `{cred:PROFILE.email}` available in a transcript. `[Login: PROFILE]` and bare `{cred:PROFILE}` use the selected field. Existing `{cred:PROFILE.username}` references keep the original username, or use the selected value when no username exists. The agent receives the selected field name and public data to match the form label or placeholder; secrets stay behind protected handles.
+
+Natural-language exploration currently needs a secret field named `password`, because its engine accepts a username/password account. PIN and access-key flows require explicit transcript steps such as `{cred:PROFILE.pin}`; they are not automatically treated as passwords.
 
 ### Choosing a model provider
 

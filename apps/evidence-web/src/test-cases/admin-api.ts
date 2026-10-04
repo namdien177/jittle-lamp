@@ -113,6 +113,7 @@ export type CredentialInput = {
   kind: z.infer<typeof testCredentialSchema>["kind"];
   environmentId: string | null;
   fields: Record<string, string>;
+  loginField?: string | null;
   // Write-only: a string sets the value, null removes the field, omitted keeps it.
   secretFields: Record<string, string | null>;
 };

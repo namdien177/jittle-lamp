@@ -27,6 +27,7 @@ import {
 	transcriptStepSchema,
 	trigramSimilarity,
 	type UpdateTestCaseRequest,
+	withBuiltinMacroSignatures,
 } from "@jittle-lamp/shared";
 import {
 	and,
@@ -154,10 +155,17 @@ export const loadLintContext = async (
 	});
 	const context: LintContext = {
 		cases,
-		macros: macros.map((macro) => ({
-			name: macro.name,
-			params: parseJsonColumn(macro.paramsJson, z.array(macroParamSchema), []),
-		})),
+		// The runner ships Login; without it every [Login: X] would lint as an unknown macro.
+		macros: withBuiltinMacroSignatures(
+			macros.map((macro) => ({
+				name: macro.name,
+				params: parseJsonColumn(
+					macro.paramsJson,
+					z.array(macroParamSchema),
+					[],
+				),
+			})),
+		),
 	};
 	if (environmentId) {
 		const environment = await db.query.testEnvironments.findFirst({
