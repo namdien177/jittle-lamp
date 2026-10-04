@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,6 +17,9 @@ let backend: ReturnType<typeof Bun.serve>;
 let handedOut = false;
 const results: ExplorationResultRequest[] = [];
 const seen: string[] = [];
+let goal = "";
+let modelFixture = "";
+const environmentGuidance = "Only inspect the login form; do not submit.";
 
 beforeAll(() => {
   app = startFixtureApp({ email: "admin@example.test", password: "unused" });
@@ -34,15 +37,15 @@ beforeAll(() => {
         handedOut = true;
         return json({
           run: null,
-          exploration: { explorationId: "ex1", goal: "Open the sign in page and check the form shows Email and Password", maxSteps: 3, timeoutMs: 180_000, leaseExpiresAt: Date.now() + 900_000 }
+          exploration: { explorationId: "ex1", goal, maxSteps: 3, timeoutMs: 180_000, leaseExpiresAt: Date.now() + 900_000 }
         });
       }
       if (request.headers.get("authorization") !== "Bearer wkr_explore") return json({ code: "UNAUTHORIZED" }, 401);
       if (url.pathname === "/test-explorations/ex1/config") {
         return json({
-          environment: { name: "fixture", baseUrl: app.url, variables: {}, agentInstructions: null, dataLocale: null },
-          credentials: [],
-          model: { act: `mock:${join(fixtures, "explore.mock.json")}`, judge: null, apiKeys: {} }
+          environment: { name: "fixture", baseUrl: app.url, variables: {}, agentInstructions: environmentGuidance, dataLocale: null },
+          credentials: [{ profile: "FIXTURE_ADMIN", fields: { nickname: "fixture-nick" }, loginField: "nickname", secretFields: { password: "fixture-password" } }],
+          model: { act: `mock:${modelFixture}`, judge: null, apiKeys: {} }
         });
       }
       if (url.pathname === "/test-explorations/ex1/result") {
@@ -60,7 +63,17 @@ afterAll(() => {
 });
 
 describe("jl-e2e-runner explores import items", () => {
-  test("claims the exploration, explores the app and posts what the agent did", async () => {
+  for (const length of [100, 1800, 3000]) test(`explores roughly ${length}-character instructions with full context and posts the original goal`, async () => {
+    handedOut = false;
+    results.length = 0;
+    seen.length = 0;
+    goal = `Open the sign in page and check the form shows Email and Password. ${"Keep this flow read-only. ".repeat(Math.ceil(length / 25))}Final instruction: inspect only, then stop.`;
+    const fixture = JSON.parse(readFileSync(join(fixtures, "explore.mock.json"), "utf8"));
+    for (const turn of fixture.turns) {
+      turn.match.promptIncludes = [...(turn.match.promptIncludes ?? []), goal, environmentGuidance, "FIXTURE_ADMIN", "nickname"];
+    }
+    modelFixture = join(mkdtempSync(join(tmpdir(), "jl-explore-model-")), "mock.json");
+    writeFileSync(modelFixture, JSON.stringify(fixture));
     await startWorker({
       apiOrigin: `http://127.0.0.1:${backend.port}`,
       registrationToken: "reg_explore",
@@ -76,6 +89,7 @@ describe("jl-e2e-runner explores import items", () => {
     const [result] = results;
     expect(result?.status).toBe("done");
     expect(result?.explore).toMatchObject({
+      goal,
       ended: "finished",
       summary: "The sign in form is shown with Email and Password fields.",
       steps: [{ index: 1, title: "Check the sign in form", status: "passed", summary: "The sign in form shows Email and Password." }]

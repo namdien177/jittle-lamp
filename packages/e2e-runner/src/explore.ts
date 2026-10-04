@@ -77,6 +77,17 @@ export function explorationPreflight(config: Pick<ResolvedRunConfig, "credential
   return null;
 }
 
+// The engine bounds its CLI goal to 2,000 characters. Keep a short directive there and
+// carry the complete imported instructions and login guidance in its supported agent context,
+// which reaches both the planner and the executor. Never truncate a user's expected results.
+export function explorationAgentContext(goal: string, config: Pick<ResolvedRunConfig, "agentInstructions" | "credentials" | "loginFields">): string {
+  return [config.agentInstructions, `Complete imported test instructions:\n${goal}`, credentialLoginContext(config)]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+const engineExplorationGoal = "Follow the complete imported test instructions in agent context exactly, including their expected results and restrictions. Finish when those instructions are covered. Do not explore beyond them.";
+
 export async function runExploration(options: RunExplorationOptions): Promise<ExplorationResultRequest> {
   const log = options.log ?? (() => undefined);
   const env = options.env ?? process.env;
@@ -115,11 +126,11 @@ export async function runExploration(options: RunExplorationOptions): Promise<Ex
   // e2e loads the configured test files before it registers the exploration body.
   writeFileSync(join(dir, "tests", "case.e2e.ts"), 'import { test } from "e2e";\n\ntest.skip("exploration", async () => {});\n');
 
-  const childEnv = buildChildEnv({ config, plan: { baseUrl, params: {}, agentInstructions: config.agentInstructions }, host: env, extra: {} });
+  const childEnv = buildChildEnv({ config, plan: { baseUrl, params: {}, agentInstructions: explorationAgentContext(options.goal, config) }, host: env, extra: {} });
   const args = [
     join(e2ePackageDir, "dist/cli/bin.js"),
     "explore",
-    [options.goal, credentialLoginContext(config)].filter(Boolean).join("\n\n"),
+    engineExplorationGoal,
     "--config",
     configPath,
     "--max-steps",
@@ -161,5 +172,5 @@ export async function runExploration(options: RunExplorationOptions): Promise<Ex
   const record = toExplorationRecord(report.run?.explore);
   if (!record) return { status: "failed", explore: null, error: "e2e explore reported no exploration record" };
   // An exploration that found issues still ran; the issues are in the record for the reviewer.
-  return { status: "done", explore: redactJson(record, redact), error: null };
+  return { status: "done", explore: redactJson({ ...record, goal: options.goal }, redact), error: null };
 }
