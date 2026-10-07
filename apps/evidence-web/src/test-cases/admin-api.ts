@@ -221,6 +221,8 @@ export const testAdminApi = {
     request(getToken, "/runner-pools", createRunnerPoolResponseSchema, json("POST", body)),
   issueRegistrationToken: (getToken: FetchToken, poolId: string) =>
     request(getToken, `/runner-pools/${id(poolId)}/registration-token`, createRunnerPoolResponseSchema, json("POST", {})),
+  updateRunnerPool: (getToken: FetchToken, poolId: string, cancel = false) =>
+    request(getToken, `/runner-pools/${id(poolId)}/update`, runnerPoolSchema, json("POST", { cancel })),
   deleteRunnerWorker: (getToken: FetchToken, poolId: string, workerId: string) =>
     request(getToken, `/runner-pools/${id(poolId)}/workers/${id(workerId)}`, okSchema, { method: "DELETE" }),
 

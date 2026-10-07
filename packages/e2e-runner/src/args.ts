@@ -1,7 +1,7 @@
 // Shared argument parsing has no CLI entrypoint side effects.
 export type ParsedArgs = { command: string; positionals: string[]; flags: Map<string, string[]> };
 
-const booleanFlags = new Set(["fail-on-blocked", "once", "code", "headed", "upload", "wait", "help", "json", "with-secrets", "allow-claude-code", "force"]);
+const booleanFlags = new Set(["fail-on-blocked", "version", "queue-without-runner", "once", "code", "headed", "upload", "wait", "help", "json", "with-secrets", "allow-claude-code", "force"]);
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [command = "help", ...rest] = argv;

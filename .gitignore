@@ -27,3 +27,6 @@ apps/backend/*.db
 
 # Runner pool deployment config (holds the registration token)
 deploy/runner/runner.env
+
+deploy/runner/image.env
+deploy/runner/image.env.lock/

@@ -467,7 +467,7 @@ export function runnerCommands(input: { apiOrigin: string; token: string }): Run
       `JL_RUNNER_TOKEN=${input.token}`,
       "JL_RUNNER_CONCURRENCY=1",
       "ENV",
-      "docker compose -f deploy/runner/compose.yaml up -d --build"
+      "docker compose -f deploy/runner/compose.yaml up -d"
     ].join("\n")
   };
 }
@@ -653,4 +653,12 @@ export function groupTagsByNamespace<T extends { namespace: string; name: string
   return [...groups.entries()]
     .sort(([left], [right]) => (left === "" ? 1 : right === "" ? -1 : left.localeCompare(right)))
     .map(([namespace, items]) => ({ namespace, tags: [...items].sort((left, right) => left.name.localeCompare(right.name)) }));
+}
+
+// Recreated containers register under new hostnames; offline predecessors are history.
+export function runnerUpdatePending(pool: { updateProgress?: { phase: string } | null | undefined; targetVersion?: string | null | undefined; workers: Array<{ status: "online" | "offline"; managedUpdates?: boolean | undefined; version: string }> }): boolean {
+  if (!pool.targetVersion || pool.updateProgress?.phase === "completed") return false;
+  if (pool.updateProgress) return true;
+  const managed = pool.workers.filter(worker => worker.status === "online" && worker.managedUpdates);
+  return managed.length === 0 || managed.some(worker => worker.version !== pool.targetVersion);
 }

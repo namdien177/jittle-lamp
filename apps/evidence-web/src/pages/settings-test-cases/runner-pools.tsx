@@ -19,6 +19,7 @@ import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestPermissions
 import { AdminCard, CopyBlock, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { testRunHref } from "../../notifications/notification-links";
 import { poolQueueSummary, registrationTokenAction, runnerCommands } from "../../test-config/config-ui";
+import { RunnerUpdatePanel } from "./runner-update";
 import { Hint } from "../../components/ui/tooltip";
 
 // Settings → Runner pools (design.md §5.4, docs/e2e-test-cases/runner-setup.md): pools, workers and
@@ -36,6 +37,10 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
   const [creating, setCreating] = useState(false);
   const [issued, setIssued] = useState<{ title: string; note: string; token: string } | null>(null);
   const issueToken = useTestAdminMutation((getToken, poolId: string) => testAdminApi.issueRegistrationToken(getToken, poolId), [testAdminKeys.runnerPools]);
+  const updateRunner = useTestAdminMutation(
+    (getToken, input: { poolId: string; cancel: boolean }) => testAdminApi.updateRunnerPool(getToken, input.poolId, input.cancel),
+    [testAdminKeys.runnerPools]
+  );
   const [removing, setRemoving] = useState<{ pool: RunnerPool; workerId: string; hostname: string } | null>(null);
   const removeWorker = useTestAdminMutation(
     (getToken, input: { poolId: string; workerId: string }) => testAdminApi.deleteRunnerWorker(getToken, input.poolId, input.workerId),
@@ -43,7 +48,7 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
   );
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4">
       {!canManage && !permissions.loading ? <ReadOnlyNotice permission="test_config.manage" /> : null}
       <AdminCard
         title="Runner pools"
@@ -57,18 +62,18 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
           ) : null
         }
       >
-        <ErrorNote error={pools.error ?? removeWorker.error ?? issueToken.error} />
+        <ErrorNote error={pools.error ?? removeWorker.error ?? issueToken.error ?? updateRunner.error} />
         {pools.isPending ? (
           <Skeleton className="h-40" />
         ) : (pools.data ?? []).length === 0 ? (
           <EmptyState icon={<Server aria-hidden />} title="No runner pools" description="Create a self-hosted pool and start a runner on a host that can reach your app." />
         ) : (
-          <div className="grid gap-4">
+          <div className="grid min-w-0 gap-4">
             {(pools.data ?? []).map((pool) => {
               const online = pool.workers.filter((worker) => worker.status === "online").length;
               const tokenAction = registrationTokenAction(pool, canManage);
               return (
-                <section key={pool.id} aria-label={`Pool ${pool.name}`} className="rounded-md border border-border">
+                <section key={pool.id} aria-label={`Pool ${pool.name}`} className="min-w-0 overflow-hidden rounded-md border border-border">
                   <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
                     <Server className="size-4 text-muted-foreground" aria-hidden />
                     <h3 className="font-mono text-sm font-semibold text-foreground">{pool.name}</h3>
@@ -95,6 +100,8 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                       </Button>
                     ) : null}
                   </header>
+                  <RunnerUpdatePanel pool={pool} canManage={canManage} busy={updateRunner.isPending}
+                    onUpdate={cancel => void updateRunner.mutateAsync({ poolId: pool.id, cancel }).catch(() => undefined)} />
                   {pool.queued + pool.explorationsQueued > 0 && online === 0 ? (
                     <p className="flex items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-sm text-warning">
                       <AlertTriangle className="size-4" aria-hidden />
@@ -131,7 +138,11 @@ export function SettingsTestRunnerPoolsPage(): React.JSX.Element {
                                 {worker.status}
                               </span>
                             </TableCell>
-                            <TableCell className="font-mono text-xs">{worker.version}</TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {worker.version}
+                              {worker.versionSkew ? <span className="ml-1 text-warning" aria-label={`Version differs from server ${pool.serverVersion}`}>⚠</span> : null}
+                              {worker.drainingVersion ? <span className="block text-muted-foreground">draining</span> : null}
+                            </TableCell>
                             <TableCell className="text-sm text-muted-foreground">{worker.lastHeartbeatAt ? formatRelativeTime(worker.lastHeartbeatAt) : "never"}</TableCell>
                             <TableCell className="text-sm">
                               {worker.currentRunId ? (

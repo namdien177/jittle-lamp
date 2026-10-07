@@ -871,3 +871,20 @@
 /* Native form controls follow the app theme (legacy.css pins :root to dark). */
 .jl-tc-scope { color-scheme: light; }
 .dark .jl-tc-scope { color-scheme: dark; }
+
+/* Keep ongoing work visible without assigning a percentage to an unmeasured step. */
+@keyframes runner-update-progress {
+  0% { transform: translateX(-35%) scaleX(.25); }
+  100% { transform: translateX(100%) scaleX(.25); }
+}
+.runner-update-indeterminate {
+  animation: runner-update-progress 1.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .runner-update-indeterminate { animation: none; transform: scaleX(.3); }
+}
+
+.runner-update-details {
+  transition: opacity 160ms var(--ease-out);
+  @starting-style { opacity: 0; }
+}

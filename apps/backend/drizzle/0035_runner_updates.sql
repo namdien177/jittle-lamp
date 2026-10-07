@@ -1,0 +1,1 @@
+ALTER TABLE `runner_pools` ADD `target_version` text;

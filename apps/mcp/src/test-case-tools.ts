@@ -214,19 +214,6 @@ function evidenceLinks(
 	};
 }
 
-// The backend generates cases only from Jira issues (sourceKind "jira"). Its "ai-generation"
-// import kind parses the content as a transcript document, so free text or an existing case
-// cannot be sent there as a generation request.
-const generationUnsupported = () =>
-	toolResult(
-		{
-			error:
-				"Generating test cases from free text or an existing case is not supported by the Jittle Lamp backend yet. Generate from Jira issues with jql and jiraCredentialId, or write the transcript yourself and submit it with import_test_cases or create_test_case.",
-			code: "GENERATION_UNSUPPORTED",
-		},
-		true,
-	);
-
 const jiraCredentialHint =
 	"A credential profile of kind jira (see list_test_credentials).";
 
@@ -347,7 +334,7 @@ export function registerTestCaseTools(
 		"update_test_case_transcript",
 		{
 			description:
-				"Replace a test case's transcript. The backend re-parses it, bumps transcriptVersion and returns lint findings as data. Pass expectedVersion from get_test_case to avoid overwriting someone else's edit. Unchanged instructions keep their cached step scripts. Requires test_case.update.",
+				"Replace a test case's transcript. The backend re-parses it, bumps transcriptVersion and returns lint findings as data. Pass expectedVersion from get_test_case to avoid overwriting someone else's edit. Unchanged instructions keep their cached step scripts. Agent edits return approved cases to review. Requires test_case.update.",
 			inputSchema: z.strictObject({
 				testCaseId,
 				transcript,
@@ -464,6 +451,23 @@ export function registerTestCaseTools(
 			),
 	);
 
+    server.registerTool("get_test_import", {
+        description: "Get an import batch's exploration progress, generated transcripts, lint findings and errors. When status is ready, inspect the items and use submit_test_import to put them into the test-case review queue.",
+        inputSchema: z.strictObject({ batchId: identifier }),
+        annotations: readAnnotations
+    }, async ({ batchId }) => checked(await request("GET", `/test-cases/import/${batchId}`), z.object({ batch: importBatchSchema }).or(importBatchSchema)));
+
+    server.registerTool("submit_test_import", {
+        description: "Submit a ready import batch to the test-case review queue. Agent-created cases and edits to existing cases always require human approval; this operation cannot approve them. Optional decisions select create, update, merge or skip and repair transcripts before submission. Poll get_test_import first and inspect lint and exploration errors.",
+        inputSchema: z.strictObject({
+            batchId: identifier,
+            decisions: z.array(z.strictObject({ itemId: identifier, decision: z.enum(["create", "update", "merge", "skip"]), transcript: transcript.optional() })).max(5000).optional()
+        }),
+        annotations: createAnnotations
+    }, async ({ batchId, decisions }) => checked(await request("PATCH", `/test-cases/import/${batchId}`, {
+        body: { commit: true, decisions: decisions ?? [] }
+    }), z.object({ batch: importBatchSchema }).or(importBatchSchema)));
+
 	server.registerTool(
 		"duplicate_test_case",
 		{
@@ -519,7 +523,7 @@ export function registerTestCaseTools(
 		"generate_test_cases",
 		{
 			description:
-				"Draft test cases with the backend's AI generation from Jira issues selected by JQL. The backend reads the issues with the organisation's Jira credential, asks the model for transcripts, and returns an import batch with lint and similarity per case. Generated cases stay in review until a person approves them. Free text and existing-case inputs return GENERATION_UNSUPPORTED until the backend supports them.",
+				"Draft cases from Jira (jql + jiraCredentialId) or explore plain-language instructions (text + environmentId) in a real browser on the environment runner pool. Explorations interact with the target app. Use get_test_import to poll the returned batch. Submit ready items with submit_test_import; created or edited cases wait for a person to approve. Existing-case generation is unsupported; author variants with create_test_case.",
 			inputSchema: z.strictObject({
 				jql: z
 					.string()
@@ -530,15 +534,21 @@ export function registerTestCaseTools(
 				jiraCredentialId: identifier.optional().describe(jiraCredentialHint),
 				text: z.string().min(1).max(100_000).optional(),
 				testCaseId: testCaseId.optional(),
+                queueWithoutRunner: z.boolean().optional(),
 				defaultTags: tagList.optional(),
 				environmentId: identifier.nullable().optional(),
 			}),
 			annotations: createAnnotations,
 		},
-		async ({ jql, jiraCredentialId, text, testCaseId, defaultTags, environmentId }) => {
-			if (text !== undefined || testCaseId !== undefined) {
-				return generationUnsupported();
-			}
+		async ({ jql, jiraCredentialId, text, testCaseId, defaultTags, environmentId, queueWithoutRunner }) => {
+            if (testCaseId !== undefined) return toolResult({ error: "Use get_test_case and create_test_case to author a variant", code: "GENERATION_UNSUPPORTED" }, true);
+            if (text !== undefined) {
+                if (jql || jiraCredentialId) return toolResult({ error: "Choose text or Jira input, not both", code: "GENERATION_INPUT_CONFLICT" }, true);
+                if (!environmentId) return toolResult({ error: "Supply environmentId to explore instructions on its runner pool", code: "EXPLORE_NEEDS_ENVIRONMENT" }, true);
+                return checked(await request("POST", "/test-cases/import", {
+                    body: createImportRequestSchema.parse({ sourceKind: "instructions", content: text, environmentId, defaultTags, queueWithoutRunner })
+                }), z.object({ batch: importBatchSchema }).or(importBatchSchema));
+            }
 			if (!jql || !jiraCredentialId) {
 				return toolResult(
 					{

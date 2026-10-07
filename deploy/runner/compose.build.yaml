@@ -1,0 +1,6 @@
+# Local development only. Cloud deployments use compose.yaml and a published/loaded image.
+services:
+  runner:
+    build:
+      context: ../..
+      dockerfile: deploy/runner/Dockerfile

@@ -1,0 +1,1 @@
+ALTER TABLE `runner_pools` ADD `update_progress_json` text;

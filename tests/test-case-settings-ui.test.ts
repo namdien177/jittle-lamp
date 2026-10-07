@@ -202,7 +202,7 @@ describe("settings helpers", () => {
     const commands = runnerCommands({ apiOrigin: "https://api.example.com", token: "jlr_abc123" });
     expect(commands.start).toBe("jl-e2e-runner start --api https://api.example.com --token jlr_abc123");
     expect(commands.docker).toContain("JL_RUNNER_TOKEN=jlr_abc123");
-    expect(commands.docker).toContain("docker compose -f deploy/runner/compose.yaml up -d --build");
+    expect(commands.docker).toContain("docker compose -f deploy/runner/compose.yaml up -d");
     expect(runnerCommands({ apiOrigin: "http://x", token: "a b'c" }).start).toBe("jl-e2e-runner start --api http://x --token 'a b'\\''c'");
   });
 

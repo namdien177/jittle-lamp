@@ -20,7 +20,7 @@ const defaults = {
 	NODE_ENV: "development",
 	HOST: "127.0.0.1",
 	PORT: "3001",
-	APP_VERSION: "0.1.3",
+	APP_VERSION: JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8")).version,
 	DATABASE_URL: "file:./local.dev-auth.db",
 	RUN_DB_MIGRATIONS: "true",
 	CLERK_PUBLISHABLE_KEY: "",

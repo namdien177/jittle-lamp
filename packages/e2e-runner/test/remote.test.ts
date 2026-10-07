@@ -124,3 +124,23 @@ describe("remote CLI review regressions", () => {
     expect(calls.map((call) => call.method)).toEqual(["GET", "POST"]);
   });
 });
+
+test("AI CLI context preserves proxy prefixes and supports generate, poll and submit", async () => {
+  const { generateCases, getImportBatch, submitImportBatch } = await import("../src/remote/commands");
+  const calls: Call[] = [];
+  const batch = { id: "batch-agent", sourceKind: "instructions", status: "ready", counts: { total: 1, created: 0, updated: 0, skipped: 0, errors: 0 }, createdBy: null, createdAt: 1, items: [] };
+  const context = remoteContext({ JITTLE_LAMP_API_ORIGIN: "https://api.test/prefix/", JL_AI_TOKEN: "jl_ai_fixture" }, () => undefined, (async (url: URL, init: RequestInit) => {
+    calls.push({ method: init.method ?? "GET", path: url.pathname, body: typeof init.body === "string" ? JSON.parse(init.body) : null, auth: new Headers(init.headers).get("authorization") });
+    return Response.json(batch);
+  }) as unknown as typeof fetch);
+  await generateCases(context, { content: "Check logout", environmentId: "env-1", queueWithoutRunner: true });
+  await getImportBatch(context, batch.id);
+  await submitImportBatch(context, batch.id);
+  expect(calls.map(c => [c.method, c.path, c.auth])).toEqual([
+    ["POST", "/prefix/test-cases/import", "Bearer jl_ai_fixture"],
+    ["GET", "/prefix/test-cases/import/batch-agent", "Bearer jl_ai_fixture"],
+    ["PATCH", "/prefix/test-cases/import/batch-agent", "Bearer jl_ai_fixture"]
+  ]);
+  expect(calls[0]?.body).toMatchObject({ sourceKind: "instructions", content: "Check logout", environmentId: "env-1", queueWithoutRunner: true });
+  expect(calls[2]?.body).toEqual({ commit: true });
+});

@@ -3,6 +3,7 @@ import type {
 	registerRunnerRequestSchema,
 	runnerHeartbeatRequestSchema,
 } from "@jittle-lamp/shared";
+import { runnerUpdateProgressSchema } from "@jittle-lamp/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { z } from "zod/v4";
 
@@ -84,10 +85,14 @@ export const toRunnerPool = async (
 		name: pool.name,
 		kind: pool.kind,
 		maxConcurrentRuns: pool.maxConcurrentRuns,
+		targetVersion: pool.targetVersion,
+		updateProgress: readRunnerUpdateProgress(pool),
 		workers: workers.map((worker) => ({
 			id: worker.id,
 			hostname: worker.hostname,
 			version: worker.version,
+			managedUpdates: workerCapabilities(worker).managedUpdates === true,
+			drainingVersion: workerCapabilities(worker).drainingVersion ?? null,
 			status:
 				(worker.lastHeartbeatAt ?? 0) > now - WORKER_LIVE_MS
 					? "online"
@@ -377,6 +382,19 @@ export const recordHeartbeat = async (
 		.set({
 			lastHeartbeatAt: now,
 			load: input.request.load,
+			...(input.request.version ? { version: input.request.version } : {}),
+			capabilitiesJson: JSON.stringify({
+				...workerCapabilities(input.worker),
+				...(input.request.managedUpdates !== undefined
+					? { managedUpdates: input.request.managedUpdates }
+					: {}),
+				...(input.request.drainingVersion !== undefined
+					? { drainingVersion: input.request.drainingVersion }
+					: {}),
+				...(input.request.drainingUpdateId !== undefined
+					? { drainingUpdateId: input.request.drainingUpdateId }
+					: {}),
+			}),
 			currentRunId: run?.id ?? null,
 			offlineNotifiedAt: null,
 			updatedAt: now,
@@ -385,3 +403,48 @@ export const recordHeartbeat = async (
 	await clearNoRunner(db, input.worker.poolId, now);
 	if (run) await extendRunLease(db, run.id, now);
 };
+
+// Capabilities from older workers need no migration.
+export const workerCapabilities = (
+	worker: RunnerWorkerRow,
+): {
+	managedUpdates?: boolean;
+	drainingVersion?: string | null;
+	drainingUpdateId?: number | null;
+} => {
+	try {
+		const value = JSON.parse(worker.capabilitiesJson);
+		return value && typeof value === "object" && !Array.isArray(value)
+			? value
+			: {};
+	} catch {
+		return {};
+	}
+};
+
+export const withRunnerVersion = (
+	pool: RunnerPool,
+	serverVersion: string,
+): RunnerPool => ({
+	...pool,
+	serverVersion,
+	workers: pool.workers.map((worker) => ({
+		...worker,
+		versionSkew: worker.version !== serverVersion,
+	})),
+});
+
+export function readRunnerUpdateProgress(pool: RunnerPoolRow) {
+	try {
+		const parsed = runnerUpdateProgressSchema.safeParse(
+			JSON.parse(pool.updateProgressJson ?? "null"),
+		);
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
+export function runnerUpdateId(pool: RunnerPoolRow): number {
+	return readRunnerUpdateProgress(pool)?.updateId ?? pool.updatedAt;
+}

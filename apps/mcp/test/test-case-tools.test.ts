@@ -371,7 +371,7 @@ describe("MCP test-case tools", () => {
 		expect(missing.isError).toBe(true);
 	});
 
-	test("generate drafts cases from Jira and refuses free text or existing cases without calling the backend", async () => {
+	test("generate drafts cases from Jira and validates exploration inputs without calling the backend", async () => {
 		const { call, requests } = await setup(({ url }) => {
 			expect(url.pathname).toBe("/test-cases/import");
 			return Response.json(
@@ -388,13 +388,14 @@ describe("MCP test-case tools", () => {
 			);
 		});
 		for (const args of [
-			{ text: "Parents can reset their password from the login page" },
 			{ testCaseId: "case-0412" },
 		]) {
 			const refused = await call("generate_test_cases", args);
 			expect(refused.isError).toBe(true);
 			expect(refused.data.code).toBe("GENERATION_UNSUPPORTED");
 		}
+		const needsEnvironment = await call("generate_test_cases", { text: "Reset a password" });
+		expect(needsEnvironment.data.code).toBe("EXPLORE_NEEDS_ENVIRONMENT");
 		const missing = await call("generate_test_cases", { jql: "key = PCF-1" });
 		expect(missing.data.code).toBe("GENERATION_INPUT_REQUIRED");
 		expect(requests).toHaveLength(0);
@@ -606,4 +607,28 @@ describe("MCP test-case tools", () => {
 		expect(result.isError).toBe(true);
 		expect(result.text).not.toContain(config.token);
 	});
+});
+
+test("generate explores instructions in the environment and get_test_import polls progress", async () => {
+  const batch = { id: "batch-explore", sourceKind: "instructions", status: "parsing", counts: { total: 1, created: 0, updated: 0, skipped: 0, errors: 0 }, createdBy: null, createdAt: 1, items: [] };
+  const { call, requests } = await setup(() => Response.json(batch));
+  const result = await call("generate_test_cases", { text: "Check logout leaves the email empty", environmentId: "env-uat", queueWithoutRunner: true });
+  expect(result.isError).toBe(false);
+  expect(requests[0]?.body).toMatchObject({ sourceKind: "instructions", content: "Check logout leaves the email empty", environmentId: "env-uat", queueWithoutRunner: true });
+  const progress = await call("get_test_import", { batchId: "batch-explore" });
+  expect(progress.isError).toBe(false);
+  expect(requests[1]?.url.pathname).toBe("/test-cases/import/batch-explore");
+  const conflict = await call("generate_test_cases", { text: "Logout", environmentId: "env-uat", jql: "key = QA-1" });
+  expect(conflict.data.code).toBe("GENERATION_INPUT_CONFLICT");
+  expect(requests).toHaveLength(2);
+});
+
+test("submit_test_import submits ready items but never accepts approval arguments", async () => {
+  const batch = { id: "batch-review", sourceKind: "instructions", status: "done", counts: { total: 1, created: 1, updated: 0, skipped: 0, errors: 0 }, createdBy: null, createdAt: 1, items: [] };
+  const { call, requests } = await setup(() => Response.json(batch));
+  expect((await call("submit_test_import", { batchId: "batch-review" })).isError).toBe(false);
+  expect(requests[0]?.method).toBe("PATCH");
+  expect(requests[0]?.body).toEqual({ commit: true, decisions: [] });
+  expect((await call("submit_test_import", { batchId: "batch-review", status: "active" })).isError).toBe(true);
+  expect(requests).toHaveLength(1);
 });

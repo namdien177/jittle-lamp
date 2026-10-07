@@ -44,6 +44,8 @@ export const runnerPools = sqliteTable(
 		maxConcurrentRuns: integer("max_concurrent_runs").notNull().default(1),
 		// sha256 of the registration token; the token is shown once.
 		registrationTokenHash: text("registration_token_hash"),
+		targetVersion: text("target_version"),
+		updateProgressJson: text("update_progress_json"),
 		createdBy: text("created_by").references(() => users.id, {
 			onDelete: "set null",
 		}),

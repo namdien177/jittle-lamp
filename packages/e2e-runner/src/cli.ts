@@ -8,6 +8,8 @@ import { loadEnvFiles } from "./config/env-files";
 import { describeResolvedConfig, formatConfigTable, resolveRunConfig } from "./config/resolve";
 import { runTranscript } from "./run";
 
+import { runnerVersion } from "./paths";
+
 import { parseArgs, type ParsedArgs } from "./args";
 
 export { parseArgs, type ParsedArgs } from "./args";
@@ -32,11 +34,15 @@ const usage = `jl-e2e: run transcript test cases with an AI agent in a real brow
   jl-e2e config [--env-file .env.e2e]          resolved names, secrets masked, with sources
   jl-e2e cache ls [--code] | cache clear [--step <stepId>]
 
-With JL_API_ORIGIN and JL_API_TOKEN (automation token):
+With JL_API_ORIGIN and JL_API_TOKEN (automation) or JL_AI_TOKEN (MCP access):
   jl-e2e run --suite <id> | --case <id> [--env <id>] [--wait] [--junit out.xml] [--force]
   jl-e2e env pull <environment> [--with-secrets] [--out .env.e2e]
   jl-e2e export --case <id|key> [--case …] [dir]
-  jl-e2e push <file.transcript.md>          creates or updates by Key, then by title
+  jl-e2e push <file.transcript.md>          creates or updates by Key, then by title; awaits human review
+  jl-e2e generate <instructions.txt> --env <id> [--queue-without-runner]
+  jl-e2e submit-import <batch id>           submit ready cases for human approval
+  jl-e2e import-status <batch id>           JSON exploration progress and generated transcripts
+  jl-e2e version                           installed runner version
 
 Model ids select the provider, each with its key in the environment or .env.e2e:
   openrouter/<vendor>/<model>   OPENROUTER_API_KEY
@@ -49,6 +55,7 @@ Model ids select the provider, each with its key in the environment or .env.e2e:
 
 export async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
+  if (args.command === "version" || args.command === "--version" || args.flags.has("version")) { console.log(runnerVersion); return 0; }
   const cwd = process.cwd();
 
   if (args.command === "config") {
@@ -72,10 +79,29 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  if (args.command === "env" || args.command === "export" || args.command === "push" || (args.command === "run" && (args.flags.has("suite") || args.flags.has("case")))) {
+  if (args.command === "generate" || args.command === "submit-import" || args.command === "import-status" || args.command === "env" || args.command === "export" || args.command === "push" || (args.command === "run" && (args.flags.has("suite") || args.flags.has("case")))) {
     const remote = await import("./remote/commands");
     const env = { ...process.env, ...Object.fromEntries(loadEnvFiles(cwd, flagList(args, "env-file")).flatMap((file) => Object.entries(file.values))), ...process.env };
     const context = remote.remoteContext(env, (line) => console.error(`[jl-e2e] ${line}`));
+    if (args.command === "generate") {
+      const file = args.positionals[0];
+      const environmentId = flag(args, "env");
+      if (!file || !environmentId) { console.error("usage: jl-e2e generate <instructions.txt> --env <environment id>"); return 2; }
+      console.log(JSON.stringify(await remote.generateCases(context, { content: readFileSync(resolve(cwd, file), "utf8"), environmentId, queueWithoutRunner: flag(args, "queue-without-runner") === "true" }), null, 2));
+      return 0;
+    }
+    if (args.command === "submit-import") {
+      const id = args.positionals[0];
+      if (!id) { console.error("usage: jl-e2e submit-import <batch id>"); return 2; }
+      console.log(JSON.stringify(await remote.submitImportBatch(context, id), null, 2));
+      return 0;
+    }
+    if (args.command === "import-status") {
+      const id = args.positionals[0];
+      if (!id) { console.error("usage: jl-e2e import-status <batch id>"); return 2; }
+      console.log(JSON.stringify(await remote.getImportBatch(context, id), null, 2));
+      return 0;
+    }
     if (args.command === "env") {
       const name = args.positionals[1];
       if (args.positionals[0] !== "pull" || !name) {

@@ -6,6 +6,7 @@ import {
   createTestRunResponseSchema,
   explorationConfigSchema,
   registerRunnerResponseSchema,
+  runnerHeartbeatResponseSchema,
   testRunConfigSchema,
   testRunDetailSchema,
   testRunProgressResponseSchema,
@@ -62,7 +63,7 @@ export class BackendClient {
     }
     // A hung request must not hold the lease keep-alive chain; uploads get longer.
     const timeoutMs = timeoutOverrideMs ?? (body instanceof Uint8Array ? 300_000 : 30_000);
-    const response = await this.fetchImpl(new URL(path, this.options.origin), {
+    const response = await this.fetchImpl(new URL(`${this.options.origin.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`), {
       method,
       headers,
       signal: AbortSignal.timeout(timeoutMs),
@@ -85,12 +86,12 @@ export class BackendClient {
     return (schema ? schema.parse(json) : json) as z.infer<S>;
   }
 
-  register(registrationToken: string, body: { hostname: string; version: string; capabilities: { browsers: string[]; headed: boolean; liveView: boolean } }) {
+  register(registrationToken: string, body: { hostname: string; version: string; capabilities: { browsers: string[]; headed: boolean; liveView: boolean; managedUpdates?: boolean } }) {
     return this.request("POST", "/runner-pools/register", registrationToken, registerRunnerResponseSchema, body);
   }
 
-  heartbeat(workerToken: string, runId: string | null, load: number) {
-    return this.request("POST", "/runner-pools/heartbeat", workerToken, null, { runId, load });
+  heartbeat(workerToken: string, runId: string | null, load: number, metadata: { version?: string; managedUpdates?: boolean; drainingVersion?: string | null; drainingUpdateId?: number | null } = {}) {
+    return this.request("POST", "/runner-pools/heartbeat", workerToken, runnerHeartbeatResponseSchema, { runId, load, ...metadata });
   }
 
   async claim(workerToken: string): Promise<ClaimedRun | null> {

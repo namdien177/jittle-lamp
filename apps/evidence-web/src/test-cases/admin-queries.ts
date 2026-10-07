@@ -129,7 +129,7 @@ export const useTestTags = () => useOrgQuery(testAdminKeys.tags, testAdminApi.li
 export const useTestRunSettings = () => useOrgQuery(testAdminKeys.runSettings, testAdminApi.getRunSettings);
 export const useModelSettings = () => useOrgQuery(testAdminKeys.modelSettings, testAdminApi.getModelSettings);
 export const useModelPrices = () => useOrgQuery(testAdminKeys.modelPrices, testAdminApi.listModelPrices);
-export const useRunnerPools = () => useOrgQuery(testAdminKeys.runnerPools, testAdminApi.listRunnerPools, { refetchInterval: 15_000 });
+export const useRunnerPools = () => useOrgQuery(testAdminKeys.runnerPools, testAdminApi.listRunnerPools, { refetchInterval: data => data?.some(pool => pool.targetVersion && pool.updateProgress?.phase !== "completed") ? 2_000 : 15_000 });
 export const useNotificationChannels = () => useOrgQuery(testAdminKeys.notificationChannels, testAdminApi.listNotificationChannels, { retry: false });
 export const useNotificationSubscriptions = () => useOrgQuery(testAdminKeys.notificationSubscriptions, testAdminApi.getNotificationSubscriptions);
 export const useWebhooks = () => useOrgQuery(testAdminKeys.webhooks, testAdminApi.listWebhooks);

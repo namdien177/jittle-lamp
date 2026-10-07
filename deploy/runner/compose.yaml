@@ -6,10 +6,7 @@
 # registers any number of workers and may stay in runner.env.
 services:
   runner:
-    image: jittle-lamp/e2e-runner:${JL_RUNNER_IMAGE_TAG:-latest}
-    build:
-      context: ../..
-      dockerfile: deploy/runner/Dockerfile
+    image: ${JL_RUNNER_IMAGE:-jittle-lamp/e2e-runner}:${JL_RUNNER_IMAGE_TAG:-latest}
     # All runner settings, including JL_RUNNER_CONCURRENCY, come from runner.env. Do not add an
     # `environment:` entry for a variable runner.env sets: it would override the file.
     env_file: runner.env

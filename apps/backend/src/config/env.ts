@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { version } from "../../package.json";
 
 export const nodeEnvSchema = z.enum([
 	"local",
@@ -27,7 +28,7 @@ const envSchema = z
 		NODE_ENV: nodeEnvSchema.default("local"),
 		PORT: z.coerce.number().int().min(1).max(65535).default(3001),
 		HOST: z.string().default("0.0.0.0"),
-		APP_VERSION: z.string().default("0.1.3"),
+		APP_VERSION: z.string().default(version),
 		APP_SECRET: optionalNonEmptyString.pipe(z.string().min(24).optional()),
 		DATABASE_URL: optionalUrlString,
 		RUN_DB_MIGRATIONS: z.string().optional(),

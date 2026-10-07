@@ -200,9 +200,13 @@ export const createTestCaseRoutes = (
 		.post("/test-cases", (ctx) =>
 			handleTestRoute(ctx, async () => {
 				const db = requireDb(ctx.db);
-				const who = await actor(ctx);
+				const who = await actor(ctx, true);
 				await requireTestPermission(db, who, "test_case.create");
 				const body = parseInput(createTestCaseRequestSchema, ctx.body);
+				if (who.kind !== "session") {
+					body.status = "review";
+					body.source = "ai";
+				}
 				if (
 					body.status === "active" &&
 					(body.source === "ai" || body.source === "import") &&
@@ -553,6 +557,7 @@ export const createTestCaseRoutes = (
 					userId: who.userId,
 					batch,
 					request: body,
+					forceReview: who.kind !== "session",
 				});
 				return respond(
 					importBatchSchema,
@@ -604,15 +609,35 @@ export const createTestCaseRoutes = (
 				const { id } = parseInput(caseIdParams, ctx.params);
 				const body = parseInput(updateTestCaseRequestSchema, ctx.body);
 				const row = await getTestCaseRow(db, who.orgId, id);
+				if (who.kind !== "session") {
+					if (body.status !== undefined && body.status !== "review") {
+						throw new HttpError(
+							403,
+							"TEST_CASE_HUMAN_REVIEW_REQUIRED",
+							"Only a person can move an agent-authored case out of review",
+						);
+					}
+					if (
+						(body.transcript !== undefined &&
+							body.transcript !== row.transcript) ||
+						(body.environmentId !== undefined &&
+							body.environmentId !== row.environmentId)
+					)
+						body.status = "review";
+				}
 				const updated = await updateTestCase(db, {
 					row,
 					userId: who.userId,
 					request: body,
-					canApprove: await testCasePolicy.canApproveTestCases(db, {
-						organizationId: who.orgId,
-						userId: who.userId,
-					}),
+					canApprove:
+						who.kind === "session" &&
+						(await testCasePolicy.canApproveTestCases(db, {
+							organizationId: who.orgId,
+							userId: who.userId,
+						})),
 				});
+				if (updated.status === "review")
+					await emitReviewPendingCount(db, who.orgId, who.userId);
 				return respond(testCaseDetailSchema, await toCaseDetail(db, updated));
 			}),
 		)
@@ -783,7 +808,10 @@ export const createTestCaseRoutes = (
 					userId: who.userId,
 					transcript: `${serializeTestCase(parsed)}\n`,
 					// A copy of an unapproved case is just as unapproved.
-					status: source.status === "review" ? "review" : "draft",
+					status:
+						who.kind !== "session" || source.status === "review"
+							? "review"
+							: "draft",
 					environmentId: body.copy.environment ? source.environmentId : null,
 					source: "duplicate",
 					sourceRef: source.id,

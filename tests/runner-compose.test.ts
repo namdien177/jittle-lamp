@@ -36,3 +36,15 @@ describe("runner compose file", () => {
     expect(overridden).toEqual([]);
   });
 });
+
+describe("runner update completion", () => {
+  it("ignores offline predecessors after replacement and retains a cancellable request if hosts go offline", async () => {
+    const { runnerUpdatePending } = await import("../apps/evidence-web/src/test-config/config-ui");
+    const old = { status: "offline" as const, managedUpdates: true, version: "1.0.0" };
+    const replacement = { status: "online" as const, managedUpdates: true, version: "2.0.0" };
+    expect(runnerUpdatePending({ targetVersion: "2.0.0", workers: [old, replacement] })).toBe(false);
+    expect(runnerUpdatePending({ targetVersion: "2.0.0", workers: [old] })).toBe(true);
+    expect(runnerUpdatePending({ targetVersion: "2.0.0", workers: [{ ...old, status: "online" }] })).toBe(true);
+    expect(runnerUpdatePending({ targetVersion: null, workers: [old] })).toBe(false);
+  });
+});

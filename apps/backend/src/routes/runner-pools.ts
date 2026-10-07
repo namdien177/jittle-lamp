@@ -8,12 +8,13 @@ import {
 	registerRunnerResponseSchema,
 	runnerHeartbeatRequestSchema,
 	runnerPoolSchema,
+	runnerUpdateProgressRequestSchema,
 } from "@jittle-lamp/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { z } from "zod/v4";
 
-import { runnerPools } from "../db/schema";
+import { runnerPools, runnerWorkers } from "../db/schema";
 import {
 	HttpError,
 	handleTestRoute,
@@ -32,12 +33,16 @@ import {
 	createRunnerPool,
 	getRunnerPoolRow,
 	listRunnerPools,
+	readRunnerUpdateProgress,
 	recordHeartbeat,
 	registerWorker,
 	rotateRegistrationToken,
+	runnerUpdateId,
 	toRunnerPool,
 	touchWorker,
 	verifyWorkerToken,
+	withRunnerVersion,
+	workerCapabilities,
 } from "../services/runner-pools";
 import { createTestSecrets } from "../services/test-config";
 import {
@@ -83,9 +88,9 @@ export const createRunnerPoolRoutes = (
 					"test_config.use",
 				);
 				return {
-					items: (await listRunnerPools(db, who.orgId)).map((pool) =>
-						respond(runnerPoolSchema, pool),
-					),
+					items: (await listRunnerPools(db, who.orgId))
+						.map((pool) => withRunnerVersion(pool, ctx.runtime.version))
+						.map((pool) => respond(runnerPoolSchema, pool)),
 				};
 			}),
 		)
@@ -110,7 +115,10 @@ export const createRunnerPoolRoutes = (
 				});
 				ctx.set.status = 201;
 				return respond(createRunnerPoolResponseSchema, {
-					pool: await toRunnerPool(db, created.pool),
+					pool: withRunnerVersion(
+						await toRunnerPool(db, created.pool),
+						ctx.runtime.version,
+					),
 					registrationToken: created.registrationToken,
 				});
 			}),
@@ -133,10 +141,18 @@ export const createRunnerPoolRoutes = (
 		.post("/runner-pools/heartbeat", (ctx) =>
 			handleTestRoute(ctx, async () => {
 				const db = requireDb(ctx.db);
-				const { worker } = await verifyWorkerToken(db, readBearer(ctx.request));
+				const { worker, pool } = await verifyWorkerToken(
+					db,
+					readBearer(ctx.request),
+				);
 				const body = parseInput(runnerHeartbeatRequestSchema, ctx.body);
 				await recordHeartbeat(db, { worker, request: body });
-				return { ok: true as const };
+				return {
+					ok: true as const,
+					serverVersion: ctx.runtime.version,
+					targetVersion: pool.targetVersion,
+					updateId: runnerUpdateId(pool),
+				};
 			}),
 		)
 		.post("/runner-pools/claim", (ctx) =>
@@ -147,6 +163,17 @@ export const createRunnerPoolRoutes = (
 					readBearer(ctx.request),
 				);
 				await touchWorker(db, worker);
+				// Managed hosts drain before the supervisor replaces their image.
+				if (
+					pool.targetVersion &&
+					pool.targetVersion !== worker.version &&
+					workerCapabilities(worker).managedUpdates === true
+				) {
+					return respond(claimRunResponseSchema, {
+						run: null,
+						exploration: null,
+					});
+				}
 				// Expired leases go back to the queue before this worker picks.
 				await sweepRunQueue(db, Date.now(), { logger: ctx.logger });
 				const claimed = await claimNextRun(db, { pool, workerId: worker.id });
@@ -210,6 +237,245 @@ export const createRunnerPoolRoutes = (
 				return { ok: true };
 			}),
 		)
+		// Worker-scoped update plan; a worker never sees another pool's credentials.
+		.get("/runner-pools/update-plan", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const { worker, pool } = await verifyWorkerToken(
+					db,
+					readBearer(ctx.request),
+				);
+				const capabilities = workerCapabilities(worker);
+				return {
+					poolId: pool.id,
+					workerId: worker.id,
+					serverVersion: ctx.runtime.version,
+					targetVersion: pool.targetVersion,
+					version: worker.version,
+					updatePhase: readRunnerUpdateProgress(pool)?.phase ?? null,
+					progressReporting: true,
+					updateId: runnerUpdateId(pool),
+					ready:
+						capabilities.managedUpdates === true &&
+						capabilities.drainingVersion === pool.targetVersion &&
+						capabilities.drainingUpdateId === runnerUpdateId(pool) &&
+						worker.load === 0 &&
+						(worker.lastHeartbeatAt ?? 0) > Date.now() - 30_000,
+				};
+			}),
+		)
+
+		.post("/runner-pools/update-progress", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const { worker, pool } = await verifyWorkerToken(
+					db,
+					readBearer(ctx.request),
+				);
+				const body = parseInput(runnerUpdateProgressRequestSchema, ctx.body);
+				const previous = readRunnerUpdateProgress(pool);
+				if (
+					pool.kind !== "cloud" ||
+					workerCapabilities(worker).managedUpdates !== true
+				) {
+					throw new HttpError(
+						403,
+						"RUNNER_UPDATER_REQUIRED",
+						"Managed cloud worker required",
+					);
+				}
+				if (
+					!previous ||
+					body.updateId !== previous.updateId ||
+					body.targetVersion !== pool.targetVersion
+				) {
+					throw new HttpError(
+						409,
+						"RUNNER_UPDATE_CHANGED",
+						"The update was cancelled or replaced",
+					);
+				}
+				if (previous.phase === "completed" && body.phase !== "completed") {
+					throw new HttpError(
+						409,
+						"RUNNER_UPDATE_COMPLETED",
+						"This update already completed",
+					);
+				}
+				if (body.phase === "completed") {
+					const ids = [...new Set(body.replacementWorkerIds ?? [])];
+					const replacements = ids.length
+						? await db.query.runnerWorkers.findMany({
+								where: and(
+									eq(runnerWorkers.poolId, pool.id),
+									inArray(runnerWorkers.id, ids),
+								),
+							})
+						: [];
+					if (
+						!ids.length ||
+						replacements.length !== ids.length ||
+						replacements.some(
+							(item) =>
+								item.revokedAt !== null ||
+								item.version !== pool.targetVersion ||
+								(item.lastHeartbeatAt ?? 0) < Date.now() - 30_000 ||
+								workerCapabilities(item).managedUpdates !== true,
+						)
+					)
+						throw new HttpError(
+							409,
+							"RUNNER_UPDATE_NOT_READY",
+							"Waiting for replacement workers to reconnect",
+						);
+				}
+				const { replacementWorkerIds: _ids, ...progress } = body;
+				const result = await db
+					.update(runnerPools)
+					.set({
+						updateProgressJson: JSON.stringify({
+							...progress,
+							startedAt: previous.startedAt,
+							reportedAt: Date.now(),
+						}),
+					})
+					.where(
+						and(
+							eq(runnerPools.id, pool.id),
+							eq(runnerPools.updateProgressJson, pool.updateProgressJson ?? ""),
+						),
+					)
+					.returning({ id: runnerPools.id });
+				if (!result.length)
+					throw new HttpError(
+						409,
+						"RUNNER_UPDATE_CHANGED",
+						"The update changed; fetch the current plan",
+					);
+				return { ok: true };
+			}),
+		)
+		.post("/runner-pools/:id/update", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const { id } = parseInput(poolParams, ctx.params);
+				const { cancel } = parseInput(
+					z.object({ cancel: z.boolean().default(false) }),
+					ctx.body,
+				);
+				const pool = await getRunnerPoolRow(db, who.orgId, id);
+				if (pool.kind !== "cloud")
+					throw new HttpError(
+						422,
+						"RUNNER_UPDATE_CLOUD_ONLY",
+						"Managed updates are available for cloud pools",
+					);
+				const view = await toRunnerPool(db, pool);
+				if (
+					!cancel &&
+					!view.workers.some(
+						(worker) => worker.status === "online" && worker.managedUpdates,
+					)
+				) {
+					throw new HttpError(
+						409,
+						"RUNNER_UPDATER_REQUIRED",
+						"Start the host updater and enable managed updates before requesting an update",
+					);
+				}
+				if (
+					!cancel &&
+					!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(ctx.runtime.version)
+				) {
+					throw new HttpError(
+						422,
+						"RUNNER_VERSION_INVALID",
+						"The server version must name a published runner release",
+					);
+				}
+				const previous = readRunnerUpdateProgress(pool);
+				if (
+					previous &&
+					["restarting", "reconnecting"].includes(previous.phase)
+				) {
+					throw new HttpError(
+						409,
+						"RUNNER_UPDATE_REPLACING",
+						"Workers are restarting; wait for the update to finish",
+					);
+				}
+				const updateId = Math.max(
+					Date.now(),
+					runnerUpdateId(pool) + 1,
+					pool.updatedAt + 1,
+				);
+				const targetVersion = cancel ? null : ctx.runtime.version;
+				const updateProgress = cancel
+					? null
+					: {
+							updateId,
+							targetVersion: ctx.runtime.version,
+							phase: "draining" as const,
+							downloadPercent: null,
+							downloadedBytes: null,
+							totalBytes: null,
+							errorCode: null,
+							startedAt: updateId,
+							reportedAt: updateId,
+						};
+				const changed = await db
+					.update(runnerPools)
+					.set({
+						targetVersion,
+						updateProgressJson: updateProgress
+							? JSON.stringify(updateProgress)
+							: null,
+						updatedAt: updateId,
+					})
+					.where(
+						and(
+							eq(runnerPools.id, pool.id),
+							pool.updateProgressJson === null
+								? isNull(runnerPools.updateProgressJson)
+								: eq(runnerPools.updateProgressJson, pool.updateProgressJson),
+						),
+					)
+					.returning({ id: runnerPools.id });
+				if (!changed.length)
+					throw new HttpError(
+						409,
+						"RUNNER_UPDATE_CHANGED",
+						"Update progress changed; refresh before trying again",
+					);
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: cancel
+						? "runner_pool.update_cancelled"
+						: "runner_pool.update_requested",
+					entity: { type: "runner_pool", id: pool.id },
+					message: cancel
+						? "Cancelled runner update"
+						: `Requested runner update to ${targetVersion}`,
+				});
+				return respond(
+					runnerPoolSchema,
+					withRunnerVersion(
+						await toRunnerPool(db, {
+							...pool,
+							targetVersion,
+							updatedAt: updateId,
+							updateProgressJson: updateProgress
+								? JSON.stringify(updateProgress)
+								: null,
+						}),
+						ctx.runtime.version,
+					),
+				);
+			}),
+		)
 		.patch("/runner-pools/:id", (ctx) =>
 			handleTestRoute(ctx, async () => {
 				const db = requireDb(ctx.db);
@@ -244,7 +510,10 @@ export const createRunnerPoolRoutes = (
 					.returning();
 				return respond(
 					runnerPoolSchema,
-					await toRunnerPool(db, updated ?? pool),
+					withRunnerVersion(
+						await toRunnerPool(db, updated ?? pool),
+						ctx.runtime.version,
+					),
 				);
 			}),
 		)
@@ -264,7 +533,10 @@ export const createRunnerPoolRoutes = (
 					message: `Issued a registration token for runner pool ${pool.name}`,
 				});
 				return respond(createRunnerPoolResponseSchema, {
-					pool: await toRunnerPool(db, pool),
+					pool: withRunnerVersion(
+						await toRunnerPool(db, pool),
+						ctx.runtime.version,
+					),
 					registrationToken,
 				});
 			}),

@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { runnerVersion } from "./paths";
+
 import { parseArgs } from "./args";
 import { startWorker } from "./daemon/worker";
 
@@ -18,6 +20,7 @@ Environment: JL_API_ORIGIN, JL_RUNNER_TOKEN, JL_RUNNER_WORK_DIR, JL_RUNNER_CONCU
 
 export async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
+  if (args.command === "version" || args.command === "--version" || args.flags.has("version")) { console.log(runnerVersion); return 0; }
   if (args.command !== "start") {
     console.log(usage);
     return args.command === "help" ? 0 : 2;

@@ -33,7 +33,8 @@
     "build:viewer-core": "bun run --cwd packages/viewer-core build",
     "build:viewer-react": "bun run --cwd packages/viewer-react build",
     "hooks:install": "bun run ./scripts/setup-git-hooks.js",
-    "prepare": "bun run hooks:install"
+    "prepare": "bun run hooks:install",
+    "release:export-runner": "node scripts/release/export-runner.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",

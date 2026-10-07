@@ -13,7 +13,6 @@ import {
 } from "@jittle-lamp/shared";
 import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod/v4";
-
 import {
 	testCases,
 	testCredentials,
@@ -28,6 +27,7 @@ import {
 	OutboundBlockedError,
 	type OutboundPolicy,
 } from "./outbound-http";
+import { testCasePolicy } from "./test-case-policy";
 import {
 	createTestCase,
 	deriveCaseColumns,
@@ -687,6 +687,7 @@ export const patchImportBatch = async (
 		userId: string;
 		batch: ImportBatchRow;
 		request: PatchImportRequest;
+		forceReview?: boolean;
 	},
 ): Promise<{ batch: ImportBatchRow; committed: boolean }> => {
 	const { batch, request } = input;
@@ -799,6 +800,18 @@ export const patchImportBatch = async (
 						: null;
 			if (targetId) {
 				const existing = await getTestCaseRow(db, input.orgId, targetId);
+				if (
+					!(await testCasePolicy.canUpdateTestCases(db, {
+						organizationId: input.orgId,
+						userId: input.userId,
+					}))
+				) {
+					throw new HttpError(
+						403,
+						"TEST_PERMISSION_DENIED",
+						"Updating an existing case through an import requires test_case.update",
+					);
+				}
 				const updated = await updateTestCase(db, {
 					row: existing,
 					userId: input.userId,
@@ -806,7 +819,9 @@ export const patchImportBatch = async (
 					request: {
 						transcript: item.transcript,
 						changeNote: `Import ${batch.id}`,
-						...(existing.status === "draft" ? { status: "review" } : {}),
+						...(input.forceReview || existing.status === "draft"
+							? { status: "review" as const }
+							: {}),
 					},
 				});
 				resultId = updated.id;

@@ -478,16 +478,40 @@ export const testRunProgressResponseSchema = z.object({
 
 export const runnerPoolKindSchema = z.enum(["cloud", "self-hosted"]);
 
+export const runnerUpdatePhaseSchema = z.enum(["draining", "downloading", "verifying", "restarting", "reconnecting", "completed", "failed"]);
+export const runnerUpdateErrorSchema = z.enum(["DOWNLOAD_FAILED", "VERIFY_FAILED", "RESTART_FAILED", "RECONNECT_FAILED"]);
+export const runnerUpdateProgressRequestSchema = z.object({
+  updateId: epochMs,
+  targetVersion: z.string().min(1).max(50),
+  phase: runnerUpdatePhaseSchema,
+  downloadPercent: z.number().min(0).max(100).nullable().default(null),
+  downloadedBytes: z.number().int().nonnegative().nullable().default(null),
+  totalBytes: z.number().int().positive().nullable().default(null),
+  errorCode: runnerUpdateErrorSchema.nullable().default(null),
+  replacementWorkerIds: z.array(id).min(1).max(50).optional()
+});
+export const runnerUpdateProgressSchema = runnerUpdateProgressRequestSchema.omit({ replacementWorkerIds: true }).extend({
+  startedAt: epochMs,
+  reportedAt: epochMs
+});
+export type RunnerUpdateProgress = z.infer<typeof runnerUpdateProgressSchema>;
+
 export const runnerPoolSchema = z.object({
   id,
   name: z.string().min(1),
   kind: runnerPoolKindSchema,
   maxConcurrentRuns: z.number().int().min(1).max(50),
+  serverVersion: z.string().optional(),
+  targetVersion: z.string().nullable().optional(),
+  updateProgress: runnerUpdateProgressSchema.nullable().optional(),
   workers: z.array(
     z.object({
       id,
       hostname: z.string(),
       version: z.string(),
+      versionSkew: z.boolean().optional(),
+      managedUpdates: z.boolean().optional(),
+      drainingVersion: z.string().nullable().optional(),
       status: z.enum(["online", "offline"]),
       lastHeartbeatAt: epochMs.nullable(),
       currentRunId: id.nullable()
@@ -515,7 +539,7 @@ export const createRunnerPoolResponseSchema = z.object({
 export const registerRunnerRequestSchema = z.object({
   hostname: z.string().min(1).max(200),
   version: z.string().min(1).max(50),
-  capabilities: z.object({ browsers: z.array(z.string()).default(["chromium"]), headed: z.boolean().default(false), liveView: z.boolean().default(false) })
+  capabilities: z.object({ browsers: z.array(z.string()).default(["chromium"]), headed: z.boolean().default(false), liveView: z.boolean().default(false), managedUpdates: z.boolean().optional() })
 });
 export const registerRunnerResponseSchema = z.object({
   workerId: id,
@@ -528,7 +552,18 @@ export const registerRunnerResponseSchema = z.object({
 
 export const runnerHeartbeatRequestSchema = z.object({
   runId: id.nullable().default(null),
-  load: z.number().int().nonnegative().default(0)
+  load: z.number().int().nonnegative().default(0),
+  version: z.string().min(1).max(50).optional(),
+  managedUpdates: z.boolean().optional(),
+  drainingVersion: z.string().min(1).max(50).nullable().optional(),
+  drainingUpdateId: epochMs.nullable().optional()
+});
+
+export const runnerHeartbeatResponseSchema = z.object({
+  ok: z.literal(true),
+  serverVersion: z.string().optional(),
+  targetVersion: z.string().nullable().optional(),
+  updateId: epochMs.optional()
 });
 
 export const claimedRunSchema = z.object({

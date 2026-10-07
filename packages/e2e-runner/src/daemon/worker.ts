@@ -49,6 +49,7 @@ export type WorkerOptions = {
   once?: boolean;
   // Keep run directories (video, trace) after finalisation, for debugging.
   keepRunDirs?: boolean;
+  managedUpdates?: boolean;
 };
 
 // The organisation's configuration comes from the backend; JL_* names and model keys in the
@@ -102,7 +103,7 @@ export async function ensureRegistered(client: BackendClient, options: WorkerOpt
   const registered = await client.register(options.registrationToken, {
     hostname: osHostname(),
     version: runnerVersion,
-    capabilities: { browsers: ["chromium"], headed: options.headed ?? false, liveView: true }
+    capabilities: { browsers: ["chromium"], headed: options.headed ?? false, liveView: true, managedUpdates: options.managedUpdates ?? process.env.JL_RUNNER_MANAGED_UPDATES === "1" }
   });
   const state: WorkerState = { apiOrigin: options.apiOrigin, ...registered };
   writeState(statePath, state);
@@ -219,6 +220,7 @@ export async function executeClaimedRun(input: {
   hostEnv: Readonly<Record<string, string | undefined>>;
   log: (line: string) => void;
   keepRunDirs?: boolean;
+  managedUpdates?: boolean;
 }): Promise<{ result: RunTranscriptResult | null; evidenceId: string | null }> {
   const { client, claimed, log } = input;
   const controller = new AbortController();
@@ -486,12 +488,31 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
   let fatal: unknown = null;
   log(`registered as worker ${state.workerId} in pool ${state.poolId}; concurrency ${concurrency}`);
 
-  const heartbeat = setInterval(() => {
-    void client.heartbeat(state.workerToken, [...activeRuns][0] ?? null, active.size).catch((error: unknown) => {
+  const managedUpdates = options.managedUpdates ?? process.env.JL_RUNNER_MANAGED_UPDATES === "1";
+  let drainingVersion: string | null = null;
+  let drainingUpdateId: number | null = null;
+  let claimInFlight = false;
+  let lastServerVersion: string | undefined;
+  let heartbeatBusy = false;
+  const sendHeartbeat = async () => {
+    if (heartbeatBusy) return;
+    heartbeatBusy = true;
+    try {
+      const response = await client.heartbeat(state.workerToken, [...activeRuns][0] ?? null, active.size + (claimInFlight ? 1 : 0), { version: runnerVersion, managedUpdates, drainingVersion, drainingUpdateId });
+      if (response.serverVersion !== lastServerVersion) {
+        lastServerVersion = response.serverVersion;
+        if (lastServerVersion && lastServerVersion !== runnerVersion) log(`version skew: runner ${runnerVersion}, server ${lastServerVersion}; update in Settings → Runner pools`);
+      }
+      const target = managedUpdates && response.targetVersion && response.targetVersion !== runnerVersion ? response.targetVersion : null;
+      if (target !== drainingVersion) log(target ? `draining for update to ${target}` : "runner update drain cleared");
+      drainingVersion = target;
+      drainingUpdateId = target ? response.updateId ?? null : null;
+    } catch (error) {
       log(`heartbeat failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
-  }, state.heartbeatMs);
-  await client.heartbeat(state.workerToken, null, 0).catch(() => undefined);
+    } finally { heartbeatBusy = false; }
+  };
+  const heartbeat = setInterval(() => void sendHeartbeat(), state.heartbeatMs);
+  await sendHeartbeat();
 
   const stop = () => {
     stopping = true;
@@ -501,6 +522,11 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
 
   try {
     while (!stopping) {
+      if (drainingVersion) {
+        if (options.once && active.size === 0) break;
+        await new Promise(resolve => setTimeout(resolve, pollMs));
+        continue;
+      }
       if (active.size >= concurrency) {
         await Promise.race(active.values());
         continue;
@@ -508,6 +534,7 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
       let claimed: ClaimedRun | null = null;
       let exploration: ClaimedExploration | null = null;
       try {
+        claimInFlight = true;
         const work = await client.claimWork(state.workerToken);
         claimed = work.run;
         exploration = work.exploration;
@@ -521,6 +548,7 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         }
         log(`claim failed: ${error instanceof Error ? error.message : String(error)}`);
       }
+      finally { claimInFlight = false; }
       if (!claimed && exploration) {
         const item = exploration;
         log(`claimed exploration ${item.explorationId}`);

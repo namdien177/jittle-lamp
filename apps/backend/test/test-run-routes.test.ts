@@ -90,7 +90,11 @@ describe("test run routes and runner contract", () => {
 			token: runner.workerToken,
 			body: { runId: null, load: 0 },
 		});
-		expect(heartbeat.body).toEqual({ ok: true });
+		expect(heartbeat.body).toMatchObject({
+			ok: true,
+			serverVersion: "9.9.9",
+			targetVersion: null,
+		});
 		const claim = await fixture.call<{ run: ClaimedRun | null }>(
 			"/runner-pools/claim",
 			{ token: runner.workerToken, body: {} },
@@ -532,7 +536,7 @@ describe("test run routes and runner contract", () => {
 		expect(final.body).toMatchObject({ status: "cancelled", outcome: null });
 	});
 
-	it("accepts automation tokens only on the CI routes and rejects unrunnable cases", async () => {
+	it("accepts automation tokens on authoring and CI routes while requiring human review", async () => {
 		const fixture = await createTestCaseFixture();
 		const { testCase } = await seedRunnableCase(fixture, {
 			password: FAKE_PASSWORD,
@@ -567,8 +571,15 @@ describe("test run routes and runner contract", () => {
 			body: { transcript: `${testCase.transcript}\n[Note] from CI` },
 		});
 		expect(patched.status).toBe(200);
+		expect(patched.body).toMatchObject({ status: "review" });
+		const proposed = await fixture.call("/test-cases", {
+			token: ci,
+			body: { transcript: loginTranscript("CI proposal") },
+		});
+		expect(proposed.status).toBe(201);
+		expect(proposed.body).toMatchObject({ status: "review" });
+
 		for (const [path, method] of [
-			["/test-cases", "POST"],
 			["/test-environments", "GET"],
 			["/test-credentials", "GET"],
 			[`/test-cases/${testCase.id}`, "DELETE"],
@@ -577,9 +588,6 @@ describe("test run routes and runner contract", () => {
 			const response = await fixture.call(path, {
 				method,
 				token: ci,
-				...(method === "POST"
-					? { body: { transcript: loginTranscript() } }
-					: {}),
 			});
 			expect(response.status).toBe(403);
 			expect(response.body).toMatchObject({

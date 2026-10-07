@@ -79,6 +79,7 @@ build_backend_image:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
 
+# Publish a versioned runner and keep a docker-load archive for hosts without registry access.
 build_runner_image:
   stage: containerize
   image: moby/buildkit:v0.29.0
@@ -98,15 +99,36 @@ build_runner_image:
   needs:
     - verify
   script:
+    - apk add --no-cache jq gzip
+    - export RUNNER_VERSION="$(jq -r .version packages/e2e-runner/package.json)"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        test "$CI_COMMIT_TAG" = "v$RUNNER_VERSION"
+        export RUNNER_IMAGE_TAG="$RUNNER_VERSION"
+      else
+        export RUNNER_IMAGE_TAG="sha-$CI_COMMIT_SHA"
+      fi
+    - mkdir -p release-artifacts/runner "$HOME/.docker"
+    - |
+      jq -n --arg registry "$CI_REGISTRY" --arg user "$CI_REGISTRY_USER" --arg password "$CI_REGISTRY_PASSWORD" \
+        '{auths: {($registry): {auth: (($user + ":" + $password) | @base64)}}}' > "$HOME/.docker/config.json"
     - |
       buildctl build \
         --frontend dockerfile.v0 \
         --local context="$CI_PROJECT_DIR" \
         --local dockerfile="$CI_PROJECT_DIR/deploy/runner" \
         --opt filename=Dockerfile \
-        --output type=oci,dest=/tmp/jittle-lamp-e2e-runner.oci.tar
-    - test -s /tmp/jittle-lamp-e2e-runner.oci.tar
-    - rm /tmp/jittle-lamp-e2e-runner.oci.tar
+        --output "type=image,name=$CI_REGISTRY_IMAGE/e2e-runner:$RUNNER_IMAGE_TAG,push=true" \
+        --output "type=docker,name=$CI_REGISTRY_IMAGE/e2e-runner:$RUNNER_IMAGE_TAG,dest=release-artifacts/runner/image.docker.tar"
+    - gzip release-artifacts/runner/image.docker.tar
+    - cp deploy/runner/compose.yaml deploy/runner/runner.env.sample deploy/runner/update-runner.mjs deploy/runner/docker-pull.mjs release-artifacts/runner/
+    - printf 'JL_RUNNER_IMAGE=%s/e2e-runner\nJL_RUNNER_IMAGE_TAG=%s\n' "$CI_REGISTRY_IMAGE" "$RUNNER_IMAGE_TAG" > release-artifacts/runner/image.env
+    - cd release-artifacts/runner && sha256sum image.docker.tar.gz > image.docker.tar.gz.sha256
+  artifacts:
+    name: "jittle-lamp-runner-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - release-artifacts/runner/
+    expire_in: 30 days
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'

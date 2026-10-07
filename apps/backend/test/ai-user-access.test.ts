@@ -9,6 +9,7 @@ import {
 	evidences,
 	organizationMembers,
 	provisioningEvents,
+	testCases,
 } from "../src/db/schema";
 import {
 	AI_ACCESS_TOKEN_SCOPE,
@@ -176,15 +177,34 @@ describe("AI user access", () => {
 		}
 	});
 
-	it("lets an MCP token author and run test cases under the owner's role", async () => {
-		const { app, request } = await fixture();
+	it("lets an MCP token author cases and run them after human approval", async () => {
+		const { app, db, request } = await fixture();
 		const created = await app.handle(
 			request("/test-cases", "POST", {
 				transcript: "# MCP case\n\n[Open] /login\n[Assert] login form shows",
 			}),
 		);
 		expect(created.status).toBe(201);
-		const testCase = (await created.json()) as { id: string; key: string };
+		const testCase = (await created.json()) as {
+			id: string;
+			key: string;
+			status: string;
+		};
+		expect(testCase.status).toBe("review");
+		expect(
+			(
+				await app.handle(
+					request(`/test-cases/${testCase.id}/runs`, "POST", {
+						trigger: "mcp",
+					}),
+				)
+			).status,
+		).toBe(409);
+		// Simulate a human approval; token requests must not perform this transition.
+		await db
+			.update(testCases)
+			.set({ status: "active" })
+			.where(eq(testCases.id, testCase.id));
 		expect(testCase.key).toBe("TC-0001");
 		expect((await app.handle(request("/test-cases"))).status).toBe(200);
 		const run = await app.handle(

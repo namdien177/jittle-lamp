@@ -246,6 +246,20 @@
       "when": 1791091165080,
       "tag": "0034_credential_login_field",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1791353308176,
+      "tag": "0035_runner_updates",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1791388894159,
+      "tag": "0036_runner_update_progress",
+      "breakpoints": true
     }
   ]
 }

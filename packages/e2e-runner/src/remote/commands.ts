@@ -3,6 +3,8 @@ import { join, resolve } from "node:path";
 
 import {
   parseTranscriptDocument,
+  createImportRequestSchema,
+  importBatchSchema,
   serializeTestCase,
   testCaseDetailSchema,
   testCaseListResponseSchema,
@@ -18,10 +20,10 @@ import { BackendClient } from "../daemon/api";
 export type RemoteContext = { client: BackendClient; token: string; log: (line: string) => void };
 
 export function remoteContext(env: Readonly<Record<string, string | undefined>>, log: (line: string) => void, fetchImpl?: typeof fetch): RemoteContext {
-  const origin = env.JL_API_ORIGIN;
-  const token = env.JL_API_TOKEN;
+  const origin = env.JL_API_ORIGIN ?? env.JITTLE_LAMP_API_ORIGIN;
+  const token = env.JL_API_TOKEN ?? env.JL_AI_TOKEN;
   if (!origin) throw new Error("Set JL_API_ORIGIN to the Jittle Lamp API (for example https://api.jittlelamp.example).");
-  if (!token) throw new Error("Set JL_API_TOKEN to an automation token (Settings → API tokens).");
+  if (!token) throw new Error("Set JL_API_TOKEN to an automation token or JL_AI_TOKEN to an AI token with MCP access.");
   return { client: new BackendClient({ origin, ...(fetchImpl ? { fetch: fetchImpl } : {}) }), token, log };
 }
 
@@ -98,10 +100,10 @@ export async function pushCases(context: RemoteContext, input: { file: string })
         ? list.items.find((item) => item.key === testCase.metadata.key)
         : list.items.find((item) => item.title.trim() === testCase.title.trim());
     if (existing) {
-      const updated = await context.client.request("PATCH", `/test-cases/${encodeURIComponent(existing.id)}`, context.token, testCaseDetailSchema, { transcript });
+      const updated = await context.client.request("PATCH", `/test-cases/${encodeURIComponent(existing.id)}`, context.token, testCaseDetailSchema, { transcript, expectedVersion: existing.transcriptVersion });
       results.push({ title: testCase.title, id: updated.id, action: "updated" });
     } else {
-      const created = await context.client.request("POST", "/test-cases", context.token, testCaseDetailSchema, { transcript, source: "manual" });
+      const created = await context.client.request("POST", "/test-cases", context.token, testCaseDetailSchema, { transcript, source: "ai", status: "review" });
       results.push({ title: testCase.title, id: created.id, action: "created" });
     }
   }
@@ -217,4 +219,18 @@ export async function runRemote(
       ? 3
       : 0;
   return { runIds, runs, exitCode };
+}
+
+// Instructions are explored on the environment runner, then a person reviews the batch.
+export async function generateCases(context: RemoteContext, input: { content: string; environmentId: string; queueWithoutRunner?: boolean }) {
+  return context.client.request("POST", "/test-cases/import", context.token, importBatchSchema,
+    createImportRequestSchema.parse({ sourceKind: "instructions", content: input.content, environmentId: input.environmentId, queueWithoutRunner: input.queueWithoutRunner }));
+}
+
+export async function getImportBatch(context: RemoteContext, batchId: string) {
+  return context.client.request("GET", `/test-cases/import/${encodeURIComponent(batchId)}`, context.token, importBatchSchema);
+}
+
+export async function submitImportBatch(context: RemoteContext, batchId: string) {
+  return context.client.request("PATCH", `/test-cases/import/${encodeURIComponent(batchId)}`, context.token, importBatchSchema, { commit: true });
 }

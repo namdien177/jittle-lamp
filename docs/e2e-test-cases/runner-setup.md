@@ -32,15 +32,55 @@ A worker uses the token only when it has no stored credential. It then gets its 
 
 ### Docker (cloud pool or any Linux host)
 
+The cloud host needs Docker Compose and a published or preloaded image. It does **not** need Git, Bun, or this repository. The image contains Node 22, Chromium, the runner bundles and the TypeScript modules the engine loads; it excludes other apps, tests and build tools.
+
+**From CI:** download `release-artifacts/runner/` from the `build_runner_image` job, or use the image at `$CI_REGISTRY_IMAGE/e2e-runner:<release version>`. CI publishes semver tags on matching `vX.Y.Z` release tags; main builds use `sha-<commit>` tags. Use a released semver image for managed updates, and keep release tags immutable.
+
+**Export locally:** on a development machine, run:
+
 ```bash
-docker build -f deploy/runner/Dockerfile -t jittle-lamp/e2e-runner .
-cp deploy/runner/runner.env.sample deploy/runner/runner.env   # set JL_API_ORIGIN, JL_RUNNER_TOKEN
-docker compose -f deploy/runner/compose.yaml up -d --scale runner=2
+bun run release:export-runner                    # optional output directory as first argument
 ```
 
-Every runner setting, including `JL_RUNNER_CONCURRENCY` (runs at a time per container, default 1), comes from `runner.env`. Edit the file and recreate the containers (`docker compose … up -d`) to change it; a variable set only in your shell does not reach the containers.
+This builds and exports `release-artifacts/runner-X.Y.Z/jittle-lamp-e2e-runner-X.Y.Z.docker.tar.gz`, its SHA-256 file, and the small deployment files. Copy that directory to the cloud host. A Dockerfile alone still needs a build context; the image archive is the single portable file that removes the source checkout requirement. Build separately for each host CPU architecture.
 
-The image is Playwright's `v1.63.0-noble` image with Node and Chromium; it runs as `pwuser`. The replicas share the `runner-state` volume, and each keeps its credential in a file named after its container host name. `shm_size: 1gb` is required: Chromium crashes with Docker's 64 MB default. `stop_grace_period: 20m` lets a running case finish on `docker compose down`.
+On the cloud host, inside the exported directory:
+
+```bash
+sha256sum -c *.sha256
+docker load -i jittle-lamp-e2e-runner-X.Y.Z.docker.tar.gz   # CI names this image.docker.tar.gz
+cp runner.env.sample runner.env                          # set JL_API_ORIGIN and JL_RUNNER_TOKEN
+docker compose --env-file image.env -f compose.yaml up -d --scale runner=2
+```
+
+For a registry deployment, set `JL_RUNNER_IMAGE=<registry repository>/e2e-runner` and `JL_RUNNER_IMAGE_TAG=X.Y.Z` in `image.env`, log into the registry, then run the same Compose command. `runner.env` configures the containers; `image.env` configures Compose's image selection. Changing only a shell variable does not change container settings.
+
+The runtime installs only Playwright 1.63.0 Chromium and its OS dependencies, and runs as `pwuser`. Replicas share the state and work volumes. `shm_size: 1gb` supports Chromium; `stop_grace_period: 20m` lets a case finish during a normal stop. Do not mount the Docker socket into the runner.
+
+For a **local source build** only:
+
+```bash
+docker compose -f deploy/runner/compose.yaml -f deploy/runner/compose.build.yaml up -d --build
+```
+
+### Detect version skew and update from Settings
+
+Deploy the server and runner from the same release. The server defaults to its package version; `APP_VERSION`, when explicitly set by deployment, must match that release. Settings → Runner pools shows the server version and each worker's version, flags differences, and offers **Update cloud runner to X.Y.Z** to users with `test_config.manage`. Heartbeats refresh the actual worker version even when it reuses a saved credential, and the daemon logs mismatches. A mismatch alone does not interrupt existing runs or disable an unmanaged runner.
+
+Managed updates require a host supervisor. On that Docker host:
+
+1. Set `JL_RUNNER_MANAGED_UPDATES=1` in `runner.env` and recreate the runners once.
+2. Ensure `image.env` pins a semver release and the registry repository. Keep the registration token configured so replacement containers can register.
+3. Install Node 22+ and run `node update-runner.mjs --compose compose.yaml --image-env image.env` as a host service (or use `--once` from a scheduler). Run one updater per deployment and one pool per deployment. It uses credentials from the host's running containers, so no extra token is needed. Authenticate the Docker host to a private registry with `docker login` first.
+4. Click **Update cloud runner** in Settings. The server records its own version as the target; the UI cannot select arbitrary images. Workers stop claiming, finish active runs **and explorations**, then acknowledge the update with zero load. The supervisor verifies the candidate image's runner version, re-checks the request and drain, preserves replica count, recreates changed containers and persists the new image pin. Credentials and work volumes stay mounted.
+
+Settings shows each update stage: finish jobs, download, verify, restart, reconnect, and completion. During image pulls on a local Unix Docker socket, the host updater reads Docker's byte progress and reports a measured download percentage once every uncached layer has a known size. The percentage covers image download only; unpacking and other stages use an indeterminate bar. Remote/TLS Docker contexts use the CLI and an indeterminate download bar. Registry credentials come from the host's Docker login configuration or credential helper; they are never sent to the Jittle Lamp server. Keep `docker-pull.mjs` beside `update-runner.mjs`, including when upgrading an existing host updater.
+
+The active UI refreshes every two seconds and warns if the host stops reporting for 45 seconds. Progress is persisted across page reloads. Completion requires replacement-worker heartbeats at the target version. Cancellation is blocked once container replacement starts; failed updates show the affected stage and recovery guidance.
+
+Use `node update-runner.mjs --offline` for disconnected hosts after loading the matching exported image. The supervisor uses its locally configured repository and skips registry pulls.
+
+**Cancel update** resumes claims if the update has not started replacing containers. Image pull/verification failures leave the old containers and pin intact and keep the update pending; inspect the supervisor log, then retry or cancel. A failure during container recreation needs operator recovery with the previous image pin. Do not run deployment commands or scale the service concurrently with the updater. The UI can detect skew on old runners, but enabling managed updates on a legacy deployment needs the one-time manual upgrade above. Offline worker entries from replaced hostnames can remain in the pool history.
 
 ### systemd (self-hosted devbox)
 
@@ -100,7 +140,7 @@ Progress (current step, step results and a small screenshot per step) streams to
 | Outcome `blocked`, `MODEL_KEY_MISSING` / `MODEL_UNAVAILABLE` | A key the models need is missing (the act key, the judge key when the judge uses another provider, or the OpenAI-compatible base URL), or the provider rejected the model id | Settings → AI model lists what is missing |
 | Outcome `blocked`, `INCONCLUSIVE` | The judge could not decide, even after one re-judge | Make the assert more specific, or use `[Wait]` for things that load slowly |
 
-**Upgrades.** `e2e` is pinned. Its engine version is part of every cache key, so upgrading `e2e` or `@e2e-dev/web` re-records every act step on the next run of each case. Read the e2e changelog first and run the PCF spike case (`docs/e2e-test-cases/examples/pcf-logout-clears-email.spike.transcript.md`) before bumping. Keep all runners of a pool on the same version.
+**Upgrades.** `e2e` is pinned. Its engine version is part of every cache key, so upgrading `e2e` or `@e2e-dev/web` re-records every act step on the next run of each case. Read the e2e changelog first and run the PCF spike case (`docs/e2e-test-cases/examples/pcf-logout-clears-email.spike.transcript.md`) before bumping. Keep all runners of a pool on the same version; use the managed-update procedure above.
 
 **Plain HTTP.** e2e accepts plain `http://` base URLs only for loopback hosts. Test environments need HTTPS, unless the app runs on the runner host itself (and in Docker that means `--network host`).
 
