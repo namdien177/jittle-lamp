@@ -21,6 +21,7 @@ export type RuntimeConfig = {
 	tursoAuthToken: string | undefined;
 	videoNormalizationConcurrency: number;
 	migrationWorkerConcurrency: number;
+	storageTransferWorkerConcurrency: number;
 	s3:
 		| {
 				bucket: string;
@@ -109,6 +110,7 @@ export const buildRuntimeConfig = (env: AppEnv): RuntimeConfig => {
 		tursoAuthToken: env.TURSO_AUTH_TOKEN,
 		videoNormalizationConcurrency: env.VIDEO_NORMALIZATION_CONCURRENCY,
 		migrationWorkerConcurrency: env.MIGRATION_WORKER_CONCURRENCY,
+		storageTransferWorkerConcurrency: env.STORAGE_TRANSFER_WORKER_CONCURRENCY,
 		s3:
 			env.S3_BUCKET &&
 			env.S3_REGION &&

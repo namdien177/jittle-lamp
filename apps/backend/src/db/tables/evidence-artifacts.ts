@@ -41,6 +41,10 @@ export const evidenceArtifacts = sqliteTable(
 			.references(() => evidences.id, { onDelete: "cascade" }),
 		kind: text("kind").$type<EvidenceArtifactKind>().notNull(),
 		s3Key: text("s3_key").notNull(),
+		// organization_storages.id holding the object; null = JittleLamp default storage. Set when
+		// the row is created so the blob upload goes to the same storage even if the organisation
+		// changes its write target meanwhile. No FK: storages are tombstoned, never removed.
+		storageId: text("storage_id"),
 		mimeType: text("mime_type").notNull(),
 		bytes: integer("bytes").notNull(),
 		checksum: text("checksum").notNull(),
@@ -58,6 +62,10 @@ export const evidenceArtifacts = sqliteTable(
 	(table) => [
 		index("evidence_artifacts_evidence_id_idx").on(table.evidenceId),
 		index("evidence_artifacts_kind_idx").on(table.kind),
+		index("evidence_artifacts_storage_key_idx").on(
+			table.storageId,
+			table.s3Key,
+		),
 		index("evidence_artifacts_upload_status_idx").on(table.uploadStatus),
 		index("evidence_artifacts_evidence_kind_idx").on(
 			table.evidenceId,

@@ -468,6 +468,7 @@ export function OrganisationDetailLayout(): React.JSX.Element {
             { to: `${base}/activity`, label: "Activity" },
             { to: `${base}/evidences`, label: "Evidences" },
             { to: `${base}/library`, label: "Library" },
+            { to: `${base}/storage`, label: "Storage" },
             { to: `${base}/options`, label: "Options" },
           ]}
         />

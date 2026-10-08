@@ -32,6 +32,7 @@ import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import type { ArtifactStorage } from "../services/artifact-storage";
 import { getRequestIpAddress } from "../services/organization-activity";
 import { verifyWorkerToken } from "../services/runner-pools";
+import type { StorageRegistry } from "../services/storage-registry";
 import { testCasePolicy } from "../services/test-case-policy";
 import { createTestSecrets, type KeyProvider } from "../services/test-config";
 import type { LiveHub } from "../services/test-live";
@@ -63,6 +64,7 @@ type Ctx = {
 	runtime: RuntimeConfig;
 	keyProvider: KeyProvider;
 	artifactStorage: ArtifactStorage;
+	storageRegistry: StorageRegistry;
 	set: { status?: number | string; headers: Record<string, unknown> };
 };
 
@@ -183,7 +185,7 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin, liveHub?: LiveHub) =>
 				const run = await getRunRow(db, who.orgId, id);
 				return respond(
 					testRunDetailSchema,
-					await toRunDetail(db, ctx.artifactStorage, run, Date.now(), liveHub),
+					await toRunDetail(db, ctx.storageRegistry, run, Date.now(), liveHub),
 				);
 			}),
 		)
@@ -265,7 +267,7 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin, liveHub?: LiveHub) =>
 				liveHub?.clear(run.id);
 				return respond(
 					testRunDetailSchema,
-					await toRunDetail(db, ctx.artifactStorage, result.run),
+					await toRunDetail(db, ctx.storageRegistry, result.run),
 				);
 			}),
 		)
@@ -307,7 +309,7 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin, liveHub?: LiveHub) =>
 						"Run evidence ZIP must be 64 MB or smaller",
 					);
 				}
-				const result = await storeRunEvidence(db, ctx.artifactStorage, {
+				const result = await storeRunEvidence(db, ctx.storageRegistry, {
 					run,
 					zip: bytes,
 				});

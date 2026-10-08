@@ -18,9 +18,10 @@ import {
 } from "../api";
 import { useDesktopAuth } from "../auth-context";
 import { useToast } from "../ui/toast";
+import { OrganisationStorageSection } from "./organisation-storage";
 import { copyToClipboard, formatRelativeTime, getInitials } from "../utils";
 
-type DetailTab = "members" | "invitations" | "library" | "options";
+type DetailTab = "members" | "invitations" | "library" | "storage" | "options";
 type SortKey = "name" | "joinedAt" | "role";
 type RoleFilter = "all" | "owner" | "moderator" | "member";
 
@@ -54,6 +55,7 @@ const tabs: Array<{ id: DetailTab; label: string }> = [
   { id: "members", label: "Members" },
   { id: "invitations", label: "Invitations" },
   { id: "library", label: "Library" },
+  { id: "storage", label: "Storage" },
   { id: "options", label: "Options" }
 ];
 
@@ -501,6 +503,8 @@ function OrganisationDetailPage(props: { orgId: string; tab: DetailTab }): React
           </table>
         </section>
       ) : null}
+
+      {tab === "storage" ? <OrganisationStorageSection orgId={orgId} /> : null}
 
       {tab === "options" && org ? (
         <section className="org-options">

@@ -20,7 +20,11 @@ import {
 	type ClerkAuthPlugin,
 	requireSessionScope,
 } from "../plugins/clerk-auth";
-import { EVIDENCE_BIN_RETENTION_MS } from "../services/evidence-maintenance";
+import { relocateArtifactsForOrg } from "../services/artifact-relocation";
+import {
+	deleteUnreferencedArtifactKeys,
+	EVIDENCE_BIN_RETENTION_MS,
+} from "../services/evidence-maintenance";
 import { createEvidencePolicy } from "../services/evidence-policy";
 import {
 	evidenceActivityEntity,
@@ -820,6 +824,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						requestId,
 						requestLogger,
 						set,
+						storageRegistry,
 					}) => {
 						if (!db) {
 							set.status = 503;
@@ -921,12 +926,24 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							columns: {
 								kind: true,
 								s3Key: true,
+								storageId: true,
 								mimeType: true,
 								bytes: true,
 								checksum: true,
 								uploadStatus: true,
 							},
 						});
+						const placements =
+							body.targetOrgId === evidence.orgId
+								? artifacts.map((artifact) => ({
+										storageId: artifact.storageId,
+										s3Key: artifact.s3Key,
+										copied: false,
+									}))
+								: await relocateArtifactsForOrg(storageRegistry, {
+										targetOrgId: body.targetOrgId,
+										artifacts,
+									});
 
 						const now = Date.now();
 						const copied = await db.transaction(async (tx) => {
@@ -954,16 +971,21 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 
 							if (artifacts.length > 0) {
 								await tx.insert(evidenceArtifacts).values(
-									artifacts.map((artifact) => ({
-										evidenceId: created.id,
-										kind: artifact.kind,
-										s3Key: artifact.s3Key,
-										mimeType: artifact.mimeType,
-										bytes: artifact.bytes,
-										checksum: artifact.checksum,
-										uploadStatus: artifact.uploadStatus,
-										updatedAt: now,
-									})),
+									artifacts.map((artifact, index) => {
+										// relocateArtifactsForOrg returns one placement per artifact.
+										const placement = placements[index] ?? artifact;
+										return {
+											evidenceId: created.id,
+											kind: artifact.kind,
+											s3Key: placement.s3Key,
+											storageId: placement.storageId,
+											mimeType: artifact.mimeType,
+											bytes: artifact.bytes,
+											checksum: artifact.checksum,
+											uploadStatus: artifact.uploadStatus,
+											updatedAt: now,
+										};
+									}),
 								);
 							}
 
@@ -1060,6 +1082,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 						requestId,
 						requestLogger,
 						set,
+						storageRegistry,
 					}) => {
 						if (!db) {
 							set.status = 503;
@@ -1177,8 +1200,39 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
+						const movedArtifacts = await db.query.evidenceArtifacts.findMany({
+							where: eq(evidenceArtifacts.evidenceId, evidence.id),
+							columns: {
+								id: true,
+								s3Key: true,
+								storageId: true,
+								mimeType: true,
+								checksum: true,
+								uploadStatus: true,
+							},
+						});
+						const placements =
+							body.targetOrgId === evidence.orgId
+								? []
+								: await relocateArtifactsForOrg(storageRegistry, {
+										targetOrgId: body.targetOrgId,
+										artifacts: movedArtifacts,
+									});
+
 						const now = Date.now();
 						const moved = await db.transaction(async (tx) => {
+							for (const [index, artifact] of movedArtifacts.entries()) {
+								const placement = placements[index];
+								if (!placement || placement.s3Key === artifact.s3Key) continue;
+								await tx
+									.update(evidenceArtifacts)
+									.set({
+										s3Key: placement.s3Key,
+										storageId: placement.storageId,
+										updatedAt: now,
+									})
+									.where(eq(evidenceArtifacts.id, artifact.id));
+							}
 							const invalidatedShareLinks = await tx
 								.delete(shareLinks)
 								.where(eq(shareLinks.evidenceId, evidence.id))
@@ -1215,6 +1269,16 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								invalidatedShareLinks: invalidatedShareLinks.length,
 							};
 						});
+
+						await deleteUnreferencedArtifactKeys(
+							db,
+							storageRegistry,
+							movedArtifacts.filter(
+								(artifact, index) =>
+									placements[index] &&
+									placements[index]?.s3Key !== artifact.s3Key,
+							),
+						);
 
 						requestLogger.info(
 							{

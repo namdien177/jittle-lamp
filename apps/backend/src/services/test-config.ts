@@ -10,6 +10,7 @@ import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import {
 	notificationChannels,
 	organizationDataKeys,
+	organizationStorages,
 	testCredentials,
 	webhookEndpoints,
 } from "../db/schema";
@@ -26,6 +27,9 @@ const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const KEY_BYTES = 32;
 const ENVELOPE_VERSION = "v1";
+
+// Secret subject kind of organization_storages.credentials_enc.
+export const STORAGE_CREDENTIAL_KIND = "storage_credential";
 
 export class SecretsUnavailableError extends Error {
 	readonly code = "SECRETS_MASTER_KEY_MISSING";
@@ -349,6 +353,19 @@ export const createTestSecrets = (input: {
 		enc: string,
 	) => decryptRaw(orgId, subject, enc);
 
+	// Bring-your-own storage credentials are needed on every artifact read and write; auditing
+	// each decrypt would flood the activity log, so storage access is audited at configuration
+	// time instead (services/storage-registry.ts).
+	const decryptStorageCredentials = (
+		storage: { orgId: string; id: string },
+		enc: string,
+	) =>
+		decryptRaw(
+			storage.orgId,
+			{ kind: STORAGE_CREDENTIAL_KIND, id: storage.id },
+			enc,
+		);
+
 	// Creates a new data key version, re-encrypts every secret of the organisation with it and
 	// retires the old versions. Secrets never leave the process in plaintext.
 	const rotateDataKey = async (
@@ -379,6 +396,23 @@ export const createTestSecrets = (input: {
 			),
 			columns: { id: true, secretEnc: true },
 		});
+		const storages = await db.query.organizationStorages.findMany({
+			where: and(
+				eq(organizationStorages.orgId, orgId),
+				isNotNull(organizationStorages.credentialsEnc),
+			),
+			columns: { id: true, credentialsEnc: true },
+		});
+		const plainStorages = await Promise.all(
+			storages.map(async (row) => ({
+				id: row.id,
+				value: await decryptRaw(
+					orgId,
+					{ kind: STORAGE_CREDENTIAL_KIND, id: row.id },
+					row.credentialsEnc ?? "",
+				),
+			})),
+		);
 		const plainChannels = await Promise.all(
 			channels.map(async (row) => ({
 				id: row.id,
@@ -478,6 +512,17 @@ export const createTestSecrets = (input: {
 				})
 				.where(eq(notificationChannels.id, channel.id));
 		}
+		for (const storage of plainStorages) {
+			const sealed = await encrypt(
+				orgId,
+				{ kind: STORAGE_CREDENTIAL_KIND, id: storage.id },
+				storage.value,
+			);
+			await db
+				.update(organizationStorages)
+				.set({ credentialsEnc: sealed.enc, keyVersion: sealed.keyVersion })
+				.where(eq(organizationStorages.id, storage.id));
+		}
 		await recordOrganizationActivity(db, {
 			organizationId: orgId,
 			actorUserId,
@@ -488,13 +533,17 @@ export const createTestSecrets = (input: {
 				reencrypted:
 					plainCredentials.length +
 					plainEndpoints.length +
-					plainChannels.length,
+					plainChannels.length +
+					plainStorages.length,
 			},
 		});
 		return {
 			keyVersion: nextVersion,
 			reencrypted:
-				plainCredentials.length + plainEndpoints.length + plainChannels.length,
+				plainCredentials.length +
+				plainEndpoints.length +
+				plainChannels.length +
+				plainStorages.length,
 		};
 	};
 
@@ -570,6 +619,7 @@ export const createTestSecrets = (input: {
 		encrypt,
 		decrypt,
 		decryptForSignatureCheck,
+		decryptStorageCredentials,
 		rotateDataKey,
 		rewrapDataKeys,
 		rewrapAllDataKeys,

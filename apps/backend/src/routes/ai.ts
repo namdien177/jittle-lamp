@@ -467,7 +467,7 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 				},
 			},
 			async ({
-				artifactStorage,
+				storageRegistry,
 				db,
 				params,
 				query,
@@ -594,6 +594,7 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 							id: true,
 							kind: true,
 							s3Key: true,
+							storageId: true,
 							mimeType: true,
 							bytes: true,
 							checksum: true,
@@ -637,7 +638,19 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 								readUrlUnavailableReason: "artifact_not_uploaded",
 							};
 						}
-						if (!canSignReadUrls(artifactStorage)) {
+						const storage = await storageRegistry
+							.forArtifact(artifact)
+							.catch(() => null);
+						if (!storage) {
+							return {
+								...artifact,
+								s3Key: undefined,
+								role,
+								readUrl: null,
+								readUrlUnavailableReason: "artifact_storage_removed",
+							};
+						}
+						if (!canSignReadUrls(storage)) {
 							return {
 								...artifact,
 								s3Key: undefined,
@@ -647,7 +660,7 @@ export const createAiRoutes = (auth: ClerkAuthPlugin) =>
 							};
 						}
 
-						const signed = await artifactStorage.createReadUrl({
+						const signed = await storage.createReadUrl({
 							key: artifact.s3Key,
 							responseContentType: artifact.mimeType,
 						});

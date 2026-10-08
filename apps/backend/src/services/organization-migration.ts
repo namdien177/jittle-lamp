@@ -69,6 +69,7 @@ import {
 	MigrationWorkerError,
 } from "./migration-worker";
 import { ensureDefaultOrganizationRoles } from "./organization-permissions";
+import type { StorageRegistry } from "./storage-registry";
 import type { BackendDb } from "./user-provisioning";
 
 const RECEIVER_CODE_TTL_MS = 15 * 60 * 1_000;
@@ -261,6 +262,9 @@ export const createOrganizationMigration = (input: {
 	db: BackendDb;
 	runtime: RuntimeConfig;
 	artifactStorage: ArtifactStorage;
+	// Reads source artifacts from whichever storage holds them. Received artifacts are always
+	// staged in the JittleLamp default storage (artifactStorage).
+	storageRegistry?: Pick<StorageRegistry, "forArtifact">;
 	peerClient: MigrationPeerClient;
 	clerkDirectory: ClerkDirectory;
 	directoryConfigured?: boolean;
@@ -1741,6 +1745,7 @@ export const createOrganizationMigration = (input: {
 	type SourceArtifact = {
 		id: string;
 		storageKey: string;
+		storageId: string | null;
 		contentHash: string;
 		contentType: string;
 		size: number;
@@ -1943,7 +1948,10 @@ export const createOrganizationMigration = (input: {
 		add("evidence", evidenceRows);
 		add(
 			"evidence_artifact",
-			artifactRows.map(({ s3Key: _s3Key, ...row }) => row),
+			// Object locations are instance-local: neither the key nor the storage travels.
+			artifactRows.map(
+				({ s3Key: _s3Key, storageId: _storageId, ...row }) => row,
+			),
 		);
 		add("evidence_comment", comments);
 		add("evidence_tag", tags);
@@ -1979,6 +1987,7 @@ export const createOrganizationMigration = (input: {
 			.map((row) => ({
 				id: row.id,
 				storageKey: row.s3Key,
+				storageId: row.storageId,
 				contentHash: row.checksum.toLowerCase(),
 				contentType: row.mimeType,
 				size: row.bytes,
@@ -2641,11 +2650,13 @@ export const createOrganizationMigration = (input: {
 									String(row.evidenceId),
 								) as string,
 								s3Key: objectKey,
+								storageId: null,
 							})
 							.onConflictDoUpdate({
 								target: evidenceArtifacts.id,
 								set: {
 									s3Key: objectKey,
+									storageId: null,
 									mimeType: String(row.mimeType),
 									bytes: Number(row.bytes),
 									checksum: String(row.checksum),
@@ -3462,7 +3473,10 @@ export const createOrganizationMigration = (input: {
 			const artifact = snapshot.artifacts[index];
 			if (!artifact) continue;
 			if (!verified.has(artifact.contentHash)) {
-				const body = await input.artifactStorage.getObject({
+				const sourceStorage = input.storageRegistry
+					? await input.storageRegistry.forArtifact(artifact)
+					: input.artifactStorage;
+				const body = await sourceStorage.getObject({
 					key: artifact.storageKey,
 				});
 				const actualHash = await cryptography.sha256(body);

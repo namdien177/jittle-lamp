@@ -17,11 +17,11 @@ import {
 	testRuns,
 } from "../db/schema";
 import { HttpError } from "../http/test-http";
-import type { ArtifactStorage } from "./artifact-storage";
 import {
 	evidenceActivityEntity,
 	recordOrganizationActivity,
 } from "./organization-activity";
+import type { StorageRegistry } from "./storage-registry";
 import { linkRunEvidence, TEST_RUN_SOURCE_TYPE } from "./test-run-finalize";
 import type { TestRunRow } from "./test-runs";
 import type { BackendDb } from "./user-provisioning";
@@ -152,7 +152,7 @@ export const validateRunEvidenceZip = (bytes: Uint8Array, runId: string) => {
 
 export const storeRunEvidence = async (
 	db: BackendDb,
-	artifactStorage: ArtifactStorage,
+	storage: Pick<StorageRegistry, "forWrite">,
 	input: { run: TestRunRow; zip: Uint8Array },
 ): Promise<{ evidenceId: string; existing: boolean }> => {
 	const { run } = input;
@@ -206,6 +206,7 @@ export const storeRunEvidence = async (
 		files.map((file) => sha256Hex(file.body)),
 	);
 	const createdBy = run.createdBy;
+	const writeTarget = await storage.forWrite(run.orgId);
 	const evidence = await db.transaction(async (tx) => {
 		const [created] = await tx
 			.insert(evidences)
@@ -267,6 +268,7 @@ export const storeRunEvidence = async (
 				evidenceId: evidence.id,
 				kind: file.kind,
 				s3Key: `uploads/${run.orgId}/${evidence.id}/test-run-${file.name}-${crypto.randomUUID()}`,
+				storageId: writeTarget.storageId,
 				mimeType: file.mimeType,
 				bytes: file.body.byteLength,
 				checksum: `sha256:${checksums[index] ?? ""}`,
@@ -280,7 +282,7 @@ export const storeRunEvidence = async (
 		files.map((file, index) => {
 			const artifact = artifacts[index];
 			if (!artifact) throw new Error("Artifact row missing");
-			return artifactStorage.putObject({
+			return writeTarget.storage.putObject({
 				key: artifact.s3Key,
 				body: file.body,
 				contentType: file.mimeType,

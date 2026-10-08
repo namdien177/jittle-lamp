@@ -1,3 +1,17 @@
+import {
+  organizationStorageOverviewSchema,
+  organizationStorageSchema,
+  storageImpactSchema,
+  storageSettingsSchema,
+  storageTransferSchema,
+  storageUsageReportSchema,
+  type CreateOrganizationStorageInput,
+  type StorageSettings,
+  type StorageUsageGranularity,
+  type UpdateOrganizationStorageInput
+} from "@jittle-lamp/shared";
+import { z } from "zod/v4";
+
 import { desktopApiOrigin, desktopWebOrigin } from "../api-origin";
 
 export const apiOrigin = desktopApiOrigin;
@@ -13,6 +27,7 @@ export type ApiOrganization = {
 
 export type ApiAccountProfile = {
   userId: string;
+  localUserId?: string | null;
   activeOrgId: string | null;
   user: {
     id: string;
@@ -452,5 +467,64 @@ export const api = {
       getToken,
       `/share-links/${encodeURIComponent(shareLinkId)}/revoke`,
       { method: "POST" }
+    )
+,
+
+  // Organisation storage (packages/shared/src/storage.ts): usage for every member, bring-your-own
+  // S3 storages and transfers for members with storage.manage.
+  storageUsage: async (getToken: FetchToken, orgId: string, input: { granularity: StorageUsageGranularity; from?: string; to?: string }) => {
+    const params = new URLSearchParams({ granularity: input.granularity });
+    if (input.from) params.set("from", input.from);
+    if (input.to) params.set("to", input.to);
+    return storageUsageReportSchema.parse(await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storage/usage?${params}`));
+  },
+
+  storageOverview: async (getToken: FetchToken, orgId: string) =>
+    organizationStorageOverviewSchema.parse(await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storage`)),
+
+  updateStorageSettings: async (getToken: FetchToken, orgId: string, input: Partial<StorageSettings>) =>
+    storageSettingsSchema.parse(
+      await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storage/settings`, { method: "PATCH", body: JSON.stringify(input) })
+    ),
+
+  testStorage: async (getToken: FetchToken, orgId: string, storageId: string) =>
+    z
+      .object({ ok: z.literal(true), verifiedAt: z.number() })
+      .parse(await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storages/${encodeURIComponent(storageId)}/test`, { method: "POST" })),
+
+  createStorage: async (getToken: FetchToken, orgId: string, input: CreateOrganizationStorageInput) =>
+    organizationStorageSchema.parse(
+      await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storages`, { method: "POST", body: JSON.stringify(input) })
+    ),
+
+  updateStorage: async (getToken: FetchToken, orgId: string, storageId: string, input: UpdateOrganizationStorageInput) =>
+    organizationStorageSchema.parse(
+      await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storages/${encodeURIComponent(storageId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(input)
+      })
+    ),
+
+  storageImpact: async (getToken: FetchToken, orgId: string, storageId: string) =>
+    storageImpactSchema.parse(await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storages/${encodeURIComponent(storageId)}/impact`)),
+
+  deleteStorage: async (getToken: FetchToken, orgId: string, storageId: string, confirmName: string) =>
+    storageImpactSchema.parse(
+      await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storages/${encodeURIComponent(storageId)}/delete`, {
+        method: "POST",
+        body: JSON.stringify({ confirmName })
+      })
+    ),
+
+  startStorageTransfer: async (getToken: FetchToken, orgId: string, input: { sourceStorageId: string | null; targetStorageId: string }) =>
+    storageTransferSchema.parse(
+      await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storage/transfers`, { method: "POST", body: JSON.stringify(input) })
+    ),
+
+  controlStorageTransfer: async (getToken: FetchToken, orgId: string, transferId: string, action: "pause" | "resume" | "cancel") =>
+    storageTransferSchema.parse(
+      await authedFetch<unknown>(getToken, `/orgs/${encodeURIComponent(orgId)}/storage/transfers/${encodeURIComponent(transferId)}/${action}`, {
+        method: "POST"
+      })
     )
 };

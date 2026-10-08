@@ -13,3 +13,5 @@ export * from "./credential-login";
 export * from "./test-exploration";
 export * from "./test-live";
 export * from "./model-providers";
+export * from "./storage";
+export * from "./storage-report";

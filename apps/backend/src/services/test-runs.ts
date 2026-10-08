@@ -51,6 +51,7 @@ import { HttpError, notFound } from "../http/test-http";
 import type { ArtifactStorage } from "./artifact-storage";
 import { withBusyRetry } from "./db-busy";
 import { emitNotification, emitRunOutcome } from "./notifications";
+import type { StorageRegistry } from "./storage-registry";
 import { caseSteps, parseJsonColumn, type TestCaseRow } from "./test-cases";
 import type { LiveHub } from "./test-live";
 import { BUDGET_EXCEEDED, dailyBudgetState } from "./test-run-budget";
@@ -1203,10 +1204,11 @@ const stepTypeSchema = z
 	.catch("act");
 
 const readUrl = async (
-	artifactStorage: ArtifactStorage,
+	artifactStorage: ArtifactStorage | null,
 	key: string,
 	mimeType: string,
 ): Promise<string | null> => {
+	if (!artifactStorage) return null;
 	try {
 		return (
 			await artifactStorage.createReadUrl({
@@ -1221,7 +1223,7 @@ const readUrl = async (
 
 export const toRunDetail = async (
 	db: BackendDb,
-	artifactStorage: ArtifactStorage,
+	storage: Pick<StorageRegistry, "defaultStorage" | "forArtifact">,
 	run: TestRunRow,
 	now = Date.now(),
 	liveHub?: LiveHub,
@@ -1243,7 +1245,7 @@ export const toRunDetail = async (
 	const artifacts = artifactIds.length
 		? await db.query.evidenceArtifacts.findMany({
 				where: inArray(evidenceArtifacts.id, artifactIds),
-				columns: { id: true, s3Key: true, mimeType: true },
+				columns: { id: true, s3Key: true, storageId: true, mimeType: true },
 			})
 		: [];
 	const artifactById = new Map(
@@ -1275,11 +1277,17 @@ export const toRunDetail = async (
 				row.errorCode !== null
 					? { code: row.errorCode, message: row.errorMessage ?? "" }
 					: null,
+			// Evidence screenshots follow their artifact's storage; progress screenshots stay in the
+			// JittleLamp storage.
 			screenshotUrl: artifact
-				? await readUrl(artifactStorage, artifact.s3Key, artifact.mimeType)
+				? await readUrl(
+						await storage.forArtifact(artifact).catch(() => null),
+						artifact.s3Key,
+						artifact.mimeType,
+					)
 				: row.screenshotKey
 					? await readUrl(
-							artifactStorage,
+							storage.defaultStorage,
 							row.screenshotKey,
 							row.screenshotMimeType ?? "image/png",
 						)

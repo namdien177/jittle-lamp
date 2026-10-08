@@ -20,6 +20,7 @@ import {
 	createMigrationManagementRoutes,
 } from "./routes/migrations";
 import { createNotificationRoutes } from "./routes/notifications";
+import { createOrganizationStorageRoutes } from "./routes/org-storage";
 import { createOrganizationRoutes } from "./routes/orgs";
 import { createProtectedRoutes } from "./routes/protected";
 import { createRunnerPoolRoutes } from "./routes/runner-pools";
@@ -48,7 +49,13 @@ import {
 } from "./services/notification-channels";
 import { registerNotificationAdapter } from "./services/notifications";
 import { createOrganizationMigration } from "./services/organization-migration";
+import { createOrganizationStorageService } from "./services/organization-storage";
 import { outboundPolicyFromEnv } from "./services/outbound-http";
+import {
+	createStorageRegistry,
+	type StorageClientFactory,
+} from "./services/storage-registry";
+import { createStorageTransfers } from "./services/storage-transfer";
 import { createTaskQueue } from "./services/task-queue";
 import {
 	createEnvKeyProvider,
@@ -68,6 +75,8 @@ export const createApp = (
 	dependencies: {
 		videoNormalizer?: VideoNormalizer;
 		artifactStorage?: ArtifactStorage;
+		// Builds clients for organisation-owned buckets; tests inject in-memory fakes.
+		storageClientFactory?: StorageClientFactory;
 		migrationPeerClient?: MigrationPeerClient;
 		clerkDirectory?: ClerkDirectory;
 		keyProvider?: KeyProvider;
@@ -113,6 +122,18 @@ export const createApp = (
 			previousMasterKey: runtime.secretsMasterKeyPrevious,
 		});
 
+	const storageRegistry = createStorageRegistry({
+		db,
+		defaultStorage: artifactStorage,
+		secrets: db ? createTestSecrets({ db, keyProvider }) : null,
+		...(runtime.s3
+			? { signedUrlTtlSeconds: runtime.s3.signedUrlTtlSeconds }
+			: {}),
+		...(dependencies.storageClientFactory
+			? { clientFactory: dependencies.storageClientFactory }
+			: {}),
+	});
+
 	// Live view state of running runs (one backend instance; see services/test-live.ts).
 	const liveHub = dependencies.liveHub ?? createLiveHub();
 
@@ -121,6 +142,7 @@ export const createApp = (
 		db,
 		logger,
 		artifactStorage,
+		storageRegistry,
 		videoNormalizationQueue,
 		videoNormalizer,
 		keyProvider,
@@ -131,6 +153,7 @@ export const createApp = (
 				db,
 				runtime,
 				artifactStorage,
+				storageRegistry,
 				peerClient: migrationPeerClient,
 				clerkDirectory,
 				directoryConfigured: Boolean(dependencies.clerkDirectory),
@@ -143,6 +166,27 @@ export const createApp = (
 		allowLoopbackFlag: source.JL_OUTBOUND_ALLOW_LOOPBACK,
 		allowHosts: source.JL_OUTBOUND_ALLOW_HOSTS,
 	});
+
+	// Organisation storage statistics, bring-your-own buckets and transfers.
+	const organizationStorage = db
+		? (() => {
+				const storage = createOrganizationStorageService({
+					db,
+					runtime,
+					registry: storageRegistry,
+					secrets: createTestSecrets({ db, keyProvider }),
+					outbound,
+				});
+				return {
+					storage,
+					transfers: createStorageTransfers({
+						db,
+						registry: storageRegistry,
+						storage,
+					}),
+				};
+			})()
+		: null;
 
 	// Slack and outgoing-webhook channels on the notification bus (design.md §10b).
 	if (db) {
@@ -208,6 +252,7 @@ export const createApp = (
 		.use(createEvidenceRoutes(auth))
 		.use(createShareLinkRoutes(auth))
 		.use(createOrganizationRoutes(auth))
+		.use(createOrganizationStorageRoutes(auth, organizationStorage))
 		.use(createMigrationManagementRoutes(auth, organizationMigration))
 		.use(
 			createTestCaseRoutes(auth, {
@@ -251,6 +296,8 @@ export const createApp = (
 		logger,
 		db,
 		artifactStorage,
+		storageRegistry,
+		organizationStorage,
 		organizationMigration,
 		keyProvider,
 		liveHub,

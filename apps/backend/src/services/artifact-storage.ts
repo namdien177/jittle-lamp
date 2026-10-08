@@ -111,37 +111,63 @@ export const createArtifactStorage = (
 		);
 	}
 
+	return createS3ArtifactStorage({
+		...runtime.s3,
+		serverSideEncryption: true,
+	});
+};
+
+export type S3StorageConfig = {
+	bucket: string;
+	keyPrefix?: string | undefined;
+	region: string;
+	endpoint?: string | undefined;
+	accessKeyId: string;
+	secretAccessKey: string;
+	forcePathStyle: boolean;
+	signedUrlTtlSeconds?: number | undefined;
+	// SSE-S3 header on every put. Some S3-compatible providers reject it.
+	serverSideEncryption: boolean;
+};
+
+// One S3 (or S3-compatible) bucket; used for the JittleLamp default storage and for the
+// buckets organisations bring themselves (services/storage-registry.ts).
+export const createS3ArtifactStorage = (
+	config: S3StorageConfig,
+): ArtifactStorage => {
 	const client = new S3Client({
-		region: runtime.s3.region,
-		forcePathStyle: runtime.s3.forcePathStyle,
+		region: config.region,
+		forcePathStyle: config.forcePathStyle,
 		credentials: {
-			accessKeyId: runtime.s3.accessKeyId,
-			secretAccessKey: runtime.s3.secretAccessKey,
+			accessKeyId: config.accessKeyId,
+			secretAccessKey: config.secretAccessKey,
 		},
-		...(runtime.s3.endpoint ? { endpoint: runtime.s3.endpoint } : {}),
+		...(config.endpoint ? { endpoint: config.endpoint } : {}),
 	});
 
 	const objectKey = (key: string) =>
-		runtime.s3?.keyPrefix ? `${runtime.s3.keyPrefix}/${key}` : key;
+		config.keyPrefix ? `${config.keyPrefix}/${key}` : key;
 
 	return {
 		mode: "s3",
 		putObject: async (input) => {
 			await client.send(
 				new PutObjectCommand({
-					Bucket: runtime.s3?.bucket,
+					Bucket: config.bucket,
 					Key: objectKey(input.key),
 					Body: input.body,
 					ContentType: input.contentType,
 					ChecksumSHA256: input.checksumSha256,
-					ServerSideEncryption: "AES256",
+					...(config.serverSideEncryption
+						? { ServerSideEncryption: "AES256" as const }
+						: {}),
 				}),
 			);
 		},
 		getObject: async (input) => {
 			const response = await client.send(
 				new GetObjectCommand({
-					Bucket: runtime.s3?.bucket,
+					Bucket: config.bucket,
 					Key: objectKey(input.key),
 				}),
 			);
@@ -152,12 +178,12 @@ export const createArtifactStorage = (
 		},
 		createReadUrl: async (input) => {
 			const ttlSeconds =
-				input.expiresInSeconds ?? runtime.s3?.signedUrlTtlSeconds ?? 900;
+				input.expiresInSeconds ?? config.signedUrlTtlSeconds ?? 900;
 			const expiresAt = Date.now() + ttlSeconds * 1000;
 			const url = await getSignedUrl(
 				client,
 				new GetObjectCommand({
-					Bucket: runtime.s3?.bucket,
+					Bucket: config.bucket,
 					Key: objectKey(input.key),
 					ResponseContentType: input.responseContentType,
 				}),
@@ -169,7 +195,7 @@ export const createArtifactStorage = (
 		deleteObject: async (input) => {
 			await client.send(
 				new DeleteObjectCommand({
-					Bucket: runtime.s3?.bucket,
+					Bucket: config.bucket,
 					Key: objectKey(input.key),
 				}),
 			);

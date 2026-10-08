@@ -125,6 +125,7 @@ export const router = createBrowserRouter([
               { path: "activity", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgActivityTab }) },
               { path: "evidences", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgEvidencesTab }) },
               { path: "library", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgLibraryTab }) },
+              { path: "storage", lazy: async () => ({ Component: (await import("./pages/organisation-storage")).OrgStorageTab }) },
               { path: "options", lazy: async () => ({ Component: (await import("./pages/organisations")).OrgOptionsTab }) }
             ]
           },

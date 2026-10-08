@@ -8,6 +8,8 @@ import {
 import { createMigrationWorker } from "./services/migration-worker";
 import { cleanupExpiredOrganizationActivityLogs } from "./services/organization-activity";
 import { cleanupExpiredGuestMemberships } from "./services/organization-management";
+import { recordStorageDailyUsage } from "./services/organization-storage";
+import { createStorageTransferWorker } from "./services/storage-transfer";
 import { createTestSecrets } from "./services/test-config";
 import { createTestRunQueueWorker } from "./services/test-run-queue";
 import { createWebhookReportWorker } from "./services/test-webhooks";
@@ -18,7 +20,8 @@ const {
 	runtime,
 	logger,
 	db,
-	artifactStorage,
+	storageRegistry,
+	organizationStorage,
 	organizationMigration,
 	keyProvider,
 	outbound,
@@ -56,6 +59,22 @@ try {
 				{ concurrency: runtime.migrationWorkerConcurrency },
 				"durable organization migration worker started",
 			);
+		}
+		if (organizationStorage) {
+			const concurrency = runtime.storageTransferWorkerConcurrency;
+			for (let index = 0; index < concurrency; index += 1) {
+				createStorageTransferWorker({
+					db,
+					transfers: organizationStorage.transfers,
+					workerId: `storage-transfer-worker-${process.pid}-${index}`,
+					onError: (err, transferId) =>
+						logger.error(
+							{ err, transferId },
+							"storage transfer attempt failed",
+						),
+				}).start();
+			}
+			logger.info({ concurrency }, "storage transfer worker started");
 		}
 		// Test run queue: lease expiry, RUNNER_LOST, NO_RUNNER and offline runners.
 		createTestRunQueueWorker({ db, logger }).start();
@@ -101,7 +120,7 @@ try {
 			try {
 				const removed = await cleanupAbandonedEvidenceUploads(
 					db,
-					artifactStorage,
+					storageRegistry,
 				);
 				if (removed > 0) {
 					logger.info({ removed }, "abandoned evidence uploads cleaned up");
@@ -120,12 +139,18 @@ try {
 			}
 
 			try {
-				const removed = await purgeExpiredDeletedEvidences(db, artifactStorage);
+				const removed = await purgeExpiredDeletedEvidences(db, storageRegistry);
 				if (removed > 0) {
 					logger.info({ removed }, "expired deleted evidences purged");
 				}
 			} catch (err) {
 				logger.error({ err }, "failed to purge expired deleted evidences");
+			}
+
+			try {
+				await recordStorageDailyUsage(db);
+			} catch (err) {
+				logger.error({ err }, "failed to record daily storage usage");
 			}
 
 			try {

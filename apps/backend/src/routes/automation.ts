@@ -450,7 +450,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 					503: apiErrorSchema,
 				},
 			},
-			async ({ artifactStorage, db, query, request, requestId, set }) => {
+			async ({ storageRegistry, db, query, request, requestId, set }) => {
 				if (!db) {
 					set.status = 503;
 					return createDbUnavailableError(requestId);
@@ -599,6 +599,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 				const title = query.title?.trim() || validated.archive.name;
 				const sourceExternalId =
 					query.sourceExternalId?.trim() || validated.archive.sessionId;
+				const writeTarget = await storageRegistry.forWrite(apiToken.orgId);
 				const created = await db.transaction(async (tx) => {
 					const [evidence] = await tx
 						.insert(evidences)
@@ -665,6 +666,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 								evidenceId: evidence.id,
 								kind: "recording",
 								s3Key: `uploads/${apiToken.orgId}/${evidence.id}/automation-recording-${crypto.randomUUID()}`,
+								storageId: writeTarget.storageId,
 								mimeType: "video/webm",
 								bytes: validated.recordingWebm.byteLength,
 								checksum: `sha256:${recordingChecksum}`,
@@ -675,6 +677,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 								evidenceId: evidence.id,
 								kind: "network-log",
 								s3Key: `uploads/${apiToken.orgId}/${evidence.id}/automation-archive-${crypto.randomUUID()}`,
+								storageId: writeTarget.storageId,
 								mimeType: "application/json",
 								bytes: validated.archiveJson.byteLength,
 								checksum: `sha256:${archiveChecksum}`,
@@ -712,13 +715,13 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 				}
 
 				await Promise.all([
-					artifactStorage.putObject({
+					writeTarget.storage.putObject({
 						key: recordingArtifact.s3Key,
 						body: validated.recordingWebm,
 						contentType: "video/webm",
 						checksumSha256: sha256HexToBase64(recordingChecksum),
 					}),
-					artifactStorage.putObject({
+					writeTarget.storage.putObject({
 						key: archiveArtifact.s3Key,
 						body: validated.archiveJson,
 						contentType: "application/json",

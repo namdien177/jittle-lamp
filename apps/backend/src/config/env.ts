@@ -58,6 +58,12 @@ const envSchema = z
 			.min(1)
 			.max(4)
 			.default(1),
+		STORAGE_TRANSFER_WORKER_CONCURRENCY: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.max(4)
+			.default(1),
 		LOG_LEVEL: z
 			.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
 			.optional(),

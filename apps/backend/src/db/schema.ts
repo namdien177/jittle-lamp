@@ -87,6 +87,13 @@ export {
 	organizationRoles,
 } from "./tables/organization-roles";
 export {
+	DEFAULT_STORAGE_KEY,
+	organizationStorageDailyUsage,
+	organizationStorageSettings,
+	organizationStorages,
+	organizationStorageTransfers,
+} from "./tables/organization-storages";
+export {
 	createOrganizationInputSchema,
 	organizations,
 } from "./tables/organizations";

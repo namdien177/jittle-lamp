@@ -6,6 +6,10 @@ import { isVercelPreviewOrigin } from "../config/preview-origins";
 import type { RuntimeConfig } from "../config/runtime";
 import { createApiError } from "../http/api-error";
 import type { ArtifactStorage } from "../services/artifact-storage";
+import {
+	StorageAccessError,
+	type StorageRegistry,
+} from "../services/storage-registry";
 import type { TaskQueue } from "../services/task-queue";
 import type { KeyProvider } from "../services/test-config";
 import type { BackendDb } from "../services/user-provisioning";
@@ -16,6 +20,7 @@ type CorePluginParams = {
 	db: BackendDb | null;
 	logger: Logger;
 	artifactStorage: ArtifactStorage;
+	storageRegistry: StorageRegistry;
 	videoNormalizationQueue: TaskQueue;
 	videoNormalizer: VideoNormalizer;
 	keyProvider: KeyProvider;
@@ -83,6 +88,7 @@ export const createCorePlugin = ({
 	db,
 	logger,
 	artifactStorage,
+	storageRegistry,
 	videoNormalizationQueue,
 	videoNormalizer,
 	keyProvider,
@@ -93,6 +99,7 @@ export const createCorePlugin = ({
 			db,
 			logger,
 			artifactStorage,
+			storageRegistry,
 			videoNormalizationQueue,
 			videoNormalizer,
 			keyProvider,
@@ -145,6 +152,19 @@ export const createCorePlugin = ({
 							: "UNKNOWN";
 			const requestId = getRequestId(request, set.headers["x-request-id"]);
 			const requestLogger = logger.child({ requestId });
+			if (error instanceof StorageAccessError) {
+				requestLogger.warn(
+					{ code: error.code, status: error.status },
+					error.message,
+				);
+				set.status = error.status;
+				return createApiError(
+					requestId,
+					error.code,
+					error.message,
+					error.status,
+				);
+			}
 			const migrationReadOnly = errorChainIncludes(
 				error,
 				"ORG_MIGRATION_READ_ONLY",

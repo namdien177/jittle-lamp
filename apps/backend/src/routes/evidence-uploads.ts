@@ -627,7 +627,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 					},
 					async ({
-						artifactStorage,
+						storageRegistry,
 						authContext,
 						body,
 						db,
@@ -741,17 +741,16 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						}
 
 						const replacedArtifactKeys = existingEvidence
-							? (
-									await db.query.evidenceArtifacts.findMany({
-										where: eq(
-											evidenceArtifacts.evidenceId,
-											existingEvidence.id,
-										),
-										columns: { s3Key: true },
-									})
-								).map((artifact) => artifact.s3Key)
+							? await db.query.evidenceArtifacts.findMany({
+									where: eq(evidenceArtifacts.evidenceId, existingEvidence.id),
+									columns: { s3Key: true, storageId: true },
+								})
 							: [];
 
+						// Chosen before the rows exist so every artifact of the evidence records it.
+						const writeTarget = await storageRegistry.forWrite(
+							workspace.activeOrgId,
+						);
 						const now = Date.now();
 						const created = await db.transaction(async (tx) => {
 							const [evidence] = existingEvidence
@@ -823,6 +822,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 										evidenceId: evidence.id,
 										kind: artifactInput.kind,
 										s3Key: `uploads/${workspace.activeOrgId}/${evidence.id}/${artifactInput.key}-${crypto.randomUUID()}`,
+										storageId: writeTarget.storageId,
 										mimeType: artifactInput.mimeType,
 										bytes: Math.trunc(artifactInput.bytes),
 										checksum: artifactInput.checksum,
@@ -859,14 +859,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						});
 
 						if (replacedArtifactKeys.length > 0) {
-							const results = await Promise.allSettled(
-								replacedArtifactKeys.map((key) =>
-									artifactStorage.deleteObject({ key }),
-								),
-							);
-							const failedDeleteCount = results.filter(
-								(result) => result.status === "rejected",
-							).length;
+							const { failed: failedDeleteCount } =
+								await storageRegistry.deleteObjects(replacedArtifactKeys);
 							if (failedDeleteCount > 0) {
 								requestLogger.warn(
 									{
@@ -918,6 +912,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 					},
 					async ({
+						storageRegistry,
 						authContext,
 						body,
 						db,
@@ -980,6 +975,10 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
+						// Chosen before the rows exist so every artifact of the evidence records it.
+						const writeTarget = await storageRegistry.forWrite(
+							workspace.activeOrgId,
+						);
 						const now = Date.now();
 						const created = await db.transaction(async (tx) => {
 							const [evidence] = await tx
@@ -1010,6 +1009,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 									evidenceId: evidence.id,
 									kind: body.artifact.kind,
 									s3Key: `uploads/${workspace.activeOrgId}/${evidence.id}/${crypto.randomUUID()}`,
+									storageId: writeTarget.storageId,
 									mimeType: body.artifact.mimeType,
 									bytes: Math.trunc(body.artifact.bytes),
 									checksum: body.artifact.checksum,
@@ -1109,6 +1109,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 					},
 					async ({
+						storageRegistry,
 						authContext,
 						body,
 						db,
@@ -1196,6 +1197,10 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
+						// Chosen before the rows exist so every artifact of the evidence records it.
+						const writeTarget = await storageRegistry.forWrite(
+							workspace.activeOrgId,
+						);
 						const now = Date.now();
 						const created = await db.transaction(async (tx) => {
 							const [evidence] = await tx
@@ -1227,6 +1232,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 										evidenceId: evidence.id,
 										kind: artifactInput.kind,
 										s3Key: `uploads/${workspace.activeOrgId}/${evidence.id}/${artifactInput.key}-${crypto.randomUUID()}`,
+										storageId: writeTarget.storageId,
 										mimeType: artifactInput.mimeType,
 										bytes: Math.trunc(artifactInput.bytes),
 										checksum: artifactInput.checksum,
@@ -1953,7 +1959,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 					},
 					async ({
-						artifactStorage,
+						storageRegistry,
 						authContext,
 						db,
 						params,
@@ -2035,15 +2041,6 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								404,
 							);
 						}
-						if (!canSignReadUrls(artifactStorage)) {
-							set.status = 503;
-							return createApiError(
-								requestId,
-								"ARTIFACT_STORAGE_NOT_CONFIGURED",
-								"S3 artifact storage is not configured",
-								503,
-							);
-						}
 						const { artifacts, tags, ...summary } = evidence;
 						const ready = artifacts.filter(
 							(artifact) => artifact.uploadStatus === "uploaded",
@@ -2075,9 +2072,25 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								409,
 							);
 						}
+						const storages = await Promise.all(
+							[video, archive].map((artifact) =>
+								storageRegistry.forArtifact(artifact),
+							),
+						);
+						if (!storages.every(canSignReadUrls)) {
+							set.status = 503;
+							return createApiError(
+								requestId,
+								"ARTIFACT_STORAGE_NOT_CONFIGURED",
+								"S3 artifact storage is not configured",
+								503,
+							);
+						}
 						const readUrls = await Promise.all(
-							[video, archive].map(async (artifact) => {
-								const signed = await artifactStorage.createReadUrl({
+							[video, archive].map(async (artifact, index) => {
+								const storage =
+									storages[index] ?? storageRegistry.defaultStorage;
+								const signed = await storage.createReadUrl({
 									key: artifact.s3Key,
 									responseContentType: artifact.mimeType,
 								});
@@ -2110,7 +2123,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								createdByProfile: null,
 							},
 							artifacts: artifacts.map(
-								({ s3Key: _storageKey, ...artifact }) => artifact,
+								({ s3Key: _storageKey, storageId: _storageId, ...artifact }) =>
+									artifact,
 							),
 							readUrls,
 						};
@@ -2225,7 +2239,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 					},
 					async ({
-						artifactStorage,
+						storageRegistry,
 						authContext,
 						db,
 						params,
@@ -2237,16 +2251,6 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						if (!db) {
 							set.status = 503;
 							return createDbUnavailableError(requestId);
-						}
-
-						if (!canSignReadUrls(artifactStorage)) {
-							set.status = 503;
-							return createApiError(
-								requestId,
-								"ARTIFACT_STORAGE_NOT_CONFIGURED",
-								"S3 artifact storage is not configured",
-								503,
-							);
 						}
 
 						const resolvedOrg = await resolveRequestedOrgId({
@@ -2283,6 +2287,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							columns: {
 								id: true,
 								s3Key: true,
+								storageId: true,
 								mimeType: true,
 								uploadStatus: true,
 							},
@@ -2316,7 +2321,17 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
-						const signed = await artifactStorage.createReadUrl({
+						const storage = await storageRegistry.forArtifact(artifact);
+						if (!canSignReadUrls(storage)) {
+							set.status = 503;
+							return createApiError(
+								requestId,
+								"ARTIFACT_STORAGE_NOT_CONFIGURED",
+								"S3 artifact storage is not configured",
+								503,
+							);
+						}
+						const signed = await storage.createReadUrl({
 							key: artifact.s3Key,
 							responseContentType: artifact.mimeType,
 						});
@@ -2364,7 +2379,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 					},
 					async ({
-						artifactStorage,
+						storageRegistry,
 						authContext,
 						db,
 						params,
@@ -2406,6 +2421,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							columns: {
 								id: true,
 								s3Key: true,
+								storageId: true,
 								kind: true,
 								mimeType: true,
 								uploadStatus: true,
@@ -2496,7 +2512,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							mimeType: artifact.mimeType,
 						};
 
-						await artifactStorage.putObject({
+						await (await storageRegistry.forArtifact(artifact)).putObject({
 							key: artifact.s3Key,
 							body: new Uint8Array(payload),
 							contentType: artifact.mimeType,
@@ -2556,7 +2572,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						},
 					},
 					async ({
-						artifactStorage,
+						storageRegistry,
 						authContext,
 						body,
 						db,
@@ -2602,6 +2618,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								evidenceId: true,
 								kind: true,
 								s3Key: true,
+								storageId: true,
 								bytes: true,
 								checksum: true,
 								mimeType: true,
@@ -2683,7 +2700,8 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						) {
 							try {
 								finalizedBlob = await videoNormalizationQueue.run(async () => {
-									const sourcePayload = await artifactStorage.getObject({
+									const storage = await storageRegistry.forArtifact(artifact);
+									const sourcePayload = await storage.getObject({
 										key: artifact.s3Key,
 									});
 									const normalized = await videoNormalizer({
@@ -2696,7 +2714,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 									const checksum = await encodeSha256(
 										normalized.payload.slice().buffer,
 									);
-									await artifactStorage.putObject({
+									await storage.putObject({
 										key: artifact.s3Key,
 										body: normalized.payload,
 										contentType: normalized.mimeType,

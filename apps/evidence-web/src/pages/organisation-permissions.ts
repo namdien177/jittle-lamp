@@ -26,6 +26,10 @@ export const permissionInfo: Record<OrganizationPermission, PermissionInfo> = {
   "members.assign_role": { label: "Assign roles" },
   "members.kick": { label: "Remove members" },
   "activity.view": { label: "View activity" },
+  "storage.manage": {
+    label: "Manage storage",
+    description: "Add your own S3 storage, choose where evidence is saved and transfer existing files."
+  },
   "test_case.view": { label: "View test cases", description: "Open cases, their steps and scripts." },
   "test_case.create": { label: "Create test cases", description: "New cases, imports and duplicates." },
   "test_case.update": { label: "Edit test cases", description: "Steps, details, tags and bulk edits." },

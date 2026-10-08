@@ -39,6 +39,7 @@ export const organizationPermissionValueSchema = z.enum([
 	"members.assign_role",
 	"members.kick",
 	"activity.view",
+	"storage.manage",
 	"test_case.view",
 	"test_case.create",
 	"test_case.update",
