@@ -46,28 +46,40 @@ type OrgOutletContext = { orgId: string; org: ApiOrgSummary | null };
 
 const DEFAULT_OPTION = "default";
 
-function ShareList(props: { rows: StorageShareRow[]; label: string; empty: string }): React.JSX.Element {
+function ShareList(props: { rows: StorageShareRow[]; label: string; empty: string; searchable?: boolean }): React.JSX.Element {
+  const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(50);
+  const filteredRows = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return normalized ? props.rows.filter((row) => `${row.label} ${row.detail}`.toLowerCase().includes(normalized)) : props.rows;
+  }, [props.rows, query]);
+  useEffect(() => setVisibleCount(50), [query, props.rows.length]);
   if (props.rows.length === 0) return <p className="text-sm text-muted-foreground">{props.empty}</p>;
   return (
-    <ul className="grid gap-3" aria-label={props.label}>
-      {props.rows.map((row) => (
-        <li key={row.key} className="grid gap-1">
-          <div className="flex items-baseline justify-between gap-3 text-sm">
-            <TruncatedText className={cn("font-medium", row.muted ? "text-muted-foreground line-through" : "text-foreground")}>{row.label}</TruncatedText>
-            <span className="shrink-0 tabular-nums text-foreground">{formatBytes(row.bytes)}</span>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-            <div
-              className={cn("h-full rounded-full", row.muted ? "bg-muted-foreground/40" : "bg-primary")}
-              style={{ width: `${Math.max(row.share * 100, row.bytes > 0 ? 1.5 : 0)}%` }}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {formatShare(row.share)} · {row.detail}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <div className="grid gap-3">
+      {props.searchable ? <Input aria-label="Search members" placeholder="Search members" value={query} onChange={(event) => setQuery(event.target.value)} /> : null}
+      {filteredRows.length === 0 ? <p className="text-sm text-muted-foreground">No matching members.</p> : (
+        <div className="max-h-96 overflow-y-auto pr-2" onScroll={(event) => {
+          const element = event.currentTarget;
+          if (element.scrollTop + element.clientHeight >= element.scrollHeight - 48) setVisibleCount((count) => Math.min(count + 50, filteredRows.length));
+        }}>
+          <ul className="grid gap-3" aria-label={props.label}>
+            {filteredRows.slice(0, visibleCount).map((row) => (
+              <li key={row.key} className="grid gap-1">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <TruncatedText className={cn("font-medium", row.muted ? "text-muted-foreground line-through" : "text-foreground")}>{row.label}</TruncatedText>
+                  <span className="shrink-0 tabular-nums text-foreground">{formatBytes(row.bytes)}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+                  <div className={cn("h-full rounded-full", row.muted ? "bg-muted-foreground/40" : "bg-primary")} style={{ width: `${Math.max(row.share * 100, row.bytes > 0 ? 1.5 : 0)}%` }} />
+                </div>
+                <p className="text-xs text-muted-foreground">{formatShare(row.share)} · {row.detail}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -205,7 +217,7 @@ export function OrgStorageTab(): React.JSX.Element {
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <AdminCard title="By member" description="Who created the evidence">
-              <ShareList rows={memberShareRows(report, profile.data?.localUserId ?? null)} label="Storage by member" empty="No evidence yet." />
+              <ShareList rows={memberShareRows(report, profile.data?.localUserId ?? null)} label="Storage by member" empty="No evidence yet." searchable />
             </AdminCard>
             <AdminCard title="By storage" description="Where the files are kept">
               <ShareList rows={storageShareRows(report)} label="Storage by location" empty="No evidence yet." />
@@ -257,7 +269,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
         </p>
       ) : null}
 
-      <AdminCard title="Where new evidence is saved" description="Existing files stay where they are; use a transfer to move them.">
+      {activeStorages.length > 0 ? <AdminCard title="Where new evidence is saved" description="Existing files stay where they are; use a transfer to move them.">
         <div className="grid gap-4">
           <Field label="Default storage" className="max-w-sm">
             <SimpleSelect
@@ -286,9 +298,9 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
           />
           <ErrorNote error={updateSettings.error} />
         </div>
-      </AdminCard>
+      </AdminCard> : null}
 
-      <AdminCard
+      {activeStorages.length > 0 ? <AdminCard
         title="Your storages"
         description={`JittleLamp storage holds ${formatBytes(overview.defaultStorageUsage.bytes)} in ${overview.defaultStorageUsage.artifactCount.toLocaleString()} files.`}
         actions={
@@ -373,9 +385,9 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             </TableBody>
           </Table>
         )}
-      </AdminCard>
+      </AdminCard> : null}
 
-      <TransferCard orgId={orgId} overview={overview} />
+      {activeStorages.length > 0 ? <TransferCard orgId={orgId} overview={overview} /> : null}
 
       {editing ? <StorageFormDialog orgId={orgId} storage={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
       {deleting ? <DeleteStorageDialog orgId={orgId} storage={deleting} onClose={() => setDeleting(null)} /> : null}

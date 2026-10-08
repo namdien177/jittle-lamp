@@ -65,6 +65,8 @@ const organizationSummarySchema = t.Object({
 	isPersonal: t.Boolean(),
 	requireInvitationApproval: t.Boolean(),
 	memberCount: t.Number({ minimum: 0 }),
+	evidenceCount: t.Number({ minimum: 0 }),
+	commentCount: t.Number({ minimum: 0 }),
 	createdAt: t.Number(),
 	joinedAt: t.Number(),
 	migrationAccessState: t.Union([t.String(), t.Null()]),
@@ -82,6 +84,9 @@ const memberSummarySchema = t.Object({
 	role: t.String({ minLength: 1 }),
 	joinedAt: t.Number(),
 	guestExpiresAt: t.Union([t.Number(), t.Null()]),
+	evidenceCount: t.Number({ minimum: 0 }),
+	commentCount: t.Number({ minimum: 0 }),
+	evidenceMethods: t.Array(t.String()),
 });
 
 const invitationSummarySchema = t.Object({

@@ -24,13 +24,18 @@ export const evidenceActivityEntity = (
 });
 
 export const getRequestIpAddress = (request: Request): string | null => {
-	const forwarded = request.headers.get("x-forwarded-for");
-	if (forwarded) {
-		return forwarded.split(",")[0]?.trim() || null;
+	const xForwardedFor = request.headers.get("x-forwarded-for");
+	if (xForwardedFor) {
+		return xForwardedFor.split(",")[0]?.trim() || null;
 	}
+	const forwarded = request.headers.get("forwarded");
+	const forwardedFor = forwarded?.match(
+		/(?:^|;)\s*for=(?:"?)([^;,"\s]+)"?/i,
+	)?.[1];
 	return (
 		request.headers.get("x-real-ip") ||
 		request.headers.get("cf-connecting-ip") ||
+		forwardedFor ||
 		null
 	);
 };

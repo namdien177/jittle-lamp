@@ -103,6 +103,8 @@ export type ApiOrgSummary = {
 	isPersonal: boolean;
 	requireInvitationApproval: boolean;
 	memberCount: number;
+	evidenceCount: number;
+	commentCount: number;
 	createdAt: number;
 	joinedAt: number;
 	migrationAccessState: string | null;
@@ -120,6 +122,9 @@ export type ApiMember = {
 	role: string;
 	joinedAt: number;
 	guestExpiresAt: number | null;
+	evidenceCount: number;
+	commentCount: number;
+	evidenceMethods: string[];
 };
 
 export type ApiMembersResponse = {

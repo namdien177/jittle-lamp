@@ -3061,3 +3061,32 @@ a:hover {
   white-space: pre-wrap;
   user-select: text;
 }
+
+.storage-share-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.storage-share-scroll {
+  max-height: 384px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+
+.member-stats-chart {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.member-stats-chart strong { color: var(--text); }
+.member-method-bars { display: grid; gap: 5px; max-width: 520px; }
+.member-method-bars > div { display: grid; grid-template-columns: 120px 1fr 36px; gap: 8px; align-items: center; }
+.member-method-bars span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-method-bars i { height: 6px; border-radius: var(--radius-pill); background: var(--accent); }
+.member-method-bars b { color: var(--text); font-size: 11px; text-align: right; }

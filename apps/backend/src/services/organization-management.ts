@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import type { z } from "zod/v4";
 import {
 	createOrganizationInputSchema,
@@ -6,6 +6,8 @@ import {
 	createOrganizationInvitationInputSchema,
 	createOrganizationJoinRequestInputSchema,
 	createOrganizationMembershipInputSchema,
+	evidenceComments,
+	evidences,
 	type OrganizationPermission,
 	type organizationInvitationCodeRoleSchema,
 	organizationInvitationCodes,
@@ -43,6 +45,8 @@ export type OrganizationSummary = {
 	isPersonal: boolean;
 	requireInvitationApproval: boolean;
 	memberCount: number;
+	evidenceCount: number;
+	commentCount: number;
 	createdAt: number;
 	joinedAt: number;
 	migrationAccessState: string | null;
@@ -60,6 +64,9 @@ export type OrganizationMemberSummary = {
 	role: string;
 	joinedAt: number;
 	guestExpiresAt: number | null;
+	evidenceCount: number;
+	commentCount: number;
+	evidenceMethods: string[];
 };
 
 export type OrganizationMemberList = {
@@ -203,6 +210,8 @@ export const createOrganization = async (
 			isPersonal: organization.isPersonal,
 			requireInvitationApproval: false,
 			memberCount: 1,
+			evidenceCount: 0,
+			commentCount: 0,
 			createdAt: organization.createdAt,
 			joinedAt: Date.now(),
 			migrationAccessState: null,
@@ -233,6 +242,38 @@ export const listOrganizationsForUser = async (
 			},
 		},
 	});
+
+	const organizationIds = memberships.map(
+		(membership) => membership.organizationId,
+	);
+	const [evidenceStats, commentStats] =
+		organizationIds.length > 0
+			? await Promise.all([
+					db
+						.select({
+							orgId: evidences.orgId,
+							count: sql<number>`count(distinct ${evidences.id})`,
+						})
+						.from(evidences)
+						.where(inArray(evidences.orgId, organizationIds))
+						.groupBy(evidences.orgId),
+					db
+						.select({
+							orgId: evidences.orgId,
+							count: sql<number>`count(${evidenceComments.id})`,
+						})
+						.from(evidenceComments)
+						.innerJoin(evidences, eq(evidences.id, evidenceComments.evidenceId))
+						.where(inArray(evidences.orgId, organizationIds))
+						.groupBy(evidences.orgId),
+				])
+			: [[], []];
+	const evidenceCountByOrg = new Map(
+		evidenceStats.map((row) => [row.orgId, Number(row.count ?? 0)]),
+	);
+	const commentCountByOrg = new Map(
+		commentStats.map((row) => [row.orgId, Number(row.count ?? 0)]),
+	);
 
 	const counts = new Map<string, number>();
 	for (const membership of memberships) {
@@ -295,6 +336,8 @@ export const listOrganizationsForUser = async (
 			requireInvitationApproval:
 				membership.organization.requireInvitationApproval,
 			memberCount: counts.get(membership.organizationId) ?? 1,
+			evidenceCount: evidenceCountByOrg.get(membership.organizationId) ?? 0,
+			commentCount: commentCountByOrg.get(membership.organizationId) ?? 0,
 			createdAt: membership.organization.createdAt,
 			joinedAt: membership.createdAt,
 			migrationAccessState:
@@ -355,6 +398,41 @@ export const listOrganizationMembers = async (
 ): Promise<OrganizationMemberList> => {
 	const page = Math.max(1, args.page ?? 1);
 	const limit = Math.min(100, Math.max(1, args.limit ?? 20));
+	const [evidenceStats, commentStats] = await Promise.all([
+		db
+			.select({
+				createdBy: evidences.createdBy,
+				count: sql<number>`count(distinct ${evidences.id})`,
+				methods: sql<string>`group_concat(distinct ${evidences.sourceType})`,
+			})
+			.from(evidences)
+			.where(eq(evidences.orgId, args.organizationId))
+			.groupBy(evidences.createdBy),
+		db
+			.select({
+				createdBy: evidenceComments.createdBy,
+				count: sql<number>`count(${evidenceComments.id})`,
+			})
+			.from(evidenceComments)
+			.innerJoin(evidences, eq(evidences.id, evidenceComments.evidenceId))
+			.where(eq(evidences.orgId, args.organizationId))
+			.groupBy(evidenceComments.createdBy),
+	]);
+	const evidenceStatsByUser = new Map(
+		evidenceStats.map((row) => [
+			row.createdBy,
+			{
+				evidenceCount: Number(row.count ?? 0),
+				evidenceMethods: String(row.methods ?? "")
+					.split(",")
+					.filter(Boolean),
+			},
+		]),
+	);
+	const commentStatsByUser = new Map(
+		commentStats.map((row) => [row.createdBy, Number(row.count ?? 0)]),
+	);
+
 	const memberships = await db.query.organizationMembers.findMany({
 		where: and(
 			eq(organizationMembers.organizationId, args.organizationId),
@@ -398,6 +476,11 @@ export const listOrganizationMembers = async (
 				role: normalizeOrganizationRoleKey(membership.role),
 				joinedAt: membership.createdAt,
 				guestExpiresAt: membership.guestExpiresAt,
+				evidenceCount:
+					evidenceStatsByUser.get(membership.userId)?.evidenceCount ?? 0,
+				commentCount: commentStatsByUser.get(membership.userId) ?? 0,
+				evidenceMethods:
+					evidenceStatsByUser.get(membership.userId)?.evidenceMethods ?? [],
 			};
 		}),
 	);

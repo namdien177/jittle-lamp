@@ -44,6 +44,8 @@ export type ApiOrgSummary = {
   role: string;
   isPersonal: boolean;
   memberCount: number;
+	evidenceCount: number;
+	commentCount: number;
   createdAt: number;
   joinedAt: number;
 };
@@ -59,6 +61,9 @@ export type ApiMember = {
   role: string;
   joinedAt: number;
   guestExpiresAt: number | null;
+  evidenceCount: number;
+  commentCount: number;
+  evidenceMethods: string[];
 };
 
 export type ApiMembersResponse = {

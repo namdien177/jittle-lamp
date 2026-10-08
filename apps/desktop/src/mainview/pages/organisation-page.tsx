@@ -8,7 +8,6 @@ import { Button, Dialog, TextInput, UiSelect } from "@jittle-lamp/ui";
 import {
   api,
   type ApiCreatedInvitationCode,
-  type ApiEvidenceSummary,
   type ApiInvitation,
   type ApiInvitationCode,
   type ApiMember,
@@ -21,7 +20,7 @@ import { useToast } from "../ui/toast";
 import { OrganisationStorageSection } from "./organisation-storage";
 import { copyToClipboard, formatRelativeTime, getInitials } from "../utils";
 
-type DetailTab = "members" | "invitations" | "library" | "storage" | "options";
+type DetailTab = "members" | "invitations" | "storage" | "options";
 type SortKey = "name" | "joinedAt" | "role";
 type RoleFilter = "all" | "owner" | "moderator" | "member";
 
@@ -54,7 +53,6 @@ type InvitationCodeFormValues = z.infer<typeof invitationCodeFormSchema>;
 const tabs: Array<{ id: DetailTab; label: string }> = [
   { id: "members", label: "Members" },
   { id: "invitations", label: "Invitations" },
-  { id: "library", label: "Library" },
   { id: "storage", label: "Storage" },
   { id: "options", label: "Options" }
 ];
@@ -157,17 +155,6 @@ function OrganisationListPage(): React.JSX.Element {
 
   const orderedOrgs = useMemo(() => sortOrganizations(orgs, activeOrgId, sort), [activeOrgId, orgs, sort]);
 
-  const activate = async (id: string): Promise<void> => {
-    try {
-      await api.selectActiveOrganization(auth.getToken, id);
-      setActiveOrgId(id);
-      await auth.refreshProfile();
-      toast.success("Active organisation changed");
-    } catch (err) {
-      toast.error("Unable to change active organisation", err instanceof Error ? err.message : undefined);
-    }
-  };
-
   return (
     <div className="page org-page">
       <div className="page-header">
@@ -209,12 +196,12 @@ function OrganisationListPage(): React.JSX.Element {
                 <th>Role</th>
                 <th>Joined</th>
                 <th>Members</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
+                <th>Activity</th>
               </tr>
             </thead>
             <tbody>
               {orderedOrgs.map((org) => (
-                <tr key={org.id} data-active={org.id === activeOrgId ? "true" : "false"}>
+                <tr key={org.id} data-active={org.id === activeOrgId ? "true" : "false"} tabIndex={0} role="link" onClick={() => navigate(`/organisations/${org.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(`/organisations/${org.id}`); } }}>
                   <td>
                     <div className="org-title-cell">
                       <div className="sidebar-account-avatar">{getInitials(org.name)}</div>
@@ -227,21 +214,7 @@ function OrganisationListPage(): React.JSX.Element {
                   <td><span className={`chip ${roleChipClass(org.role)}`}>{org.role}</span></td>
                   <td className="muted">{formatRelativeTime(org.joinedAt)}</td>
                   <td className="muted">{org.memberCount}</td>
-                  <td>
-                    <div className="table-actions">
-                      <Button
-                        variant={org.id === activeOrgId ? "secondary" : "primary"} size="sm"
-                        type="button"
-                        disabled={org.id === activeOrgId}
-                        onClick={() => void activate(org.id)}
-                      >
-                        Active
-                      </Button>
-                      <Button variant="ghost" size="sm" type="button" onClick={() => navigate(`/organisations/${org.id}`)}>
-                        Manage
-                      </Button>
-                    </div>
-                  </td>
+                  <td className="muted">{org.evidenceCount.toLocaleString()} evidences · {org.commentCount.toLocaleString()} discussions</td>
                 </tr>
               ))}
             </tbody>
@@ -290,8 +263,6 @@ function OrganisationDetailPage(props: { orgId: string; tab: DetailTab }): React
   const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
   const [codes, setCodes] = useState<ApiInvitationCode[]>([]);
   const [createdCode, setCreatedCode] = useState<ApiCreatedInvitationCode | null>(null);
-  const [evidences, setEvidences] = useState<ApiEvidenceSummary[]>([]);
-  const [creatorMembers, setCreatorMembers] = useState<ApiMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -300,7 +271,6 @@ function OrganisationDetailPage(props: { orgId: string; tab: DetailTab }): React
   const canManage = org?.role === "owner" || org?.role === "moderator";
   const isOwner = org?.role === "owner";
   const pages = Math.max(1, Math.ceil(membersResult.total / membersResult.limit));
-  const creatorByUserId = useMemo(() => new Map(creatorMembers.map((member) => [member.userId, getMemberPrimaryText(member)])), [creatorMembers]);
 
   const loadShell = async (): Promise<void> => {
     if (auth.state.status !== "signed-in") return;
@@ -349,17 +319,6 @@ function OrganisationDetailPage(props: { orgId: string; tab: DetailTab }): React
       setCodes(result.codes);
     }).catch((err) => setError(err instanceof Error ? err.message : "Unable to load invitations."));
   }, [canManage, orgId, tab]);
-
-  useEffect(() => {
-    if (tab !== "library" || auth.state.status !== "signed-in") return;
-    void Promise.all([
-      api.listEvidences(auth.getToken, orgId),
-      api.listMembers(auth.getToken, orgId, { limit: 100 })
-    ]).then(([evidenceResult, memberResult]) => {
-      setEvidences(evidenceResult.evidences);
-      setCreatorMembers(memberResult.members);
-    }).catch((err) => setError(err instanceof Error ? err.message : "Unable to load organisation library."));
-  }, [auth.state.status, orgId, tab]);
 
   const refreshInvitations = async (): Promise<void> => {
     const result = await api.listInvitations(auth.getToken, orgId);
@@ -458,6 +417,7 @@ function OrganisationDetailPage(props: { orgId: string; tab: DetailTab }): React
               }}
             />
           </div>
+          <MemberStatsChart members={membersResult.members} />
           <MemberTable
             members={membersResult.members}
             canManage={canManage}
@@ -485,25 +445,6 @@ function OrganisationDetailPage(props: { orgId: string; tab: DetailTab }): React
         />
       ) : null}
 
-      {tab === "library" ? (
-        <section className="org-section">
-          <table className="table">
-            <thead><tr><th>Evidence</th><th>Creator</th><th>Type</th><th>Updated</th></tr></thead>
-            <tbody>
-              {evidences.map((evidence) => (
-                <tr key={evidence.id}>
-                  <td><strong>{evidence.title}</strong><span className="muted mono block">{evidence.id}</span></td>
-                  <td className="muted">{creatorByUserId.get(evidence.createdBy) ?? evidence.createdBy}</td>
-                  <td><span className="chip neutral">{evidence.sourceType}</span></td>
-                  <td className="muted">{formatRelativeTime(evidence.updatedAt)}</td>
-                </tr>
-              ))}
-              {evidences.length === 0 ? <tr><td colSpan={4} className="muted">No organisation evidence yet.</td></tr> : null}
-            </tbody>
-          </table>
-        </section>
-      ) : null}
-
       {tab === "storage" ? <OrganisationStorageSection orgId={orgId} /> : null}
 
       {tab === "options" && org ? (
@@ -526,6 +467,20 @@ function OrganisationDetailPage(props: { orgId: string; tab: DetailTab }): React
   );
 }
 
+function evidenceMethodLabel(method: string): string {
+  return method.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function MemberStatsChart({ members }: { members: ApiMember[] }): React.JSX.Element {
+  const methods = new Map<string, number>();
+  for (const member of members) for (const method of member.evidenceMethods) methods.set(method, (methods.get(method) ?? 0) + member.evidenceCount);
+  const rows = [...methods.entries()].sort((a, b) => b[1] - a[1]);
+  const totalEvidence = members.reduce((sum, member) => sum + member.evidenceCount, 0);
+  const totalComments = members.reduce((sum, member) => sum + member.commentCount, 0);
+  const max = Math.max(1, ...rows.map(([, count]) => count));
+  return <div className="member-stats-chart"><div><strong>{totalEvidence.toLocaleString()}</strong> evidences · <strong>{totalComments.toLocaleString()}</strong> discussions</div><div className="member-method-bars">{rows.length ? rows.map(([method, count]) => <div key={method}><span>{evidenceMethodLabel(method)}</span><i style={{ width: `${(count / max) * 100}%` }} /><b>{count}</b></div>) : <span className="muted">No evidence recorded on this page.</span>}</div></div>;
+}
+
 function MemberTable(props: {
   members: ApiMember[];
   canManage: boolean;
@@ -536,7 +491,7 @@ function MemberTable(props: {
 }): React.JSX.Element {
   return (
     <table className="table">
-      <thead><tr><th>User</th><th>Role</th><th>Joined</th><th>Guest until</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
+      <thead><tr><th>User</th><th>Role</th><th>Evidences</th><th>Discussions</th><th>Joined</th><th>Expiration</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
       <tbody>
         {props.members.map((member) => {
           const canEdit = props.canManage && member.role !== "owner" && (props.isOwner || member.role === "member");
@@ -549,8 +504,10 @@ function MemberTable(props: {
                 </div>
               </td>
               <td><span className={`chip ${roleChipClass(member.role)}`}>{member.role}</span></td>
+              <td className="muted">{member.evidenceCount.toLocaleString()}</td>
+              <td className="muted">{member.commentCount.toLocaleString()}</td>
               <td className="muted">{formatRelativeTime(member.joinedAt)}</td>
-              <td className="muted">{member.guestExpiresAt ? formatRelativeTime(member.guestExpiresAt) : "Permanent"}</td>
+              <td className="muted">{member.guestExpiresAt ? formatRelativeTime(member.guestExpiresAt) : "N/A"}</td>
               <td>
                 <div className="table-actions">
                   {canEdit && props.isOwner ? (
@@ -562,7 +519,7 @@ function MemberTable(props: {
             </tr>
           );
         })}
-        {props.members.length === 0 ? <tr><td colSpan={5} className="muted">No members match this filter.</td></tr> : null}
+        {props.members.length === 0 ? <tr><td colSpan={7} className="muted">No members match this filter.</td></tr> : null}
       </tbody>
     </table>
   );

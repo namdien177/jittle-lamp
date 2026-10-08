@@ -229,7 +229,7 @@ function Sidebar(): React.JSX.Element {
           <Cloud className="sidebar-link-icon" aria-hidden size={16} strokeWidth={2} />
           <span>Cloud evidences</span>
         </NavLink>
-        <NavLink to="/organisations" className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}>
+        <NavLink to={activeOrg ? `/organisations/${activeOrg.id}` : "/organisations"} className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}>
           <Building2 className="sidebar-link-icon" aria-hidden size={16} strokeWidth={2} />
           <span>Organisations</span>
         </NavLink>
@@ -743,7 +743,6 @@ const desktopRoutes: JittleRouteObject[] = [
       { path: "organisations", element: <OrganisationPage /> },
       { path: "organisations/:orgId", element: <OrganisationPage /> },
       { path: "organisations/:orgId/invitations", element: <OrganisationPage section="invitations" /> },
-      { path: "organisations/:orgId/library", element: <OrganisationPage section="library" /> },
       { path: "organisations/:orgId/storage", element: <OrganisationPage section="storage" /> },
       { path: "organisations/:orgId/options", element: <OrganisationPage section="options" /> },
       {

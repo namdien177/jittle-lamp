@@ -31,25 +31,33 @@ const DEFAULT_OPTION = "default";
 
 const errorText = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
-function ShareList(props: { rows: StorageShareRow[]; empty: string }): React.JSX.Element {
+function ShareList(props: { rows: StorageShareRow[]; empty: string; searchable?: boolean }): React.JSX.Element {
+  const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(50);
+  const normalized = query.trim().toLowerCase();
+  const filteredRows = normalized ? props.rows.filter((row) => `${row.label} ${row.detail}`.toLowerCase().includes(normalized)) : props.rows;
+  useEffect(() => setVisibleCount(50), [query, props.rows.length]);
   if (props.rows.length === 0) return <p className="storage-muted">{props.empty}</p>;
   return (
-    <ul className="storage-share-list">
-      {props.rows.map((row) => (
-        <li key={row.key}>
-          <div className="storage-share-head">
-            <span className={row.muted ? "storage-share-removed" : undefined}>{row.label}</span>
-            <strong>{formatBytes(row.bytes)}</strong>
-          </div>
-          <div className="storage-meter" aria-hidden>
-            <div data-muted={row.muted ? "true" : undefined} style={{ width: `${Math.max(row.share * 100, row.bytes > 0 ? 1.5 : 0)}%` }} />
-          </div>
-          <span className="storage-muted">
-            {formatShare(row.share)} · {row.detail}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div className="storage-share-panel">
+      {props.searchable ? <TextInput aria-label="Search members" placeholder="Search members" value={query} onChange={(event) => setQuery(event.target.value)} /> : null}
+      {filteredRows.length === 0 ? <p className="storage-muted">No matching members.</p> : (
+        <div className="storage-share-scroll" onScroll={(event) => {
+          const element = event.currentTarget;
+          if (element.scrollTop + element.clientHeight >= element.scrollHeight - 48) setVisibleCount((count) => Math.min(count + 50, filteredRows.length));
+        }}>
+          <ul className="storage-share-list">
+            {filteredRows.slice(0, visibleCount).map((row) => (
+              <li key={row.key}>
+                <div className="storage-share-head"><span className={row.muted ? "storage-share-removed" : undefined}>{row.label}</span><strong>{formatBytes(row.bytes)}</strong></div>
+                <div className="storage-meter" aria-hidden><div data-muted={row.muted ? "true" : undefined} style={{ width: `${Math.max(row.share * 100, row.bytes > 0 ? 1.5 : 0)}%` }} /></div>
+                <span className="storage-muted">{formatShare(row.share)} · {row.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -179,7 +187,7 @@ export function OrganisationStorageSection(props: { orgId: string }): React.JSX.
               <div className="org-section-header">
                 <h2>By member</h2>
               </div>
-              <ShareList rows={memberShareRows(report, auth.state.status === "signed-in" ? (auth.state.profile?.localUserId ?? null) : null)} empty="No evidence yet." />
+              <ShareList rows={memberShareRows(report, auth.state.status === "signed-in" ? (auth.state.profile?.localUserId ?? null) : null)} empty="No evidence yet." searchable />
             </section>
             <section className="org-section">
               <div className="org-section-header">
@@ -239,7 +247,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
       </div>
       {!overview.secretsAvailable ? <div className="auth-error">This server has no secrets master key, so storage credentials cannot be saved.</div> : null}
 
-      <section className="org-section">
+      {activeStorages.length > 0 ? <section className="org-section">
         <div className="org-section-header">
           <div>
             <h2>Where new evidence is saved</h2>
@@ -283,9 +291,9 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             </span>
           </span>
         </label>
-      </section>
+      </section> : null}
 
-      <section className="org-table-shell">
+      {activeStorages.length > 0 ? <section className="org-table-shell">
         <div className="org-section-header storage-table-header">
           <div>
             <h2>Your storages</h2>
@@ -350,9 +358,9 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             </tbody>
           </table>
         )}
-      </section>
+      </section> : null}
 
-      <TransferSection orgId={orgId} overview={overview} onChanged={props.onChanged} />
+      {activeStorages.length > 0 ? <TransferSection orgId={orgId} overview={overview} onChanged={props.onChanged} /> : null}
 
       {editing ? (
         <StorageFormDialog

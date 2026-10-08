@@ -215,6 +215,8 @@ function SidebarUser({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: ()
 
 function AppSidebar({ pathname, readOnly, dark, onToggleTheme }: { pathname: string; readOnly: boolean; dark: boolean; onToggleTheme: () => void }): React.JSX.Element {
   const { setOpenMobile } = useSidebar();
+  const profile = useAccountProfile();
+  const organisationPath = profile.data?.activeOrgId ? `/organisations/${profile.data.activeOrgId}` : "/organisations";
   useEffect(() => setOpenMobile(false), [pathname, setOpenMobile]);
   return (
     <Sidebar>
@@ -232,9 +234,10 @@ function AppSidebar({ pathname, readOnly, dark, onToggleTheme }: { pathname: str
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map((item) => (
-                  <NavMenuItem key={item.to} item={item} pathname={pathname} />
-                ))}
+                {group.items.map((item) => {
+                  const resolvedItem = item.label === "Organisations" ? { ...item, to: organisationPath } : item;
+                  return <NavMenuItem key={item.label} item={resolvedItem} pathname={pathname} />;
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

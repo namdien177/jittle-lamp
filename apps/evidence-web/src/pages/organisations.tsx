@@ -181,6 +181,23 @@ function memberName(member: ApiMember): string {
   return fullName || member.displayName || member.email || "Unknown user";
 }
 
+function evidenceMethodLabel(method: string): string {
+  return method.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function MemberStatsChart({ members }: { members: ApiMember[] }): React.JSX.Element {
+  const methods = new Map<string, number>();
+  for (const member of members) for (const method of member.evidenceMethods) methods.set(method, (methods.get(method) ?? 0) + member.evidenceCount);
+  const rows = [...methods.entries()].sort((a, b) => b[1] - a[1]);
+  const totalEvidence = members.reduce((sum, member) => sum + member.evidenceCount, 0);
+  const totalComments = members.reduce((sum, member) => sum + member.commentCount, 0);
+  const max = Math.max(1, ...rows.map(([, count]) => count));
+  return <div className="grid gap-3 border-b border-border p-3 sm:grid-cols-[auto_1fr]">
+    <div className="flex gap-4 text-sm"><span><strong>{totalEvidence.toLocaleString()}</strong> evidences</span><span><strong>{totalComments.toLocaleString()}</strong> discussions</span></div>
+    <div className="grid gap-1.5" aria-label="Evidence recorded by method">{rows.length ? rows.map(([method, count]) => <div key={method} className="flex items-center gap-2 text-xs"><span className="w-28 truncate text-muted-foreground">{evidenceMethodLabel(method)}</span><span className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-primary" style={{ width: `${(count / max) * 100}%` }} /></span><span className="w-10 text-right tabular-nums">{count}</span></div>) : <span className="text-xs text-muted-foreground">No evidence recorded on this page.</span>}</div>
+  </div>;
+}
+
 function roleLabel(role: string): string {
   if (role === "admin") return "Admin";
   if (role === "moderator") return "Moderator";
@@ -310,9 +327,19 @@ export function OrganisationsListPage(): React.JSX.Element {
               <article
                 key={org.id}
                 className={cn(
-                  "jl-row-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between",
+                  "jl-row-card flex cursor-pointer flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between",
                   org.id === activeOrgId && "border-primary ring-2 ring-primary/30",
                 )}
+                role="link"
+                tabIndex={0}
+                onClick={() => navigate(`/organisations/${org.id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    navigate(`/organisations/${org.id}`);
+                  }
+                }}
+                aria-label={`Open ${org.name}`}
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="grid size-11 shrink-0 place-items-center rounded-md bg-secondary text-primary">
@@ -329,10 +356,12 @@ export function OrganisationsListPage(): React.JSX.Element {
                       {roleBadge(org.role)}
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {org.isPersonal ? "Personal workspace" : "Organisation workspace"} ·{" "}
-                      {org.memberCount} member{org.memberCount === 1 ? "" : "s"} · joined{" "}
-                      {relTime(org.joinedAt)}
+                      {org.isPersonal ? "Personal workspace" : "Organisation workspace"} · {org.memberCount} member{org.memberCount === 1 ? "" : "s"} · {org.evidenceCount.toLocaleString()} evidences · {org.commentCount.toLocaleString()} discussions
                     </p>
+                    <div className="mt-2 flex h-1.5 max-w-xs gap-1" aria-label="Evidence and discussion activity">
+                      <span className="rounded-full bg-primary" style={{ width: `${Math.max(8, Math.min(92, org.evidenceCount / Math.max(org.evidenceCount + org.commentCount, 1) * 100))}%` }} />
+                      <span className="rounded-full bg-secondary" style={{ width: `${Math.max(8, Math.min(92, org.commentCount / Math.max(org.evidenceCount + org.commentCount, 1) * 100))}%` }} />
+                    </div>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -340,23 +369,17 @@ export function OrganisationsListPage(): React.JSX.Element {
                     variant={org.id === activeOrgId ? "ghost" : "secondary"}
                     size="sm"
                     disabled={busy || org.id === activeOrgId}
-                    onClick={() =>
+                    onClick={(event) => {
+                      event.stopPropagation();
                       void activate(org.id).catch((err) =>
                         toast.error(
                           "Unable to change active organisation",
                           err instanceof Error ? err.message : undefined,
                         ),
-                      )
-                    }
+                      );
+                    }}
                   >
                     {org.id === activeOrgId ? "Active" : "Set active"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate(`/organisations/${org.id}`)}
-                  >
-                    Manage
                   </Button>
                 </div>
               </article>
@@ -467,7 +490,6 @@ export function OrganisationDetailLayout(): React.JSX.Element {
             { to: `${base}/invitations`, label: "Invitations" },
             { to: `${base}/activity`, label: "Activity" },
             { to: `${base}/evidences`, label: "Evidences" },
-            { to: `${base}/library`, label: "Library" },
             { to: `${base}/storage`, label: "Storage" },
             { to: `${base}/options`, label: "Options" },
           ]}
@@ -576,13 +598,16 @@ export function OrgMembersTab(): React.JSX.Element {
           {memberError}
         </div>
       ) : null}
+      <MemberStatsChart members={result.members} />
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>User</TableHead>
             <TableHead className="hidden sm:table-cell">Role</TableHead>
+            <TableHead className="hidden md:table-cell">Evidences</TableHead>
+            <TableHead className="hidden md:table-cell">Discussions</TableHead>
             <TableHead className="hidden md:table-cell">Joined</TableHead>
-            <TableHead className="hidden lg:table-cell">Guest until</TableHead>
+            <TableHead className="hidden lg:table-cell">Expiration</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -590,7 +615,7 @@ export function OrgMembersTab(): React.JSX.Element {
           {loading
             ? [0, 1, 2].map((i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={7}>
                     <Skeleton className="h-10 w-full" />
                   </TableCell>
                 </TableRow>
@@ -610,14 +635,10 @@ export function OrgMembersTab(): React.JSX.Element {
                     <TableCell className="hidden sm:table-cell">
                       {roleBadge(member.role)}
                     </TableCell>
-                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">
-                      {relTime(member.joinedAt)}
-                    </TableCell>
-                    <TableCell className="hidden text-base text-muted-foreground lg:table-cell">
-                      {member.guestExpiresAt
-                        ? relTime(member.guestExpiresAt)
-                        : "Permanent"}
-                    </TableCell>
+                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">{member.evidenceCount.toLocaleString()}</TableCell>
+                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">{member.commentCount.toLocaleString()}</TableCell>
+                    <TableCell className="hidden text-base text-muted-foreground md:table-cell">{relTime(member.joinedAt)}</TableCell>
+                    <TableCell className="hidden text-base text-muted-foreground lg:table-cell">{member.guestExpiresAt ? relTime(member.guestExpiresAt) : "N/A"}</TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1.5">
                         {editable ? (
@@ -1460,6 +1481,46 @@ export function OrgRolesTab(): React.JSX.Element {
 
 /* ── Activity tab ───────────────────────────────────────────────────────────── */
 
+
+const activityActionLabels: Record<string, string> = {
+  "evidence.created": "Evidence created",
+  "evidence.deleted": "Evidence deleted",
+  "evidence.renamed": "Evidence renamed",
+  "evidence.download_url.created": "Evidence download link created",
+  "evidence.comment.created": "Evidence comment created",
+  "organization.invitation.created": "Invitation created",
+  "organization.invitation.revoked": "Invitation revoked",
+  "organization.member.left": "Member left",
+  "organization.member.removed": "Member removed",
+  "organization.member.role_updated": "Member role updated",
+  "organization.renamed": "Organisation renamed",
+  "organization.settings.updated": "Organisation settings updated",
+  "organization.storage.created": "Storage created",
+  "organization.storage.deleted": "Storage deleted",
+  "organization.storage.updated": "Storage updated",
+  "organization.storage.settings_updated": "Storage settings updated",
+  "organization.storage.transfer_started": "Storage transfer started",
+  "organization.storage.transfer_completed": "Storage transfer completed",
+  "test_case.created": "Test case created",
+  "test_case.deleted": "Test case deleted",
+};
+
+const activityActionValues = [
+  ...Object.keys(activityActionLabels),
+  "evidence.copied.in", "evidence.copied.out", "evidence.moved.in", "evidence.moved.out",
+  "organization.invitation_code.created", "organization.invitation_code.deleted", "organization.role.updated",
+  "organization.join_request.approved", "organization.join_request.rejected",
+  "organization.storage.transfer_paused", "organization.storage.transfer_resumed", "organization.storage.transfer_cancelled",
+  "runner_pool.created", "runner_pool.registration_token_rotated", "test_run.takeover_started", "test_run.takeover_ended", "test_run.takeover_expired",
+  "test_config.agent_notes_updated", "test_config.credential_created", "test_config.credential_rotated", "test_config.data_key_rotated", "test_config.env_file_pulled",
+  "test_config.model_prices_updated", "test_config.model_settings_updated", "test_config.notification_channel_created", "test_config.notification_channel_deleted",
+  "test_config.secret_read", "test_config.webhook_created", "test_config.webhook_deleted", "test_config.webhook_secret_rotated", "test_config.webhook_updated",
+].filter((value, index, values) => values.indexOf(value) === index);
+
+function activityActionLabel(action: string): string {
+  return activityActionLabels[action] ?? action.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function activityTarget(log: ApiActivityLog): string | null {
   const url = log.metadata.entityUrl;
   return typeof url === "string" && url ? url : null;
@@ -1470,6 +1531,8 @@ export function OrgActivityTab(): React.JSX.Element {
   const navigate = useNavigate();
   const [action, setAction] = useState("");
   const [userId, setUserId] = useState("");
+  const membersQuery = useOrganizationMembers(ctx.orgId, { limit: 100 });
+  const memberNames = useMemo(() => new Map((membersQuery.data?.members ?? []).map((member) => [member.userId, memberName(member)])), [membersQuery.data?.members]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
@@ -1502,20 +1565,22 @@ export function OrgActivityTab(): React.JSX.Element {
   return (
     <Card className="overflow-hidden p-0">
       <div className="grid gap-2 border-b border-border p-3 md:grid-cols-2 xl:grid-cols-4">
-        <Input
+        <SimpleSelect
+          ariaLabel="Filter by action"
+          options={[{ value: "", label: "All actions" }, ...activityActionValues.map((value) => ({ value, label: activityActionLabel(value) }))]}
           value={action}
-          placeholder="Filter by action"
-          onChange={(event) => {
+          onValueChange={(value) => {
             setPage(1);
-            setAction(event.currentTarget.value);
+            setAction(value);
           }}
         />
-        <Input
+        <SimpleSelect
+          ariaLabel="Filter by user"
+          options={[{ value: "", label: "All users" }, ...(membersQuery.data?.members ?? []).map((member) => ({ value: member.userId, label: memberName(member) }))]}
           value={userId}
-          placeholder="Filter by user id"
-          onChange={(event) => {
+          onValueChange={(value) => {
             setPage(1);
-            setUserId(event.currentTarget.value);
+            setUserId(value);
           }}
         />
         <Input
@@ -1574,17 +1639,19 @@ export function OrgActivityTab(): React.JSX.Element {
                         {log.message}
                       </button>
                       <span className="block truncate font-mono text-muted-foreground">
-                        {log.actorUserId ?? "System"}
+                        {log.actorUserId ? memberNames.get(log.actorUserId) ?? "Unknown member" : "System"}
                       </span>
                     </TableCell>
                     <TableCell className="hidden font-mono text-base text-muted-foreground md:table-cell">
-                      {log.action}
+                      {activityActionLabel(log.action)}
                     </TableCell>
                     <TableCell className="hidden font-mono text-base text-muted-foreground lg:table-cell">
                       {log.ipAddress ?? "-"}
                     </TableCell>
                     <TableCell className="text-right text-base text-muted-foreground">
-                      {relTime(log.createdAt)}
+                      <time dateTime={new Date(log.createdAt).toISOString()} title={new Date(log.createdAt).toLocaleString()}>
+                        {relTime(log.createdAt)}
+                      </time>
                     </TableCell>
                   </TableRow>
                 );
