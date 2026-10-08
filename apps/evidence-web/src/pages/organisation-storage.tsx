@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOutletContext } from "react-router";
-import { AlertTriangle, Database, HardDrive, Pause, Play, Plus, Square } from "lucide-react";
+import { AlertTriangle, HardDrive, Pause, Play, Plus, Square } from "lucide-react";
 import {
   createOrganizationStorageInputSchema,
   updateOrganizationStorageInputSchema,
@@ -269,7 +269,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
         </p>
       ) : null}
 
-      {activeStorages.length > 0 ? <AdminCard title="Where new evidence is saved" description="Existing files stay where they are; use a transfer to move them.">
+      <AdminCard title="Where new evidence is saved" description="Existing files stay where they are; use a transfer to move them.">
         <div className="grid gap-4">
           <Field label="Default storage" className="max-w-sm">
             <SimpleSelect
@@ -285,7 +285,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
               }
             />
           </Field>
-          <Toggle
+          {activeStorages.length > 0 ? <Toggle
             label="Turn off JittleLamp storage"
             description={
               overview.settings.defaultStorageId
@@ -295,12 +295,12 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             checked={overview.settings.defaultStorageDisabled}
             disabled={updateSettings.isPending || (!overview.settings.defaultStorageId && !overview.settings.defaultStorageDisabled)}
             onChange={(checked) => updateSettings.mutate({ defaultStorageDisabled: checked })}
-          />
+          /> : null}
           <ErrorNote error={updateSettings.error} />
         </div>
-      </AdminCard> : null}
+      </AdminCard>
 
-      {activeStorages.length > 0 ? <AdminCard
+      <AdminCard
         title="Your storages"
         description={`JittleLamp storage holds ${formatBytes(overview.defaultStorageUsage.bytes)} in ${overview.defaultStorageUsage.artifactCount.toLocaleString()} files.`}
         actions={
@@ -310,12 +310,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
         }
         bodyClassName="p-0"
       >
-        {overview.storages.length === 0 ? (
-          <div className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
-            <Database className="size-5 shrink-0" aria-hidden />
-            No storages yet. Evidence is saved to JittleLamp storage.
-          </div>
-        ) : (
+        {overview.storages.length === 0 ? null : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -385,7 +380,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             </TableBody>
           </Table>
         )}
-      </AdminCard> : null}
+      </AdminCard>
 
       {activeStorages.length > 0 ? <TransferCard orgId={orgId} overview={overview} /> : null}
 

@@ -247,7 +247,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
       </div>
       {!overview.secretsAvailable ? <div className="auth-error">This server has no secrets master key, so storage credentials cannot be saved.</div> : null}
 
-      {activeStorages.length > 0 ? <section className="org-section">
+      <section className="org-section">
         <div className="org-section-header">
           <div>
             <h2>Where new evidence is saved</h2>
@@ -271,7 +271,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             }
           />
         </label>
-        <label className="storage-toggle">
+        {activeStorages.length > 0 ? <label className="storage-toggle">
           <input
             type="checkbox"
             checked={overview.settings.defaultStorageDisabled}
@@ -290,10 +290,10 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
               {overview.settings.defaultStorageId ? " New evidence is never saved to JittleLamp storage." : " Choose one of your storages as the default first."}
             </span>
           </span>
-        </label>
-      </section> : null}
+        </label> : null}
+      </section>
 
-      {activeStorages.length > 0 ? <section className="org-table-shell">
+      <section className="org-table-shell">
         <div className="org-section-header storage-table-header">
           <div>
             <h2>Your storages</h2>
@@ -305,9 +305,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             Add storage
           </Button>
         </div>
-        {overview.storages.length === 0 ? (
-          <p className="storage-muted storage-empty">No storages yet. Evidence is saved to JittleLamp storage.</p>
-        ) : (
+        {overview.storages.length === 0 ? null : (
           <table className="table">
             <thead>
               <tr>
@@ -358,7 +356,7 @@ function StorageConfiguration(props: { orgId: string; overview: OrganizationStor
             </tbody>
           </table>
         )}
-      </section> : null}
+      </section>
 
       {activeStorages.length > 0 ? <TransferSection orgId={orgId} overview={overview} onChanged={props.onChanged} /> : null}
 
