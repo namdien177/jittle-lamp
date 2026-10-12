@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import { isFakeDataLocale } from "./fake-data";
+import { runModelAccountSchema } from "./model-accounts";
 import { claimedExplorationSchema, importItemExplorationSchema } from "./test-exploration";
 import {
   linkedCaseSchema,
@@ -606,7 +607,11 @@ export const testRunConfigSchema = z.object({
       secretFields: z.record(z.string(), z.string())
     })
   ),
-  model: z.object({ act: z.string().nullable(), judge: z.string().nullable(), apiKeys: z.record(z.string(), z.string()) }).nullable(),
+  // `apiKeys` holds the first account of each provider for runners older than model accounts;
+  // `accounts` lists every usable account in priority order.
+  model: z
+    .object({ act: z.string().nullable(), judge: z.string().nullable(), apiKeys: z.record(z.string(), z.string()), accounts: z.array(runModelAccountSchema).default([]) })
+    .nullable(),
   // Phase 2: organisation agent notes, prepended to environment agent instructions.
   agentNotes: z.string().nullable().default(null),
   prices: z.array(modelPriceSchema).default([]),
@@ -766,7 +771,22 @@ export const modelCostReportSchema = z.object({
   runs: z.number().int().nonnegative(),
   byUser: z.array(z.object({ userId: id.nullable(), name: z.string().nullable(), costUsd: z.number().nonnegative(), runs: z.number().int().nonnegative() })),
   byModel: z.array(z.object({ modelId: z.string(), costUsd: z.number().nonnegative(), tokens: z.number().int().nonnegative() })),
-  byDay: z.array(z.object({ day: z.string(), costUsd: z.number().nonnegative() }))
+  byDay: z.array(z.object({ day: z.string(), costUsd: z.number().nonnegative() })),
+  // Spend per model account (null accountId: deleted accounts and runs before model accounts).
+  byAccount: z
+    .array(
+      z.object({
+        accountId: id.nullable(),
+        label: z.string(),
+        provider: z.string().nullable(),
+        keyLast4: z.string().nullable(),
+        costUsd: z.number().nonnegative(),
+        calls: z.number().int().nonnegative(),
+        tokens: z.number().int().nonnegative()
+      })
+    )
+    .default([]),
+  byDayAccount: z.array(z.object({ day: z.string(), accountId: id.nullable(), costUsd: z.number().nonnegative() })).default([])
 });
 
 // ---------------------------------------------------------------------------------------------

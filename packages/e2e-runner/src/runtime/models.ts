@@ -1,19 +1,30 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
+import { modelPriceSchema, runModelAccountSchema } from "@jittle-lamp/shared";
+import { z } from "zod/v4";
 
+import { appendAccountLog } from "../model/account-log";
+import { createAccountLedger } from "../model/failover";
 import { resolveModel } from "../model/providers";
 
 // Loaded by the generated e2e.config.ts inside the e2e process: builds the act and judge models
 // from the JL_* environment the runner injected. One instance per distinct id, so a `mock:`
-// fixture shared by act and judge is consumed in order.
+// fixture shared by act and judge is consumed in order. With JL_MODEL_ACCOUNTS the provider's
+// accounts fail over between each other and log their usage to JL_MODEL_ACCOUNT_LOG.
 export async function createModelsFromEnv(env: Readonly<Record<string, string | undefined>>): Promise<{
   model: LanguageModelV4;
   judge: LanguageModelV4;
 }> {
   const actId = env.JL_MODEL ?? "anthropic/claude-opus-5-5";
   const judgeId = env.JL_JUDGE_MODEL ?? actId;
+  const accounts = env.JL_MODEL_ACCOUNTS ? z.array(runModelAccountSchema).parse(JSON.parse(env.JL_MODEL_ACCOUNTS)) : [];
+  const prices = env.JL_MODEL_PRICES ? z.array(modelPriceSchema).parse(JSON.parse(env.JL_MODEL_PRICES)) : undefined;
+  const accountLog = env.JL_MODEL_ACCOUNT_LOG;
   const options = {
     keys: env,
-    allowClaudeCode: env.JL_ALLOW_CLAUDE_CODE === "1"
+    allowClaudeCode: env.JL_ALLOW_CLAUDE_CODE === "1",
+    ...(accounts.length > 0 ? { accounts, accountLedger: createAccountLedger() } : {}),
+    ...(prices ? { prices } : {}),
+    ...(accountLog ? { onAccountLog: (entry: Parameters<typeof appendAccountLog>[1]) => appendAccountLog(accountLog, entry) } : {})
   };
   const act = await resolveModel(actId, {
     ...options,

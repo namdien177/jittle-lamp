@@ -148,7 +148,7 @@ describe("test run routes and runner contract", () => {
 				loginField: null,
 			},
 		]);
-		expect(config.body.model).toEqual({
+		expect(config.body.model).toMatchObject({
 			act: "anthropic/claude-opus-5-5",
 			judge: "anthropic/claude-sonnet-5-5",
 			apiKeys: { ANTHROPIC_API_KEY: FAKE_MODEL_KEY },

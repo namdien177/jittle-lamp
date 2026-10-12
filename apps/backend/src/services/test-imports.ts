@@ -4,8 +4,10 @@ import {
 	type ImportItem,
 	type ImportItemExploration,
 	lintFindingSchema,
+	type ModelAccountEvent,
 	parseTranscriptDocument,
 	type patchImportRequestSchema,
+	type RunModelAccount,
 	serializeStepLine,
 	serializeTestCase,
 	similarTestCaseSchema,
@@ -20,6 +22,7 @@ import {
 	testImportItems,
 } from "../db/schema";
 import { HttpError, notFound } from "../http/test-http";
+import { applyModelAccountEvents } from "./model-accounts";
 import { emitNotification, emitReviewPendingCount } from "./notifications";
 import {
 	defaultOutboundPolicy,
@@ -76,6 +79,10 @@ type ImportItemRow = typeof testImportItems.$inferSelect;
 export type TextGenerator = (input: {
 	modelId: string;
 	apiKeys: Record<string, string>;
+	// The organisation's model accounts in priority order; the resolver fails over between them
+	// and reports rate limits and rejected keys through onAccountEvent.
+	accounts?: RunModelAccount[];
+	onAccountEvent?: (event: ModelAccountEvent) => void;
 	prompt: string;
 	// Every provider request goes through it; the backend passes an SSRF-guarded fetch because an
 	// OpenAI-compatible base URL is an address the organisation chose.
@@ -86,6 +93,14 @@ export const defaultTextGenerator: TextGenerator = async (input) => {
 	const { resolveModel } = await import("@jittle-lamp/e2e-runner/model");
 	const resolved = await resolveModel(input.modelId, {
 		keys: input.apiKeys,
+		...(input.accounts ? { accounts: input.accounts } : {}),
+		...(input.onAccountEvent
+			? {
+					onAccountLog: (entry) => {
+						if (entry.type === "event") input.onAccountEvent?.(entry.event);
+					},
+				}
+			: {}),
 		...(input.fetch ? { fetch: input.fetch } : {}),
 	});
 	const result = await resolved.model.doGenerate({
@@ -367,6 +382,7 @@ const jiraCandidates = async (
 			init ?? {},
 		)) as typeof fetch;
 	const out: Array<ImportCandidate & { error?: string }> = [];
+	const accountEvents: ModelAccountEvent[] = [];
 	for (const issue of issues.slice(0, JIRA_IMPORT_MAX_ISSUES)) {
 		const base = {
 			title: issue.summary,
@@ -384,6 +400,8 @@ const jiraCandidates = async (
 				await input.generateText({
 					modelId: model.act,
 					apiKeys: model.apiKeys,
+					accounts: model.accounts,
+					onAccountEvent: (event) => accountEvents.push(event),
 					fetch: modelFetch,
 					prompt: jiraGenerationPrompt(issue),
 				}),
@@ -417,6 +435,7 @@ const jiraCandidates = async (
 			});
 		}
 	}
+	await applyModelAccountEvents(db, input.orgId, accountEvents);
 	return out;
 };
 

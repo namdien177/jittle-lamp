@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { runModelAccountsReportSchema } from "./model-accounts";
 import { isoTimestampSchema } from "./session";
 import { transcriptStepTypeSchema } from "./test-case";
 
@@ -146,7 +147,9 @@ export const runReportSchema = z.object({
   flaky: z.boolean(),
   attempt: z.number().int().positive(),
   artifacts: z.array(runArtifactSchema),
-  errors: z.array(z.object({ code: z.string().min(1), message: z.string() }))
+  errors: z.array(z.object({ code: z.string().min(1), message: z.string() })),
+  // Usage and failures per model account; absent from runners older than model accounts.
+  modelAccounts: runModelAccountsReportSchema.optional()
 });
 
 export type TestRunStatus = z.infer<typeof testRunStatusSchema>;

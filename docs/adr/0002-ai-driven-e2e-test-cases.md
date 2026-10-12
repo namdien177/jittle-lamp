@@ -97,6 +97,14 @@ Amended: the organisation stores the key for the act model's provider and, only 
 Decisions 5 and 14 are otherwise unchanged; neither requires Anthropic. The supported prefixes are listed once in `packages/shared/src/model-providers.ts` and checked at save time.
 
 
+### 2026-10-13: model accounts with priority, budgets and failover (decision 14)
+
+One key per provider stops every run when that key hits a rate limit or runs out of quota, and the spend report cannot tell which key paid for what. Organisations asked to spread runs over several keys, the way CLIProxy rotates accounts.
+
+Amended: a provider can have any number of model accounts, each with its own write-only key (and base URL for `openai-compatible`), a priority, an on/off switch, a pause until a time, and optional daily and monthly budgets. The act and judge model ids stay organisation-wide; the accounts of their providers serve them. The run config lists the usable accounts in priority order and the runner fails over between them within the run, on a rate limit, an exhausted quota or a rejected key only. Each account's budget is checked when the run starts; mid-run, an account set to `stop` hands over to the next account once its share is spent, and the run stops with `BUDGET_EXCEEDED` when none is left, while an account set to `finish` serves the run to its end (the overrun is at most one run). When every usable account of a needed provider is over budget, new runs wait as `BUDGET_EXCEEDED` like the organisation's daily budget. Runs report usage and failures per account; failures cool the account down, and the cost report shows spend per account.
+
+Compatibility: `apiKeys` in the run config still carries each provider's first account, so runners older than accounts keep working without failover. The single-key fields of `PUT /test-model-settings` set the key of the provider's first account. Keys saved before the amendment become each provider's first account the first time the organisation's accounts are read.
+
 ### 2026-10-03: Qwen Flash defaults through AI Gateway (decision 5)
 
 The owner initially selected GLM-5.3-Flash during production/preprod setup. Both supplied keys returned HTTP 403 because that model requires paid AI Gateway credits. The owner then identified `alibaba/qwen3.7-flash` as available with free credits, and short requests through the runner's provider resolver returned `OK` with both environment keys.

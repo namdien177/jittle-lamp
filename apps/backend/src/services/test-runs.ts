@@ -54,7 +54,7 @@ import { emitNotification, emitRunOutcome } from "./notifications";
 import type { StorageRegistry } from "./storage-registry";
 import { caseSteps, parseJsonColumn, type TestCaseRow } from "./test-cases";
 import type { LiveHub } from "./test-live";
-import { BUDGET_EXCEEDED, dailyBudgetState } from "./test-run-budget";
+import { BUDGET_EXCEEDED, runsHeldByBudget } from "./test-run-budget";
 import {
 	createOpaqueToken,
 	hashToken,
@@ -387,7 +387,8 @@ const insertRun = async (
 		now: number;
 		retryOf?: TestRunRow;
 		baseUrlOverride?: string | null;
-		// The organisation spent its daily model budget: the run waits unclaimable.
+		// The organisation spent its daily model budget, or every model account of a provider it
+		// needs is over budget: the run waits unclaimable.
 		overBudget?: boolean;
 	},
 ): Promise<TestRunRow | null> => {
@@ -617,10 +618,10 @@ export const requestRuns = async (
 		}
 	}
 
-	const budget =
+	const overBudget =
 		toCreate.length > 0
-			? await dailyBudgetState(db, input.orgId, settings.dailyBudgetUsd, now)
-			: null;
+			? await runsHeldByBudget(db, input.orgId, settings.dailyBudgetUsd, now)
+			: false;
 
 	let batchId: string | null = null;
 	const isBatch = Boolean(input.batch) || plans.length > 1;
@@ -679,7 +680,7 @@ export const requestRuns = async (
 				batchId,
 				now,
 				baseUrlOverride: input.baseUrlOverride ?? null,
-				overBudget: budget?.exceeded ?? false,
+				overBudget,
 			});
 			if (run) {
 				created = { runId: run.id, attached: false };

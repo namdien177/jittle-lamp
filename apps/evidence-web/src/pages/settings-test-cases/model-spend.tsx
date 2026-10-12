@@ -1,26 +1,32 @@
 import React, { useMemo, useState } from "react";
+import { Link } from "react-router";
 
 import { Skeleton } from "../../components/ui/skeleton";
 import { cn } from "../../lib/cn";
 import { useAccountProfile } from "../../queries";
-import { useModelCosts } from "../../test-cases/admin-queries";
+import { useModelAccounts, useModelCosts } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, StatTile, pressable } from "../../test-cases/admin-ui";
 import { Hint, TruncatedText } from "../../components/ui/tooltip";
 import {
+  accountSeries,
+  accountShareRows,
   averagePerRun,
   costPeriodRange,
   costPeriods,
-  dailyBars,
   formatDayLabel,
   formatShare,
   formatUsd,
   modelShareRows,
+  stackedDailyBars,
   userShareRows,
   type CostPeriod,
   type ShareRow
 } from "../../test-config/cost-report";
+import { groupAccounts } from "../../test-config/model-accounts-ui";
+import { AccountStatusBadge, BudgetMeter } from "./model-accounts";
 
-// Model spend per organisation (ops.4) from GET /model-costs: total, by user, by model, by day.
+// Model spend per organisation (ops.4) from GET /model-costs: total, by user, by model, by model
+// account and by day (stacked by account), plus each account's budget (design.md §9.3).
 
 function ShareTable(props: { rows: ShareRow[]; label: string; empty: string }): React.JSX.Element {
   if (props.rows.length === 0) return <p className="text-sm text-muted-foreground">{props.empty}</p>;
@@ -49,8 +55,12 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
   // Rounded to the minute so the query key is stable between renders.
   const range = useMemo(() => costPeriodRange(period, Math.floor(Date.now() / 60_000) * 60_000), [period]);
   const report = useModelCosts(range);
+  const accounts = useModelAccounts();
   const profile = useAccountProfile();
-  const bars = report.data ? dailyBars(report.data) : [];
+  const bars = report.data ? stackedDailyBars(report.data) : [];
+  const series = report.data ? accountSeries(report.data) : [];
+  const now = Date.now();
+  const budgeted = groupAccounts(accounts.data ?? [], [], now).filter((group) => group.accounts.length > 0);
   const average = report.data ? averagePerRun(report.data) : null;
   const peak = bars.reduce((max, bar) => Math.max(max, bar.costUsd), 0);
   const labelEvery = bars.length > 31 ? 14 : bars.length > 10 ? 5 : 1;
@@ -99,10 +109,18 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
                 {bars.map((bar) => (
                   <Hint key={bar.day} label={bar.label}>
                     <div className="group relative flex h-full min-w-0 flex-1 items-end">
-                      <div
-                        className={cn("w-full rounded-t-sm", bar.costUsd > 0 ? "bg-primary/80 group-hover:bg-primary" : "bg-muted")}
-                        style={{ height: `${bar.costUsd > 0 ? Math.max(bar.ratio * 100, 2) : 1}%` }}
-                      />
+                      {bar.costUsd > 0 ? (
+                        <div
+                          className="flex w-full flex-col-reverse overflow-hidden rounded-t-sm opacity-85 group-hover:opacity-100"
+                          style={{ height: `${Math.max(bar.ratio * 100, 2)}%` }}
+                        >
+                          {bar.segments.map((segment) => (
+                            <div key={segment.key} className="w-full shrink-0" style={{ height: `${(segment.costUsd / bar.costUsd) * 100}%`, background: segment.color }} />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="w-full rounded-t-sm bg-muted" style={{ height: "1%" }} />
+                      )}
                     </div>
                   </Hint>
                 ))}
@@ -114,6 +132,16 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
                   </span>
                 ))}
               </div>
+              {series.length > 0 ? (
+                <ul className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground" aria-label="Accounts">
+                  {series.map((entry) => (
+                    <li key={entry.key} className="flex items-center gap-1.5">
+                      <span className="size-2.5 shrink-0 rounded-sm" style={{ background: entry.color }} aria-hidden />
+                      {entry.label}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <figcaption className="sr-only">
                 <table>
                   <caption>Spend per day</caption>
@@ -131,6 +159,47 @@ export function SettingsTestModelSpendPage(): React.JSX.Element {
           </AdminCard>
 
           <div className="grid gap-4 md:grid-cols-2">
+            <AdminCard title="By account" description="The model account that served each call">
+              <ShareTable rows={accountShareRows(report.data)} label="Spend by account" empty="No spend recorded per account in this period." />
+            </AdminCard>
+            <AdminCard
+              title="Account budgets"
+              description="Today and this month (UTC), against each account's budget"
+              actions={
+                <Link to="/test-cases/settings/ai-model" className="text-sm font-semibold text-primary hover:underline">
+                  Manage accounts
+                </Link>
+              }
+            >
+              {budgeted.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{accounts.isPending ? "Loading…" : "No model accounts."}</p>
+              ) : (
+                <div className="grid gap-4">
+                  {budgeted.map((group) => (
+                    <section key={group.provider} className="grid gap-2" aria-label={`${group.label} accounts`}>
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</h3>
+                      <ul className="grid gap-3">
+                        {group.accounts.map((account) => (
+                          <li key={account.id} className="grid gap-1.5">
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="min-w-0">
+                                <TruncatedText className="text-sm font-medium text-foreground">{account.label}</TruncatedText>
+                                <span className="font-mono text-xs text-muted-foreground">{account.keyConfigured ? `••••${account.keyLast4 ?? ""}` : "no key"}</span>
+                              </span>
+                              <AccountStatusBadge account={account} now={now} />
+                            </div>
+                            <div className="grid gap-1.5">
+                              <BudgetMeter label="Today" spentUsd={account.usage.todayUsd} budgetUsd={account.dailyBudgetUsd} />
+                              <BudgetMeter label="This month" spentUsd={account.usage.monthUsd} budgetUsd={account.monthlyBudgetUsd} />
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </AdminCard>
             <AdminCard title="By user" description="The requester of each run">
               <ShareTable rows={userShareRows(report.data, { currentUserId: profile.data?.localUserId ?? null })} label="Spend by user" empty="No runs in this period." />
             </AdminCard>

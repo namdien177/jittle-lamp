@@ -40,6 +40,7 @@ export const testAdminKeys = {
   runSettings: (orgId: string | null) => testKeys.runSettings(orgId),
   modelSettings: (orgId: string | null) => testKeys.modelSettings(orgId),
   modelPrices: (orgId: string | null) => testKeys.modelPrices(orgId),
+  modelAccounts: (orgId: string | null) => testKeys.modelAccounts(orgId),
   modelCosts: (orgId: string | null, from: number, to: number) => testKeys.modelCosts(orgId, from, to),
   runnerPools: (orgId: string | null) => testKeys.runnerPools(orgId),
   notifications: (orgId: string | null) => testKeys.notifications(orgId),
@@ -129,6 +130,8 @@ export const useTestTags = () => useOrgQuery(testAdminKeys.tags, testAdminApi.li
 export const useTestRunSettings = () => useOrgQuery(testAdminKeys.runSettings, testAdminApi.getRunSettings);
 export const useModelSettings = () => useOrgQuery(testAdminKeys.modelSettings, testAdminApi.getModelSettings);
 export const useModelPrices = () => useOrgQuery(testAdminKeys.modelPrices, testAdminApi.listModelPrices);
+// Cooldowns and spend change as runs finish; refetch while the page is open.
+export const useModelAccounts = () => useOrgQuery(testAdminKeys.modelAccounts, testAdminApi.listModelAccounts, { refetchInterval: 30_000 });
 export const useRunnerPools = () => useOrgQuery(testAdminKeys.runnerPools, testAdminApi.listRunnerPools, { refetchInterval: data => data?.some(pool => pool.targetVersion && pool.updateProgress?.phase !== "completed") ? 2_000 : 15_000 });
 export const useNotificationChannels = () => useOrgQuery(testAdminKeys.notificationChannels, testAdminApi.listNotificationChannels, { retry: false });
 export const useNotificationSubscriptions = () => useOrgQuery(testAdminKeys.notificationSubscriptions, testAdminApi.getNotificationSubscriptions);

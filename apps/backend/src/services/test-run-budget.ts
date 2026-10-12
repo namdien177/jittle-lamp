@@ -1,10 +1,16 @@
 import { and, eq, gte, sql } from "drizzle-orm";
 
-import { testRunSettings, testRuns } from "../db/schema";
+import {
+	organizationModelSettings,
+	testRunSettings,
+	testRuns,
+} from "../db/schema";
 import { withBusyRetry } from "./db-busy";
+import { modelAccountAvailability } from "./model-accounts";
+import { DEFAULT_ACT_MODEL, DEFAULT_JUDGE_MODEL } from "./test-settings";
 import type { BackendDb } from "./user-provisioning";
 
-// Daily model budget (design.md §10.3): once the cost of an organisation's runs that finished
+// Daily model budget (design.md §10.3) and model account budgets (§9.3): once the cost of an organisation's runs that finished
 // today reaches its dailyBudgetUsd, newly requested runs are queued with blocked_reason
 // BUDGET_EXCEEDED and no runner can claim them. They become claimable (blocked_reason null) when
 // the budget day changes, or when an admin raises or removes the budget.
@@ -53,6 +59,39 @@ export const dailyBudgetState = async (
 	return { budgetUsd, spentUsd, exceeded: spentUsd >= budgetUsd };
 };
 
+// Whether every account of a provider the organisation's models need is over its own daily or
+// monthly budget (model accounts, design.md §9.3). Such runs wait like over-budget ones.
+export const modelAccountsExhausted = async (
+	db: BackendDb,
+	orgId: string,
+	now = Date.now(),
+): Promise<boolean> => {
+	const settings = await db.query.organizationModelSettings.findFirst({
+		where: eq(organizationModelSettings.orgId, orgId),
+		columns: { actModel: true, judgeModel: true },
+	});
+	const availability = await modelAccountAvailability(
+		db,
+		orgId,
+		[
+			settings?.actModel ?? DEFAULT_ACT_MODEL,
+			settings?.judgeModel ?? DEFAULT_JUDGE_MODEL,
+		],
+		now,
+	);
+	return availability === "over_budget";
+};
+
+// The organisation's daily budget or its model accounts' budgets hold new runs back.
+export const runsHeldByBudget = async (
+	db: BackendDb,
+	orgId: string,
+	budgetUsd: number | null,
+	now = Date.now(),
+): Promise<boolean> =>
+	(await dailyBudgetState(db, orgId, budgetUsd, now)).exceeded ||
+	(await modelAccountsExhausted(db, orgId, now));
+
 const storedBudget = async (
 	db: BackendDb,
 	orgId: string,
@@ -65,7 +104,7 @@ const storedBudget = async (
 	)?.dailyBudgetUsd ?? null;
 
 // Clears BUDGET_EXCEEDED from queued runs of organisations that are back under budget (a new
-// day, a raised or removed budget). Returns the ids of the released runs.
+// day or month, a raised or removed budget, an account added or switched on). Returns the ids of the released runs.
 export const releaseBudgetBlockedRuns = async (
 	db: BackendDb,
 	input: { now?: number; orgId?: string } = {},
@@ -83,13 +122,9 @@ export const releaseBudgetBlockedRuns = async (
 		);
 	const released: string[] = [];
 	for (const { orgId } of orgs) {
-		const state = await dailyBudgetState(
-			db,
-			orgId,
-			await storedBudget(db, orgId),
-			now,
-		);
-		if (state.exceeded) continue;
+		if (await runsHeldByBudget(db, orgId, await storedBudget(db, orgId), now)) {
+			continue;
+		}
 		const rows = await withBusyRetry(() =>
 			db
 				.update(testRuns)

@@ -11,6 +11,7 @@ import {
 	explorationRecordSchema,
 	explorationTranscriptPrompt,
 	type ImportItemExploration,
+	type ModelAccountEvent,
 	parseTranscriptDocument,
 	resolveCredentialAlias,
 	serializeTestCase,
@@ -33,6 +34,7 @@ import {
 
 import { HttpError, notFound } from "../http/test-http";
 import { withBusyRetry } from "./db-busy";
+import { applyModelAccountEvents } from "./model-accounts";
 import {
 	defaultOutboundPolicy,
 	guardedFetch,
@@ -362,7 +364,12 @@ export const explorationConfig = async (
 			dataLocale: environment.dataLocale,
 		},
 		credentials,
-		model: { act: model.act, judge: model.judge, apiKeys: model.apiKeys },
+		model: {
+			act: model.act,
+			judge: model.judge,
+			apiKeys: model.apiKeys,
+			accounts: model.accounts,
+		},
 	};
 };
 
@@ -411,6 +418,7 @@ const transcriptFromRecord = async (
 	if (!input.generateText)
 		return { transcript: fallback(), note: null, outcome, reason };
 	const grounding = await explorationGrounding(db, input.row);
+	const accountEvents: ModelAccountEvent[] = [];
 	try {
 		const model = await resolveModelKeys(db, secrets, {
 			orgId: input.row.orgId,
@@ -432,6 +440,8 @@ const transcriptFromRecord = async (
 					generateText({
 						modelId: model.act,
 						apiKeys: model.apiKeys,
+						accounts: model.accounts,
+						onAccountEvent: (event) => accountEvents.push(event),
 						fetch: modelFetch,
 						prompt: explorationTranscriptPrompt({
 							title: input.row.title,
@@ -474,6 +484,8 @@ const transcriptFromRecord = async (
 			outcome,
 			reason,
 		};
+	} finally {
+		await applyModelAccountEvents(db, input.row.orgId, accountEvents);
 	}
 };
 

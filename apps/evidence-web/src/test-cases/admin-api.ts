@@ -7,6 +7,7 @@ import {
   createRunnerPoolResponseSchema,
   duplicateTestCaseResponseSchema,
   importBatchSchema,
+  modelAccountSchema,
   modelCostReportSchema,
   modelPriceRowSchema,
   modelSettingsSchema,
@@ -30,7 +31,9 @@ import {
   type UpsertWebhookEndpointRequest,
   type WebhookRule,
   type CreateImportRequest,
+  type CreateModelAccountInput,
   type ModelPrice,
+  type UpdateModelAccountRequest,
   type DuplicateTestCaseRequest,
   type NotificationKind,
   type TestCaseStatus
@@ -212,6 +215,16 @@ export const testAdminApi = {
   listModelPrices: (getToken: FetchToken) => request(getToken, "/model-prices", listOf(modelPriceRowSchema, "prices")),
   saveModelPrices: (getToken: FetchToken, prices: ModelPrice[]) =>
     request(getToken, "/model-prices", listOf(modelPriceRowSchema, "prices"), json("PUT", prices)),
+  // Model accounts: several keys per provider, tried in priority order (design.md §9.3).
+  listModelAccounts: (getToken: FetchToken) => request(getToken, "/test-model-accounts", listOf(modelAccountSchema, "accounts")),
+  createModelAccount: (getToken: FetchToken, body: CreateModelAccountInput) =>
+    request(getToken, "/test-model-accounts", oneOf(modelAccountSchema, "account"), json("POST", body)),
+  updateModelAccount: (getToken: FetchToken, accountId: string, body: UpdateModelAccountRequest) =>
+    request(getToken, `/test-model-accounts/${id(accountId)}`, oneOf(modelAccountSchema, "account"), json("PATCH", body)),
+  reorderModelAccounts: (getToken: FetchToken, body: { provider: string; ids: string[] }) =>
+    request(getToken, "/test-model-accounts/order", listOf(modelAccountSchema, "accounts"), json("PUT", body)),
+  deleteModelAccount: (getToken: FetchToken, accountId: string) =>
+    request(getToken, `/test-model-accounts/${id(accountId)}`, okSchema, { method: "DELETE" }),
   getModelCosts: (getToken: FetchToken, range: { from: number; to: number }) =>
     request(getToken, `/test-model-costs?from=${range.from}&to=${range.to}`, oneOf(modelCostReportSchema, "report")),
 

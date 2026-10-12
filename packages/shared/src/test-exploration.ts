@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { runModelAccountSchema } from "./model-accounts";
 import {
   extractStepReferences,
   lintTestCase,
@@ -72,7 +73,9 @@ export const explorationConfigSchema = z.object({
   }),
   credentials: z.array(z.object({ profile: z.string().min(1), fields: z.record(z.string(), z.string()), loginField: z.string().regex(/^[a-z][a-z0-9_]*$/).nullable().default(null),
       secretFields: z.record(z.string(), z.string()) })),
-  model: z.object({ act: z.string().nullable(), judge: z.string().nullable(), apiKeys: z.record(z.string(), z.string()) }).nullable()
+  model: z
+    .object({ act: z.string().nullable(), judge: z.string().nullable(), apiKeys: z.record(z.string(), z.string()), accounts: z.array(runModelAccountSchema).default([]) })
+    .nullable()
 });
 
 export const explorationResultRequestSchema = z.object({

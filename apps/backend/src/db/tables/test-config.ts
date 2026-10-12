@@ -272,6 +272,61 @@ export const organizationModelSettings = sqliteTable(
 	},
 );
 
+// Model accounts (design.md §9.3, ADR 0002 amendment 2026-10-13): several keys per provider,
+// tried in priority order. The key is a `model_key` credential; this row holds what the settings
+// page shows and what run selection needs. cooldown_until and last_error_* are written by the
+// runner's failover reports, paused_until by an admin.
+export const organizationModelAccounts = sqliteTable(
+	"organization_model_accounts",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => createUuidV7()),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		provider: text("provider").notNull(),
+		label: text("label").notNull(),
+		credentialId: text("credential_id").references(() => testCredentials.id, {
+			onDelete: "set null",
+		}),
+		keyLast4: text("key_last4"),
+		// OPENAI_COMPATIBLE_BASE_URL for `openai-compatible` accounts. Not a secret.
+		baseUrl: text("base_url"),
+		priority: integer("priority").notNull().default(0),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		pausedUntil: integer("paused_until"),
+		dailyBudgetUsd: real("daily_budget_usd"),
+		monthlyBudgetUsd: real("monthly_budget_usd"),
+		overBudget: text("over_budget", { enum: ["finish", "stop"] })
+			.notNull()
+			.default("finish"),
+		cooldownUntil: integer("cooldown_until"),
+		lastErrorCode: text("last_error_code"),
+		lastErrorMessage: text("last_error_message"),
+		lastErrorAt: integer("last_error_at"),
+		lastUsedAt: integer("last_used_at"),
+		createdBy: text("created_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		updatedBy: text("updated_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		...timestamps,
+	},
+	(table) => [
+		index("organization_model_accounts_org_provider_idx").on(
+			table.orgId,
+			table.provider,
+			table.priority,
+		),
+		check(
+			"organization_model_accounts_over_budget_check",
+			sql`${table.overBudget} in ('finish', 'stop')`,
+		),
+	],
+);
+
 // Phase 2 (design.md §2 "Agent notes"); schema now so the config response can carry it.
 export const organizationAgentNotes = sqliteTable("organization_agent_notes", {
 	orgId: text("org_id")

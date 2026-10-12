@@ -15,7 +15,7 @@ import { evidenceArtifacts } from "./evidence-artifacts";
 import { evidences } from "./evidences";
 import { organizations } from "./organizations";
 import { testCases, testSuites } from "./test-cases";
-import { testEnvironments } from "./test-config";
+import { organizationModelAccounts, testEnvironments } from "./test-config";
 import { users } from "./users";
 
 // Runs (test sessions), their steps, batches, subscribers, runner pools and workers, and the
@@ -397,5 +397,45 @@ export const testModelPrices = sqliteTable(
 			table.effectiveFrom,
 		),
 		index("test_model_prices_model_idx").on(table.modelId),
+	],
+);
+
+// Model usage of a finished run per model account (design.md §9.3): per-account spend for the
+// account budgets and the cost report. finished_at copies the run's, so budget sums need no join.
+export const testRunModelUsage = sqliteTable(
+	"test_run_model_usage",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => createUuidV7()),
+		runId: text("run_id")
+			.notNull()
+			.references(() => testRuns.id, { onDelete: "cascade" }),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		accountId: text("account_id").references(
+			() => organizationModelAccounts.id,
+			{ onDelete: "set null" },
+		),
+		modelId: text("model_id").notNull(),
+		calls: integer("calls").notNull().default(0),
+		inputTokens: integer("input_tokens").notNull().default(0),
+		cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+		outputTokens: integer("output_tokens").notNull().default(0),
+		reasoningTokens: integer("reasoning_tokens").notNull().default(0),
+		costUsd: real("cost_usd").notNull().default(0),
+		finishedAt: integer("finished_at").notNull(),
+	},
+	(table) => [
+		index("test_run_model_usage_org_finished_idx").on(
+			table.orgId,
+			table.finishedAt,
+		),
+		index("test_run_model_usage_account_finished_idx").on(
+			table.accountId,
+			table.finishedAt,
+		),
+		index("test_run_model_usage_run_idx").on(table.runId),
 	],
 );

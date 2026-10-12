@@ -102,3 +102,77 @@ export function formatShare(share: number): string {
 export function averagePerRun(report: Pick<ModelCostReport, "totalCostUsd" | "runs">): number | null {
   return report.runs > 0 ? report.totalCostUsd / report.runs : null;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Spend per model account (design.md §9.3)
+// ---------------------------------------------------------------------------------------------
+
+// Series colours for accounts, distinguishable in light and dark themes; the last is "other".
+export const accountSeriesColors = ["#3b82f6", "#f59e0b", "#10b981", "#a855f7", "#ef4444", "#14b8a6"] as const;
+export const otherSeriesColor = "#94a3b8";
+const maxSeries = accountSeriesColors.length;
+
+const accountKey = (accountId: string | null) => accountId ?? "deleted";
+
+function accountName(entry: { label: string; provider: string | null; keyLast4: string | null }): string {
+  const key = entry.keyLast4 ? ` ····${entry.keyLast4}` : "";
+  return entry.provider ? `${entry.label} · ${entry.provider}${key}` : entry.label;
+}
+
+export function accountShareRows(report: Pick<ModelCostReport, "byAccount" | "totalCostUsd">): ShareRow[] {
+  return [...report.byAccount]
+    .sort((left, right) => right.costUsd - left.costUsd)
+    .map((entry) => ({
+      key: accountKey(entry.accountId),
+      label: accountName(entry),
+      costUsd: entry.costUsd,
+      share: report.totalCostUsd > 0 ? entry.costUsd / report.totalCostUsd : 0,
+      detail: `${entry.calls.toLocaleString()} call${entry.calls === 1 ? "" : "s"} · ${formatTokens(entry.tokens)} tokens`
+    }));
+}
+
+export type AccountSeries = { key: string; label: string; color: string };
+export type StackedSegment = { key: string; costUsd: number; color: string };
+export type StackedDayBar = DayBar & { segments: StackedSegment[] };
+
+// The accounts the daily chart shows: the costliest six, then "Other accounts", then spend no
+// account was recorded for (runs before model accounts, or runners that do not report them).
+export function accountSeries(report: Pick<ModelCostReport, "byAccount" | "byDay" | "byDayAccount">): AccountSeries[] {
+  const ranked = [...report.byAccount].sort((left, right) => right.costUsd - left.costUsd);
+  const series: AccountSeries[] = ranked.slice(0, maxSeries).map((entry, index) => ({
+    key: accountKey(entry.accountId),
+    label: accountName(entry),
+    color: accountSeriesColors[index] ?? otherSeriesColor
+  }));
+  if (ranked.length > maxSeries) series.push({ key: "other", label: "Other accounts", color: otherSeriesColor });
+  const attributed = report.byDayAccount.reduce((sum, entry) => sum + entry.costUsd, 0);
+  const total = report.byDay.reduce((sum, entry) => sum + entry.costUsd, 0);
+  if (total - attributed > 0.000001) series.push({ key: "unattributed", label: "No account recorded", color: "var(--muted-foreground)" });
+  return series;
+}
+
+// Daily bars split by account; each bar's segments add up to that day's spend.
+export function stackedDailyBars(report: Pick<ModelCostReport, "from" | "to" | "byDay" | "byAccount" | "byDayAccount">): StackedDayBar[] {
+  const series = accountSeries(report);
+  const shown = new Set(series.map((entry) => entry.key));
+  const color = new Map(series.map((entry) => [entry.key, entry.color]));
+  const perDay = new Map<string, Map<string, number>>();
+  for (const entry of report.byDayAccount) {
+    const day = entry.day.slice(0, 10);
+    const key = shown.has(accountKey(entry.accountId)) ? accountKey(entry.accountId) : "other";
+    const segments = perDay.get(day) ?? new Map<string, number>();
+    segments.set(key, (segments.get(key) ?? 0) + entry.costUsd);
+    perDay.set(day, segments);
+  }
+  return dailyBars(report).map((bar) => {
+    const segments = perDay.get(bar.day) ?? new Map<string, number>();
+    const attributed = [...segments.values()].reduce((sum, value) => sum + value, 0);
+    if (bar.costUsd - attributed > 0.000001) segments.set("unattributed", bar.costUsd - attributed);
+    return {
+      ...bar,
+      segments: series
+        .filter((entry) => (segments.get(entry.key) ?? 0) > 0)
+        .map((entry) => ({ key: entry.key, costUsd: segments.get(entry.key) ?? 0, color: color.get(entry.key) ?? otherSeriesColor }))
+    };
+  });
+}

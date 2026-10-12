@@ -1,4 +1,4 @@
-import { modelProviderEnvNames, modelProviderUrlEnvNames, resolveCredentialAlias, resolveLoginField, type CacheMode } from "@jittle-lamp/shared";
+import { modelProviderEnvNames, modelProviderUrlEnvNames, resolveCredentialAlias, resolveLoginField, type CacheMode, type RunModelAccount } from "@jittle-lamp/shared";
 
 import type { EnvFile } from "./env-files";
 
@@ -29,7 +29,9 @@ export type OrgRunConfig = {
     fields: Record<string, string>;
     secretFields: Record<string, string>;
   }>;
-  model?: { act: string | null; judge: string | null; apiKeys: Record<string, string> } | null;
+  // `accounts`: the organisation's model accounts in priority order (design.md §9.3); absent from
+  // backends older than model accounts.
+  model?: { act: string | null; judge: string | null; apiKeys: Record<string, string>; accounts?: RunModelAccount[] } | null;
 };
 
 export type ResolvedRunConfig = {
@@ -44,6 +46,7 @@ export type ResolvedRunConfig = {
   actModel: ResolvedValue | null;
   judgeModel: ResolvedValue | null;
   providerKeys: Map<string, ResolvedValue>;
+  modelAccounts: RunModelAccount[];
   cacheMode: CacheMode;
   cacheDir: string | null;
   apiToken: ResolvedValue | null;
@@ -236,6 +239,7 @@ export function resolveRunConfig(input: {
           : { value: defaultJudgeModel, source: "env" }
     ),
     providerKeys,
+    modelAccounts: org?.model?.accounts ?? [],
     cacheMode: cacheModeValue as CacheMode,
     cacheDir: lookup(layers, "JL_CACHE_DIR")?.value ?? null,
     apiToken: resolved("JL_API_TOKEN", null, true),
@@ -258,6 +262,7 @@ export function collectSecretValues(config: ResolvedRunConfig): string[] {
   for (const value of config.vars.values()) if (value.secret) values.add(value.value);
   for (const fields of config.credentials.values()) for (const value of fields.values()) if (value.secret) values.add(value.value);
   for (const value of config.providerKeys.values()) if (value.secret) values.add(value.value);
+  for (const account of config.modelAccounts) if (account.apiKey) values.add(account.apiKey);
   if (config.apiToken) values.add(config.apiToken.value);
   return [...values].filter((value) => value.length >= 3).sort((a, b) => b.length - a.length);
 }

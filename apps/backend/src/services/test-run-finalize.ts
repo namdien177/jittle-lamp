@@ -17,6 +17,7 @@ import {
 	testStepScripts,
 } from "../db/schema";
 import { HttpError } from "../http/test-http";
+import { recordRunModelAccounts } from "./model-accounts";
 import { emitRunOutcome } from "./notifications";
 import { parseJsonColumn } from "./test-cases";
 import { releaseWorkerRun } from "./test-run-queue";
@@ -238,6 +239,12 @@ export const finalizeRun = async (
 		request.report,
 	);
 	await upsertRunSteps(db, run.id, report.steps, now);
+	await recordRunModelAccounts(db, {
+		orgId: run.orgId,
+		runId: run.id,
+		report: report.modelAccounts,
+		finishedAt: now,
+	});
 	const cancelled = report.status === "cancelled";
 	const [updated] = await db
 		.update(testRuns)

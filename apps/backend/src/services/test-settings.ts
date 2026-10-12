@@ -11,6 +11,7 @@ import {
 	macroParamSchema,
 	modelIdProblem,
 	parseTestCaseTranscript,
+	type RunModelAccount,
 	resolveCredentialAlias,
 	resolveLoginField,
 	modelProviderOf as sharedModelProviderOf,
@@ -31,23 +32,30 @@ import { z } from "zod/v4";
 
 import {
 	organizationAgentNotes,
+	organizationModelAccounts,
 	organizationModelSettings,
 	testCases,
 	testCredentials,
 	testEnvironments,
 	testMacros,
 	testModelPrices,
+	testRunModelUsage,
 	testRunSettings,
 	testRunSteps,
 	testRuns,
 } from "../db/schema";
 import { conflict, HttpError, notFound } from "../http/test-http";
 import {
-	assertOutboundUrl,
-	defaultOutboundPolicy,
-	OutboundBlockedError,
-	type OutboundPolicy,
-} from "./outbound-http";
+	assertModelBaseUrl,
+	createModelAccount,
+	deleteModelAccount,
+	listModelAccounts,
+	MODEL_ACCOUNT_PROFILE_PREFIX,
+	providersForModels,
+	resolveRunAccounts,
+	updateModelAccount,
+} from "./model-accounts";
+import { defaultOutboundPolicy, type OutboundPolicy } from "./outbound-http";
 import { parseJsonColumn, referencedCredentialProfiles } from "./test-cases";
 import type { TestSecrets } from "./test-config";
 import {
@@ -259,7 +267,7 @@ export const listCredentials = async (
 	return rows
 		.filter(
 			(row) =>
-				options.includeInternal || !internalCredentialProfiles.has(row.profile),
+				options.includeInternal || !isInternalCredentialProfile(row.profile),
 		)
 		.map(toCredential);
 };
@@ -641,14 +649,17 @@ export const saveRunSettings = async (
 
 export const DEFAULT_ACT_MODEL = "gateway/alibaba/qwen3.7-flash";
 export const DEFAULT_JUDGE_MODEL = DEFAULT_ACT_MODEL;
-// BYOK keys live in `model_key` credentials with these profiles (design.md §9.3): one for the act
-// model's provider and, when the judge uses another provider, one for the judge's.
+// Profiles of the single act and judge keys saved before model accounts (design.md §9.3). They
+// are moved into accounts on first read; see migrateLegacyModelKeys.
 export const MODEL_KEY_PROFILE = "JL_MODEL_KEY";
 export const JUDGE_MODEL_KEY_PROFILE = "JL_JUDGE_MODEL_KEY";
 const internalCredentialProfiles = new Set([
 	MODEL_KEY_PROFILE,
 	JUDGE_MODEL_KEY_PROFILE,
 ]);
+const isInternalCredentialProfile = (profile: string) =>
+	internalCredentialProfiles.has(profile) ||
+	profile.startsWith(MODEL_ACCOUNT_PROFILE_PREFIX);
 
 export const modelProviderOf = sharedModelProviderOf;
 
@@ -656,160 +667,133 @@ export const modelProviderOf = sharedModelProviderOf;
 export const providerKeyName = (modelId: string): string | null =>
 	findModelProvider(modelId)?.keyEnv ?? null;
 
-type ModelSettingsState = ModelSettings & {
-	keyCredentialId: string | null;
-	judgeKeyCredentialId: string | null;
-};
+type ModelSettingsState = ModelSettings;
 
-// Which providers a pair of models needs keys and a base URL for, and what is still missing.
-const modelRequirements = (input: {
-	actModel: string;
-	judgeModel: string;
-	keyConfigured: boolean;
-	judgeKeyConfigured: boolean;
-	baseUrl: string | null;
-}) => {
-	const act = findModelProvider(input.actModel);
-	const judge = findModelProvider(input.judgeModel);
-	const judgeKeyRequired = Boolean(
-		judge?.keyEnv && judge.prefix !== act?.prefix,
-	);
-	const missing: ModelSettings["missing"] = [];
-	if (act?.keyRequired && !input.keyConfigured) missing.push("key");
-	if (judgeKeyRequired && judge?.keyRequired && !input.judgeKeyConfigured) {
-		missing.push("judgeKey");
-	}
-	if ((act?.baseUrlEnv || judge?.baseUrlEnv) && !input.baseUrl) {
-		missing.push("baseUrl");
-	}
-	return { judgeKeyRequired, missing };
-};
-
+// The settings summary: the act and judge models, and whether their providers have accounts.
+// keyLast4 / judgeKeyLast4 / baseUrl describe each provider's first account.
 export const getModelSettings = async (
 	db: BackendDb,
 	orgId: string,
+	now = Date.now(),
 ): Promise<ModelSettingsState> => {
 	const row = await db.query.organizationModelSettings.findFirst({
 		where: eq(organizationModelSettings.orgId, orgId),
 	});
+	const accounts = await listModelAccounts(db, orgId, now);
 	const actModel = row?.actModel ?? DEFAULT_ACT_MODEL;
 	const judgeModel = row?.judgeModel ?? DEFAULT_JUDGE_MODEL;
-	const keyConfigured = Boolean(row?.keyCredentialId);
-	const judgeKeyConfigured = Boolean(row?.judgeKeyCredentialId);
-	const baseUrl = row?.baseUrl ?? null;
+	const act = findModelProvider(actModel);
+	const judge = findModelProvider(judgeModel);
+	const keyed = (prefix: string | undefined) =>
+		accounts.filter(
+			(account) =>
+				account.provider === prefix && account.enabled && account.keyConfigured,
+		);
+	const actKeys = keyed(act?.prefix);
+	const judgeKeyRequired = Boolean(
+		judge?.keyEnv && judge.prefix !== act?.prefix,
+	);
+	// The judge's own key only counts while the judge uses another provider than the act model.
+	const judgeKeys = judgeKeyRequired ? keyed(judge?.prefix) : [];
+	// Shown while a model is OpenAI-compatible, like the single base URL before accounts.
+	const needsBaseUrl = Boolean(act?.baseUrlEnv || judge?.baseUrlEnv);
+	const baseUrl = needsBaseUrl
+		? (accounts.find(
+				(account) =>
+					account.provider === "openai-compatible" &&
+					account.enabled &&
+					account.baseUrl,
+			)?.baseUrl ?? null)
+		: null;
+	const missing: ModelSettings["missing"] = [];
+	if (act?.keyRequired && actKeys.length === 0) missing.push("key");
+	if (judgeKeyRequired && judge?.keyRequired && judgeKeys.length === 0) {
+		missing.push("judgeKey");
+	}
+	if (needsBaseUrl && !baseUrl) missing.push("baseUrl");
 	return {
 		actModel,
 		judgeModel,
 		provider: row?.provider ?? modelProviderOf(actModel),
 		judgeProvider: modelProviderOf(judgeModel),
-		keyConfigured,
-		keyLast4: row?.keyCredentialId ? (row.keyLast4 ?? null) : null,
-		judgeKeyConfigured,
-		judgeKeyLast4: row?.judgeKeyCredentialId
-			? (row.judgeKeyLast4 ?? null)
-			: null,
+		keyConfigured: actKeys.length > 0,
+		keyLast4: actKeys[0]?.keyLast4 ?? null,
+		judgeKeyRequired,
+		judgeKeyConfigured: judgeKeys.length > 0,
+		judgeKeyLast4: judgeKeys[0]?.keyLast4 ?? null,
 		baseUrl,
-		...modelRequirements({
-			actModel,
-			judgeModel,
-			keyConfigured,
-			judgeKeyConfigured,
-			baseUrl,
-		}),
-		keyCredentialId: row?.keyCredentialId ?? null,
-		judgeKeyCredentialId: row?.judgeKeyCredentialId ?? null,
+		missing,
 	};
 };
 
 const unprocessable = (code: string, message: string) =>
 	new HttpError(422, code, message);
 
-// Rejects what a run could never use: unknown provider prefixes, and an openai-compatible model
-// without an endpoint. Missing keys are allowed and reported in `missing` instead.
-const assertModelSettings = async (
-	request: UpdateModelSettingsRequest,
-	current: ModelSettingsState,
-	outbound: OutboundPolicy,
-): Promise<string | null> => {
-	for (const modelId of [request.actModel, request.judgeModel]) {
-		const problem = modelIdProblem(modelId);
-		if (problem) throw unprocessable("MODEL_PROVIDER_UNSUPPORTED", problem);
-	}
-	const baseUrl =
-		request.baseUrl === undefined ? current.baseUrl : request.baseUrl;
-	const needsBaseUrl = [request.actModel, request.judgeModel].some((id) =>
-		Boolean(findModelProvider(id)?.baseUrlEnv),
-	);
-	if (needsBaseUrl && !baseUrl) {
-		throw unprocessable(
-			"MODEL_BASE_URL_REQUIRED",
-			"openai-compatible/ models need the base URL of the endpoint, e.g. https://api.groq.com/openai/v1.",
-		);
-	}
-	if (baseUrl && request.baseUrl !== undefined) {
-		// The backend calls this endpoint itself for Jira import generation, so it gets the same
-		// SSRF check as webhook callbacks (JL_OUTBOUND_ALLOW_HOSTS admits an internal server).
-		try {
-			await assertOutboundUrl(outbound, baseUrl);
-		} catch (error) {
-			if (!(error instanceof OutboundBlockedError)) throw error;
-			throw unprocessable(
-				"MODEL_BASE_URL_BLOCKED",
-				`The base URL is not allowed: ${error.message}.`,
-			);
-		}
-	}
-	return baseUrl;
-};
+// The first account of a provider, for the single-key fields of PUT /test-model-settings.
+const firstAccount = async (db: BackendDb, orgId: string, provider: string) =>
+	(await listModelAccounts(db, orgId)).find(
+		(account) => account.provider === provider,
+	) ?? null;
 
-const removeModelKey = async (
-	db: BackendDb,
-	credentialId: string,
-	userId: string,
-) => {
-	await db
-		.update(testCredentials)
-		.set({ deletedAt: Date.now(), deletedBy: userId })
-		.where(eq(testCredentials.id, credentialId));
-};
-
-// Applies one key field of the request: a string replaces the key, null removes it, and an omitted
-// key is kept only while the provider it was saved for stays the same.
-const applyModelKey = async (
+// The single-key fields of PUT /test-model-settings, kept for older clients: a string sets the key
+// of the provider's first account (creating a "Default" account), null removes that account.
+const applySingleKey = async (
 	db: BackendDb,
 	secrets: TestSecrets,
 	input: {
 		orgId: string;
 		userId: string;
-		profile: string;
+		provider: string;
 		value: string | null | undefined;
-		credentialId: string | null;
-		last4: string | null;
-		keep: boolean;
+		baseUrl: string | null;
+		outbound: OutboundPolicy;
 	},
-): Promise<{ credentialId: string | null; last4: string | null }> => {
-	if (typeof input.value === "string") {
-		const credential = await saveCredential(db, secrets, {
+): Promise<boolean> => {
+	if (input.value === undefined) return false;
+	const first = await firstAccount(db, input.orgId, input.provider);
+	if (input.value === null) {
+		if (!first) return false;
+		if (findModelProvider(`${input.provider}/x`)?.keyRequired) {
+			await deleteModelAccount(db, {
+				orgId: input.orgId,
+				userId: input.userId,
+				id: first.id,
+			});
+		} else {
+			await updateModelAccount(db, secrets, {
+				orgId: input.orgId,
+				userId: input.userId,
+				id: first.id,
+				request: { apiKey: null },
+				outbound: input.outbound,
+			});
+		}
+		return true;
+	}
+	if (first) {
+		await updateModelAccount(db, secrets, {
 			orgId: input.orgId,
 			userId: input.userId,
-			...(input.credentialId ? { id: input.credentialId } : {}),
-			request: {
-				profile: input.profile,
-				kind: "model_key",
-				environmentId: null,
-				fields: {},
-				secretFields: { api_key: input.value },
-			},
-			replaceSecrets: true,
-			reason: "model_key.update",
+			id: first.id,
+			request: { apiKey: input.value },
+			outbound: input.outbound,
 		});
-		return { credentialId: credential.id, last4: input.value.slice(-4) };
+	} else {
+		await createModelAccount(db, secrets, {
+			orgId: input.orgId,
+			userId: input.userId,
+			outbound: input.outbound,
+			request: {
+				provider: input.provider,
+				label: "Default",
+				apiKey: input.value,
+				baseUrl: input.baseUrl,
+				enabled: true,
+				overBudget: "finish",
+			},
+		});
 	}
-	if (input.credentialId && (input.value === null || !input.keep)) {
-		await removeModelKey(db, input.credentialId, input.userId);
-		return { credentialId: null, last4: null };
-	}
-	return { credentialId: input.credentialId, last4: input.last4 };
+	return true;
 };
 
 export const saveModelSettings = async (
@@ -823,51 +807,81 @@ export const saveModelSettings = async (
 	},
 ): Promise<{ keyChanged: boolean; judgeKeyChanged: boolean }> => {
 	const { request } = input;
-	const current = await getModelSettings(db, input.orgId);
-	const baseUrl = await assertModelSettings(
-		request,
-		current,
-		input.outbound ?? defaultOutboundPolicy,
+	const outbound = input.outbound ?? defaultOutboundPolicy;
+	for (const modelId of [request.actModel, request.judgeModel]) {
+		const problem = modelIdProblem(modelId);
+		if (problem) throw unprocessable("MODEL_PROVIDER_UNSUPPORTED", problem);
+	}
+	if (request.baseUrl) await assertModelBaseUrl(request.baseUrl, outbound);
+	const compatible = await firstAccount(db, input.orgId, "openai-compatible");
+	const needsBaseUrl = [request.actModel, request.judgeModel].some((id) =>
+		Boolean(findModelProvider(id)?.baseUrlEnv),
 	);
+	if (needsBaseUrl && !compatible?.baseUrl && !request.baseUrl) {
+		throw unprocessable(
+			"MODEL_BASE_URL_REQUIRED",
+			"openai-compatible/ models need the base URL of the endpoint, e.g. https://api.groq.com/openai/v1. Add an OpenAI-compatible account first.",
+		);
+	}
+	const baseUrl = request.baseUrl ?? compatible?.baseUrl ?? null;
+	if (request.baseUrl && needsBaseUrl) {
+		if (compatible) {
+			await updateModelAccount(db, secrets, {
+				orgId: input.orgId,
+				userId: input.userId,
+				id: compatible.id,
+				request: { baseUrl: request.baseUrl },
+				outbound,
+			});
+		} else if (
+			!(
+				request.apiKey &&
+				modelProviderOf(request.actModel) === "openai-compatible"
+			)
+		) {
+			await createModelAccount(db, secrets, {
+				orgId: input.orgId,
+				userId: input.userId,
+				outbound,
+				request: {
+					provider: "openai-compatible",
+					label: "Default",
+					baseUrl: request.baseUrl,
+					enabled: true,
+					overBudget: "finish",
+				},
+			});
+		}
+	}
 	const actProvider = modelProviderOf(request.actModel);
 	const judgeProvider = modelProviderOf(request.judgeModel);
 	const judgeNeedsOwnKey =
 		judgeProvider !== actProvider &&
 		Boolean(findModelProvider(request.judgeModel)?.keyEnv);
-	const key = await applyModelKey(db, secrets, {
-		orgId: input.orgId,
-		userId: input.userId,
-		profile: MODEL_KEY_PROFILE,
-		value: request.apiKey,
-		credentialId: current.keyCredentialId,
-		last4: current.keyLast4,
-		// A stored key belongs to the provider of the act model it was saved with.
-		keep: modelProviderOf(current.actModel) === actProvider,
-	});
-	const judgeKey = await applyModelKey(db, secrets, {
-		orgId: input.orgId,
-		userId: input.userId,
-		profile: JUDGE_MODEL_KEY_PROFILE,
-		// Without a provider of its own the judge uses the act key; a judge key is then removed.
-		value: judgeNeedsOwnKey ? request.judgeApiKey : null,
-		credentialId: current.judgeKeyCredentialId,
-		last4: current.judgeKeyLast4,
-		keep: modelProviderOf(current.judgeModel) === judgeProvider,
-	});
+	const keyChanged = findModelProvider(request.actModel)?.keyEnv
+		? await applySingleKey(db, secrets, {
+				orgId: input.orgId,
+				userId: input.userId,
+				provider: actProvider,
+				value: request.apiKey,
+				baseUrl,
+				outbound,
+			})
+		: false;
+	const judgeKeyChanged = judgeNeedsOwnKey
+		? await applySingleKey(db, secrets, {
+				orgId: input.orgId,
+				userId: input.userId,
+				provider: judgeProvider,
+				value: request.judgeApiKey,
+				baseUrl,
+				outbound,
+			})
+		: false;
 	const values = {
 		actModel: request.actModel,
 		judgeModel: request.judgeModel,
 		provider: actProvider,
-		keyCredentialId: key.credentialId,
-		keyLast4: key.last4,
-		judgeKeyCredentialId: judgeKey.credentialId,
-		judgeKeyLast4: judgeKey.last4,
-		// Kept only while a model needs it.
-		baseUrl: [request.actModel, request.judgeModel].some((id) =>
-			Boolean(findModelProvider(id)?.baseUrlEnv),
-		)
-			? baseUrl
-			: null,
 		updatedBy: input.userId,
 		updatedAt: Date.now(),
 	};
@@ -878,52 +892,14 @@ export const saveModelSettings = async (
 			target: organizationModelSettings.orgId,
 			set: values,
 		});
-	return {
-		keyChanged:
-			key.credentialId !== current.keyCredentialId ||
-			request.apiKey !== undefined,
-		judgeKeyChanged:
-			judgeKey.credentialId !== current.judgeKeyCredentialId ||
-			request.judgeApiKey !== undefined,
-	};
+	return { keyChanged, judgeKeyChanged };
 };
 
-const decryptModelKey = async (
-	db: BackendDb,
-	secrets: TestSecrets,
-	credentialId: string | null,
-	input: {
-		orgId: string;
-		actorUserId: string | null;
-		runId?: string | null;
-		reason: string;
-	},
-): Promise<string | null> => {
-	if (!credentialId) return null;
-	const credential = await db.query.testCredentials.findFirst({
-		where: and(
-			eq(testCredentials.id, credentialId),
-			isNull(testCredentials.deletedAt),
-		),
-	});
-	if (!credential?.secretFieldsEnc) return null;
-	const value = await secrets.decrypt(
-		input.orgId,
-		credentialSubject(credential),
-		credential.secretFieldsEnc,
-		{
-			actorUserId: input.actorUserId,
-			runId: input.runId ?? null,
-			reason: input.reason,
-		},
-	);
-	return value.api_key || null;
-};
-
-// The organisation's models as runner environment variables: the act provider's key under its
-// name ({ OPENROUTER_API_KEY }), the judge provider's key under its own, and the
-// OpenAI-compatible base URL. A key is only ever filled in for the provider it was saved for, so a
-// missing judge key blocks the run with MODEL_KEY_MISSING instead of sending the act key elsewhere.
+// The organisation's models for a runner: every usable account of the act and judge providers
+// in priority order, plus `apiKeys` (each provider's first account under its environment name,
+// { OPENROUTER_API_KEY }) for runners older than model accounts. A key is only ever filled in for
+// the provider of its account, so a missing judge key blocks the run with MODEL_KEY_MISSING
+// instead of sending the act key elsewhere.
 export const resolveModelKeys = async (
 	db: BackendDb,
 	secrets: TestSecrets,
@@ -938,29 +914,26 @@ export const resolveModelKeys = async (
 	judge: string;
 	provider: string;
 	apiKeys: Record<string, string>;
+	accounts: RunModelAccount[];
 }> => {
 	const settings = await getModelSettings(db, input.orgId);
+	const accounts = await resolveRunAccounts(db, secrets, {
+		...input,
+		modelIds: [settings.actModel, settings.judgeModel],
+	});
 	const apiKeys: Record<string, string> = {};
-	const act = findModelProvider(settings.actModel);
-	const judge = findModelProvider(settings.judgeModel);
-	const actKey = act?.keyEnv
-		? await decryptModelKey(db, secrets, settings.keyCredentialId, input)
-		: null;
-	if (act?.keyEnv && actKey) apiKeys[act.keyEnv] = actKey;
-	if (judge?.keyEnv && judge.prefix === act?.prefix && actKey) {
-		apiKeys[judge.keyEnv] = actKey;
-	} else if (judge?.keyEnv) {
-		const judgeKey = await decryptModelKey(
-			db,
-			secrets,
-			settings.judgeKeyCredentialId,
-			input,
+	for (const provider of providersForModels([
+		settings.actModel,
+		settings.judgeModel,
+	])) {
+		const first = accounts.find(
+			(account) => account.provider === provider.prefix,
 		);
-		if (judgeKey) apiKeys[judge.keyEnv] = judgeKey;
-	}
-	for (const provider of [act, judge]) {
-		if (provider?.baseUrlEnv && settings.baseUrl) {
-			apiKeys[provider.baseUrlEnv] = settings.baseUrl;
+		if (!first) continue;
+		if (provider.keyEnv && first.apiKey)
+			apiKeys[provider.keyEnv] = first.apiKey;
+		if (provider.baseUrlEnv && first.baseUrl) {
+			apiKeys[provider.baseUrlEnv] = first.baseUrl;
 		}
 	}
 	return {
@@ -968,6 +941,7 @@ export const resolveModelKeys = async (
 		judge: settings.judgeModel,
 		provider: settings.provider,
 		apiKeys,
+		accounts,
 	};
 };
 
@@ -1198,7 +1172,12 @@ export const resolveRunConfig = async (
 			dataLocale: environment?.dataLocale ?? null,
 		},
 		credentials,
-		model: { act: model.act, judge: model.judge, apiKeys: model.apiKeys },
+		model: {
+			act: model.act,
+			judge: model.judge,
+			apiKeys: model.apiKeys,
+			accounts: model.accounts,
+		},
 		agentNotes: notes?.notes ? notes.notes : null,
 		prices: priceTable.prices,
 		priceTableVersion: priceTable.version,
@@ -1344,6 +1323,38 @@ export const buildCostReport = async (
 		.innerJoin(testRuns, eq(testRunSteps.runId, testRuns.id))
 		.where(and(where, sql`${testRunSteps.modelId} is not null`))
 		.groupBy(testRunSteps.modelId);
+	const accountWhere = and(
+		eq(testRunModelUsage.orgId, orgId),
+		gte(testRunModelUsage.finishedAt, range.from),
+		lte(testRunModelUsage.finishedAt, range.to),
+	);
+	const byAccount = await db
+		.select({
+			accountId: testRunModelUsage.accountId,
+			label: organizationModelAccounts.label,
+			provider: organizationModelAccounts.provider,
+			keyLast4: organizationModelAccounts.keyLast4,
+			costUsd: sql<number>`coalesce(sum(${testRunModelUsage.costUsd}), 0)`,
+			calls: sql<number>`coalesce(sum(${testRunModelUsage.calls}), 0)`,
+			tokens: sql<number>`coalesce(sum(${testRunModelUsage.inputTokens} + ${testRunModelUsage.cachedInputTokens} + ${testRunModelUsage.outputTokens} + ${testRunModelUsage.reasoningTokens}), 0)`,
+		})
+		.from(testRunModelUsage)
+		.leftJoin(
+			organizationModelAccounts,
+			eq(testRunModelUsage.accountId, organizationModelAccounts.id),
+		)
+		.where(accountWhere)
+		.groupBy(testRunModelUsage.accountId);
+	const byDayAccount = await db
+		.select({
+			day: sql<string>`strftime('%Y-%m-%d', ${testRunModelUsage.finishedAt} / 1000, 'unixepoch')`,
+			accountId: testRunModelUsage.accountId,
+			costUsd: sql<number>`coalesce(sum(${testRunModelUsage.costUsd}), 0)`,
+		})
+		.from(testRunModelUsage)
+		.where(accountWhere)
+		.groupBy(sql`1`, testRunModelUsage.accountId)
+		.orderBy(sql`1`);
 	const total = byUser.reduce((sum, row) => sum + Number(row.costUsd), 0);
 	const round = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
 	return {
@@ -1370,6 +1381,24 @@ export const buildCostReport = async (
 		),
 		byDay: byDay.map((row) => ({
 			day: String(row.day),
+			costUsd: round(Number(row.costUsd)),
+		})),
+		byAccount: byAccount
+			.map((row) => ({
+				accountId: row.accountId,
+				label: row.accountId
+					? (row.label ?? "Deleted account")
+					: "Deleted account",
+				provider: row.provider ?? null,
+				keyLast4: row.keyLast4 ?? null,
+				costUsd: round(Number(row.costUsd)),
+				calls: Number(row.calls),
+				tokens: Number(row.tokens),
+			}))
+			.sort((a, b) => b.costUsd - a.costUsd),
+		byDayAccount: byDayAccount.map((row) => ({
+			day: String(row.day),
+			accountId: row.accountId,
 			costUsd: round(Number(row.costUsd)),
 		})),
 	};

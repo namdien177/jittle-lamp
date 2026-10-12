@@ -121,6 +121,7 @@ export {
 export {
 	organizationAgentNotes,
 	organizationDataKeys,
+	organizationModelAccounts,
 	organizationModelSettings,
 	organizationTestCounters,
 	organizationTestTags,
@@ -150,6 +151,7 @@ export {
 	runnerWorkers,
 	testModelPrices,
 	testRunBatches,
+	testRunModelUsage,
 	testRunSteps,
 	testRunSubscribers,
 	testRuns,

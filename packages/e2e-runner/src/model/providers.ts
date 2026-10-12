@@ -1,6 +1,7 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import { modelProviderOf, modelProviders, supportedModelPrefixes } from "@jittle-lamp/shared";
+import { findModelProvider, modelProviderOf, modelProviders, supportedModelPrefixes, type ModelPrice, type RunModelAccount } from "@jittle-lamp/shared";
 
+import { failoverModel, type AccountLedger, type FailoverAccount, type ModelAccountLogEntry } from "./failover";
 import { MockReplayModel, recordingModel } from "./mock";
 import { promptedToolCalling } from "./prompted-tools";
 
@@ -45,6 +46,17 @@ export type ModelResolveOptions = {
   fetch?: typeof fetch;
   // Allow the development-only claude-code provider (never on the cloud pool).
   allowClaudeCode?: boolean;
+  // The organisation's model accounts in priority order (design.md §9.3). When the model's
+  // provider has any, they replace `keys` for it and calls fail over between them.
+  accounts?: readonly RunModelAccount[];
+  // Prices calls for the accounts' budgets.
+  prices?: readonly ModelPrice[];
+  // Per-call usage and account failures, for the run report.
+  onAccountLog?: (entry: ModelAccountLogEntry) => void;
+  // Shared by the act and judge models of one run, so both count against an account's budget.
+  accountLedger?: AccountLedger;
+  // Internal: the OpenRouter model list was already checked for this id.
+  openRouterChecked?: boolean;
 };
 
 const requireKey = (keys: ProviderKeys, name: string, id: string): string => {
@@ -63,12 +75,39 @@ const envName = (prefix: string, field: "keyEnv" | "baseUrlEnv"): string => {
 export const providerOf = modelProviderOf;
 
 export async function resolveModel(id: string, options: ModelResolveOptions): Promise<ResolvedModel> {
-  const model = await instantiate(id, options);
+  const pool = (options.accounts ?? []).filter((account) => account.provider === findModelProvider(id)?.prefix);
+  const model = pool.length > 0 ? await instantiateAccounts(id, pool, options) : await instantiate(id, options);
   return {
     id,
     provider: providerOf(id),
     model: options.recordFixture ? recordingModel(model, options.recordFixture) : model
   };
+}
+
+// One provider model per account, each with only that account's key and endpoint, behind the
+// failover wrapper. An account the provider cannot be built for (a bad base URL) is skipped.
+async function instantiateAccounts(id: string, pool: readonly RunModelAccount[], options: ModelResolveOptions): Promise<LanguageModelV4> {
+  const provider = findModelProvider(id);
+  const built: FailoverAccount[] = [];
+  let firstError: unknown;
+  for (const account of pool) {
+    const keys: Record<string, string | undefined> = { ...options.keys };
+    if (provider?.keyEnv) keys[provider.keyEnv] = account.apiKey ?? undefined;
+    if (provider?.baseUrlEnv) keys[provider.baseUrlEnv] = account.baseUrl ?? options.keys[provider.baseUrlEnv];
+    try {
+      built.push({ account, model: await instantiate(id, { ...options, keys, openRouterChecked: built.length > 0 }) });
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (built.length === 0) throw firstError;
+  return failoverModel({
+    modelId: id,
+    accounts: built,
+    ...(options.prices ? { prices: options.prices } : {}),
+    ...(options.onAccountLog ? { log: options.onAccountLog } : {}),
+    ...(options.accountLedger ? { ledger: options.accountLedger } : {})
+  });
 }
 
 async function instantiate(id: string, options: ModelResolveOptions): Promise<LanguageModelV4> {
@@ -101,7 +140,7 @@ async function instantiate(id: string, options: ModelResolveOptions): Promise<La
     }
     case "openrouter": {
       const apiKey = key(prefix);
-      await assertOpenRouterModel(modelId, options.fetch ?? fetch);
+      if (!options.openRouterChecked) await assertOpenRouterModel(modelId, options.fetch ?? fetch);
       const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
       return createOpenRouter({ apiKey, ...custom })(modelId) as unknown as LanguageModelV4;
     }

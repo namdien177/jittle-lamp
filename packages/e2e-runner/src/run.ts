@@ -11,12 +11,14 @@ import {
   type LinkedCase,
   type MacroDefinition,
   type ModelPrice,
-  type TranscriptStep, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport } from "@jittle-lamp/shared";
+  type TranscriptStep, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport, type RunModelAccountsReport } from "@jittle-lamp/shared";
 
 import { loadEnvFiles, type EnvFile } from "./config/env-files";
 import { credentialLoginContext, collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
 import { generateProject, type GeneratedProject } from "./generate/project";
 import { e2ePackageDir, engineVersion, runnerVersion } from "./paths";
+import { readAccountLog } from "./model/account-log";
+import { summarizeAccountLog } from "./model/failover";
 import { ModelResolutionError, resolveModel } from "./model/providers";
 import { buildRunPlan, loadCaseDir, loadMacros, type RunPlan } from "./plan";
 import { createRedactor, redactJson } from "./redact";
@@ -153,6 +155,9 @@ export function buildChildEnv(input: {
     if (loginField) env[`JL_LOGIN_${profile}_IDENTIFIER`] = fields.get(loginField)!.value;
   }
   for (const [name, value] of input.config.providerKeys) env[name] = value.value;
+  // Model accounts (design.md §9.3) travel as one JSON value; the keys in it are redacted like the
+  // provider keys above.
+  if (input.config.modelAccounts.length > 0) env.JL_MODEL_ACCOUNTS = JSON.stringify(input.config.modelAccounts);
   if (input.config.actModel) env.JL_MODEL = input.config.actModel.value;
   if (input.config.judgeModel) env.JL_JUDGE_MODEL = input.config.judgeModel.value;
   if (input.plan.agentInstructions) env.JL_AGENT_INSTRUCTIONS = input.plan.agentInstructions;
@@ -243,9 +248,9 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     project?: GeneratedProject | null;
     recordingPath?: string | null;
     tracePath?: string | null;
+    modelAccounts?: RunModelAccountsReport | null;
   }): RunTranscriptResult => {
-    const report = redactJson(
-      priceReport(buildRunReport({
+    const built = priceReport(buildRunReport({
         plan,
         runId,
         testCaseId: options.testCaseId ?? null,
@@ -262,9 +267,8 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
         artifacts: input.artifacts ?? [],
         blocked: input.blocked ?? null,
         cancelled: input.cancelled ?? false
-      })),
-      redact
-    );
+      }));
+    const report = redactJson(input.modelAccounts ? { ...built, modelAccounts: input.modelAccounts } : built, redact);
     writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
     mkdirSync(e2eRoot, { recursive: true });
     writeFileSync(join(e2eRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
@@ -292,7 +296,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     const keys = Object.fromEntries([...config.providerKeys].map(([name, value]) => [name, value.value]));
     try {
       for (const id of new Set([model.act, model.judge].filter((value): value is string => value !== null))) {
-        await resolveModel(id, { keys, allowClaudeCode });
+        await resolveModel(id, { keys, allowClaudeCode, accounts: config.modelAccounts });
       }
     } catch (error) {
       if (error instanceof ModelResolutionError) return finish({ blocked: { reason: error.code, message: error.message } });
@@ -325,6 +329,8 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
 
   const stepLogPath = join(runDir, "steps.jsonl");
   const progressPath = join(runDir, "progress.jsonl");
+  const accountLogPath = join(runDir, "model-accounts.jsonl");
+  const usesAccounts = config.modelAccounts.length > 0;
   const childEnv = buildChildEnv({
     config,
     plan,
@@ -335,6 +341,9 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       JL_PROGRESS_LOG: progressPath,
       JL_SCREENSHOT_DIR: screenshotDir,
       JL_CACHE_INDEX: cacheIndexPath,
+      ...(usesAccounts
+        ? { JL_MODEL_ACCOUNT_LOG: accountLogPath, JL_MODEL_PRICES: JSON.stringify(options.prices ?? defaultModelPrices) }
+        : {}),
       ...(options.backend ? { JL_CACHE_API_URL: options.backend.apiUrl, JL_RUN_ID: options.backend.runId, JL_RUN_TOKEN: options.backend.runToken } : {}),
       ...(options.progressScreenshots ? { JL_PROGRESS_SCREENSHOTS: "1" } : {}),
       ...(options.liveDir ? { JL_LIVE_DIR: options.liveDir } : {}),
@@ -351,6 +360,8 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   const timeoutMs = (options.timeoutMs ?? 15 * 60_000) + 120_000;
   let spawnError: Error | null = null;
   let timedOut = false;
+  // Set when every `stop` account ran out of budget mid-run: the run ends with BUDGET_EXCEEDED.
+  let budgetStop: string | null = null;
   const exitCode = await new Promise<number | null>((resolvePromise) => {
     const child = spawn(env.JL_NODE ?? "node", args, { cwd: project.dir, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
     let seen = 0;
@@ -358,6 +369,14 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       const events = readStepLog(stepLogPath);
       for (const event of events.slice(seen)) options.onStepEvent?.(redactJson(event, redact));
       seen = events.length;
+      if (usesAccounts && budgetStop === null) {
+        const stopped = readAccountLog(accountLogPath).find((entry) => entry.type === "stopped");
+        if (stopped?.type === "stopped") {
+          budgetStop = stopped.message;
+          log(`stopping: ${stopped.message}`);
+          child.kill("SIGTERM");
+        }
+      }
     }, 300);
     // Watchdog above e2e's own attempt deadline: a hung engine must not hold a runner slot.
     const watchdog = setTimeout(() => {
@@ -416,13 +435,18 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   }
 
   log(`e2e exited with ${exitCode}`);
+  const modelAccounts = usesAccounts ? summarizeAccountLog(readAccountLog(accountLogPath)) : null;
   if (options.signal?.aborted) {
     // e2e traps SIGTERM and exits 130.
-    return finish({ blocked: { reason: "CANCELLED", message: "Run cancelled." }, cancelled: true, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
+    return finish({ blocked: { reason: "CANCELLED", message: "Run cancelled." }, cancelled: true, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
+  }
+  const stopMessage = budgetStop ?? (modelAccounts?.stopped ? "Every model account that may serve this run has spent its budget." : null);
+  if (stopMessage) {
+    return finish({ blocked: { reason: "BUDGET_EXCEEDED", message: stopMessage }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
   }
   if (spawnError || timedOut) {
     const message = timedOut ? `e2e did not finish within ${timeoutMs} ms` : `could not start e2e: ${(spawnError as Error | null)?.message ?? "unknown error"}`;
-    return finish({ blocked: { reason: "ENGINE_ERROR", message }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
+    return finish({ blocked: { reason: "ENGINE_ERROR", message }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
   }
-  return finish({ e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath });
+  return finish({ e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
 }

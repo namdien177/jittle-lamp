@@ -1,14 +1,18 @@
 import {
 	agentNotesSchema,
+	createModelAccountRequestSchema,
+	modelAccountSchema,
 	modelCostReportSchema,
 	modelPriceRowSchema,
 	modelPriceSchema,
 	modelSettingsSchema,
+	reorderModelAccountsRequestSchema,
 	testCredentialSchema,
 	testEnvironmentSchema,
 	testMacroSchema,
 	testRunSettingsSchema,
 	testTagSchema,
+	updateModelAccountRequestSchema,
 	updateModelSettingsRequestSchema,
 	upsertTestCredentialRequestSchema,
 	upsertTestEnvironmentRequestSchema,
@@ -39,6 +43,13 @@ import {
 	respond,
 } from "../http/test-http";
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
+import {
+	createModelAccount,
+	deleteModelAccount,
+	listModelAccounts,
+	reorderModelAccounts,
+	updateModelAccount,
+} from "../services/model-accounts";
 import {
 	getRequestIpAddress,
 	recordOrganizationActivity,
@@ -669,6 +680,138 @@ export const createTestConfigRoutes = (
 					},
 				});
 				return toModelSettingsResponse(await getModelSettings(db, who.orgId));
+			}),
+		)
+		.get("/test-model-accounts", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireAnyTestPermission(
+					db,
+					who,
+					"test_config.use",
+					"test_config.manage",
+				);
+				return respond(
+					z.array(modelAccountSchema),
+					await listModelAccounts(db, who.orgId),
+				);
+			}),
+		)
+		.post("/test-model-accounts", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const body = parseInput(createModelAccountRequestSchema, ctx.body);
+				const account = await createModelAccount(
+					db,
+					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+					{
+						orgId: who.orgId,
+						userId: who.userId,
+						request: body,
+						...(options.outbound ? { outbound: options.outbound } : {}),
+					},
+				);
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: "test_config.model_account_created",
+					entity: { type: "organization_model_account", id: account.id },
+					message: `Added the ${account.provider} model account ${account.label}`,
+					metadata: {
+						provider: account.provider,
+						keyConfigured: account.keyConfigured,
+					},
+				});
+				await releaseBudgetBlockedRuns(db, { orgId: who.orgId });
+				ctx.set.status = 201;
+				return respond(modelAccountSchema, account);
+			}),
+		)
+		// Before /:id so "order" is not read as an account id.
+		.put("/test-model-accounts/order", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const body = parseInput(reorderModelAccountsRequestSchema, ctx.body);
+				await reorderModelAccounts(db, {
+					orgId: who.orgId,
+					userId: who.userId,
+					provider: body.provider,
+					ids: body.ids,
+				});
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: "test_config.model_accounts_reordered",
+					entity: { type: "organization_model_settings", id: who.orgId },
+					message: `Reordered the ${body.provider} model accounts`,
+					metadata: { provider: body.provider, ids: body.ids },
+				});
+				return respond(
+					z.array(modelAccountSchema),
+					await listModelAccounts(db, who.orgId),
+				);
+			}),
+		)
+		.patch("/test-model-accounts/:id", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const { id } = parseInput(idParams, ctx.params);
+				const body = parseInput(updateModelAccountRequestSchema, ctx.body);
+				const { account, keyChanged } = await updateModelAccount(
+					db,
+					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+					{
+						orgId: who.orgId,
+						userId: who.userId,
+						id,
+						request: body,
+						...(options.outbound ? { outbound: options.outbound } : {}),
+					},
+				);
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: "test_config.model_account_updated",
+					entity: { type: "organization_model_account", id: account.id },
+					message: `Updated the ${account.provider} model account ${account.label}`,
+					metadata: {
+						keyChanged,
+						fields: Object.keys(body).filter((key) => key !== "apiKey"),
+					},
+				});
+				await releaseBudgetBlockedRuns(db, { orgId: who.orgId });
+				return respond(modelAccountSchema, account);
+			}),
+		)
+		.delete("/test-model-accounts/:id", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const { id } = parseInput(idParams, ctx.params);
+				const row = await deleteModelAccount(db, {
+					orgId: who.orgId,
+					userId: who.userId,
+					id,
+				});
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: "test_config.model_account_deleted",
+					entity: { type: "organization_model_account", id: row.id },
+					message: `Deleted the ${row.provider} model account ${row.label}`,
+					metadata: { provider: row.provider },
+				});
+				// Deleting the only over-budget account can leave the runner to report a missing key.
+				await releaseBudgetBlockedRuns(db, { orgId: who.orgId });
+				return { id: row.id, deleted: true };
 			}),
 		)
 		.get("/test-model-costs", (ctx) =>

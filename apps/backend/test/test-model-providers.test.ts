@@ -86,7 +86,7 @@ describe("provider-neutral model settings", () => {
 		});
 		expect(saved.status).toBe(200);
 		const config = await runConfig(fixture, testCase.id);
-		expect(config.model).toEqual({
+		expect(config.model).toMatchObject({
 			act: "gateway/alibaba/qwen3.7-flash",
 			judge: "gateway/alibaba/qwen3.7-flash",
 			apiKeys: { AI_GATEWAY_API_KEY: FAKE_MODEL_KEY },
@@ -164,7 +164,7 @@ describe("provider-neutral model settings", () => {
 		});
 
 		const config = await runConfig(fixture, testCase.id);
-		expect(config.model).toEqual({
+		expect(config.model).toMatchObject({
 			act: "openai-compatible/llama-3.3-70b",
 			judge: "openai-compatible/llama-3.3-70b",
 			apiKeys: {
@@ -173,17 +173,18 @@ describe("provider-neutral model settings", () => {
 			},
 		});
 
-		// Switching away from openai-compatible drops the URL; switching back needs it again.
+		// Switching away from openai-compatible hides the URL.
 		const away = await putModel(fixture, {
 			actModel: "openrouter/openai/gpt-5",
 			judgeModel: "openrouter/openai/gpt-5",
 		});
 		expect(away.body.baseUrl).toBeNull();
+		// The OpenAI-compatible account keeps its URL, so switching back needs none.
 		const back = await putModel(fixture, {
 			actModel: "openrouter/openai/gpt-5",
 			judgeModel: "openai-compatible/llama-3.3-70b",
 		});
-		expect(back.body.error.code).toBe("MODEL_BASE_URL_REQUIRED");
+		expect(back.body.baseUrl).toBe("http://vllm.internal:8000/v1");
 	});
 
 	it("allows a loopback base URL only with JL_OUTBOUND_ALLOW_LOOPBACK", async () => {
@@ -277,7 +278,7 @@ describe("provider-neutral model settings", () => {
 			judgeApiKey: FAKE_JUDGE_KEY,
 		});
 		const config = await runConfig(fixture, testCase.id);
-		expect(config.model).toEqual({
+		expect(config.model).toMatchObject({
 			act: "openrouter/anthropic/claude-sonnet-5-5",
 			judge: "xai/grok-4",
 			apiKeys: {
