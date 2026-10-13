@@ -3,10 +3,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { ChevronsLeft, ChevronsRight, GripVertical, ListTree } from "lucide-react";
 
-import { formatOffset, type NetworkSubtype, type TimelineSection } from "@jittle-lamp/shared";
+import { formatOffset, parseIntegrationLabel, type NetworkSubtype, type TimelineSection } from "@jittle-lamp/shared";
 
 import { NetworkDrawer } from "./drawers";
 import { statusTone } from "./format";
+import { ViewerNotesPane } from "./notes-pane";
 import type { ViewerModalProps, ViewerModalRow, ViewerStepChip } from "./types";
 
 const NETWORK_SUBTYPE_OPTIONS: ReadonlyArray<{ value: NetworkSubtype | "all"; label: string }> = [
@@ -72,7 +73,10 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   const timelineRef = props.timelineRef ?? localRef;
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [activeTab, setActiveTab] = useState<EvidenceTab>(props.activeSection);
-  const [collapsed, setCollapsedState] = useState(() => (props.embedded && typeof window !== "undefined" ? readEmbeddedCollapsed() : false));
+  // In the host's drawer the pane fills it: nothing to collapse or resize.
+  const inDrawer = Boolean(props.paneContainer);
+  const [collapsedState, setCollapsedState] = useState(() => (props.embedded && typeof window !== "undefined" ? readEmbeddedCollapsed() : false));
+  const collapsed = inDrawer ? false : collapsedState;
   const setCollapsed = (next: boolean): void => {
     setCollapsedState(next);
     if (!props.embedded) return;
@@ -152,7 +156,7 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
       data-collapsed={collapsed ? "true" : "false"}
       style={{ "--jl-vm-stream-width": `${streamWidth}px` } as React.CSSProperties}
     >
-      {collapsed ? (
+      {inDrawer ? null : collapsed ? (
         <button
           type="button"
           className="jl-vm-stream-rail"
@@ -208,15 +212,17 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
         </div> : null}
         <div className="jl-vm-tabs-row">
           <div className="jl-vm-tabs">
-            <button
-              type="button"
-              className="jl-vm-icon-btn"
-              aria-label="Collapse Evidence stream"
-              data-tip="Collapse"
-              onClick={() => setCollapsed(true)}
-            >
-              <ChevronsRight aria-hidden size={16} strokeWidth={2} />
-            </button>
+            {inDrawer ? null : (
+              <button
+                type="button"
+                className="jl-vm-icon-btn"
+                aria-label="Collapse Evidence stream"
+                data-tip="Collapse"
+                onClick={() => setCollapsed(true)}
+              >
+                <ChevronsRight aria-hidden size={16} strokeWidth={2} />
+              </button>
+            )}
             {(["actions", "network", "console", "about"] as const).map((section) => (
               <button
                 key={section}
@@ -291,7 +297,14 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
         ) : null}
         <div className="jl-vm-list-wrap">
           {activeTab === "about" ? (
-            <AboutEvidencePanel about={props.aboutEvidence} recordedBy={props.recordedBy ?? null} />
+            inDrawer ? (
+              <div className="jl-vm-about jl-vm-drawer-info">
+                {props.infoPanel ?? <AboutEvidencePanel about={props.aboutEvidence} recordedBy={props.recordedBy ?? null} />}
+                <ViewerNotesPane {...props} compact={false} />
+              </div>
+            ) : (
+              <AboutEvidencePanel about={props.aboutEvidence} recordedBy={props.recordedBy ?? null} />
+            )
           ) : (
             <div
               className="jl-vm-list"
@@ -434,6 +447,44 @@ function EvidenceRow(props: {
       ? `${Math.round(row.durationMs)}ms`
       : "";
   const url = row.url ?? row.label;
+  // A [Query]/[API] call (archive v5): the profile and row count on the row, the statement under
+  // it in monospace, the sample rows behind a disclosure.
+  const integration = row.kind === "integration" ? parseIntegrationLabel(row.label) : null;
+  if (integration) {
+    return (
+      <div className="jl-vm-row-group" data-active={props.active ? "true" : "false"}>
+        <button
+          type="button"
+          className="jl-vm-row jl-vm-row-integration"
+          data-kind={row.section}
+          data-item-id={row.id}
+          data-active={props.active ? "true" : "false"}
+          data-selected={row.selected ? "true" : "false"}
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onItemClick(row, event);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            props.onItemContextMenu(row, event);
+          }}
+        >
+          <span className="jl-vm-row-offset">{offset}</span>
+          <span className="jl-vm-row-dot" data-kind="integration" />
+          <span className="jl-vm-row-main">
+            <span className="jl-vm-row-label">{integration.header}</span>
+            <code className="jl-vm-row-statement">{integration.statement}</code>
+          </span>
+        </button>
+        {integration.sample.length > 0 ? (
+          <details className="jl-vm-row-sample">
+            <summary>{integration.sample.length === 1 ? "1 sample row" : `${integration.sample.length} sample rows`}</summary>
+            <pre className="jl-vm-pre">{JSON.stringify(integration.sample, null, 2)}</pre>
+          </details>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <button

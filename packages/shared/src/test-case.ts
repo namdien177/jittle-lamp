@@ -17,6 +17,8 @@ export const transcriptStepTypeSchema = z.enum([
   "extract",
   "note",
   "use",
+  "query",
+  "api",
   "macro"
 ]);
 
@@ -29,13 +31,26 @@ export const builtinStepTags = {
   screenshot: "Screenshot",
   extract: "Extract",
   note: "Note",
-  use: "Use"
+  use: "Use",
+  query: "Query",
+  api: "API"
 } as const satisfies Record<Exclude<z.infer<typeof transcriptStepTypeSchema>, "macro">, string>;
 
 export const stepArgSchema = z.object({
   name: z.string().min(1).nullable(),
   value: z.string()
 });
+
+// `[Use: KEY, mode=api]`: how a used case runs inside this one. `auto` follows the run's
+// execution mode (roadmap 2026-10-13 §2.5).
+export const useModeSchema = z.enum(["api", "ui", "auto"]);
+
+// `Reuse: never | within 30m`: how long a finished run of this case may stand in for a new one
+// when another case uses it (roadmap §2.6).
+export const reusePolicySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("never") }),
+  z.object({ kind: z.literal("within"), ms: z.number().int().nonnegative() })
+]);
 
 export const transcriptStepSchema = z.object({
   stepId: z.string().min(1),
@@ -53,7 +68,14 @@ export const transcriptStepSchema = z.object({
   variables: z.array(z.string().min(1)),
   credentialRefs: z.array(z.string().min(1)),
   fileRefs: z.array(z.string().min(1)),
-  disabled: z.boolean()
+  disabled: z.boolean(),
+  // [Use: KEY as alias]: the name the used case's outputs are read under ({alias.field}).
+  alias: z.string().min(1).nullable().default(null),
+  // [Use: KEY, mode=api]; null on every other step type.
+  mode: useModeSchema.nullable().default(null),
+  // [Query]/[API] text -> {name}: the variable the first row or the response binds to. Without
+  // a binding the step is a check. Null on every other step type.
+  binding: z.string().min(1).nullable().default(null)
 });
 
 export const transcriptCheckpointSchema = z.object({
@@ -85,7 +107,9 @@ export const transcriptMetadataKeySchema = z.enum([
   "params",
   "retries",
   "externalId",
-  "duplicateOf"
+  "duplicateOf",
+  "outputs",
+  "reuse"
 ]);
 
 export const transcriptMetadataSchema = z.object({
@@ -98,6 +122,9 @@ export const transcriptMetadataSchema = z.object({
   retries: z.number().int().nonnegative().nullable(),
   externalId: z.string().min(1).nullable(),
   duplicateOf: z.string().min(1).nullable(),
+  // `Outputs: applicationId, studentId`: variables this case publishes to a case that uses it.
+  outputs: z.array(z.string().min(1)),
+  reuse: reusePolicySchema,
   // Order the metadata lines were written in, so serialisation reproduces the document.
   order: z.array(transcriptMetadataKeySchema)
 });
@@ -123,6 +150,8 @@ export const parsedTranscriptDocumentSchema = z.object({
 });
 
 export type TranscriptStepType = z.infer<typeof transcriptStepTypeSchema>;
+export type UseMode = z.infer<typeof useModeSchema>;
+export type ReusePolicy = z.infer<typeof reusePolicySchema>;
 export type StepArg = z.infer<typeof stepArgSchema>;
 export type TranscriptStep = z.infer<typeof transcriptStepSchema>;
 export type TranscriptCheckpoint = z.infer<typeof transcriptCheckpointSchema>;
@@ -143,7 +172,9 @@ const metadataLabels: Record<TranscriptMetadataKey, string> = {
   params: "Params",
   retries: "Retries",
   externalId: "External-id",
-  duplicateOf: "Duplicate-of"
+  duplicateOf: "Duplicate-of",
+  outputs: "Outputs",
+  reuse: "Reuse"
 };
 
 const metadataKeyByLabel = new Map<string, TranscriptMetadataKey>([
@@ -157,7 +188,9 @@ const metadataKeyByLabel = new Map<string, TranscriptMetadataKey>([
   ["retries", "retries"],
   ["external-id", "externalId"],
   ["external id", "externalId"],
-  ["duplicate-of", "duplicateOf"]
+  ["duplicate-of", "duplicateOf"],
+  ["outputs", "outputs"],
+  ["reuse", "reuse"]
 ]);
 
 const nullableMetadataKeys = new Set<TranscriptMetadataKey>(["key", "env", "externalId", "duplicateOf"]);
@@ -177,8 +210,42 @@ export function emptyTranscriptMetadata(): TranscriptMetadata {
     retries: null,
     externalId: null,
     duplicateOf: null,
+    outputs: [],
+    reuse: { kind: "never" },
     order: []
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Reuse policy text: `never`, `within 30m`, `within 2h`, `within 1d`
+// ---------------------------------------------------------------------------------------------
+
+const reuseUnitMs: Record<string, number> = {
+  s: 1000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000
+};
+
+const reuseWindowPattern = /^within\s+(\d{1,9})\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)$/i;
+
+export function parseReusePolicy(value: string): ReusePolicy | null {
+  const text = value.trim();
+  if (/^never$/i.test(text)) return { kind: "never" };
+  const match = reuseWindowPattern.exec(text);
+  if (!match) return null;
+  const unit = (match[2] ?? "m").toLowerCase()[0] ?? "m";
+  return { kind: "within", ms: Number.parseInt(match[1] ?? "0", 10) * (reuseUnitMs[unit] ?? 60_000) };
+}
+
+// The largest unit that divides the window exactly, so `within 90m` does not become `1h`.
+export function serializeReusePolicy(policy: ReusePolicy): string {
+  if (policy.kind === "never") return "never";
+  for (const unit of ["d", "h", "m", "s"] as const) {
+    const size = reuseUnitMs[unit] ?? 1;
+    if (policy.ms % size === 0) return `within ${policy.ms / size}${unit}`;
+  }
+  return `within ${Math.round(policy.ms / 1000)}s`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -205,6 +272,8 @@ export function computeInstructionKey(input: {
   macro: string | null;
   args: readonly StepArg[];
   text: string;
+  // [Query]/[API] binding; part of the identity because `-> {student}` and `-> {rows}` differ.
+  binding?: string | null;
 }): string {
   // [Login: PCF] and [Login: profile=PCF] are the same call.
   const args =
@@ -213,9 +282,10 @@ export function computeInstructionKey(input: {
       : input.args;
   const canonicalArgs = args.map((arg) => [arg.name === null ? null : arg.name.toLowerCase(), arg.value.trim()]);
   const macro = input.macro === null ? null : input.macro.toLowerCase();
-  return `sha256:${sha256Hex(
-    JSON.stringify([input.type, macro, canonicalArgs, normalizeStepIdentityText(input.type, input.text)])
-  )}`;
+  const identity: unknown[] = [input.type, macro, canonicalArgs, normalizeStepIdentityText(input.type, input.text)];
+  // Only steps with a binding carry it, so every other step keeps its pre-binding key.
+  if (input.binding !== undefined && input.binding !== null) identity.push(input.binding);
+  return `sha256:${sha256Hex(JSON.stringify(identity))}`;
 }
 
 export function deriveStepId(instructionKey: string, occurrence: number): string {
@@ -270,6 +340,28 @@ export function reconcileStepIds(
 
 const referencePattern = /\{([^{}\s]+)\}/g;
 const variableNamePattern = /^[A-Za-z_][\w.-]*$/;
+// A binding, output or alias is a flat name: `{student.id}` reads field `id` of binding `student`.
+const flatNamePattern = /^[A-Za-z_][\w-]*$/;
+
+// `student` for `{student.id}`; the name itself when it has no dot.
+export function variableRoot(name: string): string {
+  const dot = name.indexOf(".");
+  return dot === -1 ? name : name.slice(0, dot);
+}
+
+export function isFlatVariableName(name: string): boolean {
+  return flatNamePattern.test(name);
+}
+
+// `[Query: DB] a K1 student -> {student}`: the trailing binding, with any spacing around `->`.
+const bindingSuffixPattern = /\s*->\s*\{([^{}\s]+)\}\s*$/;
+
+export function splitStepBinding(text: string): { text: string; binding: string | null } {
+  const match = bindingSuffixPattern.exec(text);
+  // No arrow, or a name a binding cannot have ({a.b}): the text stays whole and lint reports it.
+  if (!match || !flatNamePattern.test(match[1] ?? "")) return { text, binding: null };
+  return { text: text.slice(0, match.index).trim(), binding: match[1] ?? null };
+}
 
 export type StepReferences = {
   variables: string[];
@@ -460,12 +552,15 @@ export function resolveStepType(tag: string | null): { type: TranscriptStepType;
   return { type: "macro", macro: tag };
 }
 
-export function serializeStepLine(step: Pick<TranscriptStep, "tag" | "args" | "text" | "disabled">): string {
+export function serializeStepLine(
+  step: Pick<TranscriptStep, "tag" | "args" | "text" | "disabled"> & { binding?: string | null }
+): string {
   const prefix = step.disabled ? disabledPrefix : "";
   if (step.tag === null) return `${prefix}${step.text}`;
   const args = step.args.length > 0 ? `: ${serializeStepArgs(step.args)}` : "";
+  const binding = step.binding ? ` -> {${step.binding}}` : "";
   const text = step.text.length > 0 ? ` ${step.text}` : "";
-  return `${prefix}[${step.tag}${args}]${text}`;
+  return `${prefix}[${step.tag}${args}]${text}${binding}`;
 }
 
 function buildStep(input: {
@@ -476,37 +571,85 @@ function buildStep(input: {
   disabled: boolean;
 }): Omit<TranscriptStep, "stepId"> {
   const { type, macro } = resolveStepType(input.parts.tag);
-  const references = extractStepReferences([input.parts.text, ...input.parts.args.map((arg) => arg.value)]);
+  const isQuery = type === "query" || type === "api";
+  const { text, binding } = isQuery ? splitStepBinding(input.parts.text) : { text: input.parts.text, binding: null };
+  const references = extractStepReferences([text, ...input.parts.args.map((arg) => arg.value)]);
   const credentialRefs = new Set(references.credentialRefs);
 
   if (type === "login") {
     const profile = loginProfileArg(input.parts.args);
     if (profile !== null && extractStepReferences([profile]).variables.length === 0) credentialRefs.add(profile);
   }
+  // [Query: DB] and [API: SVC] name a credential profile the same way [Login: X] does.
+  if (isQuery) {
+    const profile = queryProfileArg(input.parts.args);
+    if (profile !== null && extractStepReferences([profile]).variables.length === 0) credentialRefs.add(profile);
+  }
 
   return {
-    instructionKey: computeInstructionKey({ type, macro, args: input.parts.args, text: input.parts.text }),
+    instructionKey: computeInstructionKey({ type, macro, args: input.parts.args, text, binding }),
     ordinal: input.ordinal,
     line: input.line,
     type,
     tag: input.parts.tag,
     macro,
     args: input.parts.args,
-    text: input.parts.text,
+    text,
     checkpointId: input.checkpointId,
     variables: references.variables,
     credentialRefs: [...credentialRefs],
     fileRefs: references.fileRefs,
-    disabled: input.disabled
+    disabled: input.disabled,
+    alias: type === "use" ? useAliasArg(input.parts.args) : null,
+    mode: type === "use" ? (useModeArg(input.parts.args).mode ?? "auto") : null,
+    binding
   };
 }
 
-// `[Use: TC-0001]` or `[Use: case=TC-0001, role=HQ_ADMIN]`: the key of the case to run inline.
-export function useCaseKeyArg(args: readonly StepArg[]): string | null {
+// `[Use: TC-0012 as registration]`: the key and the alias its outputs are read under.
+const useKeyAliasPattern = /^(\S+)\s+as\s+([^\s]+)$/i;
+
+function useKeyAndAlias(args: readonly StepArg[]): { key: string; alias: string | null } | null {
   const named = args.find((arg) => arg.name?.toLowerCase() === "case");
-  if (named && named.value.trim().length > 0) return named.value.trim();
+  const raw = named && named.value.trim().length > 0 ? named.value.trim() : (args.find((arg) => arg.name === null)?.value.trim() ?? "");
+  if (raw.length === 0) return null;
+  const match = useKeyAliasPattern.exec(raw);
+  if (!match) return { key: raw, alias: null };
+  return { key: match[1] ?? raw, alias: match[2] ?? null };
+}
+
+// `[Use: TC-0001]`, `[Use: case=TC-0001, role=HQ_ADMIN]` or `[Use: TC-0001 as reg]`: the key of
+// the case to run inline.
+export function useCaseKeyArg(args: readonly StepArg[]): string | null {
+  return useKeyAndAlias(args)?.key ?? null;
+}
+
+// The alias of `[Use: KEY as alias]`; null without one or when the alias is not a flat name.
+export function useAliasArg(args: readonly StepArg[]): string | null {
+  const alias = useKeyAndAlias(args)?.alias ?? null;
+  return alias !== null && flatNamePattern.test(alias) ? alias : null;
+}
+
+// `mode=api|ui|auto` of a [Use] step. `invalid` carries a value outside the enum for lint.
+export function useModeArg(args: readonly StepArg[]): { mode: UseMode | null; invalid: string | null } {
+  const named = args.find((arg) => arg.name?.toLowerCase() === "mode");
+  if (!named) return { mode: null, invalid: null };
+  const parsed = useModeSchema.safeParse(named.value.trim().toLowerCase());
+  return parsed.success ? { mode: parsed.data, invalid: null } : { mode: null, invalid: named.value };
+}
+
+// `[Query: PCF_UAT_DB]`, `[Query: profile=PCF_UAT_DB, name=k1-pending]`, `[API: SV_BACKEND]`.
+export function queryProfileArg(args: readonly StepArg[]): string | null {
+  const named = args.find((arg) => arg.name?.toLowerCase() === "profile");
+  if (named && named.value.length > 0) return named.value;
   const positional = args.find((arg) => arg.name === null);
-  return positional && positional.value.trim().length > 0 ? positional.value.trim() : null;
+  return positional && positional.value.length > 0 ? positional.value : null;
+}
+
+// `[Query: DB, name=k1-pending]`: a saved query of the profile instead of agent-written SQL.
+export function queryNameArg(args: readonly StepArg[]): string | null {
+  const named = args.find((arg) => arg.name?.toLowerCase() === "name");
+  return named && named.value.trim().length > 0 ? named.value.trim() : null;
 }
 
 export function loginProfileArg(args: readonly StepArg[]): string | null {
@@ -786,10 +929,15 @@ function applyMetadata(
   line: number,
   diagnostics: TranscriptDiagnostic[]
 ): boolean {
-  if (value.length === 0 && (nullableMetadataKeys.has(key) || key === "tags" || key === "links" || key === "params" || key === "retries")) {
+  if (
+    value.length === 0 &&
+    (nullableMetadataKeys.has(key) || ["tags", "links", "params", "retries", "outputs", "reuse"].includes(key))
+  ) {
     return false;
   }
   applyMetadataValue(metadata, key, value, line, diagnostics);
+  // `Reuse: never` serialises to nothing by default but keeps its line once written.
+  if (key === "reuse") return parseReusePolicy(value) !== null;
   return serializeMetadataValue(metadata, key) !== null;
 }
 
@@ -839,6 +987,23 @@ function applyMetadataValue(
     case "duplicateOf":
       metadata.duplicateOf = value.length > 0 ? value : null;
       return;
+    case "outputs": {
+      const names = splitList(value);
+      metadata.outputs = names.filter((name) => flatNamePattern.test(name));
+      if (metadata.outputs.length !== names.length) {
+        diagnostics.push({ line, code: "invalid-metadata", message: "Outputs has a name that is not a plain variable name; it was ignored." });
+      }
+      return;
+    }
+    case "reuse": {
+      const policy = parseReusePolicy(value);
+      if (!policy) {
+        diagnostics.push({ line, code: "invalid-metadata", message: `Reuse must be "never" or "within <n>m|h|d", got "${value}".` });
+        return;
+      }
+      metadata.reuse = policy;
+      return;
+    }
   }
 }
 
@@ -887,6 +1052,10 @@ function serializeMetadataValue(metadata: TranscriptMetadata, key: TranscriptMet
       return metadata.externalId;
     case "duplicateOf":
       return metadata.duplicateOf;
+    case "outputs":
+      return metadata.outputs.length > 0 ? serializeList(metadata.outputs) : null;
+    case "reuse":
+      return metadata.reuse.kind === "never" ? null : serializeReusePolicy(metadata.reuse);
   }
 }
 
@@ -913,7 +1082,10 @@ export function serializeTestCase(testCase: ParsedTestCase, options: { forceHead
     ...metadataKeyOrder.filter((key) => !testCase.metadata.order.includes(key))
   ];
   for (const key of metadataKeys) {
-    const value = serializeMetadataValue(testCase.metadata, key);
+    const value =
+      key === "reuse" && testCase.metadata.reuse.kind === "never" && testCase.metadata.order.includes("reuse")
+        ? "never"
+        : serializeMetadataValue(testCase.metadata, key);
     if (value !== null) lines.push(`${metadataLabels[key]}: ${value}`);
   }
 
@@ -943,6 +1115,33 @@ export function serializeTranscriptDocument(document: Pick<ParsedTranscriptDocum
     .map((testCase, index) => serializeTestCase(testCase, { forceHeading: index > 0 }))
     .join("\n\n");
   return body.length > 0 ? `${body}\n` : "";
+}
+
+// Variables a case publishes to a case that uses it: its `Outputs:` line.
+export function caseOutputsOf(testCase: Pick<ParsedTestCase, "metadata">): string[] {
+  return [...testCase.metadata.outputs];
+}
+
+// Names the case's own steps produce, in order: [Extract] names, [Query]/[API] bindings and the
+// aliases of [Use ... as alias] blocks. These are what an `Outputs:` line may list.
+export function producedNamesOf(testCase: Pick<ParsedTestCase, "steps">): string[] {
+  const names: string[] = [];
+  for (const step of testCase.steps) {
+    if (step.disabled) continue;
+    const produced = producedNameOf(step);
+    if (produced !== null && !names.includes(produced)) names.push(produced);
+  }
+  return names;
+}
+
+function producedNameOf(step: Pick<TranscriptStep, "type" | "args" | "binding" | "alias">): string | null {
+  if (step.type === "extract") {
+    const name = step.args.find((arg) => arg.name === null)?.value ?? "";
+    return flatNamePattern.test(name) ? name : null;
+  }
+  if (step.type === "query" || step.type === "api") return step.binding;
+  if (step.type === "use") return step.alias;
+  return null;
 }
 
 // Re-derive ordinals, lines, keys and references after a model edit, keeping step ids stable.
@@ -1007,7 +1206,13 @@ export const macroDefinitionSchema = z.object({
 export const expandedStepSchema = transcriptStepSchema.extend({
   parentStepId: z.string().min(1).nullable(),
   depth: z.number().int().nonnegative(),
-  macroVersion: z.number().int().positive().nullable()
+  macroVersion: z.number().int().positive().nullable(),
+  // Alias of the nearest enclosing [Use ... as alias] block, so a runner namespaces the outputs
+  // this step produces; null outside a [Use] block or when that block has no alias.
+  useAlias: z.string().min(1).nullable().default(null),
+  // Effective mode inside a [Use] block: the nearest explicit `mode=` up the chain, else `auto`;
+  // null outside a [Use] block.
+  useMode: useModeSchema.nullable().default(null)
 });
 
 // A case another case runs inline with `[Use: KEY]`: its saved transcript at its current version.
@@ -1016,7 +1221,9 @@ export const linkedCaseSchema = z.object({
   title: z.string(),
   version: z.number().int().positive(),
   params: z.array(paramDeclarationSchema),
-  transcript: z.string()
+  transcript: z.string(),
+  // Its `Outputs:` line; what `{alias.name}` may read. Absent from backends older than outputs.
+  outputs: z.array(z.string().min(1)).optional()
 });
 
 // Macros the runner ships (packages/e2e-runner/macros). An organisation macro of the same name
@@ -1095,13 +1302,18 @@ export function expandMacros(
   const errors: MacroExpansionError[] = [];
   const out: ExpandedStep[] = [];
 
+  // The [Use] block a step runs inside: where its outputs go and how it should execute.
+  type UseScope = { useAlias: string | null; useMode: UseMode | null };
+  const noScope: UseScope = { useAlias: null, useMode: null };
+
   const expandBody = (
     step: TranscriptStep,
     body: readonly TranscriptStep[],
     values: Readonly<Record<string, string>>,
     identity: readonly unknown[],
     depth: number,
-    stack: readonly string[]
+    stack: readonly string[],
+    scope: UseScope
   ) => {
     for (const child of body) {
       if (child.disabled) continue;
@@ -1111,6 +1323,10 @@ export function expandMacros(
       const credentialRefs = new Set(references.credentialRefs);
       if (child.type === "login") {
         const profile = loginProfileArg(args);
+        if (profile !== null) credentialRefs.add(profile);
+      }
+      if (child.type === "query" || child.type === "api") {
+        const profile = queryProfileArg(args);
         if (profile !== null) credentialRefs.add(profile);
       }
       const instructionKey = `sha256:${sha256Hex(JSON.stringify([step.instructionKey, ...identity, child.instructionKey]))}`;
@@ -1130,17 +1346,18 @@ export function expandMacros(
         },
         step.stepId,
         depth + 1,
-        stack
+        stack,
+        scope
       );
     }
   };
 
-  const visitUse = (step: TranscriptStep, parentStepId: string | null, depth: number, stack: readonly string[]) => {
+  const visitUse = (step: TranscriptStep, parentStepId: string | null, depth: number, stack: readonly string[], scope: UseScope) => {
     const key = useCaseKeyArg(step.args);
     const linked = key === null ? undefined : casesByKey.get(key.toLowerCase());
     if (!linked) {
       errors.push({ stepId: step.stepId, code: "unknown-case", message: key === null ? "[Use] needs a case key, e.g. [Use: TC-0001]." : `No test case ${key}.` });
-      out.push({ ...step, parentStepId, depth, macroVersion: null });
+      out.push({ ...step, parentStepId, depth, macroVersion: null, ...scope });
       return;
     }
     const marker = `case:${linked.key.toLowerCase()}`;
@@ -1159,7 +1376,8 @@ export function expandMacros(
     const keyArgument = step.args.find((arg) => arg.name?.toLowerCase() === "case") ?? step.args.find((arg) => arg.name === null);
     let positional = 0;
     for (const arg of step.args) {
-      if (arg === keyArgument) continue;
+      // `mode=` steers execution of the block; it is never one of the case's params.
+      if (arg === keyArgument || arg.name?.toLowerCase() === "mode") continue;
       if (arg.name === null) {
         const param = params[positional];
         positional += 1;
@@ -1175,26 +1393,31 @@ export function expandMacros(
       if (values[param.name] === undefined && param.default !== null) values[param.name] = param.default;
     }
 
-    out.push({ ...step, parentStepId, depth, macroVersion: linked.version });
+    out.push({ ...step, parentStepId, depth, macroVersion: linked.version, ...scope });
     const body = parseTranscriptDocument(linked.transcript).cases[0]?.steps ?? [];
-    expandBody(step, body, values, ["case", linked.key.toLowerCase(), linked.version], depth, [...stack, marker]);
+    // Children publish under this block's alias; `auto` defers to the enclosing block's mode.
+    const inner: UseScope = {
+      useAlias: step.alias,
+      useMode: step.mode !== null && step.mode !== "auto" ? step.mode : (scope.useMode ?? "auto")
+    };
+    expandBody(step, body, values, ["case", linked.key.toLowerCase(), linked.version], depth, [...stack, marker], inner);
   };
 
-  const visit = (step: TranscriptStep, parentStepId: string | null, depth: number, stack: readonly string[]) => {
+  const visit = (step: TranscriptStep, parentStepId: string | null, depth: number, stack: readonly string[], scope: UseScope) => {
     if (step.type === "use") {
-      visitUse(step, parentStepId, depth, stack);
+      visitUse(step, parentStepId, depth, stack, scope);
       return;
     }
     const isCall = step.type === "macro" || step.type === "login";
     if (!isCall || step.macro === null) {
-      out.push({ ...step, parentStepId, depth, macroVersion: null });
+      out.push({ ...step, parentStepId, depth, macroVersion: null, ...scope });
       return;
     }
 
     const macro = byName.get(step.macro.toLowerCase());
     if (!macro) {
       errors.push({ stepId: step.stepId, code: "unknown-macro", message: `No macro named "${step.macro}".` });
-      out.push({ ...step, parentStepId, depth, macroVersion: null });
+      out.push({ ...step, parentStepId, depth, macroVersion: null, ...scope });
       return;
     }
     if (stack.includes(macro.name.toLowerCase())) {
@@ -1215,15 +1438,15 @@ export function expandMacros(
       });
     }
 
-    out.push({ ...step, parentStepId, depth, macroVersion: macro.version });
+    out.push({ ...step, parentStepId, depth, macroVersion: macro.version, ...scope });
 
     const body = parseTranscriptDocument(macro.transcript).cases[0]?.steps ?? [];
-    expandBody(step, body, values, [macro.name.toLowerCase(), macro.version], depth, [...stack, macro.name.toLowerCase()]);
+    expandBody(step, body, values, [macro.name.toLowerCase(), macro.version], depth, [...stack, macro.name.toLowerCase()], scope);
   };
 
   for (const step of steps) {
     if (step.disabled) continue;
-    visit(step, null, 0, []);
+    visit(step, null, 0, [], noScope);
   }
 
   return { steps: out, errors };
@@ -1265,8 +1488,9 @@ export type TranscriptLintContext = {
   environmentVariables?: readonly string[];
   // Element names observed in the last run's snapshots ("menuitem Đăng xuất"), used for fix suggestions.
   elementNames?: readonly string[];
-  // Keys of the organisation's cases; when given, [Use: KEY] must name one of them.
-  cases?: readonly Pick<LinkedCase, "key">[];
+  // Keys of the organisation's cases; when given, [Use: KEY] must name one of them. With
+  // `outputs`, `{alias.name}` must name one of the used case's outputs.
+  cases?: ReadonlyArray<Pick<LinkedCase, "key"> & Partial<Pick<LinkedCase, "outputs">>>;
   // The key of the case being linted when its transcript has no `Key:` line.
   caseKey?: string | null;
 };
@@ -1502,8 +1726,116 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
         }
         if (step.type === "act" && step.text.length === 0) return [stepFinding(step, "Empty step.")];
         if (step.type === "assert" && step.text.length === 0) return [stepFinding(step, "Empty assert.")];
+        if (step.type === "query" || step.type === "api") {
+          const tag = step.type === "query" ? "[Query]" : "[API]";
+          if (step.text.length === 0) return [stepFinding(step, `${tag} needs a description of what to find or call.`)];
+          // An arrow that did not parse as a binding: `-> {a.b}` or `-> {}`.
+          if (step.binding === null && /->\s*\{[^{}]*\}\s*$/.test(step.text)) {
+            return [stepFinding(step, `${tag} binding must be a plain name, e.g. -> {student}.`)];
+          }
+        }
         return [];
       })
+  },
+  {
+    id: "query-needs-profile",
+    severity: "error",
+    source: "design §4",
+    description: "[Query] and [API] name a credential profile, e.g. [Query: PCF_UAT_DB].",
+    check: (testCase) =>
+      activeSteps(testCase)
+        .filter((step) => (step.type === "query" || step.type === "api") && queryProfileArg(step.args) === null)
+        .map((step) =>
+          stepFinding(
+            step,
+            step.type === "query"
+              ? "[Query] needs a database profile, e.g. [Query: PCF_UAT_DB]."
+              : "[API] needs a credential profile, e.g. [API: SV_BACKEND]."
+          )
+        )
+  },
+  {
+    id: "use-mode-invalid",
+    severity: "error",
+    source: "design §4",
+    description: "[Use: KEY, mode=…] takes api, ui or auto.",
+    check: (testCase) =>
+      activeSteps(testCase).flatMap((step) => {
+        if (step.type !== "use") return [];
+        const { invalid } = useModeArg(step.args);
+        return invalid === null ? [] : [stepFinding(step, `mode must be api, ui or auto, got "${invalid}".`)];
+      })
+  },
+  {
+    id: "reuse-invalid",
+    severity: "error",
+    source: "design §4",
+    description: "Reuse: within <window> keeps a finished run between one minute and thirty days.",
+    check: (testCase) => {
+      const reuse = testCase.metadata.reuse;
+      if (reuse.kind === "never") return [];
+      if (reuse.ms >= 60_000 && reuse.ms <= 30 * 86_400_000) return [];
+      return [{ message: `Reuse window ${serializeReusePolicy(reuse)} is outside 1m to 30d.`, stepId: null, line: testCase.line, fix: null }];
+    }
+  },
+  {
+    id: "binding-shadows-param",
+    severity: "warning",
+    source: "design §7",
+    description: "A [Query]/[API] binding or [Extract] name does not reuse a param or dataset column.",
+    check: (testCase) => {
+      const declared = new Set([...testCase.metadata.params.map((param) => param.name), ...(testCase.dataset?.columns ?? [])]);
+      return activeSteps(testCase).flatMap((step) => {
+        const name = producedNameOf(step);
+        if (step.type === "use" || name === null || !declared.has(name)) return [];
+        return [stepFinding(step, `{${name}} is already a param or dataset column; the binding hides it.`)];
+      });
+    }
+  },
+  {
+    id: "outputs-undeclared-binding",
+    severity: "error",
+    source: "design §7",
+    description: "Every name in Outputs: is produced by an [Extract], a [Query]/[API] binding or a [Use ... as alias] in the case.",
+    check: (testCase) => {
+      const produced = new Set(producedNamesOf(testCase));
+      return testCase.metadata.outputs
+        .filter((name) => !produced.has(name))
+        .map((name) => ({ message: `Outputs lists {${name}} but no step produces it.`, stepId: null, line: testCase.line, fix: null }));
+    }
+  },
+  {
+    id: "use-output-unknown",
+    severity: "warning",
+    source: "design §7",
+    description: "{alias.name} names one of the used case's declared outputs.",
+    check: (testCase, context) => {
+      if (!context.cases) return [];
+      const outputsByKey = new Map(
+        context.cases.flatMap((linked) => (linked.outputs ? [[linked.key.toLowerCase(), linked.outputs] as const] : []))
+      );
+      const aliases = new Map<string, readonly string[]>();
+      const reported = new Set<string>();
+      const findings: Omit<LintFinding, "ruleId" | "severity">[] = [];
+      for (const step of activeSteps(testCase)) {
+        for (const name of step.variables) {
+          const root = variableRoot(name);
+          if (root === name || reported.has(name)) continue;
+          const outputs = aliases.get(root);
+          // Alias of a case whose outputs the linter knows: the field must be one of them.
+          if (outputs !== undefined && !outputs.includes(name.slice(root.length + 1))) {
+            reported.add(name);
+            findings.push(stepFinding(step, `{${name}}: ${root} does not output "${name.slice(root.length + 1)}" (has: ${outputs.join(", ") || "none"}).`));
+          }
+        }
+        if (step.type === "use" && step.alias !== null) {
+          const key = useCaseKeyArg(step.args)?.toLowerCase();
+          const outputs = key === undefined ? undefined : outputsByKey.get(key);
+          if (outputs !== undefined) aliases.set(step.alias, outputs);
+        }
+      }
+      return findings;
+    }
   },
   {
     id: "possible-secret",
@@ -1575,6 +1907,10 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
       for (const step of activeSteps(testCase)) {
         for (const name of step.variables) {
           if (known.has(name) || reported.has(name) || isFakeDataToken(name)) continue;
+          // {student.id}, {registration.applicationId}: the root is a binding, an alias, a param
+          // or a column declared earlier; the field is checked by use-output-unknown.
+          const root = variableRoot(name);
+          if (root !== name && known.has(root)) continue;
           reported.add(name);
           const generated = fakeDataGroupOf(name);
           if (generated) {
@@ -1587,10 +1923,9 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
             findings.push(stepFinding(step, `Undeclared variable {${name}}.`));
           }
         }
-        if (step.type === "extract") {
-          const name = step.args.find((arg) => arg.name === null)?.value;
-          if (name) known.add(name);
-        }
+        // What this step produces is known from the next step on.
+        const produced = producedNameOf(step);
+        if (produced !== null) known.add(produced);
       }
       return findings;
     }
@@ -1601,7 +1936,11 @@ export const transcriptLintRules: readonly TranscriptLintRule[] = [
     source: "design §4",
     description: "A case needs at least one [Assert] or [Wait]; without a verified checkpoint no Act step is cached.",
     check: (testCase) =>
-      activeSteps(testCase).length > 0 && !activeSteps(testCase).some((step) => step.type === "assert" || step.type === "wait")
+      activeSteps(testCase).length > 0 &&
+      !activeSteps(testCase).some(
+        // A [Query]/[API] without a binding is a check (roadmap §5.1).
+        (step) => step.type === "assert" || step.type === "wait" || ((step.type === "query" || step.type === "api") && step.binding === null)
+      )
         ? [
             {
               message: "No [Assert] step. Without a checkpoint no Act step is ever cached.",

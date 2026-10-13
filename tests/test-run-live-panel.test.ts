@@ -9,6 +9,7 @@ import {
   isLeaveChord,
   keyToLiveInput,
   liveViewport,
+  nextFramePair,
   takeoverRole,
   toViewportPoint,
   wheelDeltaPixels,
@@ -171,3 +172,14 @@ describe("live view keyboard escape", () => {
   });
 });
 
+
+describe("live frame crossfade", () => {
+  it("keeps the outgoing frame for the fade and releases the one before it", () => {
+    const first = nextFramePair<string>({ current: null, previous: null }, "f1");
+    expect(first).toEqual({ pair: { current: "f1", previous: null }, released: null });
+    const second = nextFramePair(first.pair, "f2");
+    expect(second).toEqual({ pair: { current: "f2", previous: "f1" }, released: null });
+    const third = nextFramePair(second.pair, "f3");
+    expect(third).toEqual({ pair: { current: "f3", previous: "f2" }, released: "f1" });
+  });
+});

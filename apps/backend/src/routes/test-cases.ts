@@ -5,10 +5,14 @@ import {
 	createTestCaseRequestSchema,
 	createTestRunRequestSchema,
 	createTestRunResponseSchema,
+	draftTestCaseRequestSchema,
+	draftTestCaseResponseSchema,
 	duplicateTestCaseRequestSchema,
 	duplicateTestCaseResponseSchema,
 	importBatchSchema,
 	patchImportRequestSchema,
+	patchStepScriptRequestSchema,
+	recentOutputsResponseSchema,
 	serializeTestCase,
 	similarTestCasesResponseSchema,
 	stepScriptSchema,
@@ -51,12 +55,14 @@ import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import { emitReviewPendingCount } from "../services/notifications";
 import { recordOrganizationActivity } from "../services/organization-activity";
 import type { OutboundPolicy } from "../services/outbound-http";
+import { fixApiScript } from "../services/test-api-scripts";
 import { testCasePolicy } from "../services/test-case-policy";
 import {
 	applyReplacements,
 	caseSteps,
 	computeRequiredConfig,
 	createTestCase,
+	draftTranscriptFromText,
 	exportCasesDocument,
 	findSimilarCases,
 	getTestCaseRow,
@@ -85,7 +91,9 @@ import {
 	type TextGenerator,
 	toImportBatch,
 } from "../services/test-imports";
+import { recentCaseOutputs } from "../services/test-run-outputs";
 import {
+	computeParamsHash,
 	requestRuns,
 	toCreateRunResponse,
 	toRunSummary,
@@ -319,6 +327,35 @@ export const createTestCaseRoutes = (
 						...(body.excludeIds ? { excludeIds: body.excludeIds } : {}),
 					}),
 				});
+			}),
+		)
+		// "What do you want to test?": the act model drafts a transcript; nothing is stored. Decrypts
+		// the model key like an explored import, hence test_config.use.
+		.post("/test-cases/draft", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await actor(ctx);
+				await requireTestPermission(
+					db,
+					who,
+					"test_case.create",
+					"test_config.use",
+				);
+				const body = parseInput(draftTestCaseRequestSchema, ctx.body);
+				const draft = await draftTranscriptFromText(
+					db,
+					createTestSecrets({ db, keyProvider: ctx.keyProvider }),
+					{
+						orgId: who.orgId,
+						actorUserId: who.userId,
+						text: body.text,
+						environmentId: body.environmentId,
+						startFromCaseId: body.startFromCaseId,
+						generateText: options.generateText ?? defaultTextGenerator,
+						...(options.outbound ? { outbound: options.outbound } : {}),
+					},
+				);
+				return respond(draftTestCaseResponseSchema, draft);
 			}),
 		)
 		.post("/test-cases/bulk", (ctx) =>
@@ -854,6 +891,60 @@ export const createTestCaseRoutes = (
 						respond(stepScriptSchema, toStepScript(script)),
 					),
 				};
+			}),
+		)
+		// A reviewer binds a flagged literal of an API script to a response field (roadmap §3.4).
+		.patch("/test-cases/:id/scripts/:scriptId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await actor(ctx);
+				await requireTestPermission(db, who, "test_case.update");
+				const { id, scriptId } = parseInput(
+					z.object({ id: z.string().min(1), scriptId: z.string().min(1) }),
+					ctx.params,
+				);
+				const row = await getTestCaseRow(db, who.orgId, id);
+				const body = parseInput(patchStepScriptRequestSchema, ctx.body);
+				const updated = await fixApiScript(db, {
+					scriptId,
+					testCaseId: row.id,
+					fixes: body.fixes,
+				});
+				return respond(stepScriptSchema, toStepScript(updated));
+			}),
+		)
+		// Reuse window (roadmap §2.6): outputs of the newest passed run inside the window.
+		.get("/test-cases/:id/outputs/recent", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await actor(ctx, true);
+				await requireTestPermission(db, who, "test_run.view");
+				const { id } = parseInput(caseIdParams, ctx.params);
+				const row = await getTestCaseRow(db, who.orgId, id);
+				const query = parseInput(
+					z.object({
+						environmentId: z.string().min(1).nullable().optional(),
+						paramsHash: z.string().min(1).optional(),
+						withinMs: z.coerce
+							.number()
+							.int()
+							.positive()
+							.max(30 * 86_400_000)
+							.default(30 * 60_000),
+					}),
+					normalizeQuery(ctx.request.url, new Set()),
+				);
+				return respond(
+					recentOutputsResponseSchema,
+					await recentCaseOutputs(db, {
+						orgId: who.orgId,
+						testCaseId: row.id,
+						environmentId: query.environmentId ?? row.environmentId ?? null,
+						// No params given: the hash of an empty request, as a parameterless run has.
+						paramsHash: query.paramsHash ?? computeParamsHash({}),
+						withinMs: query.withinMs,
+					}),
+				);
 			}),
 		)
 		.delete("/test-cases/:id/scripts", (ctx) =>

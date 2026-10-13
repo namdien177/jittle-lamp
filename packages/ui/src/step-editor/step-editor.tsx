@@ -5,7 +5,8 @@ import {
   type ExpandedStep,
   type LintFinding,
   type MacroDefinition,
-  type MacroParam
+  type MacroParam,
+  type TranscriptStepType
 } from "@jittle-lamp/shared";
 
 import { editorCommandAllowed, editorKeyCommand, isMacPlatform, type EditorCommand } from "./keyboard";
@@ -84,6 +85,7 @@ export type StepEditorProps = {
   environmentName?: string | null;
   elementNames?: readonly string[];
   stepStatus?: Readonly<Record<string, StepEditorRowStatus>>;
+  // Same rows without inputs, handles or pickers: review queue, import preview, macro view.
   readOnly?: boolean;
   onRun?: () => void;
   onRunFromStep?: (stepId: string) => void;
@@ -91,6 +93,13 @@ export type StepEditorProps = {
   onMultiCasePaste?: (document: string, cases: number) => void;
   ariaLabel?: string;
   autoFocus?: boolean;
+  // The `?` cheat sheet; controlled when `helpOpen` is given, otherwise the editor keeps it.
+  helpOpen?: boolean;
+  onHelpOpenChange?: (open: boolean) => void;
+  // A step chosen elsewhere (the Flow view, a run step): its row is highlighted and scrolled into
+  // view. Focusing a row reports its step back through onActiveStepChange.
+  activeStepId?: string | null;
+  onActiveStepChange?: (stepId: string | null) => void;
 };
 
 type PickerState =
@@ -100,12 +109,56 @@ type PickerState =
 
 type DropState = { rowId: string; position: "before" | "after" } | null;
 
+type Outcome = NonNullable<StepEditorRowStatus["lastOutcome"]>;
+
+type Section = { count: number; outcome: Outcome | null };
+
 const severityRank: Record<LintFinding["severity"], number> = { error: 3, warning: 2, info: 1 };
+
+// Plain words for the rail tooltip; the grammar's tag is the same word.
+const typeWords: Record<TranscriptStepType, string> = {
+  act: "Act",
+  assert: "Assert",
+  open: "Open",
+  login: "Login",
+  wait: "Wait",
+  screenshot: "Screenshot",
+  extract: "Extract",
+  note: "Note",
+  use: "Use",
+  macro: "Macro",
+  query: "Query",
+  api: "API"
+};
 
 function macroDefinitions(macros: readonly EditorMacro[]): MacroDefinition[] {
   return macros
     .filter((macro) => typeof macro.transcript === "string")
     .map((macro) => ({ name: macro.name, params: macro.params, transcript: macro.transcript ?? "", version: macro.version ?? 1, status: "active" as const }));
+}
+
+function worstFinding(findings: readonly LintFinding[]): LintFinding | null {
+  return findings.reduce<LintFinding | null>(
+    (current, finding) => (current === null || severityRank[finding.severity] > severityRank[current.severity] ? finding : current),
+    null
+  );
+}
+
+// One outcome for a group of steps: any failure fails it, else any block blocks it, else it passed
+// when every step that ran passed.
+function groupOutcome(outcomes: readonly (Outcome | null)[]): Outcome | null {
+  const ran = outcomes.filter((outcome): outcome is Outcome => outcome !== null && outcome !== "skipped");
+  if (ran.some((outcome) => outcome === "failed")) return "failed";
+  if (ran.some((outcome) => outcome === "blocked")) return "blocked";
+  if (ran.length > 0 && ran.every((outcome) => outcome === "passed")) return "passed";
+  return null;
+}
+
+// Rows added by `next` that `previous` did not have, in document order: paste and split-step
+// fixes animate these in with a stagger.
+function addedRowIds(previous: EditorDoc, next: EditorDoc): string[] {
+  const known = new Set(previous.rows.map((row) => row.rowId));
+  return next.rows.filter((row) => !known.has(row.rowId)).map((row) => row.rowId);
 }
 
 export function StepEditor(props: StepEditorProps): React.JSX.Element {
@@ -125,15 +178,34 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   const mod = isMac ? "⌘" : "Ctrl";
 
   const [focusedRowId, setFocusedRowId] = React.useState<string | null>(null);
+  const [hoveredRowId, setHoveredRowId] = React.useState<string | null>(null);
   // Roving tabindex: only the last focused row (or the first row) is in the tab order; ↑/↓ move
   // between rows, so Tab leaves the editor instead of walking every row.
   const [activeRowId, setActiveRowId] = React.useState<string | null>(null);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const activeStepId = props.activeStepId ?? null;
+  React.useEffect(() => {
+    // Nothing selected outside the editor: leave the scroll position alone.
+    if (!activeStepId) return;
+    const row = rootRef.current?.querySelector<HTMLElement>(`[data-step-id="${CSS.escape(activeStepId)}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+  }, [activeStepId]);
   const [pendingFocus, setPendingFocus] = React.useState<{ rowId: string; caret: number | "end" } | null>(null);
+  // Keyboard moves between rows are instant (§3.7); the first pointer move restores transitions.
+  const [instantNav, setInstantNav] = React.useState(false);
   const [picker, setPicker] = React.useState<PickerState | null>(null);
   const [dragRowId, setDragRowId] = React.useState<string | null>(null);
   const [drop, setDrop] = React.useState<DropState>(null);
+  // Rows that just arrived from a paste or a split fix, with their stagger position.
+  const [entering, setEntering] = React.useState<ReadonlyMap<string, number>>(new Map());
+  const [helpOpenState, setHelpOpenState] = React.useState(false);
+  const helpOpen = props.helpOpen ?? helpOpenState;
+  const setHelpOpen = (open: boolean) => {
+    if (props.helpOpen === undefined) setHelpOpenState(open);
+    props.onHelpOpenChange?.(open);
+  };
   const inputRefs = React.useRef(new Map<string, HTMLInputElement>());
-  const chipRefs = React.useRef(new Map<string, HTMLButtonElement>());
   const listId = React.useId();
 
   const parsed = React.useMemo(() => testCaseFromDoc(doc), [doc]);
@@ -164,6 +236,27 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
     }
     return byParent;
   }, [parsed, macros]);
+  // Each checkpoint heading summarises the steps that follow it until the next heading.
+  const sections = React.useMemo(() => {
+    const byHeading = new Map<string, Section>();
+    let current: { rowId: string; count: number; outcomes: (Outcome | null)[] } | null = null;
+    const flush = () => {
+      if (current) byHeading.set(current.rowId, { count: current.count, outcome: groupOutcome(current.outcomes) });
+    };
+    for (const row of doc.rows) {
+      if (row.kind === "heading") {
+        flush();
+        current = { rowId: row.rowId, count: 0, outcomes: [] };
+        continue;
+      }
+      if (!current || isBlankRow(row)) continue;
+      current.count += 1;
+      const step = rowSteps.get(row.rowId);
+      current.outcomes.push(step ? (props.stepStatus?.[step.stepId]?.lastOutcome ?? null) : null);
+    }
+    flush();
+    return byHeading;
+  }, [doc, rowSteps, props.stepStatus]);
 
   React.useLayoutEffect(() => {
     if (!pendingFocus) return;
@@ -194,6 +287,11 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
     }
     onChange(next);
     if (focus?.rowId) setPendingFocus({ rowId: focus.rowId, caret: focus.caret ?? "end" });
+  };
+  const commitWithStagger = (next: EditorDoc, focus?: { rowId: string | null; caret?: number | "end" }) => {
+    const added = addedRowIds(doc, next);
+    if (added.length > 0) setEntering(new Map(added.map((rowId, index) => [rowId, index])));
+    commit(next, focus);
   };
 
   // ------------------------------------------------------------------------------------------
@@ -272,6 +370,11 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
     commit(setRowText(doc, row.rowId, inserted.text), { rowId: row.rowId, caret: inserted.caret });
   };
 
+  const openTypePicker = (row: StepRow) => {
+    setPicker({ kind: "type", rowId: row.rowId, trigger: null, index: 0, viaKeyboard: false, form: null });
+    setPendingFocus({ rowId: row.rowId, caret: "end" });
+  };
+
   // ------------------------------------------------------------------------------------------
   // Commands
   // ------------------------------------------------------------------------------------------
@@ -308,12 +411,14 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
       }
       case "duplicate-row": {
         const result = duplicateRow(doc, row.rowId);
+        setInstantNav(true);
         commit(result.doc, { rowId: result.focusRowId });
         return true;
       }
       case "move-up":
       case "move-down": {
         const result = moveRow(doc, row.rowId, command === "move-up" ? -1 : 1);
+        setInstantNav(true);
         commit(result.doc, { rowId: result.focusRowId, caret: (event.target as HTMLInputElement).selectionStart ?? "end" });
         return true;
       }
@@ -322,24 +427,28 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
         return true;
       case "new-row": {
         const result = insertRowAfter(doc, row.rowId);
+        setInstantNav(true);
         commit(result.doc, { rowId: result.focusRowId });
         return true;
       }
       case "delete-row": {
         if (doc.rows.length <= 1) return false;
         const result = removeRow(doc, row.rowId);
+        setInstantNav(true);
         commit(result.doc, { rowId: result.focusRowId });
         return true;
       }
       case "focus-prev": {
         const previous = doc.rows[index - 1];
         if (!previous) return false;
+        setInstantNav(true);
         setPendingFocus({ rowId: previous.rowId, caret: "end" });
         return true;
       }
       case "focus-next": {
         const nextRow = doc.rows[index + 1];
         if (!nextRow) return false;
+        setInstantNav(true);
         setPendingFocus({ rowId: nextRow.rowId, caret: "end" });
         return true;
       }
@@ -397,7 +506,7 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
       props.onMultiCasePaste?.(result.document, result.cases);
       return;
     }
-    commit(result.doc, { rowId: result.focusRowId });
+    commitWithStagger(result.doc, { rowId: result.focusRowId });
   };
 
   // ------------------------------------------------------------------------------------------
@@ -433,68 +542,108 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
   let ordinal = 0;
 
   const tabRowId = doc.rows.some((row) => row.rowId === activeRowId) ? activeRowId : (doc.rows[0]?.rowId ?? null);
+  const firstRow = doc.rows[0];
+  const empty = doc.rows.length === 1 && firstRow !== undefined && isBlankRow(firstRow);
 
   return (
-    <div className="jl-se" role="grid" aria-label={props.ariaLabel ?? "Test steps"} aria-readonly={readOnly}>
-      <div className="jl-se-summary" role="status">
-        <span>
-          {parsed.steps.length} step{parsed.steps.length === 1 ? "" : "s"} · {parsed.checkpoints.length} checkpoint
-          {parsed.checkpoints.length === 1 ? "" : "s"}
-        </span>
-        {counts.error > 0 ? <span data-tone="error">{counts.error} error{counts.error === 1 ? "" : "s"}</span> : null}
-        {counts.warning > 0 ? <span data-tone="warning">{counts.warning} warning{counts.warning === 1 ? "" : "s"}</span> : null}
-        {lint.caseLevel.map((finding, index) => (
-          <span key={`${finding.ruleId}-${index}`} data-tone={finding.severity}>
-            {finding.message}
+    <div
+      ref={rootRef}
+      className="jl-se"
+      role="grid"
+      aria-label={props.ariaLabel ?? "Test steps"}
+      aria-readonly={readOnly}
+      data-readonly={readOnly ? "true" : "false"}
+      data-instant={instantNav ? "true" : "false"}
+      onPointerMoveCapture={instantNav ? () => setInstantNav(false) : undefined}
+    >
+      <div className="jl-se-head">
+        <div className="jl-se-summary" role="status">
+          <span>
+            {parsed.steps.length} step{parsed.steps.length === 1 ? "" : "s"} · {parsed.checkpoints.length} checkpoint
+            {parsed.checkpoints.length === 1 ? "" : "s"}
           </span>
-        ))}
+          {counts.error > 0 ? <span data-tone="error">{counts.error} error{counts.error === 1 ? "" : "s"}</span> : null}
+          {counts.warning > 0 ? <span data-tone="warning">{counts.warning} warning{counts.warning === 1 ? "" : "s"}</span> : null}
+          {lint.caseLevel.map((finding, index) => (
+            <span key={`${finding.ruleId}-${index}`} data-tone={finding.severity}>
+              {finding.message}
+            </span>
+          ))}
+        </div>
+        {!readOnly ? <HelpButton open={helpOpen} mod={mod} onOpenChange={setHelpOpen} /> : null}
       </div>
+
+      {empty && !readOnly ? <p className="jl-se-empty">Type what the user does, one step per line</p> : null}
+      {empty && readOnly ? <p className="jl-se-empty">No steps</p> : null}
 
       {doc.rows.map((row) => {
         const focused = focusedRowId === row.rowId;
+        const hovered = hoveredRowId === row.rowId;
         const rowFindings = lint.byRow.get(row.rowId) ?? [];
         const step = row.kind === "step" ? rowSteps.get(row.rowId) : undefined;
         if (row.kind === "step" && !isBlankRow(row)) ordinal += 1;
         const rowOrdinal = row.kind === "step" && !isBlankRow(row) ? ordinal : null;
         const pickerHere = picker?.rowId === row.rowId ? picker : null;
         const dropHere = drop?.rowId === row.rowId ? drop.position : undefined;
+        const enterIndex = entering.get(row.rowId);
         return (
           <div
             key={row.rowId}
             role="row"
             className="jl-se-row"
             data-kind={row.kind}
+            {...(row.kind === "step" ? { "data-type": rowStepType(row) } : {})}
             data-focused={focused ? "true" : "false"}
+            {...(step ? { "data-step-id": step.stepId } : {})}
+            data-selected={step && activeStepId === step.stepId ? "true" : "false"}
             data-disabled={row.kind === "step" && row.disabled ? "true" : "false"}
+            data-blank={isBlankRow(row) ? "true" : "false"}
             {...(dropHere ? { "data-drop": dropHere } : {})}
+            {...(enterIndex !== undefined ? { "data-enter": "true", style: { animationDelay: `${enterIndex * 40}ms` } } : {})}
+            // Read-only rows have no input to focus: a click reports the step so the run follows it.
+            {...(readOnly && step ? { onClick: () => props.onActiveStepChange?.(step.stepId) } : {})}
+            onAnimationEnd={
+              enterIndex !== undefined
+                ? () =>
+                    setEntering((current) => {
+                      const next = new Map(current);
+                      next.delete(row.rowId);
+                      return next;
+                    })
+                : undefined
+            }
+            onPointerEnter={() => setHoveredRowId(row.rowId)}
+            onPointerLeave={() => setHoveredRowId((current) => (current === row.rowId ? null : current))}
             onDragOver={(event) => onDragOver(row, event)}
             onDrop={onDrop}
             onDragLeave={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop((current) => (current?.rowId === row.rowId ? null : current));
             }}
           >
-            <button
-              type="button"
-              className="jl-se-handle"
-              draggable={!readOnly}
-              aria-label={`Reorder ${row.kind === "heading" ? "checkpoint" : `step ${rowOrdinal ?? ""}`}. ${mod}⇧↑ or ${mod}⇧↓ to move`}
-              tabIndex={-1}
-              onDragStart={(event) => {
-                setDragRowId(row.rowId);
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", row.rowId);
-              }}
-              onDragEnd={() => {
-                setDragRowId(null);
-                setDrop(null);
-              }}
-            >
-              ⋮⋮
-            </button>
+            {!readOnly ? (
+              <button
+                type="button"
+                className="jl-se-handle"
+                draggable
+                aria-label={`Reorder ${row.kind === "heading" ? "checkpoint" : `step ${rowOrdinal ?? ""}`}. ${mod}⇧↑ or ${mod}⇧↓ to move`}
+                tabIndex={-1}
+                onDragStart={(event) => {
+                  setDragRowId(row.rowId);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", row.rowId);
+                }}
+                onDragEnd={() => {
+                  setDragRowId(null);
+                  setDrop(null);
+                }}
+              >
+                ⋮⋮
+              </button>
+            ) : null}
             {row.kind === "heading" ? (
               <HeadingRowView
                 row={row}
-                focused={focused}
+                section={sections.get(row.rowId) ?? { count: 0, outcome: null }}
                 readOnly={readOnly}
                 inputRef={(element) => {
                   if (element) inputRefs.current.set(row.rowId, element);
@@ -515,10 +664,10 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
                 row={row}
                 ordinal={rowOrdinal}
                 focused={focused}
+                hovered={hovered}
                 readOnly={readOnly}
                 macros={macros}
                 cases={cases}
-                mod={mod}
                 findings={rowFindings}
                 status={step ? props.stepStatus?.[step.stepId] : undefined}
                 expansion={step ? expansion.get(step.stepId) ?? [] : []}
@@ -529,13 +678,10 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
                   if (element) inputRefs.current.set(row.rowId, element);
                   else inputRefs.current.delete(row.rowId);
                 }}
-                chipRef={(element) => {
-                  if (element) chipRefs.current.set(row.rowId, element);
-                  else chipRefs.current.delete(row.rowId);
-                }}
                 onFocus={() => {
                   setFocusedRowId(row.rowId);
                   setActiveRowId(row.rowId);
+                  if (step) props.onActiveStepChange?.(step.stepId);
                 }}
                 tabbable={tabRowId === row.rowId}
                 onBlur={(event) => {
@@ -548,17 +694,14 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
                 onKeyDown={(event) => onFieldKeyDown(row, event)}
                 onPaste={(event) => onFieldPaste(row, event)}
                 onChipKeyDown={(event) => onChipKeyDown(row, event)}
-                onChipClick={() => {
-                  setPicker({ kind: "type", rowId: row.rowId, trigger: null, index: 0, viaKeyboard: false, form: null });
-                  setPendingFocus({ rowId: row.rowId, caret: "end" });
-                }}
+                onChipClick={() => openTypePicker(row)}
                 onParamsClick={() => {
                   const option = typeOptions(row.tag ?? "", macros).find((candidate) => candidate.tag.toLowerCase() === (row.tag ?? "").toLowerCase());
                   if (option) openTypeForm(row, option, null, false);
                 }}
                 onApplyFix={(finding) => {
                   if (!isApplicableFix(finding.fix)) return;
-                  commit(applyFixToDoc(doc, finding.fix), { rowId: row.rowId });
+                  commitWithStagger(applyFixToDoc(doc, finding.fix), { rowId: row.rowId });
                 }}
                 onPickSuggestion={(name) => commit(setRowText(doc, row.rowId, insertElementName(row.text, name)), { rowId: row.rowId })}
                 onRunFromHere={props.onRunFromStep && step ? () => props.onRunFromStep?.(step.stepId) : undefined}
@@ -604,27 +747,58 @@ export function StepEditor(props: StepEditorProps): React.JSX.Element {
           + Add step
         </button>
       ) : null}
+    </div>
+  );
+}
 
-      <div className="jl-se-footer" aria-label="Keyboard shortcuts">
-        <span><kbd>↵</kbd>new step of the same type</span>
-        <span><kbd>/</kbd><kbd>[</kbd>type or macro</span>
-        <span><kbd>{"{"}</kbd>variable</span>
-        <span><kbd>@</kbd>credential, file</span>
-        <span><kbd>#</kbd>checkpoint</span>
-        <span><kbd>Alt ↑↓</kbd>change type</span>
-        <span><kbd>{mod}↵</kbd>run</span>
-        <span><kbd>{mod}D</kbd>duplicate</span>
-        <span><kbd>{mod}⇧↑↓</kbd>move</span>
-        <span><kbd>{mod}/</kbd>disable</span>
-      </div>
+// The `?` button and its cheat sheet. Closes on Escape and when focus leaves it.
+function HelpButton(props: { open: boolean; mod: string; onOpenChange: (open: boolean) => void }): React.JSX.Element {
+  const { mod } = props;
+  return (
+    <div
+      className="jl-se-help"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        props.onOpenChange(false);
+      }}
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        props.onOpenChange(false);
+      }}
+    >
+      <button
+        type="button"
+        className="jl-se-iconbtn jl-se-helpbtn"
+        aria-label="Keyboard shortcuts"
+        aria-haspopup="dialog"
+        aria-expanded={props.open}
+        onClick={() => props.onOpenChange(!props.open)}
+      >
+        ?
+      </button>
+      {props.open ? (
+        <div className="jl-se-cheat" role="dialog" aria-label="Keyboard shortcuts">
+          <span><kbd>↵</kbd>new step of the same type</span>
+          <span><kbd>/</kbd><kbd>[</kbd>type or macro</span>
+          <span><kbd>{"{"}</kbd>variable</span>
+          <span><kbd>@</kbd>credential, file</span>
+          <span><kbd>#</kbd>checkpoint</span>
+          <span><kbd>Alt ↑↓</kbd>change type</span>
+          <span><kbd>{mod}↵</kbd>run</span>
+          <span><kbd>{mod}D</kbd>duplicate</span>
+          <span><kbd>{mod}⇧↑↓</kbd>move</span>
+          <span><kbd>{mod}/</kbd>disable</span>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function HeadingRowView(props: {
   row: HeadingRow;
+  section: Section;
   tabbable: boolean;
-  focused: boolean;
   readOnly: boolean;
   inputRef: (element: HTMLInputElement | null) => void;
   onFocus: () => void;
@@ -633,35 +807,43 @@ function HeadingRowView(props: {
   onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   onRemove: () => void;
 }): React.JSX.Element {
+  const { section } = props;
   return (
-    <>
-      <span className="jl-se-num" aria-hidden>
-        #
-      </span>
-      <div className="jl-se-field" role="gridcell" style={{ display: "flex", alignItems: "center" }}>
-        <span className="jl-se-heading-label">Checkpoint</span>
-        <input
-          ref={props.inputRef}
-          className="jl-se-input jl-se-heading-input"
-          value={props.row.title}
-          placeholder="What this group of asserts proves"
-          aria-label="Checkpoint title"
-          tabIndex={props.tabbable ? 0 : -1}
-          readOnly={props.readOnly}
-          onFocus={props.onFocus}
-          onBlur={props.onBlur}
-          onChange={props.onChange}
-          onKeyDown={props.onKeyDown}
-        />
-      </div>
-      <div className="jl-se-status">
+    <div className="jl-se-section" role="gridcell">
+      <div className="jl-se-section-top">
+        {props.readOnly ? (
+          <span className="jl-se-heading-text" data-empty={props.row.title.length === 0 ? "true" : "false"}>
+            {props.row.title.length === 0 ? "Checkpoint" : props.row.title}
+          </span>
+        ) : (
+          <input
+            ref={props.inputRef}
+            className="jl-se-input jl-se-heading-input"
+            value={props.row.title}
+            placeholder="What this group of checks proves"
+            aria-label="Checkpoint title"
+            tabIndex={props.tabbable ? 0 : -1}
+            onFocus={props.onFocus}
+            onBlur={props.onBlur}
+            onChange={props.onChange}
+            onKeyDown={props.onKeyDown}
+          />
+        )}
         {!props.readOnly ? (
-          <button type="button" className="jl-se-iconbtn" aria-label="Remove checkpoint heading" tabIndex={props.tabbable ? 0 : -1} onClick={props.onRemove}>
+          <button type="button" className="jl-se-iconbtn jl-se-remove" aria-label="Remove checkpoint heading" tabIndex={-1} onClick={props.onRemove}>
             ✕
           </button>
         ) : null}
+        {section.outcome ? (
+          <span className="jl-se-chip-status" data-outcome={section.outcome} title={`Last run: ${section.outcome}`}>
+            {section.outcome}
+          </span>
+        ) : null}
       </div>
-    </>
+      <span className="jl-se-section-count">
+        {section.count} step{section.count === 1 ? "" : "s"}
+      </span>
+    </div>
   );
 }
 
@@ -670,10 +852,10 @@ function StepRowView(props: {
   tabbable: boolean;
   ordinal: number | null;
   focused: boolean;
+  hovered: boolean;
   readOnly: boolean;
   macros: readonly EditorMacro[];
   cases: readonly EditorCase[];
-  mod: string;
   findings: readonly LintFinding[];
   status: StepEditorRowStatus | undefined;
   expansion: readonly ExpandedStep[];
@@ -682,7 +864,6 @@ function StepRowView(props: {
   pickerOpen: boolean;
   children?: React.ReactNode;
   inputRef: (element: HTMLInputElement | null) => void;
-  chipRef: (element: HTMLButtonElement | null) => void;
   onFocus: () => void;
   onBlur: (event: React.FocusEvent<HTMLElement>) => void;
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -695,150 +876,200 @@ function StepRowView(props: {
   onPickSuggestion: (name: string) => void;
   onRunFromHere: (() => void) | undefined;
 }): React.JSX.Element {
-  const { row } = props;
+  const { row, status } = props;
   const type = rowStepType(row);
   const chip = formatStepChip(row, props.macros, props.cases);
   const tokens = tokenizeInstruction(row.text);
-  const worst = props.findings.reduce<LintFinding | null>(
-    (current, finding) => (current === null || severityRank[finding.severity] > severityRank[current.severity] ? finding : current),
-    null
-  );
+  const worst = worstFinding(props.findings);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const isCall = type === "login" || type === "macro" || type === "use";
-  const showBelow = props.findings.length > 0 || (isCall && props.expansion.length > 0) || props.suggestions.length > 0;
+  const editing = props.focused || props.pickerOpen;
+  // The verb names the row's kind in words; plain steps carry none, so the ones that do stand out.
+  const verb = type === "act" ? "" : type === "macro" ? chip.tag : typeWords[type];
+  const verbTitle = `${chip.tag}${chip.params ? ` · ${chip.params}` : ""}`;
+  // A [Use] row without a note reads as the linked case's title; other call rows show their chip only.
+  const emptyText = props.readOnly ? (type === "use" && chip.title ? <span className="jl-se-note">{chip.title}</span> : "") : phrasingTemplates[type];
+  const cacheTone = status?.cache === "active" ? "ok" : status?.cache === "stale" || status?.cache === "invalid" ? "warn" : null;
+  const showRun = props.focused && props.onRunFromHere !== undefined;
+  const hasStatus = cacheTone !== null || Boolean(status?.lastOutcome) || showRun;
+  const showPopover = (props.focused || props.hovered) && !props.pickerOpen && (props.findings.length > 0 || (props.suggestions.length > 0 && !props.readOnly));
+
+  // The parameter chip sits inside the instruction's flow, so long text wraps under it instead of
+  // beside a vertically centred chip. While the input is open the chip stands before it.
+  const params =
+    chip.params === null ? null : props.readOnly ? (
+      <span className="jl-se-params" title={chip.hint}>
+        {chip.params}
+      </span>
+    ) : (
+      <button
+        type="button"
+        className="jl-se-params"
+        aria-label={`Edit ${chip.tag} parameters: ${chip.hint ?? chip.params}`}
+        title={chip.hint}
+        tabIndex={-1}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={props.onParamsClick}
+      >
+        {chip.params}
+      </button>
+    );
+
+  const display = (
+    <div
+      className="jl-se-display"
+      data-empty={row.text.length === 0 && chip.params === null ? "true" : "false"}
+      {...(props.readOnly ? {} : { "aria-hidden": true })}
+      onMouseDown={
+        props.readOnly
+          ? undefined
+          : (event) => {
+              event.preventDefault();
+              inputRef.current?.focus();
+            }
+      }
+    >
+      {params}
+      {row.text.length === 0 ? emptyText : tokens.map((token, index) => <InstructionTokenView key={index} token={token} />)}
+    </div>
+  );
 
   return (
     <>
       <span className="jl-se-num">{props.ordinal ?? ""}</span>
-      <span className="jl-se-chipgroup">
+      {props.readOnly || type === "act" ? (
+        <span className="jl-se-verb" data-type={type} title={verbTitle} aria-label={`${typeWords[type]} step`}>
+          {verb}
+        </span>
+      ) : (
         <button
-          ref={props.chipRef}
           type="button"
-          className="jl-se-chip"
+          className="jl-se-verb"
           data-type={type}
-          aria-label={`Step type ${chip.tag}. Alt+Up or Alt+Down to change, Enter to pick a type or macro`}
+          title={verbTitle}
+          aria-label={`Step type ${chip.tag}. Click to change, Alt+Up or Alt+Down from the step`}
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-          tabIndex={props.tabbable ? 0 : -1}
-          disabled={props.readOnly}
+          tabIndex={-1}
           onKeyDown={props.onChipKeyDown}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={props.onChipClick}
-          onFocus={props.onFocus}
-          onBlur={props.onBlur}
         >
-          {chip.tag}
+          {verb}
         </button>
-        {chip.params !== null ? (
-          <button
-            type="button"
-            className="jl-se-params"
-            aria-label={`Edit ${chip.tag} parameters: ${chip.hint ?? chip.params}`}
-            title={chip.hint}
-            tabIndex={props.tabbable ? 0 : -1}
-            disabled={props.readOnly}
-            onClick={props.onParamsClick}
-            onFocus={props.onFocus}
-            onBlur={props.onBlur}
-          >
-            {type === "login" ? "🔒 " : ""}
-            {chip.params}
-          </button>
-        ) : null}
-      </span>
+      )}
       <div className="jl-se-field" role="gridcell">
-        <input
-          ref={(element) => {
-            inputRef.current = element;
-            props.inputRef(element);
-          }}
-          className="jl-se-input"
-          data-hidden={props.focused || props.pickerOpen ? "false" : "true"}
-          value={row.text}
-          placeholder={phrasingTemplates[type]}
-          aria-label={`Step ${props.ordinal ?? "new"} instruction`}
-          tabIndex={props.tabbable ? 0 : -1}
-          aria-autocomplete="list"
-          aria-expanded={props.pickerOpen}
-          aria-controls={props.pickerOpen ? props.listId : undefined}
-          readOnly={props.readOnly}
-          spellCheck
-          onFocus={props.onFocus}
-          onBlur={props.onBlur}
-          onChange={props.onChange}
-          onKeyDown={props.onKeyDown}
-          onPaste={props.onPaste}
-        />
-        {!props.focused && !props.pickerOpen ? (
-          <div className="jl-se-display" data-empty={row.text.length === 0 ? "true" : "false"} aria-hidden onMouseDown={(event) => {
-            event.preventDefault();
-            inputRef.current?.focus();
-          }}>
-            {row.text.length === 0
-              ? phrasingTemplates[type]
-              : tokens.map((token, index) => <InstructionTokenView key={index} token={token} />)}
-          </div>
+        <div className="jl-se-line">
+          {props.readOnly ? (
+            display
+          ) : (
+            <>
+              {editing ? params : null}
+              <input
+                ref={(element) => {
+                  inputRef.current = element;
+                  props.inputRef(element);
+                }}
+                className="jl-se-input"
+                data-hidden={editing ? "false" : "true"}
+                value={row.text}
+                placeholder={isCall && chip.params ? "" : phrasingTemplates[type]}
+                aria-label={`Step ${props.ordinal ?? "new"} instruction`}
+                tabIndex={props.tabbable ? 0 : -1}
+                aria-autocomplete="list"
+                aria-expanded={props.pickerOpen}
+                aria-controls={props.pickerOpen ? props.listId : undefined}
+                spellCheck
+                onFocus={props.onFocus}
+                onBlur={props.onBlur}
+                onChange={props.onChange}
+                onKeyDown={props.onKeyDown}
+                onPaste={props.onPaste}
+              />
+              {editing ? null : display}
+            </>
+          )}
+        </div>
+        {isCall && props.expansion.length > 0 ? (
+          <details className="jl-se-expansion">
+            <summary>
+              ↳ {props.expansion.length} step{props.expansion.length === 1 ? "" : "s"}
+            </summary>
+            <ol aria-label={`Steps from macro ${chip.tag}`}>
+              {props.expansion.map((child, index) => (
+                <li key={`${child.stepId}-${index}`}>
+                  {child.tag ? <span className="jl-se-expansion-tag">{child.tag}</span> : null}
+                  {child.text}
+                </li>
+              ))}
+            </ol>
+          </details>
         ) : null}
         {props.children}
+        {showPopover ? (
+          <div className="jl-se-popover" role="note">
+            {props.findings.map((finding, index) => (
+              <div key={`${finding.ruleId}-${index}`} className="jl-se-lint" data-severity={finding.severity}>
+                <span>{finding.message}</span>
+                {!props.readOnly && isApplicableFix(finding.fix) ? (
+                  <button
+                    type="button"
+                    className="jl-se-fix"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => props.onApplyFix(finding)}
+                  >
+                    {describeLintFix(finding.fix)}
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            {props.suggestions.length > 0 && !props.readOnly ? (
+              <div className="jl-se-suggest" aria-label="Elements seen in the last run">
+                <span>seen on screen</span>
+                {props.suggestions.map((name) => (
+                  <button key={name} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => props.onPickSuggestion(name)}>
+                    {name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      <div className="jl-se-status">
-        {worst ? (
-          <span className={`jl-se-badge`} data-tone={worst.severity === "error" ? "error" : worst.severity === "warning" ? "warn" : undefined} title={props.findings.map((finding) => finding.message).join("\n")}>
-            lint {props.findings.length}
-          </span>
-        ) : null}
-        {props.status?.cache === "active" ? (
-          <span className="jl-se-badge" data-tone="ok" title={props.status.cacheDetail ?? "Cached script replays without the model"}>
-            cached
-          </span>
-        ) : props.status?.cache === "stale" || props.status?.cache === "invalid" ? (
-          <span className="jl-se-badge" data-tone="warn" title={props.status.cacheDetail ?? "Cached script will be re-recorded"}>
-            {props.status.cache}
-          </span>
-        ) : null}
-        {props.status?.lastOutcome ? (
-          <span className="jl-se-outcome" data-outcome={props.status.lastOutcome} title={`Last run: ${props.status.lastOutcome}${props.status.lastMode ? ` · ${props.status.lastMode}` : ""}`}>
-            <span className="jl-se-dot" aria-label={`Last run ${props.status.lastOutcome}`} />
-          </span>
-        ) : null}
-        {props.onRunFromHere && props.focused ? (
-          <button type="button" className="jl-se-iconbtn" aria-label="Run from this step" title="Run from this step (⌥↵)" onMouseDown={(event) => event.preventDefault()} onClick={props.onRunFromHere}>
-            ▶
-          </button>
-        ) : null}
-      </div>
-      {showBelow ? (
-        <div className="jl-se-below">
-          {isCall && props.expansion.length > 0 ? (
-            <div className="jl-se-expansion" aria-label={`Steps from macro ${chip.tag}`}>
-              ↳ {props.expansion.length} step{props.expansion.length === 1 ? "" : "s"} from macro {chip.tag}:{" "}
-              {props.expansion.map((child) => `${child.tag ? `[${child.tag}] ` : ""}${child.text}`).join(" · ")}
-            </div>
+      {hasStatus ? (
+        <div className="jl-se-status">
+          {cacheTone === "ok" ? (
+            <span className="jl-se-badge" data-tone="ok" title={status?.cacheDetail ?? "Cached script replays without the model"} aria-label="cached">
+              ✓
+            </span>
           ) : null}
-          {props.findings.map((finding, index) => (
-            <div key={`${finding.ruleId}-${index}`} className="jl-se-lint" data-severity={finding.severity}>
-              <span>{finding.message}</span>
-              {!props.readOnly && isApplicableFix(finding.fix) ? (
-                <button
-                  type="button"
-                  className="jl-se-fix"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => props.onApplyFix(finding)}
-                >
-                  {describeLintFix(finding.fix)}
-                </button>
-              ) : null}
-            </div>
-          ))}
-          {props.suggestions.length > 0 && !props.readOnly ? (
-            <div className="jl-se-suggest" aria-label="Elements seen in the last run">
-              <span>seen on screen:</span>
-              {props.suggestions.map((name) => (
-                <button key={name} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => props.onPickSuggestion(name)}>
-                  {name}
-                </button>
-              ))}
-            </div>
+          {cacheTone === "warn" ? (
+            <span className="jl-se-badge" data-tone="warn" title={status?.cacheDetail ?? "Cached script will be re-recorded"} aria-label={status?.cache ?? "stale"}>
+              ⚠
+            </span>
+          ) : null}
+          {status?.lastOutcome ? (
+            <span className="jl-se-outcome" data-outcome={status.lastOutcome} title={`Last run: ${status.lastOutcome}${status.lastMode ? ` · ${status.lastMode}` : ""}`}>
+              <span className="jl-se-dot" aria-label={`Last run ${status.lastOutcome}`} />
+            </span>
+          ) : null}
+          {showRun ? (
+            <button type="button" className="jl-se-iconbtn" aria-label="Run from this step" title="Run from this step (⌥↵)" onMouseDown={(event) => event.preventDefault()} onClick={props.onRunFromHere}>
+              ▶
+            </button>
           ) : null}
         </div>
+      ) : null}
+      {worst ? (
+        <span
+          className="jl-se-lintdot"
+          data-severity={worst.severity}
+          role="img"
+          aria-label={`${props.findings.length} lint ${props.findings.length === 1 ? "finding" : "findings"}`}
+          title={props.findings.map((finding) => finding.message).join("\n")}
+        />
       ) : null}
     </>
   );
@@ -952,11 +1183,12 @@ function Picker(props: {
     );
   }
 
-  type Item = { key: string; main: React.ReactNode; detail: string };
+  type Item = { key: string; main: React.ReactNode; detail: string; type?: string };
   const items: Item[] =
     picker.kind === "type"
       ? props.typeChoices.map((option) => ({
           key: `${option.kind}:${option.label}`,
+          type: option.kind === "builtin" ? option.tag.toLowerCase() : option.kind === "case" ? "use" : "macro",
           main: <code>{option.kind === "case" ? `[${option.tag}: ${option.args?.[0]?.value ?? ""}]` : option.kind === "macro" || option.tag === "Use" ? `[${option.tag}: …]` : `[${option.tag}]`}</code>,
           detail: option.description
         }))
@@ -999,7 +1231,10 @@ function Picker(props: {
                 props.onAccept(index);
               }}
             >
-              <span>{item.main}</span>
+              <span className="jl-se-option-main">
+                {item.type ? <span className="jl-se-option-rail" data-type={item.type} aria-hidden /> : null}
+                {item.main}
+              </span>
               <span className="jl-se-option-detail">{item.detail}</span>
             </div>
           ))

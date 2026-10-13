@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Eye, KeyRound, Lock, Pencil, Plus, RotateCw, Trash2, Undo2 } from "lucide-react";
+import { Eye, KeyRound, Lock, Pencil, Plus, RotateCw, Trash2, Undo2, X } from "lucide-react";
 import { resolveLoginField, type TestCredential, type TestEnvironment } from "@jittle-lamp/shared";
 
 import { Badge } from "../../components/ui/badge";
@@ -18,6 +18,7 @@ import { testAdminKeys, useTestAdminMutation, useTestCredentials, useTestEnviron
 import { AdminCard, ErrorNote, KeyValueEditor, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { credentialFieldPattern, recordToRows, rowsToRecord, type KeyValueRow } from "../../test-config/config-ui";
 import { Hint, TruncatedText } from "../../components/ui/tooltip";
+import { addSchemaChips, postgresFieldsFromForm, postgresFormFromFields, postgresSslOptions, removeSchemaChip, type PostgresForm } from "./postgres-form";
 
 // Settings → Credentials (design.md §9.3). Secret fields are write-only: the API returns names only,
 // inputs are password fields, and values live in component state only until the request is sent.
@@ -31,10 +32,11 @@ const kindLabels: Record<TestCredential["kind"], string> = {
   jira: "Jira",
   github_app: "GitHub app",
   gitlab_token: "GitLab token",
-  slack_webhook: "Slack webhook"
+  slack_webhook: "Slack webhook",
+  postgres: "Postgres"
 };
 
-const editableKinds = ["login", "jira", "github_app", "gitlab_token", "slack_webhook"] as const;
+const editableKinds = ["login", "postgres", "jira", "github_app", "gitlab_token", "slack_webhook"] as const;
 const profilePattern = /^[A-Z][A-Z0-9_]{0,62}$/;
 
 function environmentName(environmentId: string | null, environments: readonly TestEnvironment[]): string {
@@ -202,20 +204,29 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
   );
   const [submitted, setSubmitted] = useState(false);
   const [loginField, setLoginField] = useState(source?.loginField ?? "__auto__");
+  // Postgres profiles (roadmap §5.1) have fixed connection fields and one secret, the password.
+  const [postgres, setPostgres] = useState<PostgresForm>(() => postgresFormFromFields(source?.kind === "postgres" ? source.fields : {}));
+  const [schemaInput, setSchemaInput] = useState("");
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const postgresResult = postgresFieldsFromForm(postgres);
 
   const save = useTestAdminMutation(
     (getToken, body: CredentialInput) => (source ? testAdminApi.updateCredential(getToken, source.id, body) : testAdminApi.createCredential(getToken, body)),
     [testAdminKeys.credentials]
   );
 
-  const fieldResult = rowsToRecord(fields, credentialFieldPattern, "Field");
-  const secretErrors = secrets
+  const fieldResult = kind === "postgres" ? { record: postgresResult.fields, errors: [] as string[] } : rowsToRecord(fields, credentialFieldPattern, "Field");
+  const postgresSecrets = kind === "postgres" ? secrets.filter((row) => row.name === "password") : secrets;
+  const secretErrors = postgresSecrets
     .filter((row) => !row.stored && (row.name || row.value))
     .flatMap((row) => (credentialFieldPattern.test(row.name) ? [] : [`Secret field "${row.name || "(empty)"}" is not a valid name.`]));
   const profileError = profilePattern.test(profile) ? undefined : "Upper-case letters, digits and underscores, starting with a letter.";
   const loginSelection = resolveLoginField(fieldResult.record, loginField === "__auto__" ? null : loginField);
   const loginError = kind === "login" ? loginSelection.error : null;
-  const valid = !profileError && fieldResult.errors.length === 0 && secretErrors.length === 0 && !loginError;
+  // A new Postgres profile cannot connect without a password; an existing one keeps its stored value.
+  const passwordMissing = kind === "postgres" && !source && !postgresSecrets.some((row) => row.value.length > 0);
+  const postgresValid = kind !== "postgres" || (Object.keys(postgresResult.errors).length === 0 && !passwordMissing);
+  const valid = !profileError && fieldResult.errors.length === 0 && secretErrors.length === 0 && !loginError && postgresValid;
 
   const updateSecret = (index: number, patch: Partial<SecretRow>) => setSecrets((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
 
@@ -223,7 +234,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
     setSubmitted(true);
     if (!valid || props.readOnly) return;
     const secretFields: Record<string, string | null> = {};
-    for (const row of secrets) {
+    for (const row of postgresSecrets) {
       if (row.stored && row.remove) secretFields[row.name] = null;
       else if (row.value.length > 0 && row.name) secretFields[row.name] = row.value;
     }
@@ -271,7 +282,17 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
               <Input id="cred-profile" value={profile} onChange={(event) => setProfile(event.target.value.toUpperCase())} className="font-mono" placeholder="PCF_HQ_ADMIN" />
             </Field>
             <Field label="Kind">
-              <SimpleSelect ariaLabel="Credential kind" value={kind} onValueChange={setKind} options={kindOptions} disabled={props.readOnly} />
+              <SimpleSelect
+                ariaLabel="Credential kind"
+                value={kind}
+                onValueChange={(next) => {
+                  setKind(next);
+                  // The password row is the one secret a database profile has.
+                  if (next === "postgres" && !secrets.some((row) => row.name === "password")) setSecrets((current) => [...current, { name: "password", value: "", stored: false, remove: false }]);
+                }}
+                options={kindOptions}
+                disabled={props.readOnly}
+              />
             </Field>
             <Field label="Environment">
               <SimpleSelect
@@ -284,15 +305,79 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
             </Field>
           </div>
 
-          <div className="grid gap-2">
-            <span className="font-medium text-muted-foreground">Public fields</span>
-            <KeyValueEditor rows={fields} onChange={setFields} keyLabel="Field" valueLabel="Value" keyPlaceholder="username" valuePlaceholder="qa-admin@example.com" addLabel="Add public field" disabled={props.readOnly} />
-            {fieldResult.errors.map((error) => (
-              <p key={error} className="text-sm text-destructive">
-                {error}
-              </p>
-            ))}
-          </div>
+          {kind === "postgres" ? (
+            <div className="grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
+                <Field label="Host" htmlFor="pg-host" error={submitted ? postgresResult.errors.host : undefined}>
+                  <Input id="pg-host" value={postgres.host} className="font-mono" placeholder="db.internal" onChange={(event) => setPostgres((current) => ({ ...current, host: event.target.value }))} />
+                </Field>
+                <Field label="Port" htmlFor="pg-port" error={submitted ? postgresResult.errors.port : undefined}>
+                  <Input id="pg-port" value={postgres.port} inputMode="numeric" className="font-mono" onChange={(event) => setPostgres((current) => ({ ...current, port: event.target.value }))} />
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Field label="Database" htmlFor="pg-database" error={submitted ? postgresResult.errors.database : undefined}>
+                  <Input id="pg-database" value={postgres.database} className="font-mono" onChange={(event) => setPostgres((current) => ({ ...current, database: event.target.value }))} />
+                </Field>
+                <Field label="User" htmlFor="pg-user" error={submitted ? postgresResult.errors.user : undefined}>
+                  <Input id="pg-user" value={postgres.user} className="font-mono" placeholder="readonly" onChange={(event) => setPostgres((current) => ({ ...current, user: event.target.value }))} />
+                </Field>
+                <Field label="SSL">
+                  <SimpleSelect ariaLabel="SSL" value={postgres.ssl} onValueChange={(ssl) => setPostgres((current) => ({ ...current, ssl }))} options={[...postgresSslOptions]} disabled={props.readOnly} />
+                </Field>
+              </div>
+              <Field label="Schemas" htmlFor="pg-schema" error={submitted ? postgresResult.errors.schemas ?? schemaError ?? undefined : schemaError ?? undefined} hint="Queries read these schemas only.">
+                <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+                  {postgres.schemas.map((schema) => (
+                    <span key={schema} className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                      {schema}
+                      {props.readOnly ? null : (
+                        <button type="button" className="jl-tc-press rounded text-muted-foreground hover:text-foreground" aria-label={`Remove ${schema}`} onClick={() => setPostgres((current) => ({ ...current, schemas: removeSchemaChip(current.schemas, schema) }))}>
+                          <X className="size-3" aria-hidden />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                  <input
+                    id="pg-schema"
+                    value={schemaInput}
+                    placeholder={postgres.schemas.length === 0 ? "public" : ""}
+                    aria-label="Add schema"
+                    className="min-w-24 flex-1 bg-transparent font-mono text-sm outline-none"
+                    spellCheck={false}
+                    disabled={props.readOnly}
+                    onChange={(event) => setSchemaInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== "," && event.key !== " ") return;
+                      event.preventDefault();
+                      const next = addSchemaChips(postgres.schemas, schemaInput);
+                      setPostgres((current) => ({ ...current, schemas: next.schemas }));
+                      setSchemaInput("");
+                      setSchemaError(next.rejected.length > 0 ? `Not a schema name: ${next.rejected.join(", ")}.` : null);
+                    }}
+                    onBlur={() => {
+                      if (schemaInput.trim().length === 0) return;
+                      const next = addSchemaChips(postgres.schemas, schemaInput);
+                      setPostgres((current) => ({ ...current, schemas: next.schemas }));
+                      setSchemaInput("");
+                      setSchemaError(next.rejected.length > 0 ? `Not a schema name: ${next.rejected.join(", ")}.` : null);
+                    }}
+                  />
+                </div>
+              </Field>
+              <p className="text-sm text-muted-foreground">Runners in this environment's pool must reach the database.</p>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <span className="font-medium text-muted-foreground">Public fields</span>
+              <KeyValueEditor rows={fields} onChange={setFields} keyLabel="Field" valueLabel="Value" keyPlaceholder="username" valuePlaceholder="qa-admin@example.com" addLabel="Add public field" disabled={props.readOnly} />
+              {fieldResult.errors.map((error) => (
+                <p key={error} className="text-sm text-destructive">
+                  {error}
+                </p>
+              ))}
+            </div>
+          )}
 
           {kind === "login" ? (
             <Field label="Field used to sign in" error={submitted ? loginError ?? undefined : undefined}>
@@ -303,10 +388,11 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
           ) : null}
 
           <div className="grid gap-2">
-            <span className="font-medium text-muted-foreground">Secret fields · write-only</span>
-            {secrets.map((row, index) => (
+            <span className="font-medium text-muted-foreground">{kind === "postgres" ? "Password · write-only" : "Secret fields · write-only"}</span>
+            {submitted && passwordMissing ? <p className="text-sm text-destructive">A password is needed to connect.</p> : null}
+            {postgresSecrets.map((row, index) => (
               <div key={index} className={cn("grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_2.25rem] items-center gap-2", row.remove && "opacity-60")}>
-                {row.stored ? (
+                {row.stored || kind === "postgres" ? (
                   <span className="flex h-10 items-center gap-1.5 rounded-md border border-border bg-muted px-3 font-mono text-sm">
                     <Lock className="size-3.5 text-muted-foreground" aria-hidden />
                     {row.name}
@@ -325,7 +411,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
                     onChange={(value) => updateSecret(index, { value })}
                   />
                 )}
-                {props.readOnly ? (
+                {props.readOnly || kind === "postgres" ? (
                   <span />
                 ) : row.stored ? (
                   <Hint label={row.remove ? "Keep field" : "Remove field"}>
@@ -348,7 +434,7 @@ function CredentialDialog(props: { credential: TestCredential | null; environmen
                 )}
               </div>
             ))}
-            {!props.readOnly ? (
+            {!props.readOnly && kind !== "postgres" ? (
               <div>
                 <Button variant="ghost" size="xs" onClick={() => setSecrets((current) => [...current, { name: "", value: "", stored: false, remove: false }])}>
                   <Plus aria-hidden />

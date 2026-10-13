@@ -23,6 +23,7 @@ import { parseJsonColumn } from "./test-cases";
 import { releaseWorkerRun } from "./test-run-queue";
 import {
 	ACTIVE_RUN_STATUSES,
+	queueRepairRun,
 	queueRetryRun,
 	refreshBatch,
 	type TestRunRow,
@@ -134,6 +135,8 @@ export type FinalizeResult = {
 	alreadyFinal: boolean;
 	// Set when a failed attempt was queued again under the case's retries.
 	retry: TestRunRow | null;
+	// Set when a strict run stopped on REPLAY_STALE and a read-write repair run was queued.
+	repair: TestRunRow | null;
 };
 
 // Replayed steps verify their scripts; a hand-off means the cached script no longer matched, so
@@ -165,9 +168,40 @@ export const updateStepScripts = async (
 				),
 		);
 	for (const step of report.steps) {
-		const matching = forStep(step.stepId);
+		// API scripts verify and stale on their own modes (roadmap §2.4); the UI rules below
+		// never touch them.
+		const apiScripts = forStep(step.stepId).filter(
+			(script) => script.kind === "api-requests",
+		);
+		if (step.mode === "api-replayed" && step.status === "passed") {
+			for (const script of apiScripts) {
+				await db
+					.update(testStepScripts)
+					.set({
+						verifiedCount: script.verifiedCount + 1,
+						lastReplayedAt: now,
+						updatedAt: now,
+					})
+					.where(eq(testStepScripts.id, script.id));
+			}
+		} else if (step.mode === "api-handoff") {
+			await markStale(
+				db,
+				apiScripts,
+				run,
+				`API replay stopped (${step.cacheDetail ?? "hand-off"}); re-recorded on run ${run.id}`,
+				now,
+			);
+		}
+		const matching = forStep(step.stepId).filter(
+			(script) => script.kind !== "api-requests",
+		);
 		if (matching.length === 0) continue;
-		if (step.mode === "replayed" && step.status === "passed") {
+		// `deterministic` covers an Assert replayed from its check (kind assert-check).
+		if (
+			(step.mode === "replayed" || step.mode === "deterministic") &&
+			step.status === "passed"
+		) {
 			for (const script of matching) {
 				await db
 					.update(testStepScripts)
@@ -189,25 +223,56 @@ export const updateStepScripts = async (
 					),
 				);
 		} else if (step.mode === "handoff") {
-			const stale = matching.filter(
-				(script) => script.recordedFromRunId !== run.id,
+			await markStale(
+				db,
+				matching,
+				run,
+				`replay stopped (${step.cacheReason ?? "hand-off"}); re-generated on run ${run.id}`,
+				now,
 			);
-			if (stale.length === 0) continue;
-			await db
-				.update(testStepScripts)
-				.set({
-					status: "stale",
-					staleReason: `replay stopped (${step.cacheReason ?? "hand-off"}); re-generated on run ${run.id}`,
-					updatedAt: now,
-				})
-				.where(
-					inArray(
-						testStepScripts.id,
-						stale.map((script) => script.id),
-					),
-				);
+		} else if (step.mode === "agent" && rekeyedReasons.has(step.cacheReason)) {
+			// The run looked the step up and found nothing under its key, yet an active script
+			// exists for the step: e2e 0.17 re-keyed the cache (and 0.19 dropped the engine version
+			// from the key), so the old entry is unreachable and re-records once.
+			if (run.cacheMode === "off") continue;
+			await markStale(
+				db,
+				matching,
+				run,
+				`re-keyed by e2e upgrade (${step.cacheReason}); re-generated on run ${run.id}`,
+				now,
+			);
 		}
 	}
+};
+
+const rekeyedReasons = new Set<RunReport["steps"][number]["cacheReason"]>([
+	"invalid-entry",
+	"no-entry",
+]);
+
+// Scripts this run did not record itself go stale with the reason; the run's own fresh
+// recording keeps its status.
+const markStale = async (
+	db: BackendDb,
+	matching: { id: string; recordedFromRunId: string | null }[],
+	run: TestRunRow,
+	staleReason: string,
+	now: number,
+) => {
+	const stale = matching.filter(
+		(script) => script.recordedFromRunId !== run.id,
+	);
+	if (stale.length === 0) return;
+	await db
+		.update(testStepScripts)
+		.set({ status: "stale", staleReason, updatedAt: now })
+		.where(
+			inArray(
+				testStepScripts.id,
+				stale.map((script) => script.id),
+			),
+		);
 };
 
 export const finalizeRun = async (
@@ -221,7 +286,7 @@ export const finalizeRun = async (
 	const now = input.now ?? Date.now();
 	const { run, request } = input;
 	if (!(ACTIVE_RUN_STATUSES as readonly string[]).includes(run.status)) {
-		return { run, alreadyFinal: true, retry: null };
+		return { run, alreadyFinal: true, retry: null, repair: null };
 	}
 	if (request.report.runId && request.report.runId !== run.id) {
 		throw new HttpError(
@@ -262,6 +327,11 @@ export const finalizeRun = async (
 					: null,
 			runnerInfoJson: JSON.stringify(report.runner),
 			runner: report.runner.host,
+			// Runs whose outputs stood in for [Use] blocks (roadmap §2.6).
+			reusedFromRunIdsJson:
+				report.reusedFromRunIds && report.reusedFromRunIds.length > 0
+					? JSON.stringify(report.reusedFromRunIds)
+					: null,
 			evidenceId: evidenceId ?? null,
 			startedAt: run.startedAt ?? Date.parse(report.startedAt),
 			finishedAt: now,
@@ -283,7 +353,7 @@ export const finalizeRun = async (
 			where: eq(testRuns.id, run.id),
 		});
 		if (!current) throw new Error("Run disappeared during finalisation");
-		return { run: current, alreadyFinal: true, retry: null };
+		return { run: current, alreadyFinal: true, retry: null, repair: null };
 	}
 	await releaseWorkerRun(db, run.id, now);
 	await updateStepScripts(db, updated, report, now);
@@ -313,8 +383,19 @@ export const finalizeRun = async (
 			.returning();
 		if (flaky) final = flaky;
 	}
+	// Strict regression (roadmap 2026-10-13 §4.3): a stale script blocks the run with no model
+	// call; one read-write repair run re-records it off the critical path.
+	let repair: TestRunRow | null = null;
+	if (
+		updated.status !== "cancelled" &&
+		updated.outcome === "blocked" &&
+		updated.blockedReason === "REPLAY_STALE" &&
+		run.cacheMode === "strict"
+	) {
+		repair = await queueRepairRun(db, updated, now);
+	}
 	// A retried attempt is not the verdict; subscribers hear about the final attempt.
 	if (!retry) await emitRunOutcome(db, final);
 	if (final.batchId) await refreshBatch(db, final.batchId, now);
-	return { run: final, alreadyFinal: false, retry };
+	return { run: final, alreadyFinal: false, retry, repair };
 };

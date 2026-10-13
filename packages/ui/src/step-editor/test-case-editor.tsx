@@ -16,6 +16,8 @@ export type TestCaseEditorProps = StepEditorProps & {
   onModeChange: (mode: TestCaseEditorMode) => void;
   // Rendered at the right of the Steps/Text switch, e.g. version history and Save.
   toolbar?: React.ReactNode;
+  // The host draws its own view switch (the case page's Flow | Steps | Text); the editor's stays out.
+  modesHidden?: boolean;
 };
 
 export function TestCaseEditor(props: TestCaseEditorProps): React.JSX.Element {
@@ -62,7 +64,9 @@ export function TestCaseEditor(props: TestCaseEditorProps): React.JSX.Element {
 
   return (
     <div className="jl-se-workbench">
+      {props.modesHidden && !props.toolbar ? null : (
       <div className="jl-se-toolbar">
+        {props.modesHidden ? null : (
         <div role="tablist" aria-label="Editor view" className="jl-se-modes">
           {(["steps", "text"] as const).map((value) => (
             <button
@@ -78,8 +82,10 @@ export function TestCaseEditor(props: TestCaseEditorProps): React.JSX.Element {
             </button>
           ))}
         </div>
+        )}
         {props.toolbar}
       </div>
+      )}
       {mode === "steps" ? (
         <StepEditor {...props} />
       ) : (

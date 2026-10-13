@@ -12,6 +12,7 @@ export const testingSettingsRoute: RouteObject = {
     { path: "variables", lazy: async () => ({ Component: (await import("./variables")).SettingsTestVariablesPage }) },
     { path: "environments", lazy: async () => ({ Component: (await import("./environments")).SettingsTestEnvironmentsPage }) },
     { path: "credentials", lazy: async () => ({ Component: (await import("./credentials")).SettingsTestCredentialsPage }) },
+    { path: "queries", lazy: async () => ({ Component: (await import("./queries")).SettingsTestQueriesPage }) },
     { path: "actions", lazy: async () => ({ Component: (await import("./macros")).SettingsTestMacrosPage }) },
     { path: "tags", lazy: async () => ({ Component: (await import("./tags")).SettingsTestTagsPage }) },
     { path: "ai-model", lazy: async () => ({ Component: (await import("./ai-model")).SettingsTestAiModelPage }) },

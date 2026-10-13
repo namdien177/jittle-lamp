@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 # Cloud runner pool image: jl-e2e-runner with Playwright's Chromium (design.md §5.4, ADR 0002 decision 3).
+# Node 24: e2e 0.18+ requires ^22.22.3 || >=24.8.0 and refuses to run its tests under Bun.
 # Build from the repository root:
 #   docker build -f deploy/runner/Dockerfile -t jittle-lamp/e2e-runner .
 
-FROM node:22-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 
 ENV BUN_INSTALL=/opt/bun PATH=/opt/bun/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/* \
@@ -30,7 +31,7 @@ COPY packages/shared ./packages/shared
 COPY packages/e2e-runner ./packages/e2e-runner
 RUN bun run --cwd packages/shared build:js && bun run --cwd packages/e2e-runner build
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 # The generated project loads runtime TypeScript and its model/cache helpers through e2e's loader.
 WORKDIR /app
@@ -54,6 +55,7 @@ COPY --from=build /app/packages/e2e-runner/package.json /app/packages/e2e-runner
 COPY --from=build /app/packages/e2e-runner/dist /app/packages/e2e-runner/dist
 COPY --from=build /app/packages/e2e-runner/macros /app/packages/e2e-runner/macros
 COPY --from=build /app/packages/e2e-runner/src/runtime /app/packages/e2e-runner/src/runtime
+COPY --from=build /app/packages/e2e-runner/src/redact.ts /app/packages/e2e-runner/src/redact.ts
 COPY --from=build /app/packages/e2e-runner/src/model /app/packages/e2e-runner/src/model
 COPY --from=build /app/packages/e2e-runner/src/cache/render.ts /app/packages/e2e-runner/src/cache/render.ts
 

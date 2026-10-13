@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 import {
   bulkTestCaseResponseSchema,
   createTestRunResponseSchema,
+  draftTestCaseResponseSchema,
   duplicateTestCaseResponseSchema,
   similarTestCasesResponseSchema,
   stepScriptSchema,
@@ -17,7 +18,9 @@ import {
   type BulkTestCaseRequest,
   type CreateTestCaseRequest,
   type CreateTestRunRequest,
+  type DraftTestCaseRequest,
   type DuplicateTestCaseRequest,
+  type PatchStepScriptRequest,
   type TestCaseListQuery,
   type UpdateTestCaseRequest
 } from "@jittle-lamp/shared";
@@ -126,6 +129,9 @@ export const testApi = {
   listScripts: async (getToken: FetchToken, testCaseId: string) =>
     parseList(stepScriptSchema, await request(getToken, `/test-cases/${id(testCaseId)}/scripts`), ["scripts"], "step scripts"),
 
+  // A reviewer binds a flagged value of an API script to a response field (roadmap §3.4).
+  fixApiScript: async (getToken: FetchToken, testCaseId: string, scriptId: string, fixes: PatchStepScriptRequest["fixes"]) =>
+    stepScriptSchema.parse(await request(getToken, `/test-cases/${id(testCaseId)}/scripts/${id(scriptId)}`, { method: "PATCH", body: JSON.stringify({ fixes }) })),
   clearScripts: async (getToken: FetchToken, testCaseId: string, stepId?: string) => {
     await request(getToken, `/test-cases/${id(testCaseId)}/scripts${stepId ? `/${id(stepId)}` : ""}`, { method: "DELETE" });
   },
@@ -153,6 +159,10 @@ export const testApi = {
       [],
       "similar cases"
     ),
+
+  // "Run it with AI": the act model drafts a transcript from plain language (roadmap §3.2).
+  draftTestCase: async (getToken: FetchToken, input: DraftTestCaseRequest) =>
+    parseEnvelope(draftTestCaseResponseSchema, await request(getToken, "/test-cases/draft", { method: "POST", ...json(input) }), [], "draft"),
 
   createRun: async (getToken: FetchToken, testCaseId: string, input: Partial<CreateTestRunRequest>) =>
     parseEnvelope(

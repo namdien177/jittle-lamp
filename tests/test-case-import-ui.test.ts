@@ -375,7 +375,7 @@ describe("review queue state", () => {
         { id: "c", lintErrors: 1, lintWarnings: 0 }
       ])
     ).toEqual(["a"]);
-    expect(caseEditorHref("tc 1")).toBe("/test-cases?case=tc%201");
+    expect(caseEditorHref("tc 1")).toBe("/test-cases/tc%201");
   });
 });
 

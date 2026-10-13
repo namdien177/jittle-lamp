@@ -140,6 +140,14 @@ export function liveViewport(live: TestRunDetail["live"], frame: Size | null): S
   return frame ?? live?.viewport ?? DEFAULT_VIEWPORT;
 }
 
+// The two frame layers on screen: the new frame fades in over the one before it (roadmap §3.7,
+// "Live frame refresh"). The frame that drops out of the pair is the one to release.
+export const LIVE_FRAME_CROSSFADE_MS = 150;
+export type FramePair<T> = { current: T | null; previous: T | null };
+export function nextFramePair<T>(pair: FramePair<T>, next: T): { pair: FramePair<T>; released: T | null } {
+  return { pair: { current: next, previous: pair.current }, released: pair.previous };
+}
+
 // "frame 0.4 s ago" next to the live dot; frames older than 5 s read as stalled.
 export function frameAge(frameAt: number | null, now: number): { label: string; stale: boolean } {
   if (frameAt === null) return { label: "waiting for the first frame", stale: false };

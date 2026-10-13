@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "description": "Recorded turns for the records form of test/fixtures/app/server.ts (API replay browser test)",
+  "modelId": "mock-act",
+  "turns": [
+    {
+      "match": {
+        "tools": [
+          "type"
+        ],
+        "promptIncludes": [
+          "into the Name field"
+        ]
+      },
+      "content": [
+        {
+          "type": "tool-call",
+          "toolName": "type",
+          "input": {
+            "target": {
+              "$refFor": {
+                "role": "textbox",
+                "name": "Name"
+              }
+            },
+            "value": "Widget"
+          }
+        }
+      ],
+      "usage": {
+        "inputTokens": 1500,
+        "cachedInputTokens": 300,
+        "outputTokens": 40,
+        "reasoningTokens": 0
+      }
+    },
+    {
+      "match": {
+        "tools": [
+          "tap"
+        ],
+        "promptIncludes": [
+          "into the Name field"
+        ]
+      },
+      "content": [
+        {
+          "type": "tool-call",
+          "toolName": "tap",
+          "input": {
+            "target": {
+              "$refFor": {
+                "role": "button",
+                "name": "Create record"
+              }
+            }
+          }
+        }
+      ],
+      "usage": {
+        "inputTokens": 1600,
+        "cachedInputTokens": 1300,
+        "outputTokens": 30,
+        "reasoningTokens": 0
+      }
+    },
+    {
+      "match": {
+        "tools": [
+          "complete_step"
+        ],
+        "promptIncludes": [
+          "into the Name field"
+        ]
+      },
+      "content": [
+        {
+          "type": "tool-call",
+          "toolName": "complete_step",
+          "input": {
+            "status": "passed",
+            "summary": "Typed Widget and pressed Create record."
+          }
+        }
+      ],
+      "usage": {
+        "inputTokens": 1650,
+        "cachedInputTokens": 1400,
+        "outputTokens": 25,
+        "reasoningTokens": 0
+      }
+    },
+    {
+      "repeat": true,
+      "match": {
+        "noTools": true,
+        "promptIncludes": [
+          "the page shows the created record"
+        ]
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"protocolVersion\":\"agent-judgment-2\",\"explanation\":\"The page lists the created record.\",\"verdict\":\"holds\"}"
+        }
+      ],
+      "usage": {
+        "inputTokens": 800,
+        "outputTokens": 30
+      }
+    }
+  ]
+}

@@ -25,6 +25,8 @@ export type OrgRunConfig = {
   };
   credentials: Array<{
     profile: string;
+    // `postgres` for a [Query] profile (roadmap §5.1); absent means a login profile.
+    kind?: string | undefined;
     loginField?: string | null;
     fields: Record<string, string>;
     secretFields: Record<string, string>;
@@ -32,7 +34,13 @@ export type OrgRunConfig = {
   // `accounts`: the organisation's model accounts in priority order (design.md §9.3); absent from
   // backends older than model accounts.
   model?: { act: string | null; judge: string | null; apiKeys: Record<string, string>; accounts?: RunModelAccount[] } | null;
+  // Saved queries of the postgres profiles the run names (roadmap §5.2 tier 3).
+  queries?: SavedQuery[];
 };
+
+// A named query a [Query: P, name=x] step runs instead of agent-written SQL. `params` name the
+// run values bound to `$1..$n` in order.
+export type SavedQuery = { profile: string; name: string; sqlText: string; params: Array<{ name: string; kind?: "text" | "number" }> };
 
 export type ResolvedRunConfig = {
   environmentName: ResolvedValue | null;
@@ -43,6 +51,10 @@ export type ResolvedRunConfig = {
   credentials: Map<string, Map<string, ResolvedValue>>;
   loginFields: Map<string, string>;
   credentialErrors: Map<string, string>;
+  // Profile → credential kind (`login`, `postgres`); profiles only known from the environment are
+  // `login` unless JL_CREDENTIAL_<P>_KIND says otherwise.
+  credentialKinds: Map<string, string>;
+  queries: SavedQuery[];
   actModel: ResolvedValue | null;
   judgeModel: ResolvedValue | null;
   providerKeys: Map<string, ResolvedValue>;
@@ -53,7 +65,9 @@ export type ResolvedRunConfig = {
   apiOrigin: string | null;
 };
 
-const publicCredentialFields = new Set(["username", "user", "email", "login", "name", "tenant", "school", "role"]);
+// Login identifiers plus the connection fields of a postgres profile (roadmap §5.1); its password
+// stays secret like any other.
+const publicCredentialFields = new Set(["username", "user", "email", "login", "name", "tenant", "school", "role", "host", "port", "database", "ssl", "schema_allowlist"]);
 // Whole name segments only: OTP_CODE and API_KEY are secret, SCHOOL_CODE and SHIPPING are not
 // (design.md §9.1). JL_SECRET_NAMES lists any other names to treat as secret.
 const secretSegments = new Set(["PASSWORD", "PASSWD", "PASS", "PWD", "SECRET", "TOKEN", "OTP", "PIN", "KEY", "APIKEY", "PASSCODE"]);
@@ -93,7 +107,7 @@ function lookup(layers: readonly Layer[], name: string): { value: string; source
 }
 
 // Field roles and classification travel independently from their values.
-const credentialMetadata = /^JL_CREDENTIAL_([A-Z0-9_]+)_(LOGIN_FIELD|PUBLIC_FIELDS|SECRET_FIELDS)$/;
+const credentialMetadata = /^JL_CREDENTIAL_([A-Z0-9_]+)_(LOGIN_FIELD|PUBLIC_FIELDS|SECRET_FIELDS|KIND)$/;
 
 export function parseCredentialEnvName(name: string): { profile: string; field: string } | null {
   const match = /^JL_CRED_([A-Z0-9_]+)_([A-Z0-9]+)$/.exec(name);
@@ -168,8 +182,12 @@ export function resolveRunConfig(input: {
 
   const loginFields = new Map<string, string>();
   const credentialErrors = new Map<string, string>();
+  const credentialKinds = new Map<string, string>();
   for (const [profile, fields] of credentials) {
     const stored = org?.credentials.find((credential) => credential.profile === profile);
+    credentialKinds.set(profile, lookup(layers, `JL_CREDENTIAL_${profile}_KIND`)?.value ?? stored?.kind ?? "login");
+    // A database profile has no login identifier; its fields describe a connection.
+    if (credentialKinds.get(profile) === "postgres") continue;
     // Declared organisation classification also applies to environment overrides.
     for (const [name, value] of fields) {
       const key = name.toLowerCase();
@@ -228,6 +246,8 @@ export function resolveRunConfig(input: {
     credentials,
     loginFields,
     credentialErrors,
+    credentialKinds,
+    queries: org?.queries ?? [],
     actModel,
     // Without an explicit judge the act model judges too, as e2e does; the org default pairs both.
     judgeModel: resolved(

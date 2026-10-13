@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import type * as React from "react";
 import { X } from "lucide-react";
 
@@ -49,12 +50,34 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
 
   if (!props.open) return null;
 
+  // The run view keeps the stream in its own drawer: the pane (with the discussion and tags in
+  // its Info tab) renders there, inside a second themed root so the viewer's tokens and tooltips
+  // still apply, and the body holds only the video.
+  const paneContainer = props.paneContainer ?? null;
+  const paneInDrawer = paneContainer !== null;
+  const drawerPane = paneInDrawer
+    ? createPortal(
+        <div
+          className="jl-vm-root jl-vm-drawer-pane"
+          data-jl-theme={theme}
+          data-compact={props.compact ? "true" : "false"}
+          data-embedded={props.embedded ? "true" : "false"}
+          data-drawer="true"
+        >
+          <EvidencePane {...props} />
+          <ViewerTooltipLayer />
+        </div>,
+        paneContainer
+      )
+    : null;
+
   const viewer = (
     <div
       className={mode === "page" ? "jl-vm-root" : "jl-vm-modal"}
       data-jl-theme={theme}
       data-compact={props.compact ? "true" : "false"}
       data-embedded={props.embedded ? "true" : "false"}
+      data-drawer={paneInDrawer ? "true" : "false"}
       role={mode === "modal" ? "dialog" : undefined}
       aria-modal={mode === "modal" ? "true" : undefined}
       aria-label={props.title}
@@ -62,9 +85,10 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
       {props.embedded ? null : <ViewerModalHeader {...props} mode={mode} />}
       <div className="jl-vm-body">
         <div className="jl-vm-left"><EvidenceVideoPlayer {...props} /></div>
-        <EvidencePane {...props} />
-        <ViewerNotesPane {...props} />
+        {paneInDrawer ? null : <EvidencePane {...props} />}
+        {paneInDrawer ? null : <ViewerNotesPane {...props} />}
       </div>
+      {drawerPane}
       <ViewerTooltipLayer />
       {props.feedback ? (
         <div className="jl-vm-feedback" data-tone={props.feedback.tone}>

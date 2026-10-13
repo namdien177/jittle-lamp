@@ -415,6 +415,30 @@ export const evidenceStyles = `
 .jl-vm-row-dot[data-kind="error"] { background: var(--jl-vm-danger, #ef4444); }
 .jl-vm-row-dot[data-kind="interaction"] { background: var(--jl-vm-accent, #22c55e); }
 .jl-vm-row-dot[data-kind="lifecycle"] { background: #9fbbe0; }
+.jl-vm-row-dot[data-kind="integration"] { background: #f59e0b; }
+
+/* [Query]/[API] rows: the statement under the header, the sample behind a disclosure. */
+.jl-vm-row-group { display: grid; }
+.jl-vm-row.jl-vm-row-integration { min-height: 40px; height: auto; align-items: start; padding-top: 8px; padding-bottom: 8px; }
+.jl-vm-row-statement {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: calc(11.5px * var(--jl-font-scale, 1));
+  color: var(--jl-vm-soft, rgba(239, 239, 239, 0.68));
+}
+.jl-vm-row-sample { padding: 0 12px 8px 70px; }
+.jl-vm-row-sample > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: calc(11.5px * var(--jl-font-scale, 1));
+  color: var(--jl-vm-muted, rgba(239, 239, 239, 0.46));
+}
+.jl-vm-row-sample > summary::-webkit-details-marker { display: none; }
+.jl-vm-row-sample > summary::before { content: "▸ "; }
+.jl-vm-row-sample[open] > summary::before { content: "▾ "; }
+.jl-vm-row-sample .jl-vm-pre { margin-top: 6px; max-height: 240px; overflow: auto; scrollbar-gutter: stable; }
 
 .jl-vm-row-method {
   font-family: var(--font-mono, ui-monospace, monospace);

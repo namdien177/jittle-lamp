@@ -10,6 +10,7 @@ import {
 	testCredentialSchema,
 	testEnvironmentSchema,
 	testMacroSchema,
+	testQuerySchema,
 	testRunSettingsSchema,
 	testTagSchema,
 	updateModelAccountRequestSchema,
@@ -17,6 +18,7 @@ import {
 	upsertTestCredentialRequestSchema,
 	upsertTestEnvironmentRequestSchema,
 	upsertTestMacroRequestSchema,
+	upsertTestQueryRequestSchema,
 	upsertTestTagRequestSchema,
 } from "@jittle-lamp/shared";
 import { and, asc, eq, isNull } from "drizzle-orm";
@@ -56,6 +58,13 @@ import {
 } from "../services/organization-activity";
 import type { OutboundPolicy } from "../services/outbound-http";
 import { createTestSecrets } from "../services/test-config";
+import {
+	deleteQuery,
+	getQueryRow,
+	listQueries,
+	saveQuery,
+	toQuery,
+} from "../services/test-queries";
 import { releaseBudgetBlockedRuns } from "../services/test-run-budget";
 import { getRunSettings } from "../services/test-runs";
 import {
@@ -418,6 +427,86 @@ export const createTestConfigRoutes = (
 					})
 					.where(eq(testCredentials.id, existing.id));
 				return { id: existing.id, deleted: true };
+			}),
+		)
+		// --- Saved queries (roadmap 2026-10-13 §5.2 tier 3) -----------------------------------
+		.get("/test-queries", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireAnyTestPermission(
+					db,
+					who,
+					"test_config.use",
+					"test_config.manage",
+				);
+				const query = parseInput(
+					z.object({ credentialId: z.string().min(1).optional() }),
+					normalizeQuery(ctx.request.url, new Set()),
+				);
+				return {
+					items: (
+						await listQueries(db, who.orgId, {
+							credentialId: query.credentialId,
+						})
+					).map((item) => respond(testQuerySchema, item)),
+				};
+			}),
+		)
+		.post("/test-queries", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const body = parseInput(upsertTestQueryRequestSchema, ctx.body);
+				const saved = await saveQuery(db, {
+					orgId: who.orgId,
+					userId: who.userId,
+					request: body,
+				});
+				await recordOrganizationActivity(db, {
+					organizationId: who.orgId,
+					actorUserId: who.userId,
+					action: "test_config.query_created",
+					entity: { type: "test_query", id: saved.row.id },
+					message: `Saved query ${saved.row.name} for ${saved.profile}`,
+				});
+				ctx.set.status = 201;
+				return respond(testQuerySchema, toQuery(saved.row, saved.profile));
+			}),
+		)
+		.patch("/test-queries/:id", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const { id } = parseInput(idParams, ctx.params);
+				const existing = await getQueryRow(db, who.orgId, id);
+				const current = toQuery(existing, "");
+				const body = parseInput(upsertTestQueryRequestSchema, {
+					credentialId: current.credentialId,
+					name: current.name,
+					sqlText: current.sqlText,
+					params: current.params,
+					...(ctx.body as Record<string, unknown> | null),
+				});
+				const saved = await saveQuery(db, {
+					orgId: who.orgId,
+					userId: who.userId,
+					id: existing.id,
+					request: body,
+				});
+				return respond(testQuerySchema, toQuery(saved.row, saved.profile));
+			}),
+		)
+		.delete("/test-queries/:id", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const db = requireDb(ctx.db);
+				const who = await resolveTestActor(ctx);
+				await requireTestPermission(db, who, "test_config.manage");
+				const { id } = parseInput(idParams, ctx.params);
+				await deleteQuery(db, { orgId: who.orgId, userId: who.userId, id });
+				return { id, deleted: true };
 			}),
 		)
 		// --- Macros ------------------------------------------------------------------------

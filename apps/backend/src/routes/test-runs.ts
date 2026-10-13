@@ -1,7 +1,13 @@
 import {
+	apiCacheReadResponseSchema,
+	apiCacheWriteRequestSchema,
+	assertCheckSchema,
+	cacheCheckReadResponseSchema,
+	cacheCheckWriteRequestSchema,
 	cacheEntryReadResponseSchema,
 	cacheEntryWriteRequestSchema,
 	finalizeTestRunRequestSchema,
+	recentOutputsResponseSchema,
 	testRunBatchSchema,
 	testRunConfigSchema,
 	testRunDetailSchema,
@@ -14,6 +20,20 @@ import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { Elysia } from "elysia";
 import type { Logger } from "pino";
 import { z } from "zod/v4";
+
+// A [Query] step's SQL script (roadmap 2026-10-13 §5.2 tier 1): `kind: "sql"` rows keyed by
+// `sql:<stepId>`, one active row per step and environment.
+const sqlScriptSchema = z.object({
+	sqlText: z.string().min(1),
+	params: z.array(z.string()).default([]),
+	binding: z.string().nullable().default(null),
+	instructionKey: z.string().nullable().default(null),
+});
+const sqlStepParams = z.object({
+	id: z.string().min(1),
+	stepId: z.string().min(1),
+});
+const sqlKeyHash = (stepId: string) => `sql:${stepId}`;
 
 import type { RuntimeConfig } from "../config/runtime";
 import { testRunBatches, testRuns, testStepScripts } from "../db/schema";
@@ -33,7 +53,14 @@ import type { ArtifactStorage } from "../services/artifact-storage";
 import { getRequestIpAddress } from "../services/organization-activity";
 import { verifyWorkerToken } from "../services/runner-pools";
 import type { StorageRegistry } from "../services/storage-registry";
+import {
+	findActiveApiScript,
+	parseApiScript,
+	staleApiScript,
+	writeApiScript,
+} from "../services/test-api-scripts";
 import { testCasePolicy } from "../services/test-case-policy";
+import { getTestCaseRow } from "../services/test-cases";
 import { createTestSecrets, type KeyProvider } from "../services/test-config";
 import type { LiveHub } from "../services/test-live";
 import {
@@ -41,6 +68,7 @@ import {
 	storeRunEvidence,
 } from "../services/test-run-evidence";
 import { finalizeRun } from "../services/test-run-finalize";
+import { recentCaseOutputs } from "../services/test-run-outputs";
 import {
 	ACTIVE_RUN_STATUSES,
 	cancelRun,
@@ -315,6 +343,317 @@ export const createTestRunRoutes = (auth: ClerkAuthPlugin, liveHub?: LiveHub) =>
 				});
 				ctx.set.status = result.existing ? 200 : 201;
 				return { evidenceId: result.evidenceId };
+			}),
+		)
+		// API scripts (roadmap §2.3, §2.4): read before the run, write after a passed step, mark
+		// stale on hand-off. Same token, cache-mode and environment rules as UI scripts.
+		.get("/test-runs/:id/cache/api/:stepId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const stepId = String(ctx.params.stepId);
+				if (run.cacheMode === "off") {
+					return respond(apiCacheReadResponseSchema, { status: "miss" });
+				}
+				const script = await findActiveApiScript(db, {
+					testCaseId: run.testCaseId,
+					stepId,
+					environmentId: run.environmentId,
+				});
+				const parsed = script ? parseApiScript(script) : null;
+				if (!script || !parsed) {
+					return respond(apiCacheReadResponseSchema, { status: "miss" });
+				}
+				return respond(apiCacheReadResponseSchema, {
+					status: "hit",
+					script: parsed,
+					scriptId: script.id,
+					version: script.version,
+				});
+			}),
+		)
+		.put("/test-runs/:id/cache/api/:stepId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const stepId = String(ctx.params.stepId);
+				const body = parseInput(apiCacheWriteRequestSchema, ctx.body);
+				if ("stale" in body) {
+					const staled = await staleApiScript(db, run, stepId, body.reason);
+					return { ok: true, staled };
+				}
+				if (run.cacheMode !== "read-write") {
+					throw new HttpError(
+						409,
+						"TEST_RUN_CACHE_READ_ONLY",
+						`Cache mode ${run.cacheMode} does not record scripts`,
+					);
+				}
+				if (body.script.stepId !== stepId) {
+					throw new HttpError(
+						422,
+						"TEST_RUN_API_SCRIPT_STEP_MISMATCH",
+						"The script names another step",
+					);
+				}
+				const written = await writeApiScript(db, run, body.script);
+				return { ok: true, scriptId: written?.id ?? null };
+			}),
+		)
+		// --- Assert checks (roadmap 2026-10-13 §4.1): kind `assert-check`, keyed by step id -----
+		.get("/test-runs/:id/cache/check/:stepId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const stepId = String(ctx.params.stepId);
+				if (run.cacheMode === "off") {
+					return respond(cacheCheckReadResponseSchema, { status: "miss" });
+				}
+				const scripts = await db.query.testStepScripts.findMany({
+					where: and(
+						eq(testStepScripts.testCaseId, run.testCaseId),
+						eq(testStepScripts.kind, "assert-check"),
+						eq(testStepScripts.stepId, stepId),
+						eq(testStepScripts.status, "active"),
+						scriptEnvironmentScope(run.environmentId),
+					),
+					orderBy: desc(testStepScripts.version),
+				});
+				const script =
+					scripts.find((entry) => entry.environmentId === run.environmentId) ??
+					scripts.find((entry) => entry.environmentId === null);
+				const check = assertCheckSchema.safeParse(
+					JSON.parse(script?.checkJson ?? "null"),
+				);
+				// A row whose check no longer parses is as good as none.
+				if (!check.success) {
+					return respond(cacheCheckReadResponseSchema, { status: "miss" });
+				}
+				return respond(cacheCheckReadResponseSchema, {
+					status: "hit",
+					check: check.data,
+				});
+			}),
+		)
+		.put("/test-runs/:id/cache/check/:stepId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const stepId = String(ctx.params.stepId);
+				const body = parseInput(cacheCheckWriteRequestSchema, ctx.body);
+				const now = Date.now();
+				// A check that stopped holding goes stale in every mode that replays it.
+				if ("stale" in body) {
+					if (run.cacheMode === "off") {
+						throw new HttpError(
+							409,
+							"TEST_RUN_CACHE_READ_ONLY",
+							"Cache mode off replays no checks",
+						);
+					}
+					const stale = await db
+						.update(testStepScripts)
+						.set({
+							status: "stale",
+							staleReason: body.reason.slice(0, 2000),
+							updatedAt: now,
+						})
+						.where(
+							and(
+								eq(testStepScripts.testCaseId, run.testCaseId),
+								eq(testStepScripts.kind, "assert-check"),
+								eq(testStepScripts.stepId, stepId),
+								eq(testStepScripts.status, "active"),
+								scriptEnvironmentScope(run.environmentId),
+							),
+						)
+						.returning({ id: testStepScripts.id });
+					return { ok: true, stale: stale.length };
+				}
+				if (run.cacheMode !== "read-write") {
+					throw new HttpError(
+						409,
+						"TEST_RUN_CACHE_READ_ONLY",
+						`Cache mode ${run.cacheMode} does not record checks`,
+					);
+				}
+				// Checks are keyed by kind and step id; the key hash only names the row.
+				const keyHash = `check:${stepId}`;
+				const previous = await db.query.testStepScripts.findFirst({
+					where: and(
+						eq(testStepScripts.testCaseId, run.testCaseId),
+						eq(testStepScripts.kind, "assert-check"),
+						eq(testStepScripts.stepId, stepId),
+					),
+					orderBy: desc(testStepScripts.version),
+				});
+				await db
+					.update(testStepScripts)
+					.set({
+						status: "stale",
+						staleReason: `re-recorded on run ${run.id}`,
+						updatedAt: now,
+					})
+					.where(
+						and(
+							eq(testStepScripts.testCaseId, run.testCaseId),
+							eq(testStepScripts.kind, "assert-check"),
+							eq(testStepScripts.stepId, stepId),
+							eq(testStepScripts.status, "active"),
+							scriptEnvironmentScope(run.environmentId),
+						),
+					);
+				await db.insert(testStepScripts).values({
+					orgId: run.orgId,
+					testCaseId: run.testCaseId,
+					stepId,
+					stepIdsJson: JSON.stringify([stepId]),
+					instructionKey: body.instructionKey,
+					environmentId: run.environmentId,
+					keyHash,
+					kind: "assert-check",
+					entryJson: "null",
+					checkJson: JSON.stringify(body.check),
+					version: (previous?.version ?? 0) + 1,
+					renderedCode: body.renderedCode,
+					recordedFromRunId: run.id,
+					status: "active",
+					createdAt: now,
+					updatedAt: now,
+				});
+				return { ok: true };
+			}),
+		)
+		.get("/test-runs/:id/cache/sql/:stepId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const { stepId } = parseInput(sqlStepParams, ctx.params);
+				if (run.cacheMode === "off") return { status: "miss" };
+				const scripts = await db.query.testStepScripts.findMany({
+					where: and(
+						eq(testStepScripts.testCaseId, run.testCaseId),
+						eq(testStepScripts.keyHash, sqlKeyHash(stepId)),
+						eq(testStepScripts.kind, "sql"),
+						eq(testStepScripts.status, "active"),
+						scriptEnvironmentScope(run.environmentId),
+					),
+					orderBy: desc(testStepScripts.version),
+				});
+				const script =
+					scripts.find((entry) => entry.environmentId === run.environmentId) ??
+					scripts.find((entry) => entry.environmentId === null);
+				if (!script?.sqlText) return { status: "miss" };
+				const parsed = sqlScriptSchema.safeParse(JSON.parse(script.entryJson));
+				if (!parsed.success) return { status: "miss" };
+				return { status: "hit", script: parsed.data };
+			}),
+		)
+		.put("/test-runs/:id/cache/sql/:stepId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const { stepId } = parseInput(sqlStepParams, ctx.params);
+				if (run.cacheMode !== "read-write") {
+					throw new HttpError(
+						409,
+						"TEST_RUN_CACHE_READ_ONLY",
+						`Cache mode ${run.cacheMode} does not record scripts`,
+					);
+				}
+				const body = parseInput(sqlScriptSchema, ctx.body);
+				const keyHash = sqlKeyHash(stepId);
+				const now = Date.now();
+				const previous = await db.query.testStepScripts.findFirst({
+					where: and(
+						eq(testStepScripts.testCaseId, run.testCaseId),
+						eq(testStepScripts.keyHash, keyHash),
+					),
+					orderBy: desc(testStepScripts.version),
+				});
+				await db
+					.update(testStepScripts)
+					.set({
+						status: "stale",
+						staleReason: `re-recorded on run ${run.id}`,
+						updatedAt: now,
+					})
+					.where(
+						and(
+							eq(testStepScripts.testCaseId, run.testCaseId),
+							eq(testStepScripts.keyHash, keyHash),
+							eq(testStepScripts.status, "active"),
+							scriptEnvironmentScope(run.environmentId),
+						),
+					);
+				await db.insert(testStepScripts).values({
+					orgId: run.orgId,
+					testCaseId: run.testCaseId,
+					stepId,
+					stepIdsJson: JSON.stringify([stepId]),
+					instructionKey: body.instructionKey,
+					environmentId: run.environmentId,
+					keyHash,
+					kind: "sql",
+					entryJson: JSON.stringify(body),
+					sqlText: body.sqlText,
+					version: (previous?.version ?? 0) + 1,
+					renderedCode: body.sqlText,
+					recordedFromRunId: run.id,
+					status: "active",
+					createdAt: now,
+					updatedAt: now,
+				});
+				return { ok: true };
+			}),
+		)
+		// A hand-off (no rows, an error, a rejected replay) marks the step's script stale.
+		.delete("/test-runs/:id/cache/sql/:stepId", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const { stepId } = parseInput(sqlStepParams, ctx.params);
+				const body = z
+					.object({ reason: z.string().max(500).default("hand-off") })
+					.safeParse(ctx.body ?? {});
+				await db
+					.update(testStepScripts)
+					.set({
+						status: "stale",
+						staleReason: `${body.success ? body.data.reason : "hand-off"} (run ${run.id})`,
+						updatedAt: Date.now(),
+					})
+					.where(
+						and(
+							eq(testStepScripts.testCaseId, run.testCaseId),
+							eq(testStepScripts.keyHash, sqlKeyHash(stepId)),
+							eq(testStepScripts.status, "active"),
+							scriptEnvironmentScope(run.environmentId),
+						),
+					);
+				return { ok: true };
+			}),
+		)
+		// Reuse window (roadmap §2.6): the runner asks for a used case's recent outputs.
+		.get("/test-runs/:id/reuse", (ctx) =>
+			handleTestRoute(ctx, async () => {
+				const { db, run } = await runFromToken(ctx);
+				const query = parseInput(
+					z.object({
+						caseKey: z.string().min(1),
+						paramsHash: z.string().min(1),
+						withinMs: z.coerce
+							.number()
+							.int()
+							.positive()
+							.max(30 * 86_400_000),
+					}),
+					normalizeQuery(ctx.request.url, new Set()),
+				);
+				const used = await getTestCaseRow(db, run.orgId, query.caseKey);
+				return respond(
+					recentOutputsResponseSchema,
+					await recentCaseOutputs(db, {
+						orgId: run.orgId,
+						testCaseId: used.id,
+						environmentId: run.environmentId,
+						paramsHash: query.paramsHash,
+						withinMs: query.withinMs,
+					}),
+				);
 			}),
 		)
 		.get("/test-runs/:id/cache/:keyHash", (ctx) =>

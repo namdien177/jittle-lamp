@@ -1,4 +1,5 @@
 import {
+	claimRunRequestSchema,
 	claimRunResponseSchema,
 	createRunnerPoolRequestSchema,
 	createRunnerPoolResponseSchema,
@@ -57,6 +58,7 @@ import {
 	type TextGenerator,
 } from "../services/test-imports";
 import {
+	claimBatchSiblings,
 	claimNextRun,
 	revokeRunnerWorker,
 	sweepRunQueue,
@@ -163,6 +165,10 @@ export const createRunnerPoolRoutes = (
 					readBearer(ctx.request),
 				);
 				await touchWorker(db, worker);
+				const { batchCapacity } = parseInput(
+					claimRunRequestSchema,
+					ctx.body ?? {},
+				);
 				// Managed hosts drain before the supervisor replaces their image.
 				if (
 					pool.targetVersion &&
@@ -178,8 +184,15 @@ export const createRunnerPoolRoutes = (
 				await sweepRunQueue(db, Date.now(), { logger: ctx.logger });
 				const claimed = await claimNextRun(db, { pool, workerId: worker.id });
 				if (claimed) {
+					const siblings = await claimBatchSiblings(db, {
+						pool,
+						workerId: worker.id,
+						first: claimed.run,
+						capacity: batchCapacity,
+					});
 					return respond(claimRunResponseSchema, {
 						run: await buildClaimedRun(db, claimed.run, claimed.runToken),
+						siblings,
 						exploration: null,
 					});
 				}

@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 
 import type { CacheMode } from "@jittle-lamp/shared";
 
+import { queryNameArg, queryProfileArg } from "@jittle-lamp/shared";
+
 import { isSecretCredentialField, type ResolvedRunConfig } from "../config/resolve";
 import type { PlannedStep, RunPlan } from "../plan";
 import { e2ePackageDir, runtimeDir } from "../paths";
@@ -21,9 +23,13 @@ export const e2eProjectId = "jittle-lamp";
 
 export type CompiledStep = {
   step: PlannedStep;
-  call: "open" | "act" | "assert" | "wait" | "extract" | "screenshot" | "note" | "group";
+  call: "open" | "act" | "assert" | "wait" | "extract" | "screenshot" | "note" | "group" | "query";
   template: string;
   bindings: Record<string, Binding>;
+  // The step replays its API script first and falls back to the call above (roadmap §2.4).
+  api?: boolean;
+  // [Query] steps: the profile after alias resolution.
+  queryProfile?: string;
 };
 
 export type GeneratedProject = {
@@ -35,6 +41,9 @@ export type GeneratedProject = {
   credentialProfiles: string[];
   secretNames: Array<{ name: string; env: string }>;
   targetName: string;
+  // Postgres profiles the [Query] steps name (aliases resolved); the config registers the
+  // lookup_data tool when there are any.
+  queryProfiles: string[];
 };
 
 const tokenPattern = /\{([^{}\s]+(?:\{[^{}\s]+\}[^{}\s]*)?)\}/g;
@@ -69,9 +78,16 @@ export function compileStep(
       return `{${param}}`;
     }
     if (token.includes("{")) return match;
+    // `{name}` of an earlier [Extract]/binding.
     if (extractedNames.has(token)) {
       bindings[token] = { kind: "extracted", name: token };
       return `{${token}}`;
+    }
+    // `{student.id}` or `{alias.field}`: a field of a bound value or a [Use] block's output (roadmap
+    // §2.6). The param name is made identifier-safe for e2e; the binding keeps the dotted name.
+    if (token.includes(".") && extractedNames.has(token.split(".")[0] ?? "")) {
+      bindings[paramSafe(token)] = { kind: "extracted", name: token };
+      return `{${paramSafe(token)}}`;
     }
     if (config.vars.get(token)?.secret) bindings[paramSafe(token)] = { kind: "secret", name: token };
     else bindings[paramSafe(token)] = { kind: "var", name: token };
@@ -92,7 +108,9 @@ export function compileStep(
               ? "screenshot"
               : step.type === "note"
                 ? "note"
-                : "act";
+                : step.type === "query"
+                  ? "query"
+                  : "act";
   return { step, call, template, bindings };
 }
 
@@ -109,6 +127,12 @@ function stepMeta(step: PlannedStep): string {
 }
 
 function callCode(compiled: CompiledStep): string {
+  const code = uiCallCode(compiled);
+  if (compiled.api !== true) return code;
+  return `jl.replayApiOrFallback(${q(compiled.step.stepId)}, () => ${code})`;
+}
+
+function uiCallCode(compiled: CompiledStep): string {
   const bindings = q(compiled.bindings);
   const template = q(compiled.template);
   switch (compiled.call) {
@@ -119,33 +143,41 @@ function callCode(compiled: CompiledStep): string {
         ? `agent.act(${template}, { params: jl.params(${bindings}) })`
         : `agent.act(${template})`;
     case "assert":
-      return `jl.settle(() => agent.assert(jl.fill(${template}, ${bindings})))`;
+      // The deterministic check replays before any judge call (runtime/assert-check.ts).
+      return `jl.assertWithCheck(${q(compiled.step.stepId)}, ${q(compiled.step.instructionKey)}, ${template}, ${bindings}, { agent, screen, browser })`;
     case "wait":
       return `agent.waitFor(jl.fill(${template}, ${bindings}))`;
     case "extract": {
       const name = compiled.step.args.find((arg) => arg.name === null)?.value ?? "value";
-      return `agent.extract(jl.fill(${template}, ${bindings}), { schema: jl.stringSchema }).then((value) => jl.setExtracted(${q(name)}, value))`;
+      return `agent.extract(jl.fill(${template}, ${bindings}), { schema: jl.stringSchema }).then((value) => jl.setExtracted(${q(name)}, value, ${q(compiled.step.useAlias)}))`;
     }
     case "screenshot":
       return `jl.screenshot(${q(compiled.step.stepId)}, ${q(compiled.step.instruction)})`;
+    case "query": {
+      const profile = queryProfileArg(compiled.step.args) ?? "";
+      const name = queryNameArg(compiled.step.args);
+      return `jl.query(${q(compiled.step.stepId)}, ${q({ profile: compiled.queryProfile ?? profile, instruction: compiled.template, binding: compiled.step.binding ?? null, name, instructionKey: compiled.step.instructionKey })}, ${bindings})`;
+    }
     case "note":
     case "group":
       return "Promise.resolve()";
   }
 }
 
-export function renderTestFile(compiled: readonly CompiledStep[], helpersPath: string): string {
+// `skipStepIds`: steps a reused run stands in for (api/reuse.ts); they are left out of the file.
+export function renderTestFile(compiled: readonly CompiledStep[], helpersPath: string, skipStepIds: ReadonlySet<string> = new Set()): string {
   const lines: string[] = [
     "// Generated by jl-e2e from a transcript. Do not edit; edit the transcript.",
-    'import { test } from "e2e";',
+    'import { test } from "@e2e-dev/web";',
     `import * as jl from ${q(helpersPath)};`,
     "",
-    `test(${q(generatedTestTitle)}, async ({ app, agent }) => {`
+    `test(${q(generatedTestTitle)}, async ({ app, agent, screen, browser }) => {`
   ];
   const open: string[] = [];
   const indent = () => "  ".repeat(open.length + 1);
 
   for (const item of compiled) {
+    if (skipStepIds.has(item.step.stepId)) continue;
     // Close groups that this step is not part of.
     while (open.length > 0 && open[open.length - 1] !== item.step.parentStepId) {
       open.pop();
@@ -175,6 +207,9 @@ export type GenerateOptions = {
   headed: boolean;
   viewport: { width: number; height: number };
   timeoutMs: number;
+  // Steps that call `jl.replayApiOrFallback` (api/modes.ts) and steps a reused run replaces.
+  apiStepIds?: ReadonlySet<string>;
+  skipStepIds?: ReadonlySet<string>;
 };
 
 export function renderConfigFile(input: {
@@ -190,7 +225,9 @@ export function renderConfigFile(input: {
   headed: boolean;
   viewport: { width: number; height: number };
   timeoutMs: number;
+  queryProfiles?: readonly string[];
 }): string {
+  const queryProfiles = input.queryProfiles ?? [];
   const credentials = input.credentialProfiles
     .map(
       (profile) =>
@@ -206,9 +243,14 @@ export function renderConfigFile(input: {
     `import { createModelsFromEnv } from ${q(join(runtimeDir, "models.ts"))};`,
     `import { createProgressReporter } from ${q(join(runtimeDir, "progress-reporter.ts"))};`,
     `import { createJlCacheStore } from ${q(join(runtimeDir, "cache-store.ts"))};`,
+    ...(queryProfiles.length > 0 ? [`import { createLookupDataTool, queryToolEnabled } from ${q(join(runtimeDir, "query-tool.ts"))};`] : []),
     "",
     "const { model, judge } = await createModelsFromEnv(process.env);",
     "const context = process.env.JL_AGENT_INSTRUCTIONS;",
+    // lookup_data (roadmap §5.2): read-only data lookups for Act steps, profiles by name only.
+    ...(queryProfiles.length > 0
+      ? [`const tools = queryToolEnabled(process.env, ${q(queryProfiles)}) ? { lookup_data: createLookupDataTool({ profiles: ${q(queryProfiles)} }) } : {};`]
+      : ["const tools = {};"]),
     "",
     "export default {",
     `  projectId: ${q(e2eProjectId)},`,
@@ -216,7 +258,7 @@ export function renderConfigFile(input: {
     "  targets: [",
     `    { name: ${q(input.targetName)}, engine: createJlEngine({ viewport: ${q(input.viewport)}, headed: ${input.headed} }), app: { url: process.env.JL_ENV_BASE_URL || ${q(input.fallbackUrl)}, identity: ${q(input.appIdentity)} } }`,
     "  ],",
-    "  agents: { default: { model, judge, ...(context ? { context } : {}) } },",
+    "  agents: { default: { model, judge, ...(context ? { context } : {}), ...(Object.keys(tools).length > 0 ? { tools } : {}) } },",
     `  cache: { mode: ${q(e2eMode)}, strict: ${input.cacheMode === "strict"}, store: createJlCacheStore({ dir: ${q(input.cacheStoreDir)}, writable: ${e2eMode === "read-write"} }) },`,
     `  credentials: {\n${credentials}\n  },`,
     `  secrets: {\n${secrets}\n  },`,
@@ -247,12 +289,29 @@ export function generateProject(options: GenerateOptions): GeneratedProject {
 
   const extractedNames = new Set<string>();
   const compiled: CompiledStep[] = [];
+  const queryProfiles = new Set<string>();
   for (const step of plan.steps) {
-    compiled.push(compileStep(step, plan, config, extractedNames));
+    const item = compileStep(step, plan, config, extractedNames);
+    if (step.type === "query" && step.executes) {
+      const named = queryProfileArg(step.args);
+      const profile = named ? plan.credentialAliases[named] ?? named : "";
+      if (profile) {
+        item.queryProfile = profile;
+        queryProfiles.add(profile);
+      }
+      // `{student}` and `{student.rows}` exist from here (roadmap §5.1).
+      if (step.binding) {
+        extractedNames.add(step.binding);
+        extractedNames.add(`${step.binding}.rows`);
+      }
+    }
+    compiled.push(options.apiStepIds?.has(step.stepId) ? { ...item, api: true } : item);
     if (step.type === "extract") {
       const name = step.args.find((arg) => arg.name === null)?.value;
       if (name) extractedNames.add(name);
     }
+    if ((step.type === "query" || step.type === "api") && step.binding) extractedNames.add(step.binding);
+    if (step.type === "use" && step.alias) extractedNames.add(step.alias);
   }
 
   const credentialProfiles = new Set<string>();
@@ -274,7 +333,7 @@ export function generateProject(options: GenerateOptions): GeneratedProject {
 
   const testPath = join(dir, generatedTestFile);
   const configPath = join(dir, "e2e.config.ts");
-  writeFileSync(testPath, renderTestFile(compiled, join(runtimeDir, "test-helpers.ts")));
+  writeFileSync(testPath, renderTestFile(compiled, join(runtimeDir, "test-helpers.ts"), options.skipStepIds ?? new Set()));
   const secretList = [...secretNames].map(([name, env]) => ({ name, env }));
   writeFileSync(
     configPath,
@@ -288,7 +347,8 @@ export function generateProject(options: GenerateOptions): GeneratedProject {
       cacheStoreDir: options.cacheStoreDir,
       headed: options.headed,
       viewport: options.viewport,
-      timeoutMs: options.timeoutMs
+      timeoutMs: options.timeoutMs,
+      queryProfiles: [...queryProfiles]
     })
   );
 
@@ -300,6 +360,7 @@ export function generateProject(options: GenerateOptions): GeneratedProject {
     compiled,
     credentialProfiles: [...credentialProfiles],
     secretNames: secretList,
-    targetName
+    targetName,
+    queryProfiles: [...queryProfiles]
   };
 }

@@ -145,3 +145,134 @@ export function createFileCacheStore(options: { dir: string; writable: boolean; 
     }
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Assert checks (roadmap 2026-10-13 §4.1): the deterministic sibling of a UI script, keyed by
+// transcript step id instead of e2e's key hash. Same two backends as the action store: the
+// backend's `test_step_scripts` rows of kind `assert-check` through the run token, or a `checks/`
+// directory next to the file store. Types are repeated here (no shared imports in the worker).
+// ---------------------------------------------------------------------------------------------
+
+export type AssertCheckLocator = { role: string; name: string } | { label: string } | { text: string } | { testId: string };
+
+export type AssertCheck = {
+  schemaVersion: "jl-assert-check-1";
+  // null only with the `url` matcher.
+  locator: AssertCheckLocator | null;
+  matcher: "visible" | "text" | "url";
+  expected: string | null;
+  recordedAt: string;
+};
+
+export type CheckStore = {
+  readonly writable: boolean;
+  read(stepId: string): Promise<AssertCheck | null>;
+  write(stepId: string, check: AssertCheck, meta: { instructionKey: string | null; renderedCode: string }): Promise<void>;
+  // Marks the active check of the step stale; allowed in every mode that reads.
+  stale(stepId: string, reason: string): Promise<void>;
+};
+
+export function isAssertCheck(value: unknown): value is AssertCheck {
+  const check = value as Partial<AssertCheck> | null;
+  if (typeof check !== "object" || check === null || check.schemaVersion !== "jl-assert-check-1") return false;
+  if (!["visible", "text", "url"].includes(check.matcher as string)) return false;
+  if (check.expected !== null && typeof check.expected !== "string") return false;
+  if (check.locator === null) return check.matcher === "url";
+  const locator = check.locator as Record<string, unknown> | undefined;
+  if (typeof locator !== "object" || locator === null) return false;
+  if ("role" in locator) return typeof locator.role === "string" && typeof locator.name === "string";
+  return ["label", "text", "testId"].some((field) => typeof locator[field] === "string");
+}
+
+export function createBackendCheckStore(options: { apiUrl: string; runId: string; runToken: string; writable: boolean; fetch?: typeof fetch }): CheckStore {
+  const fetchImpl = options.fetch ?? fetch;
+  const url = (stepId: string) =>
+    new URL(`/test-runs/${encodeURIComponent(options.runId)}/cache/check/${encodeURIComponent(stepId)}`, options.apiUrl);
+  const headers = { authorization: `Bearer ${options.runToken}`, "content-type": "application/json" };
+  const put = async (stepId: string, body: unknown) => {
+    const response = await fetchImpl(url(stepId), { method: "PUT", headers, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error(`backend check write failed: HTTP ${response.status}`);
+  };
+  return {
+    writable: options.writable,
+    async read(stepId) {
+      const response = await fetchImpl(url(stepId), { headers: { authorization: headers.authorization } });
+      // A backend older than assert checks answers 404: no check, and nothing to write later.
+      if (!response.ok) return null;
+      const body = (await response.json()) as { status?: string; check?: unknown };
+      return body.status === "hit" && isAssertCheck(body.check) ? body.check : null;
+    },
+    async write(stepId, check, meta) {
+      if (!options.writable) return;
+      await put(stepId, { check, instructionKey: meta.instructionKey, renderedCode: meta.renderedCode });
+    },
+    async stale(stepId, reason) {
+      await put(stepId, { stale: true, reason });
+    }
+  };
+}
+
+export type CheckFile = {
+  schemaVersion: "jl-step-check-1";
+  stepId: string;
+  instructionKey: string | null;
+  environment: string | null;
+  status: "active" | "stale";
+  staleReason: string | null;
+  renderedCode: string;
+  check: AssertCheck;
+};
+
+export function createFileCheckStore(options: { dir: string; writable: boolean; environment?: string | null }): CheckStore {
+  const pathFor = (stepId: string) => join(options.dir, `${stepId.replace(/[^A-Za-z0-9_.-]/g, "_")}.json`);
+  const readFile = (stepId: string): CheckFile | null => {
+    const path = pathFor(stepId);
+    if (!existsSync(path)) return null;
+    try {
+      const file = JSON.parse(readFileSync(path, "utf8")) as Partial<CheckFile>;
+      return isAssertCheck(file.check) && file.schemaVersion === "jl-step-check-1" ? (file as CheckFile) : null;
+    } catch {
+      return null;
+    }
+  };
+  const save = (stepId: string, file: CheckFile) => {
+    mkdirSync(options.dir, { recursive: true });
+    writeFileSync(pathFor(stepId), `${JSON.stringify(file, null, 2)}\n`);
+  };
+  return {
+    writable: options.writable,
+    async read(stepId) {
+      const file = readFile(stepId);
+      return file && file.status === "active" ? file.check : null;
+    },
+    async write(stepId, check, meta) {
+      if (!options.writable) return;
+      save(stepId, {
+        schemaVersion: "jl-step-check-1",
+        stepId,
+        instructionKey: meta.instructionKey,
+        environment: options.environment ?? process.env.JL_ENV_NAME ?? null,
+        status: "active",
+        staleReason: null,
+        renderedCode: meta.renderedCode,
+        check
+      });
+    },
+    async stale(stepId, reason) {
+      const file = readFile(stepId);
+      if (!file) return;
+      save(stepId, { ...file, status: "stale", staleReason: reason });
+    }
+  };
+}
+
+// Picks the backend when the run carries a token (daemon runs), else the directory under the
+// file store (`JL_CACHE_DIR/checks`). The writable flag follows the cache mode the runner set.
+export function createJlCheckStore(options: { dir?: string; writable?: boolean } = {}): CheckStore {
+  const writable = options.writable ?? process.env.JL_CACHE_MODE === "read-write";
+  const apiUrl = process.env.JL_CACHE_API_URL;
+  const runId = process.env.JL_RUN_ID;
+  const runToken = process.env.JL_RUN_TOKEN;
+  if (apiUrl && runId && runToken) return createBackendCheckStore({ apiUrl, runId, runToken, writable });
+  return createFileCheckStore({ dir: options.dir ?? join(process.env.JL_CACHE_DIR ?? join(".e2e", "cache"), "checks"), writable });
+}

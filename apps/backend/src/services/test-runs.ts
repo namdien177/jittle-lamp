@@ -1,20 +1,28 @@
 import { Buffer } from "node:buffer";
 import {
+	apiPolicySchema,
+	type CacheMode,
 	type ClaimedRun,
 	type CreateTestRunRequest,
 	type CreateTestRunResponse,
+	defaultApiPolicy,
 	type LinkedCase,
 	type MacroParam,
 	macroParamSchema,
 	paramDeclarationSchema,
 	runnerInfoSchema,
+	blockedReasonSchema as sharedBlockedReasonSchema,
+	cacheReasonSchema as sharedCacheReasonSchema,
+	stepRequestsSummarySchema,
 	type TestRunBatch,
 	type TestRunDetail,
 	type TestRunProgressRequest,
 	type TestRunSettings,
 	type TestRunStep,
 	type TestRunSummary,
+	testRunStepModeSchema,
 	transcriptStepSchema,
+	transcriptStepTypeSchema,
 	useCaseKeyArg,
 } from "@jittle-lamp/shared";
 import {
@@ -27,6 +35,7 @@ import {
 	inArray,
 	isNull,
 	lt,
+	ne,
 	or,
 	sql,
 } from "drizzle-orm";
@@ -269,6 +278,8 @@ export const computeDedupeKey = (input: {
 	baseUrlOverride?: string | null;
 	// CI batches: the commit SHA, so a run never stands in for another commit's run.
 	triggerRef?: string | null;
+	// An API-mode run never stands in for a full one; `full` keeps the pre-mode key.
+	executionMode?: string | null;
 }) =>
 	`sha256:${sha256Text(
 		JSON.stringify([
@@ -279,6 +290,9 @@ export const computeDedupeKey = (input: {
 			input.cacheMode,
 			...(input.baseUrlOverride ? [input.baseUrlOverride] : []),
 			...(input.triggerRef ? [`ref:${input.triggerRef}`] : []),
+			...(input.executionMode && input.executionMode !== "full"
+				? [`mode:${input.executionMode}`]
+				: []),
 		]),
 	)}`;
 
@@ -287,11 +301,20 @@ const defaultPriority = (trigger: CreateTestRunRequest["trigger"]) =>
 
 const runnableStatuses = new Set<TestCaseRow["status"]>(["active", "draft"]);
 
+// The request with its cache mode resolved: a suite batch defaults to strict, anything else to
+// read-write (roadmap 2026-10-13 §4.3).
+type ResolvedRunRequest = CreateTestRunRequest & {
+	cacheMode: CacheMode;
+	// False when the request left the cache mode to the default: such a request may attach to an
+	// identical queued run recorded under the other default (a manual run joining a suite run).
+	cacheModeExplicit: boolean;
+};
+
 type PlannedRun = {
 	row: TestCaseRow;
 	environmentId: string | null;
 	params: Record<string, string>;
-	request: CreateTestRunRequest;
+	request: ResolvedRunRequest;
 };
 
 type PlannedResult = { runId: string; attached: boolean };
@@ -402,6 +425,15 @@ const insertRun = async (
 	const poolReference = environment?.runnerPool ?? CLOUD_POOL_NAME;
 	const pool = await resolvePoolReference(db, input.orgId, poolReference);
 	const live = pool ? await poolHasLiveWorker(db, pool.id, input.now) : false;
+	// Hybrid and API runs need the environment's API origins; without them the run is created
+	// finished and blocked instead of waiting for a runner (roadmap 2026-10-13 decision 2).
+	const apiOrigins = parseJsonColumn(
+		environment?.apiOriginsJson,
+		z.array(z.string()),
+		[],
+	);
+	const apiNotConfigured =
+		plan.request.executionMode !== "full" && apiOrigins.length === 0;
 	const [run] = await db
 		.insert(testRuns)
 		.values({
@@ -415,6 +447,7 @@ const insertRun = async (
 			paramsJson: JSON.stringify(plan.params),
 			paramsHash: input.paramsHash,
 			cacheMode: plan.request.cacheMode,
+			executionMode: plan.request.executionMode,
 			dedupeKey: input.dedupeKey,
 			dedupeExclusive: exclusive,
 			trigger: plan.request.trigger,
@@ -426,12 +459,22 @@ const insertRun = async (
 					? `self-hosted:${pool.name}`
 					: poolReference || CLOUD_POOL_NAME,
 			runnerPoolId: pool?.id ?? null,
-			status: "queued",
-			blockedReason: input.overBudget
-				? BUDGET_EXCEEDED
-				: live
-					? null
-					: "NO_RUNNER",
+			...(apiNotConfigured
+				? {
+						status: "completed" as const,
+						outcome: "blocked" as const,
+						blockedReason: "API_NOT_CONFIGURED",
+						finishedAt: input.now,
+						error: `Execution mode ${plan.request.executionMode} needs API origins on the environment`,
+					}
+				: {
+						status: "queued" as const,
+						blockedReason: input.overBudget
+							? BUDGET_EXCEEDED
+							: live
+								? null
+								: "NO_RUNNER",
+					}),
 			batchId: input.batchId,
 			retryAttempt: input.retryOf ? input.retryOf.retryAttempt + 1 : 1,
 			retryOfRunId: input.retryOf?.id ?? null,
@@ -467,8 +510,14 @@ const findOpenExclusiveRun = (
 
 const planRunsForCase = (
 	row: TestCaseRow,
-	request: CreateTestRunRequest,
+	input: CreateTestRunRequest,
+	defaultCacheMode: CacheMode,
 ): PlannedRun[] => {
+	const request: ResolvedRunRequest = {
+		...input,
+		cacheMode: input.cacheMode ?? defaultCacheMode,
+		cacheModeExplicit: input.cacheMode !== undefined,
+	};
 	if (!runnableStatuses.has(row.status)) {
 		throw new HttpError(
 			409,
@@ -544,8 +593,11 @@ export const requestRuns = async (
 		);
 	}
 
+	// Suite batches are the regression runs: strict unless the request says otherwise.
+	const defaultCacheMode: CacheMode =
+		input.batch?.kind === "suite" ? "strict" : "read-write";
 	const plans = input.cases.flatMap(({ row, request }) =>
-		planRunsForCase(row, request),
+		planRunsForCase(row, request, defaultCacheMode),
 	);
 	const resolved: Array<{
 		plan: PlannedRun;
@@ -562,17 +614,40 @@ export const requestRuns = async (
 			environmentId: plan.environmentId,
 			paramsHash,
 			cacheMode: plan.request.cacheMode,
+			executionMode: plan.request.executionMode,
 			baseUrlOverride: input.baseUrlOverride ?? null,
 			triggerRef:
 				input.batch?.kind === "ci" ? (input.batch.triggerRef ?? null) : null,
 		});
-		const attachTo = await findAttachableRun(db, {
-			orgId: input.orgId,
-			dedupeKey,
-			force: plan.request.force,
-			windowSeconds: settings.dedupeWindowSeconds,
-			now,
-		});
+		const keyWithCacheMode = (cacheMode: CacheMode) =>
+			computeDedupeKey({
+				testCaseId: plan.row.id,
+				transcriptVersion: plan.row.transcriptVersion,
+				environmentId: plan.environmentId,
+				paramsHash,
+				cacheMode,
+				executionMode: plan.request.executionMode,
+				baseUrlOverride: input.baseUrlOverride ?? null,
+				triggerRef:
+					input.batch?.kind === "ci" ? (input.batch.triggerRef ?? null) : null,
+			});
+		// A defaulted cache mode also joins a run queued under the other default.
+		const alternateKeys = plan.request.cacheModeExplicit
+			? []
+			: (["read-write", "strict"] as const)
+					.filter((mode) => mode !== plan.request.cacheMode)
+					.map(keyWithCacheMode);
+		let attachTo: TestRunRow | null = null;
+		for (const candidate of [dedupeKey, ...alternateKeys]) {
+			attachTo = await findAttachableRun(db, {
+				orgId: input.orgId,
+				dedupeKey: candidate,
+				force: plan.request.force,
+				windowSeconds: settings.dedupeWindowSeconds,
+				now,
+			});
+			if (attachTo) break;
+		}
 		if (!attachTo && !plan.request.force && seenKeys.has(dedupeKey)) {
 			// Two identical rows in one request (a dataset with duplicate rows) share a run.
 			resolved.push({ plan, dedupeKey, paramsHash, attachTo: null });
@@ -741,6 +816,7 @@ export const queueRetryRun = async (
 			paramsJson: run.paramsJson,
 			paramsHash: run.paramsHash,
 			cacheMode: run.cacheMode,
+			executionMode: run.executionMode,
 			dedupeKey: run.dedupeKey,
 			trigger: run.trigger,
 			priority: run.priority,
@@ -766,6 +842,89 @@ export const queueRetryRun = async (
 	return retry;
 };
 
+// A strict run that stopped on REPLAY_STALE gets one read-write run that re-records the stale
+// scripts off the critical path (roadmap 2026-10-13 §4.3). The repair is not part of the batch
+// and not an attempt: the strict run keeps its verdict. While a repair of the same case,
+// environment and params is queued or running, no second one is queued.
+export const queueRepairRun = async (
+	db: BackendDb,
+	run: TestRunRow,
+	now = Date.now(),
+): Promise<TestRunRow> => {
+	const open = await db.query.testRuns.findFirst({
+		where: and(
+			eq(testRuns.testCaseId, run.testCaseId),
+			run.environmentId
+				? eq(testRuns.environmentId, run.environmentId)
+				: isNull(testRuns.environmentId),
+			eq(testRuns.paramsHash, run.paramsHash),
+			eq(testRuns.executionMode, run.executionMode),
+			eq(testRuns.trigger, "repair"),
+			inArray(testRuns.status, [...OPEN_RUN_STATUSES]),
+		),
+	});
+	if (open) return open;
+	const [repair] = await db
+		.insert(testRuns)
+		.values({
+			orgId: run.orgId,
+			testCaseId: run.testCaseId,
+			createdBy: run.createdBy,
+			requestedByTokenId: run.requestedByTokenId,
+			transcriptVersion: run.transcriptVersion,
+			environmentId: run.environmentId,
+			baseUrlOverride: run.baseUrlOverride,
+			paramsJson: run.paramsJson,
+			paramsHash: run.paramsHash,
+			cacheMode: "read-write",
+			executionMode: run.executionMode,
+			dedupeKey: computeDedupeKey({
+				testCaseId: run.testCaseId,
+				transcriptVersion: run.transcriptVersion,
+				environmentId: run.environmentId,
+				paramsHash: run.paramsHash,
+				cacheMode: "read-write",
+				baseUrlOverride: run.baseUrlOverride,
+				executionMode: run.executionMode,
+			}),
+			trigger: "repair",
+			// Behind every requested run: the regression report does not wait for it.
+			priority: Math.min(run.priority, defaultPriority("ci")),
+			runnerAffinity: run.runnerAffinity,
+			runnerPool: run.runnerPool,
+			runnerPoolId: run.runnerPoolId,
+			status: "queued",
+			batchId: null,
+			retryAttempt: run.retryAttempt,
+			retryOfRunId: run.id,
+			queuedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.returning();
+	if (!repair) throw new Error("Failed to queue repair run");
+	const subscribers = await db.query.testRunSubscribers.findMany({
+		where: eq(testRunSubscribers.runId, run.id),
+	});
+	for (const subscriber of subscribers) {
+		await subscribe(db, repair.id, subscriber.userId, "repair");
+	}
+	return repair;
+};
+
+// The repair run queued for a strict run, newest first; null when none was.
+export const repairRunFor = async (
+	db: BackendDb,
+	runId: string,
+): Promise<TestRunRow | null> =>
+	(await db.query.testRuns.findFirst({
+		where: and(
+			eq(testRuns.retryOfRunId, runId),
+			eq(testRuns.trigger, "repair"),
+		),
+		orderBy: [desc(testRuns.queuedAt)],
+	})) ?? null;
+
 // ---------------------------------------------------------------------------------------------
 // Batches
 // ---------------------------------------------------------------------------------------------
@@ -785,7 +944,11 @@ const finalAttempts = async (
 	const latestByOrigin = new Map(runIds.map((id) => [id, id]));
 	for (let depth = 0; depth < 10 && frontier.length > 0; depth += 1) {
 		const retries = await db.query.testRuns.findMany({
-			where: inArray(testRuns.retryOfRunId, frontier),
+			// A repair run is not an attempt: the strict run's verdict stands in the batch.
+			where: and(
+				inArray(testRuns.retryOfRunId, frontier),
+				ne(testRuns.trigger, "repair"),
+			),
 		});
 		for (const retry of retries) {
 			for (const [origin, latest] of latestByOrigin) {
@@ -1058,27 +1221,8 @@ export const queuePlacement = async (
 	};
 };
 
-const blockedReasonSchema = z
-	.enum([
-		"MISSING_VARIABLE",
-		"MISSING_CREDENTIAL",
-		"MODEL_UNAVAILABLE",
-		"MODEL_KEY_MISSING",
-		"APP_UNREACHABLE",
-		"AUTH_CREDENTIAL_UNAVAILABLE",
-		"STEP_BUDGET_EXHAUSTED",
-		"REPLAY_STALE",
-		"NO_RUNNER",
-		"RUNNER_LOST",
-		"BUDGET_EXCEEDED",
-		"MACRO_ERROR",
-		"TRANSCRIPT_INVALID",
-		"ENGINE_ERROR",
-		"CANCELLED",
-		"INCONCLUSIVE",
-	])
-	.nullable()
-	.catch(null);
+// The shared enum, so a reason the runner reports and this backend knows is never hidden.
+const blockedReasonSchema = sharedBlockedReasonSchema.nullable().catch(null);
 
 export const toRunSummary = async (
 	db: BackendDb,
@@ -1172,37 +1316,13 @@ const stepStatusSchema = z.enum([
 	"running",
 	"pending",
 ]);
-const stepModeSchema = z
-	.enum(["agent", "replayed", "handoff", "deterministic"])
-	.nullable()
-	.catch(null);
-const cacheReasonSchema = z
-	.enum([
-		"hit",
-		"no-entry",
-		"wrong-context",
-		"target-not-found",
-		"target-ambiguous",
-		"end-mismatch",
-		"action-failed",
-		"cache-off",
-		"not-cacheable",
-	])
-	.nullable()
-	.catch(null);
-const stepTypeSchema = z
-	.enum([
-		"open",
-		"act",
-		"assert",
-		"login",
-		"wait",
-		"screenshot",
-		"extract",
-		"note",
-		"macro",
-	])
-	.catch("act");
+// Shared enums so new runner modes and cache reasons never read back as null.
+const stepModeSchema = testRunStepModeSchema.nullable().catch(null);
+const cacheReasonSchema = sharedCacheReasonSchema.nullable().catch(null);
+const stepTypeSchema = transcriptStepTypeSchema.catch("act");
+const stepOutputsSchema = z.record(z.string(), z.string());
+// The shared summary carries the replayed requests for the run page (roadmap §2.4).
+const stepRequestsSchema = stepRequestsSummarySchema;
 
 const readUrl = async (
 	artifactStorage: ArtifactStorage | null,
@@ -1302,6 +1422,17 @@ export const toRunDetail = async (
 				reasoningTokens: row.reasoningTokens,
 				costUsd: row.costUsd,
 			},
+			...(row.outputsJson
+				? { outputs: parseJsonColumn(row.outputsJson, stepOutputsSchema, {}) }
+				: {}),
+			...(row.requestsJson
+				? {
+						requests: parseJsonColumn(row.requestsJson, stepRequestsSchema, {
+							count: 0,
+							mutations: 0,
+						}),
+					}
+				: {}),
 		});
 	}
 	for (const step of planned) {
@@ -1348,11 +1479,26 @@ export const toRunDetail = async (
 			{},
 		),
 		cacheMode: run.cacheMode,
+		executionMode: run.executionMode,
+		// Every variable the run produced, later steps over earlier ones (roadmap §2.6).
+		outputs: steps.reduce<Record<string, string>>(
+			(merged, step) => Object.assign(merged, step.outputs ?? {}),
+			{},
+		),
+		reusedFromRunIds: parseJsonColumn(
+			run.reusedFromRunIdsJson,
+			z.array(z.string()),
+			[],
+		),
 		runnerInfo,
 		error: run.error,
 		steps,
 		transcript: version?.transcript ?? "",
 		currentStepId: run.currentStepId,
+		repairRunId:
+			run.blockedReason === "REPLAY_STALE"
+				? ((await repairRunFor(db, run.id))?.id ?? null)
+				: null,
 		live: await liveDetail(run, liveHub),
 	};
 };
@@ -1655,6 +1801,12 @@ export const upsertRunSteps = async (
 			...(step.visionInput !== undefined
 				? { visionInput: step.visionInput }
 				: {}),
+			...(step.outputs !== undefined
+				? { outputsJson: JSON.stringify(step.outputs) }
+				: {}),
+			...(step.requests !== undefined
+				? { requestsJson: JSON.stringify(step.requests) }
+				: {}),
 			...(usage
 				? {
 						modelId: usage.modelId,
@@ -1914,6 +2066,16 @@ export const buildClaimedRun = async (
 	const steps = version
 		? parseJsonColumn(version.stepsJson, z.array(transcriptStepSchema), [])
 		: caseSteps(testCase);
+	const environment = run.environmentId
+		? await db.query.testEnvironments.findFirst({
+				where: eq(testEnvironments.id, run.environmentId),
+				columns: {
+					apiOriginsJson: true,
+					openapiUrl: true,
+					apiPolicyJson: true,
+				},
+			})
+		: null;
 	return {
 		runId: run.id,
 		testCaseId: run.testCaseId,
@@ -1930,6 +2092,18 @@ export const buildClaimedRun = async (
 			{},
 		),
 		cacheMode: run.cacheMode,
+		executionMode: run.executionMode,
+		apiOrigins: parseJsonColumn(
+			environment?.apiOriginsJson,
+			z.array(z.string()),
+			[],
+		),
+		openapiUrl: environment?.openapiUrl ?? null,
+		apiPolicy: parseJsonColumn(
+			environment?.apiPolicyJson,
+			apiPolicySchema,
+			defaultApiPolicy,
+		),
 		leaseExpiresAt: run.workerLeaseExpiresAt ?? Date.now() + RUN_LEASE_MS,
 		attempt: run.attempts + 1,
 		runToken,

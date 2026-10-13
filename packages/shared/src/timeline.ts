@@ -1,6 +1,6 @@
-import type { ActionMergeGroup, NetworkSubtype, SessionArchive, TabContext } from "./session";
+import type { ActionMergeGroup, IntegrationEvent, NetworkSubtype, SessionArchive, TabContext } from "./session";
 
-export type TimelineKind = "lifecycle" | "interaction" | "network" | "console" | "error";
+export type TimelineKind = "lifecycle" | "interaction" | "network" | "console" | "error" | "integration";
 export type TimelineSection = "actions" | "console" | "network";
 
 export type TimelineItem = {
@@ -318,7 +318,32 @@ function buildActionLabel(
       return buildInteractionLabel(payload);
     case "error":
       return payload.message;
+    case "integration":
+      return formatIntegrationLabel(payload);
   }
+}
+
+// Viewer rows carry a label only, so an integration entry's row text encodes what the Actions tab
+// shows: a header line, the statement, then the sample rows as JSON. `parseIntegrationLabel`
+// reads it back; both live here so the format has one owner.
+export function formatIntegrationLabel(payload: IntegrationEvent): string {
+  const rows = payload.rowCount === 1 ? "1 row" : `${payload.rowCount} rows`;
+  return [`${payload.integration.toUpperCase()} ${payload.profile} · ${rows} · ${Math.round(payload.durationMs)}ms`, payload.statement, JSON.stringify(payload.sample)].join("\n");
+}
+
+export function parseIntegrationLabel(label: string): { header: string; statement: string; sample: Array<Record<string, unknown>> } | null {
+  const lines = label.split("\n");
+  if (lines.length < 3) return null;
+  const header = lines[0] ?? "";
+  const sampleText = lines[lines.length - 1] ?? "[]";
+  let sample: Array<Record<string, unknown>> = [];
+  try {
+    const parsed: unknown = JSON.parse(sampleText);
+    if (Array.isArray(parsed)) sample = parsed.filter((row): row is Record<string, unknown> => typeof row === "object" && row !== null);
+  } catch {
+    return null;
+  }
+  return { header, statement: lines.slice(1, -1).join("\n"), sample };
 }
 
 function buildInteractionLabel(payload: SessionArchive["sections"]["actions"][number]["payload"]): string {

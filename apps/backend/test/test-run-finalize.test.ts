@@ -238,6 +238,195 @@ describe("run finalisation", () => {
 		});
 	});
 
+	it("queues one read-write repair run for a strict run that stopped on REPLAY_STALE, deduped, and shows it on the detail", async () => {
+		const fixture = await createTestCaseFixture();
+		const { testCase } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+		});
+		const runner = await registerRunner(fixture);
+		const suite = await fixture.call<{ id: string }>("/test-suites", {
+			token: fixture.qa.token,
+			body: { name: "Regression", memberIds: [testCase.id] },
+		});
+		expect(suite.status).toBe(201);
+		// A suite batch without a cache mode is the regression run: strict (roadmap §4.3).
+		const requested = await fixture.call<CreateTestRunResponse>(
+			`/test-suites/${suite.body.id}/runs`,
+			{ token: fixture.qa.token, body: {} },
+		);
+		expect(requested.status).toBe(201);
+		const strict = await claimNext(fixture, runner.workerToken);
+		expect(strict.cacheMode).toBe("strict");
+		const actStep = strict.steps.find((step) => step.type === "act");
+		const staleReport = (claimed: ClaimedRun) => {
+			const report = buildRunReport(claimed);
+			return {
+				...report,
+				outcome: "blocked" as const,
+				blockedReason: "REPLAY_STALE" as const,
+				steps: report.steps.map((step) =>
+					step.stepId === actStep?.stepId
+						? {
+								...step,
+								status: "blocked" as const,
+								mode: "agent" as const,
+								cacheReason: "action-failed" as const,
+								usage: { ...step.usage, modelCalls: 0 },
+								error: {
+									code: "REPLAY_STALE",
+									message: "the recording of this step no longer replays",
+								},
+							}
+						: step,
+				),
+				errors: [{ code: "REPLAY_STALE", message: "stale" }],
+			};
+		};
+		const blocked = await finalize(fixture, strict, staleReport(strict));
+		expect(blocked.status).toBe(200);
+		expect(blocked.body.outcome).toBe("blocked");
+		expect(blocked.body.blockedReason).toBe("REPLAY_STALE");
+		const repairs = await fixture.db.query.testRuns.findMany({
+			where: eq(testRuns.trigger, "repair"),
+		});
+		expect(repairs).toHaveLength(1);
+		expect(repairs[0]).toMatchObject({
+			testCaseId: testCase.id,
+			cacheMode: "read-write",
+			status: "queued",
+			retryOfRunId: strict.runId,
+			retryAttempt: 1,
+			batchId: null,
+			priority: 10,
+		});
+		expect(blocked.body.repairRunId).toBe(repairs[0]?.id ?? "");
+		// The batch keeps the strict verdict; the repair is off the critical path.
+		const batch = await fixture.call<{
+			status: string;
+			counts: { blocked: number; pending: number };
+		}>(`/test-run-batches/${requested.body.batchId}`, {
+			token: fixture.qa.token,
+		});
+		expect(batch.body.status).toBe("failed");
+		expect(batch.body.counts).toMatchObject({ blocked: 1, pending: 0 });
+
+		// A second strict run of the same case stops the same way: no second repair while one is open.
+		await fixture.call(`/test-cases/${testCase.id}/runs`, {
+			token: fixture.qa.token,
+			body: { cacheMode: "strict", force: true },
+		});
+		const again = await claimNext(fixture, runner.workerToken);
+		expect(again.cacheMode).toBe("strict");
+		await finalize(fixture, again, staleReport(again));
+		expect(
+			await fixture.db.query.testRuns.findMany({
+				where: eq(testRuns.trigger, "repair"),
+			}),
+		).toHaveLength(1);
+
+		// The repair run itself is claimable and runs read-write; its own stale stop queues nothing.
+		const repair = await claimNext(fixture, runner.workerToken);
+		expect(repair.runId).toBe(repairs[0]?.id ?? "");
+		expect(repair.cacheMode).toBe("read-write");
+		await finalize(fixture, repair, staleReport(repair));
+		expect(
+			await fixture.db.query.testRuns.findMany({
+				where: eq(testRuns.trigger, "repair"),
+			}),
+		).toHaveLength(1);
+		// Once the repair is finished, a later stale strict run gets a new one.
+		await fixture.call(`/test-cases/${testCase.id}/runs`, {
+			token: fixture.qa.token,
+			body: { cacheMode: "strict", force: true },
+		});
+		const later = await claimNext(fixture, runner.workerToken);
+		const laterResult = await finalize(fixture, later, staleReport(later));
+		expect(laterResult.status).toBe(200);
+		expect(
+			await fixture.db.query.testRuns.findMany({
+				where: eq(testRuns.trigger, "repair"),
+			}),
+		).toHaveLength(2);
+		// A case run without a cache mode stays read-write.
+		const manual = await fixture.call<CreateTestRunResponse>(
+			`/test-cases/${testCase.id}/runs`,
+			{ token: fixture.qa.token, body: { force: true } },
+		);
+		const manualRun = await fixture.call<TestRunDetail>(
+			`/test-runs/${manual.body.runId}`,
+			{ token: fixture.qa.token },
+		);
+		expect(manualRun.body.cacheMode).toBe("read-write");
+		expect(manualRun.body.repairRunId).toBeNull();
+	});
+
+	it("verifies an assert check replayed deterministically", async () => {
+		const fixture = await createTestCaseFixture();
+		const { testCase } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+		});
+		const runner = await registerRunner(fixture);
+		const assertStep = testCase.steps.find((step) => step.type === "assert");
+		if (!assertStep) throw new Error("Expected an assert step");
+		const now = Date.now();
+		await fixture.db.insert(testStepScripts).values({
+			orgId: fixture.orgId,
+			testCaseId: testCase.id,
+			stepId: assertStep.stepId,
+			stepIdsJson: JSON.stringify([assertStep.stepId]),
+			instructionKey: assertStep.instructionKey,
+			keyHash: `check:${assertStep.stepId}`,
+			kind: "assert-check",
+			entryJson: "null",
+			checkJson: JSON.stringify({
+				schemaVersion: "jl-assert-check-1",
+				locator: { role: "heading", name: "Sign in" },
+				matcher: "visible",
+				expected: null,
+				recordedAt: new Date(now).toISOString(),
+			}),
+			renderedCode:
+				"expect(screen.getByRole('heading', 'Sign in')).toBeVisible()",
+			createdAt: now,
+			updatedAt: now,
+		});
+		await fixture.call(`/test-cases/${testCase.id}/runs`, {
+			token: fixture.qa.token,
+			body: {},
+		});
+		const claimed = await claimNext(fixture, runner.workerToken);
+		const modes = claimed.steps.map((step) =>
+			step.stepId === assertStep.stepId ? ("deterministic" as const) : null,
+		);
+		const report = buildRunReport(claimed, { modes });
+		await finalize(fixture, claimed, {
+			...report,
+			steps: report.steps.map((step) =>
+				step.stepId === assertStep.stepId
+					? {
+							...step,
+							cacheReason: "hit" as const,
+							usage: { ...step.usage, modelCalls: 0 },
+						}
+					: step,
+			),
+		});
+		const script = await fixture.db.query.testStepScripts.findFirst({
+			where: eq(testStepScripts.stepId, assertStep.stepId),
+		});
+		expect(script).toMatchObject({
+			kind: "assert-check",
+			status: "active",
+			verifiedCount: 1,
+		});
+		const detail = await fixture.call<TestCaseDetail>(
+			`/test-cases/${testCase.id}`,
+			{ token: fixture.qa.token },
+		);
+		// The check counts as a cached step without any UI change.
+		expect(detail.body.stats.cachedSteps).toBe(1);
+	});
+
 	it("moves expired run evidence to the bin and keeps the latest run per case", async () => {
 		const fixture = await createTestCaseFixture();
 		const { testCase } = await seedRunnableCase(fixture, {

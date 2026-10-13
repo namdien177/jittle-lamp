@@ -63,8 +63,11 @@ async function until<T>(label: string, probe: () => Promise<T | null | undefined
   throw new Error(`timed out waiting for ${label}`);
 }
 
+// UI action scripts only: assert checks (phase B) sit beside them in the same table.
 const scriptStepIds = async (caseId: string) =>
-  (await api<{ items: StepScript[] }>(`/test-cases/${caseId}/scripts`, fx.qa.token)).body.items.map((script) => script.stepId);
+  (await api<{ items: StepScript[] }>(`/test-cases/${caseId}/scripts`, fx.qa.token)).body.items
+    .filter((script) => (script.kind ?? "ui-actions") === "ui-actions")
+    .map((script) => script.stepId);
 
 beforeAll(async () => {
   process.env.JL_LIVE_POLL_MS = "100";
@@ -221,10 +224,10 @@ describe("live view and take-over through the real backend (design.md §5.4)", (
 
     // The other acts were cached in the backend; the taken-over act was not.
     const cached = await scriptStepIds(caseId);
-    expect(cached).toHaveLength(3);
+    expect(cached).toHaveLength(2);
     expect(cached).not.toContain(logout.stepId);
 
-    // A forced re-run (nobody watching) still passes: three acts replay, the logout act runs the agent
+    // A forced re-run (nobody watching) still passes: two acts replay, the logout act runs the agent
     // again and is cached this time. The mock picks the first unused turn whose prompt matches, and
     // the logout act's prompt quotes the login steps, so the re-run's fixture keeps only the turns
     // the agent still needs (the logout act and the repeating judge turns).
@@ -241,11 +244,11 @@ describe("live view and take-over through the real backend (design.md §5.4)", (
     await runWorkerOnce();
     const rerun = await runDetail(forced.body.runId);
     expect(rerun).toMatchObject({ status: "completed", outcome: "passed" });
-    expect(rerun.metrics.stepsReplayed).toBe(3);
+    expect(rerun.metrics.stepsReplayed).toBe(2);
     expect(rerun.metrics.stepsAgent).toBe(1);
     expect(rerun.steps.find((step) => step.stepId === logout.stepId)?.mode).toBe("agent");
     const cachedAfter = await scriptStepIds(caseId);
-    expect(cachedAfter).toHaveLength(4);
+    expect(cachedAfter).toHaveLength(3);
     expect(cachedAfter).toContain(logout.stepId);
   }, 300_000);
 });

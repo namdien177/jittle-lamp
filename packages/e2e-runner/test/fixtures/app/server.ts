@@ -1,7 +1,14 @@
 // Fixture web app for runner tests: login form → dashboard with an account menu → sign out.
 // Credentials come from the caller; the server never prints them.
 
-export type FixtureApp = { url: string; stop: () => void; requests: string[] };
+export type FixtureApp = {
+  url: string;
+  stop: () => void;
+  requests: string[];
+  // Records created through POST /api/records; `failCreates` makes that endpoint answer 500.
+  records: Map<string, { id: string; name: string }>;
+  failCreates: boolean;
+};
 
 const page = (title: string, body: string, script = "") => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title>
 <style>body{font:16px system-ui;margin:40px}form{display:grid;gap:12px;max-width:320px}nav{display:flex;justify-content:space-between}[role=menu]{border:1px solid #ccc;padding:8px}</style>
@@ -33,8 +40,27 @@ const dashboardPage = page(
   fetch("/api/summary").then((r) => r.json()).then((data) => console.info("summary", data.classes));`
 );
 
+// A public page with a form that creates a record over the API and reads it back: two requests
+// with a correlated id, for the API replay tests.
+const recordsPage = page(
+  "Records",
+  `<main><h1>Records</h1><form id="create"><label>Name <input name="name" autocomplete="off"></label><button type="submit">Create record</button></form><p id="created" aria-live="polite"></p></main>`,
+  `document.getElementById("create").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = new FormData(event.target).get("name");
+    const response = await fetch("/api/records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+    if (!response.ok) { document.getElementById("created").textContent = "Create failed"; return; }
+    const created = await response.json();
+    const check = await fetch("/api/records/" + created.id);
+    const record = await check.json();
+    document.getElementById("created").textContent = "Created: " + record.name + " (" + record.id + ")";
+  });`
+);
+
 export function startFixtureApp(credentials: { email: string; password: string }): FixtureApp {
   const requests: string[] = [];
+  const records = new Map<string, { id: string; name: string }>();
+  const app: FixtureApp = { url: "", stop: () => undefined, requests, records, failCreates: false };
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -55,10 +81,25 @@ export function startFixtureApp(credentials: { email: string; password: string }
       }
       if (url.pathname === "/api/logout") return new Response(null, { status: 204, headers: { "set-cookie": "session=; Path=/; Max-Age=0" } });
       if (url.pathname === "/api/summary") return Response.json({ classes: 4 });
+      if (url.pathname === "/records") return html(recordsPage);
+      if (url.pathname === "/api/records" && request.method === "POST") {
+        if (app.failCreates) return Response.json({ error: "records are closed" }, { status: 500 });
+        const body = (await request.json()) as { name?: string };
+        const record = { id: crypto.randomUUID(), name: String(body.name ?? ""), createdAt: new Date().toISOString() };
+        records.set(record.id, record);
+        return Response.json(record, { status: 201 });
+      }
+      const recordId = /^\/api\/records\/([^/]+)$/.exec(url.pathname)?.[1];
+      if (recordId && request.method === "GET") {
+        const record = records.get(recordId);
+        return record ? Response.json(record) : Response.json({ error: "not found" }, { status: 404 });
+      }
       return new Response("not found", { status: 404 });
     }
   });
-  return { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true), requests };
+  app.url = `http://127.0.0.1:${server.port}`;
+  app.stop = () => server.stop(true);
+  return app;
 }
 
 if (import.meta.main) {

@@ -1,8 +1,10 @@
 import { defineEngine } from "e2e/engine";
 import { surfaceOf, web } from "@e2e-dev/web";
 
+import { installCaptureFromEnv, type CaptureHandle } from "./capture";
 import { installInteractionLock, withLockLowered } from "./interaction-lock";
 import { startLiveFrames, waitWhileTakenOver } from "./live";
+import { closeQueryConnections } from "./query";
 import { writeStepLog } from "./step-log";
 
 type EngineHandle = ReturnType<typeof web>;
@@ -13,14 +15,17 @@ declare global {
   var __jlEngines: EngineHandle[] | undefined;
 }
 
-// `web()` wrapped so each attempt records when the video started (step offsets are measured from
-// it) and, for `--headed` runs, installs the interaction lock (design.md §5.4). The engine keeps
-// web's name and version so cache keys are unchanged.
+// `web()` wrapped so each attempt records when it started (the fallback anchor for step offsets),
+// captures network, console and navigations for the session archive (e2e 0.19 removed the
+// Playwright trace), and, for `--headed` runs, installs the interaction lock (design.md §5.4).
+// The engine keeps web's name and version so cache keys are unchanged.
 export function createJlEngine(options: { viewport: { width: number; height: number }; headed: boolean }) {
   const inner = web({ viewport: options.viewport });
   globalThis.__jlEngines = [...(globalThis.__jlEngines ?? []), inner];
   const { capabilities: _capabilities, ...rest } = inner as unknown as Record<string, unknown>;
   const startAttempt = rest.startAttempt as AnyFn | undefined;
+  const endAttempt = rest.endAttempt as AnyFn | undefined;
+  let capture: CaptureHandle | null = null;
 
   const pageOf = () => {
     try {
@@ -52,11 +57,20 @@ export function createJlEngine(options: { viewport: { width: number; height: num
       await startAttempt?.(ctx);
       const at = new Date().toISOString();
       writeStepLog({ type: "attempt-started", at, videoStartedAt: at });
-      if (options.headed) {
-        const surface = surfaceOf(inner);
-        if (surface) await installInteractionLock(surface.context());
-      }
+      const surface = surfaceOf(inner);
+      // The context exists from here; the page only from the first open, so capture listens on
+      // the context and picks pages up as they appear.
+      if (surface) capture = installCaptureFromEnv(surface.context());
+      if (options.headed && surface) await installInteractionLock(surface.context());
       if (live) startLiveFrames(pageOf);
+    },
+    async endAttempt(ctx: unknown) {
+      // Body reads still in flight finish before the context closes under them.
+      await capture?.flush();
+      capture = null;
+      // [Query] connections live for one attempt (roadmap §5.2).
+      await closeQueryConnections();
+      return endAttempt?.(ctx);
     }
   } as never) as EngineHandle;
 }

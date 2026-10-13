@@ -8,6 +8,8 @@ export { UiSelect } from "./select";
 export type { SelectOption } from "./select";
 export { RunStepList, formatCostUsd, formatStepDuration, formatVideoOffset } from "./run-step-list";
 export type { RunStepListProps, RunStepListStep } from "./run-step-list";
+export { RunStepRail, adjacentPillId, railKeyCommand, railPillTitle, railPills, railScrollTarget, railStatusLabel } from "./run-step-rail";
+export type { RunStepRailPill, RunStepRailProps, RunStepRailStep } from "./run-step-rail";
 export { computeVirtualWindow, scrollTopForIndex, useVirtualWindow } from "./virtual-window";
 export type { VirtualWindow } from "./virtual-window";
 export * from "./step-editor/model";

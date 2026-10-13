@@ -1,8 +1,11 @@
 import { z } from "zod/v4";
 
-// Version 4 (ADR 0002 decision 8) adds `recorder.kind` and `step` annotations. Version 3 archives,
-// still written by released extensions, are upgraded in memory on parse.
-export const sessionSchemaVersion = 4;
+// Version 4 (ADR 0002 decision 8) adds `recorder.kind` and `step` annotations. Version 5 (roadmap
+// 2026-10-13 §5.4) adds the `integration` action payload for [Query]/[API] steps. Version 3 archives,
+// still written by released extensions, and v4 archives from earlier runners are upgraded in memory
+// on parse.
+export const sessionSchemaVersion = 5;
+export const runnerArchiveV4SchemaVersion = 4;
 export const extensionArchiveSchemaVersion = 3;
 
 export const isoTimestampSchema = z.string().datetime({ offset: true });
@@ -333,6 +336,19 @@ export const lifecycleEventSchema = z.object({
   detail: z.string().min(1)
 });
 
+// One call a run made outside the browser: a [Query] step's SQL or an [API] step's request
+// (roadmap 2026-10-13 §5.4). Statement and sample rows arrive redacted; the sample is what the run
+// page shows as the picked rows.
+export const integrationEventSchema = z.object({
+  kind: z.literal("integration"),
+  integration: z.enum(["sql", "http"]),
+  profile: z.string().min(1),
+  statement: z.string(),
+  rowCount: z.number().int().nonnegative(),
+  sample: z.array(z.record(z.string(), z.unknown())).default([]),
+  durationMs: z.number().nonnegative()
+});
+
 export const sessionEventPayloadSchema = z.union([
   consoleEventSchema,
   networkEventSchema,
@@ -350,7 +366,8 @@ export const sessionEventSchema = z.object({
 export const archiveActionPayloadSchema = z.union([
   interactionEventSchema,
   errorEventSchema,
-  lifecycleEventSchema
+  lifecycleEventSchema,
+  integrationEventSchema
 ]);
 
 export const archiveActionSchema = z.object({
@@ -391,7 +408,7 @@ export const actionMergeGroupSchema = z.object({
 });
 
 export const archiveStepStatusSchema = z.enum(["running", "passed", "failed", "blocked", "skipped"]);
-export const archiveStepModeSchema = z.enum(["agent", "replayed", "handoff", "deterministic"]);
+export const archiveStepModeSchema = z.enum(["agent", "replayed", "handoff", "deterministic", "api-replayed", "api-handoff", "query"]);
 
 // One executed test-case step. Entries recorded while the step ran carry the tag `step:<stepId>`.
 export const stepAnnotationSchema = z.object({
@@ -446,7 +463,7 @@ export const sessionArchiveV3Schema = z.object({
   notes: z.array(z.string()).default([])
 });
 
-export const sessionArchiveV4Schema = z.object({
+export const sessionArchiveV5Schema = z.object({
   schemaVersion: z.literal(sessionSchemaVersion),
   sessionId: sessionIdSchema,
   name: z.string().min(1),
@@ -474,16 +491,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// Lift a raw v3 archive to the v4 shape. Anything else passes through for v4 validation.
+// Lift a raw v3 or v4 archive to the v5 shape. Anything else passes through for v5 validation.
 export function upgradeSessionArchiveInput(raw: unknown): unknown {
-  if (!isRecord(raw) || raw.schemaVersion !== extensionArchiveSchemaVersion) return raw;
-  const recorder =
-    isRecord(raw.recorder) && !("kind" in raw.recorder) ? { kind: "browser-extension", ...raw.recorder } : raw.recorder;
-  return { ...raw, schemaVersion: sessionSchemaVersion, ...(recorder === undefined ? {} : { recorder }) };
+  if (!isRecord(raw)) return raw;
+  if (raw.schemaVersion === extensionArchiveSchemaVersion) {
+    const recorder =
+      isRecord(raw.recorder) && !("kind" in raw.recorder) ? { kind: "browser-extension", ...raw.recorder } : raw.recorder;
+    return { ...raw, schemaVersion: sessionSchemaVersion, ...(recorder === undefined ? {} : { recorder }) };
+  }
+  // v4 → v5 only adds a payload kind and step modes; the shape is unchanged.
+  if (raw.schemaVersion === runnerArchiveV4SchemaVersion) return { ...raw, schemaVersion: sessionSchemaVersion };
+  return raw;
 }
 
-// Parses v3 and v4 archives; the result is always v4.
-export const sessionArchiveSchema = z.preprocess(upgradeSessionArchiveInput, sessionArchiveV4Schema);
+// Parses v3, v4 and v5 archives; the result is always v5.
+export const sessionArchiveSchema = z.preprocess(upgradeSessionArchiveInput, sessionArchiveV5Schema);
+// Kept for callers written against the v4 name; the shape is the current one.
+export const sessionArchiveV4Schema = sessionArchiveV5Schema;
 
 export const captureSessionDraftSchema = z.object({
   sessionId: sessionIdSchema,
@@ -508,7 +532,8 @@ export type E2eRunnerRecorderInfo = z.infer<typeof e2eRunnerRecorderInfoSchema>;
 export type ArchiveSummary = z.infer<typeof archiveSummarySchema>;
 export type TabContext = z.infer<typeof tabContextSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
-export type SessionArchive = z.infer<typeof sessionArchiveV4Schema>;
+export type SessionArchive = z.infer<typeof sessionArchiveV5Schema>;
+export type IntegrationEvent = z.infer<typeof integrationEventSchema>;
 export type SessionArchiveV3 = z.infer<typeof sessionArchiveV3Schema>;
 export type ArchiveAction = z.infer<typeof archiveActionSchema>;
 export type ArchiveConsoleEntry = z.infer<typeof archiveConsoleEntrySchema>;

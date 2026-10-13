@@ -4,6 +4,7 @@ import {
   Bell,
   Bot,
   CircleDollarSign,
+  Database,
   Gauge,
   Globe,
   KeyRound,
@@ -28,6 +29,7 @@ export const testingSettingsGroups = [
       { to: `${testingSettingsBase}/variables`, label: "Variables", icon: Variable },
       { to: `${testingSettingsBase}/environments`, label: "Environments", icon: Globe },
       { to: `${testingSettingsBase}/credentials`, label: "Credentials", icon: KeyRound },
+      { to: `${testingSettingsBase}/queries`, label: "Queries", icon: Database },
       { to: `${testingSettingsBase}/actions`, label: "Actions", icon: Zap }
     ]
   },

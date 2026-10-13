@@ -15,6 +15,19 @@ import {
   runProgress,
   toRunStepListSteps
 } from "../apps/evidence-web/src/test-cases/run-model";
+import {
+  cacheDetailOf,
+  queryStepView,
+  queuedStripMeta,
+  readDetailsOpen,
+  runInfoRows,
+  shownStepId,
+  mediaHeightFor,
+  stepOutcomeLine,
+  stepRowMeta,
+  stepStripMeta,
+  writeDetailsOpen
+} from "../apps/evidence-web/src/test-runs/run-view-model";
 
 function runStep(overrides: Partial<TestRunStep> & Pick<TestRunStep, "stepId" | "ordinal">): TestRunStep {
   return {
@@ -215,5 +228,145 @@ describe("run polling backs off on errors", () => {
     expect(runPollInterval(undefined, 2)).toBe(8_000);
     expect(runPollInterval({ status: "completed" }, 3)).toBe(false);
     expect(runPollInterval(active, 0)).toBe(2_000);
+  });
+});
+
+describe("run view strip", () => {
+  const steps = [
+    runStep({ stepId: "s1", ordinal: 1 }),
+    runStep({ stepId: "s2", ordinal: 2, type: "login", status: "running", mode: "agent", durationMs: null }),
+    runStep({ stepId: "s2.1", ordinal: 2, parentStepId: "s2", status: "running" }),
+    runStep({ stepId: "s3", ordinal: 3, type: "assert", status: "failed", mode: "agent", durationMs: 21_000, observed: "A red banner says the contact is in use", error: { code: "ASSERTION_FAILED", message: "No reference number" } }),
+    runStep({ stepId: "s4", ordinal: 4, status: "pending", durationMs: null })
+  ];
+
+  test("the shown step is the selection, else the playhead, else the running step's top-level parent, else the first failure", () => {
+    expect(shownStepId({ steps, activeStepId: "s1", playingStepId: "s3", currentStepId: "s2" })).toBe("s1");
+    expect(shownStepId({ steps, activeStepId: null, playingStepId: "s3", currentStepId: "s2" })).toBe("s3");
+    expect(shownStepId({ steps, activeStepId: null, playingStepId: null, currentStepId: "s2.1" })).toBe("s2");
+    expect(shownStepId({ steps, activeStepId: null, playingStepId: null, currentStepId: null })).toBe("s3");
+    expect(shownStepId({ steps: [steps[0]!], activeStepId: null, playingStepId: null, currentStepId: null })).toBe("s1");
+    // A child id never becomes the shown step.
+    expect(shownStepId({ steps, activeStepId: "s2.1", playingStepId: null, currentStepId: null })).toBe("s3");
+  });
+
+  test("the meta line reads step, type, mode, duration and the error code of a failure", () => {
+    expect(stepStripMeta(steps[0]!, 4)).toBe("Step 1 of 4 · Act · replayed · 1.2 s");
+    expect(stepStripMeta(steps[3]!, 4)).toBe("Step 3 of 4 · Assert · agent · 21.0 s · ASSERTION_FAILED");
+    expect(stepStripMeta(steps[4]!, 4)).toBe("Step 4 of 4 · Act · replayed");
+    expect(stepOutcomeLine(steps[3]!)).toBe("A red banner says the contact is in use");
+    expect(stepOutcomeLine(runStep({ stepId: "x", ordinal: 9, status: "failed", error: { code: "E", message: "boom" } }))).toBe("boom");
+    expect(stepOutcomeLine(steps[0]!)).toBeNull();
+    expect(queuedStripMeta({ status: "queued", queuePosition: 1, queueDepth: 3, estimatedStartAt: 1_000_000 + 20_000 }, 1_000_000)).toBe("Queued · #2 of 3 · starts in ~20s");
+  });
+
+  test("the step column's meta says how a step ran and what it produced; the media box takes the width at 16:9 under a cap", () => {
+    expect(stepRowMeta(steps[0]!, 0)).toBe("replayed");
+    expect(stepRowMeta(steps[1]!, 2)).toBe("2 steps · agent");
+    expect(stepRowMeta(runStep({ stepId: "a", ordinal: 1, mode: "api-replayed", requests: { count: 2, mutations: 1, items: [] } }), 0)).toBe("API · 2 requests");
+    expect(stepRowMeta(runStep({ stepId: "b", ordinal: 1, mode: "api-handoff", requests: { count: 1, mutations: 0, items: [] } }), 0)).toBe("API hand-off · 1 request");
+    expect(stepRowMeta(runStep({ stepId: "c", ordinal: 1, type: "query", mode: "query", cacheDetail: "select 1\n-- 1 row · agent · DB · 4ms" } as Partial<TestRunStep> & Pick<TestRunStep, "stepId" | "ordinal">), 0)).toBe("query · 1 row");
+    expect(stepRowMeta(runStep({ stepId: "d", ordinal: 1, type: "query", mode: "query" }), 0)).toBe("query");
+    expect(stepRowMeta(runStep({ stepId: "e", ordinal: 1, mode: null, status: "skipped" }), 0)).toBe("skipped");
+    expect(stepRowMeta(runStep({ stepId: "f", ordinal: 1, mode: null, status: "pending" }), 0)).toBe("");
+    expect(mediaHeightFor({ width: 800, height: 1000 })).toBe(534);
+    expect(mediaHeightFor({ width: 1600, height: 700 })).toBe(420);
+    expect(mediaHeightFor({ width: 200, height: 200 })).toBe(180);
+  });
+
+  test("cache detail is read defensively until the schema carries it", () => {
+    expect(cacheDetailOf(steps[0]!)).toBeNull();
+    expect(cacheDetailOf({ ...steps[0]!, cacheDetail: "selector drifted" } as TestRunStep)).toBe("selector drifted");
+    expect(cacheDetailOf({ ...steps[0]!, cacheDetail: { reason: "x" } } as TestRunStep)).toBe('{\n  "reason": "x"\n}');
+  });
+
+  test("the Details drawer is closed by default and remembered per device", () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => void store.set(key, value) };
+    expect(readDetailsOpen(storage)).toBe(false);
+    writeDetailsOpen(storage, true);
+    expect(readDetailsOpen(storage)).toBe(true);
+    expect(readDetailsOpen(null)).toBe(false);
+    expect(readDetailsOpen({ getItem: () => { throw new Error("private mode"); } })).toBe(false);
+  });
+
+  test("info rows merge the model row when act and judge share a model", () => {
+    const format = { tokens: String, cost: (usd: number | null) => `$${usd}`, duration: (ms: number | null) => (ms === null ? "" : `${ms}ms`) };
+    const rows = runInfoRows(runDetail({ metrics: { ...runDetail().metrics, modelId: "m", judgeModelId: "m", costUsd: 0.02, durationMs: 1500 } }), "QA", format);
+    expect(rows.map(([label]) => label)).toEqual(["Version", "Trigger", "Environment", "Runner", "Model", "Tokens", "Cost", "Duration", "Steps"]);
+    expect(rows.find(([label]) => label === "Cost")?.[1]).toBe("$0.02");
+    expect(rows.find(([label]) => label === "Duration")?.[1]).toBe("1500ms");
+    expect(runInfoRows(runDetail(), "QA", format).map(([label]) => label)).toContain("Judge model");
+  });
+});
+
+// Roadmap 2026-10-13 §2.4, §2.6: API steps show their requests instead of a video segment, and
+// the Info tab names the runs whose outputs stood in for [Use] blocks.
+import { renderToStaticMarkup } from "react-dom/server";
+import React from "react";
+import { apiRequestItemsOf, formatRequestStatus, isApiStep } from "../apps/evidence-web/src/test-cases/api-mode-model";
+import { reuseRows } from "../apps/evidence-web/src/test-runs/run-view-model";
+import { ApiRequestPanel } from "../apps/evidence-web/src/test-runs/run-view";
+
+describe("API steps and reuse on the run page", () => {
+  const items = [
+    { seq: 2, method: "GET", path: "/api/records/abc", status: 200, durationMs: 12, mutation: false, error: null },
+    { seq: 1, method: "POST", path: "/api/records", status: 500, durationMs: 40, mutation: true, error: "status 500, recorded 2xx" }
+  ];
+
+  test("request items come back in sequence order and only for API modes", () => {
+    const step = runStep({ stepId: "s1", ordinal: 1, mode: "api-handoff", requests: { count: 2, mutations: 1, items } });
+    expect(isApiStep(step)).toBe(true);
+    expect(isApiStep(runStep({ stepId: "s2", ordinal: 2, mode: "replayed" }))).toBe(false);
+    expect(apiRequestItemsOf(step).map((item) => item.seq)).toEqual([1, 2]);
+    expect(apiRequestItemsOf(runStep({ stepId: "s3", ordinal: 3, mode: "api-replayed" }))).toEqual([]);
+    expect(formatRequestStatus({ status: null, error: "boom" })).toBe("failed");
+    expect(formatRequestStatus({ status: null, error: null })).toBe("—");
+    expect(formatRequestStatus({ status: 201, error: null })).toBe("201");
+  });
+
+  test("the request panel lists method, path, status, duration, the mutation badge and the error", () => {
+    const html = renderToStaticMarkup(React.createElement(ApiRequestPanel, { step: { mode: "api-handoff", ordinal: 4 }, items: apiRequestItemsOf({ requests: { count: 2, mutations: 1, items } }) }));
+    expect(html).toContain("2 requests · API replay handed off to the UI");
+    expect(html.indexOf("/api/records</span>")).toBeLessThan(html.indexOf("/api/records/abc"));
+    expect(html).toContain("500");
+    expect(html).toContain("40 ms");
+    expect(html).toContain("mutation");
+    expect(html).toContain("status 500, recorded 2xx");
+    expect(html).toContain('aria-label="Requests of step 4"');
+  });
+
+  test("the Info tab adds one Preconditions row when runs were reused", () => {
+    expect(reuseRows({ reusedFromRunIds: [] })).toEqual([]);
+    expect(reuseRows({})).toEqual([]);
+    expect(reuseRows({ reusedFromRunIds: ["run_a", "run_b"] })).toEqual([["Preconditions", "reused from run run_a, run_b"]]);
+    const format = { tokens: String, cost: (usd: number | null) => `$${usd}`, duration: (ms: number | null) => (ms === null ? "" : `${ms}ms`) };
+    const labels = runInfoRows(runDetail({ reusedFromRunIds: ["run_a"] }), "QA", format).map(([label]) => label);
+    expect(labels.at(-1)).toBe("Preconditions");
+    expect(runInfoRows(runDetail(), "QA", format).map(([label]) => label)).not.toContain("Preconditions");
+  });
+});
+
+// A [Query] step shows its statement and the row it bound instead of a video segment (roadmap §5.4).
+describe("query step view", () => {
+  test("reads the statement and meta from cacheDetail and the bound row from outputs", () => {
+    const step = {
+      ...runStep({ stepId: "q1", ordinal: 1, type: "query", mode: "query", cacheReason: "no-entry" }),
+      outputs: { student: JSON.stringify({ id: "stu-1", name: "Ann", email: "[redacted]" }), "student.rows": "[]" },
+      cacheDetail: "select id, name from students where level = $1 LIMIT 50\n-- 1 row · agent · PCF_UAT_DB · 42ms"
+    } as TestRunStep;
+    expect(queryStepView(step)).toEqual({
+      statement: "select id, name from students where level = $1 LIMIT 50",
+      meta: "1 row · agent · PCF_UAT_DB · 42ms",
+      binding: "student",
+      row: { id: "stu-1", name: "Ann", email: "[redacted]" },
+      rowCount: 1
+    });
+    // A check without a binding and a blocked query without a statement.
+    const check = { ...runStep({ stepId: "q2", ordinal: 2, type: "query", mode: "query" }), cacheDetail: "select 1 from applications where status = 'APPROVED' LIMIT 50\n-- 3 rows · cached · PCF_UAT_DB · 5ms" } as TestRunStep;
+    expect(queryStepView(check)).toMatchObject({ binding: null, row: null, rowCount: 3 });
+    expect(queryStepView(runStep({ stepId: "q3", ordinal: 3, type: "query", status: "blocked", mode: null }))).toEqual({ statement: "", meta: null, binding: null, row: null, rowCount: null });
+    expect(queryStepView(runStep({ stepId: "a1", ordinal: 4, type: "act" }))).toBeNull();
+    expect(stepStripMeta({ ordinal: 1, type: "query", mode: "query", durationMs: 42, status: "passed", error: null }, 4)).toBe("Step 1 of 4 · Query · query · 42 ms");
   });
 });

@@ -1,4 +1,6 @@
 import {
+	apiPolicySchema,
+	defaultApiPolicy,
 	defaultModelPrices,
 	defaultPriceTableVersion,
 	expandMacros,
@@ -11,10 +13,12 @@ import {
 	macroParamSchema,
 	modelIdProblem,
 	parseTestCaseTranscript,
+	queryProfileArg,
 	type RunModelAccount,
 	resolveCredentialAlias,
 	resolveLoginField,
 	modelProviderOf as sharedModelProviderOf,
+	substituteVariables,
 	type TestCredential,
 	type TestEnvironment,
 	type TestMacro,
@@ -58,6 +62,7 @@ import {
 import { defaultOutboundPolicy, type OutboundPolicy } from "./outbound-http";
 import { parseJsonColumn, referencedCredentialProfiles } from "./test-cases";
 import type { TestSecrets } from "./test-config";
+import { queriesForProfiles } from "./test-queries";
 import {
 	loadLinkedCases,
 	loadRunMacros,
@@ -106,6 +111,13 @@ export const toEnvironment = (
 	agentInstructions: row.agentInstructions,
 	dataLocale: row.dataLocale,
 	notes: row.notes,
+	apiOrigins: parseJsonColumn(row.apiOriginsJson, stringArray, []),
+	openapiUrl: row.openapiUrl,
+	apiPolicy: parseJsonColumn(
+		row.apiPolicyJson,
+		apiPolicySchema,
+		defaultApiPolicy,
+	),
 	usedByCases,
 	createdAt: row.createdAt,
 	updatedAt: row.updatedAt,
@@ -195,6 +207,15 @@ export const saveEnvironment = async (
 			: {}),
 		...(input.request.notes !== undefined
 			? { notes: input.request.notes }
+			: {}),
+		...(input.request.apiOrigins !== undefined
+			? { apiOriginsJson: JSON.stringify(input.request.apiOrigins) }
+			: {}),
+		...(input.request.openapiUrl !== undefined
+			? { openapiUrl: input.request.openapiUrl }
+			: {}),
+		...(input.request.apiPolicy !== undefined
+			? { apiPolicyJson: JSON.stringify(input.request.apiPolicy) }
 			: {}),
 		updatedAt: now,
 	};
@@ -338,6 +359,13 @@ export const saveCredential = async (
 			422,
 			"CREDENTIAL_FIELD_OVERLAP",
 			"A field cannot be both public and secret",
+		);
+	// A [Query] profile cannot open a connection without its password (roadmap §5.1).
+	if (request.kind === "postgres" && !secretNames.has("password"))
+		throw new HttpError(
+			422,
+			"CREDENTIAL_POSTGRES_PASSWORD_REQUIRED",
+			"A postgres profile needs a password secret field",
 		);
 	const existingFields = parseJsonColumn(
 		existingCredential?.fieldsJson ?? "{}",
@@ -1065,6 +1093,25 @@ const credentialProfilesForRun = (
 	return [...profiles];
 };
 
+// Postgres profiles the run's [Query]/[API] steps name, linked cases included. Only these get a
+// `postgres` credential; a login profile never resolves to a database (roadmap §5.3).
+const queryProfilesForRun = (
+	steps: z.infer<typeof transcriptStepSchema>[],
+	macros: MacroDefinition[],
+	cases: LinkedCase[],
+	values: Record<string, string>,
+): string[] => {
+	const profiles = new Set<string>();
+	for (const step of expandMacros(steps, macros, cases).steps) {
+		if (step.type !== "query" && step.type !== "api") continue;
+		const profile = queryProfileArg(step.args);
+		if (profile === null) continue;
+		const resolved = substituteVariables(profile, values);
+		if (!/[{}]/.test(resolved)) profiles.add(resolved);
+	}
+	return [...profiles];
+};
+
 export const resolveRunConfig = async (
 	db: BackendDb,
 	secrets: TestSecrets,
@@ -1092,10 +1139,14 @@ export const resolveRunConfig = async (
 		(macro) => ({ ...macro, status: "active" as const }),
 	);
 	const cases = await loadLinkedCases(db, run.orgId, steps);
-	const profiles = credentialProfilesForRun(steps, macros, cases, {
-		...variables,
-		...params,
-	});
+	const values = { ...variables, ...params };
+	const queryProfiles = queryProfilesForRun(steps, macros, cases, values);
+	const profiles = credentialProfilesForRun(
+		steps,
+		macros,
+		cases,
+		values,
+	).filter((profile) => !queryProfiles.includes(profile));
 	const audit = {
 		actorUserId: run.createdBy,
 		runId: run.id,
@@ -1103,13 +1154,21 @@ export const resolveRunConfig = async (
 		ipAddress: input.ipAddress ?? null,
 	};
 	const credentials: TestRunConfig["credentials"] = [];
-	if (profiles.length > 0) {
+	// Postgres credential rows the run resolved; their saved queries travel with the config.
+	const postgresCredentialIds: string[] = [];
+	// Login profiles for [Login]/{cred:} references, postgres profiles for [Query]/[API] steps;
+	// each list only resolves against rows of its own kind.
+	const wanted: Array<{ kind: "login" | "postgres"; names: string[] }> = [
+		{ kind: "login" as const, names: profiles },
+		{ kind: "postgres" as const, names: queryProfiles },
+	].filter((entry) => entry.names.length > 0);
+	for (const entry of wanted) {
 		// Usable here: scoped to the run's environment or shared.
 		const rows = (
 			await db.query.testCredentials.findMany({
 				where: and(
 					eq(testCredentials.orgId, run.orgId),
-					eq(testCredentials.kind, "login"),
+					eq(testCredentials.kind, entry.kind),
 					isNull(testCredentials.deletedAt),
 				),
 			})
@@ -1118,7 +1177,7 @@ export const resolveRunConfig = async (
 				row.environmentId === null || row.environmentId === run.environmentId,
 		);
 		const resolvedProfiles = new Set(
-			profiles.flatMap((name) => {
+			entry.names.flatMap((name) => {
 				const profile = resolveCredentialAlias(
 					name,
 					new Set(rows.map((row) => row.profile)),
@@ -1145,8 +1204,11 @@ export const resolveRunConfig = async (
 				.update(testCredentials)
 				.set({ lastUsedAt: Date.now() })
 				.where(eq(testCredentials.id, row.id));
+			if (entry.kind === "postgres") postgresCredentialIds.push(row.id);
 			credentials.push({
 				profile,
+				// Login entries keep their pre-postgres shape; only database profiles say so.
+				...(entry.kind === "postgres" ? { kind: entry.kind } : {}),
 				fields: parseJsonColumn(row.fieldsJson, stringRecord, {}),
 				loginField: row.loginField,
 				secretFields,
@@ -1181,6 +1243,7 @@ export const resolveRunConfig = async (
 		agentNotes: notes?.notes ? notes.notes : null,
 		prices: priceTable.prices,
 		priceTableVersion: priceTable.version,
+		queries: await queriesForProfiles(db, run.orgId, postgresCredentialIds),
 	};
 };
 

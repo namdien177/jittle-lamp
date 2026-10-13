@@ -1,6 +1,6 @@
 import type * as React from "react";
 
-import type { ArchiveRecorder, NetworkSubtype, TimelineItem, TimelineSection } from "@jittle-lamp/shared";
+import type { ArchiveRecorder, ArchiveStepMode, NetworkSubtype, TimelineItem, TimelineSection } from "@jittle-lamp/shared";
 
 export type ViewerModalRow = {
   id: string;
@@ -25,7 +25,7 @@ export type ViewerStepChip = {
   label: string;
   type: string;
   status: "running" | "passed" | "failed" | "blocked" | "skipped";
-  mode: "agent" | "replayed" | "handoff" | "deterministic" | null;
+  mode: ArchiveStepMode | null;
   // Where the step sits in the recording; the seek bar draws one segment per step.
   startMs: number;
   endMs: number | null;
@@ -72,6 +72,13 @@ export type ViewerModalProps = {
   embedded?: boolean;
   onDetailsOpen?: () => void;
   onInfoOpen?: () => void;
+  /** Run view: render the evidence stream (Actions, Requests, Logs, Info) into this element
+   * instead of beside the video; the host keeps it in a drawer. The video then takes the whole
+   * body and the pane fills its container. */
+  paneContainer?: HTMLElement | null;
+  /** Replaces the recorder details in the pane's Info tab (run metadata, actions); the
+   * discussion and tags follow it. Only read when the pane is in a container. */
+  infoPanel?: React.ReactNode;
   /** Color theme for the viewer chrome. Defaults to "dark". The video well stays dark in both. */
   theme?: "light" | "dark";
   closeLabel?: string;

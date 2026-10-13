@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseSessionArchiveJson } from "@jittle-lamp/shared";
+import { parseSessionArchiveJson, sessionSchemaVersion } from "@jittle-lamp/shared";
 
 import {
   InvalidEvidenceUploadError,
@@ -37,7 +37,7 @@ describe("manual video upload without an archive", () => {
     const archiveArtifact = prepared.artifacts.find((artifact) => artifact.key === "archive");
     expect(archiveArtifact).toBeDefined();
     const archive = parseSessionArchiveJson(archiveArtifact?.payload ?? new Uint8Array());
-    expect(archive.schemaVersion).toBe(4);
+    expect(archive.schemaVersion).toBe(sessionSchemaVersion);
     expect(archive.recorder.kind).toBe("browser-extension");
   });
 });

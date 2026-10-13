@@ -9,6 +9,7 @@ import {
   isFakeDataToken,
   lintTestCase,
   loginProfileArg,
+  queryProfileArg,
   useCaseKeyArg,
   macroDefinitionSchema,
   parseTestCaseTranscript,
@@ -154,8 +155,9 @@ function renderInstruction(
       return placeholder;
     }
     const value = config.vars.get(token);
-    // Values read by an earlier [Extract] exist only while the run executes.
-    if (!value && extracted.has(token)) return match;
+    // Values read by an earlier [Extract], a [Query]/[API] binding or a [Use ... as alias] block
+    // exist only while the run executes; `{alias.name}` and `{student.id}` read into them.
+    if (!value && (extracted.has(token) || extracted.has(token.split(".")[0] ?? token))) return match;
     if (!value) {
       missing.add(`vars.${token}`);
       missingKinds.add("variable");
@@ -275,6 +277,11 @@ export function buildRunPlan(input: {
       const profile = loginProfileArg(step.args);
       if (profile) profileNames.add(substituteParams(profile, publicParams));
     }
+    // [Query: DB] names a postgres profile the same way; a missing one blocks before the run.
+    if (step.type === "query" && !step.disabled) {
+      const profile = queryProfileArg(step.args);
+      if (profile) profileNames.add(substituteParams(profile, publicParams));
+    }
   }
   for (const name of profileNames) {
     if (name.includes("{")) continue;
@@ -294,6 +301,12 @@ export function buildRunPlan(input: {
       const name = step.args.find((arg) => arg.name === null)?.value;
       if (name) extracted.add(name);
     }
+    // A [Query]/[API] binding exists only once the step ran: `{student}` and `{student.rows}`.
+    if ((step.type === "query" || step.type === "api") && !step.disabled && step.binding) {
+      extracted.add(step.binding);
+      extracted.add(`${step.binding}.rows`);
+    }
+    if (step.type === "use" && step.alias) extracted.add(step.alias);
     // Macro, Login and Use calls are group headers; their expanded children execute.
     const executes = !(step.type === "macro" || step.type === "login" || step.type === "use") || step.macroVersion === null;
     return { ...step, instruction: rendered.instruction, secrets: rendered.secrets, executes };

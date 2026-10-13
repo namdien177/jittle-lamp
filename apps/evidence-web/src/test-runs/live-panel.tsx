@@ -11,6 +11,7 @@ import { useTestOrgId } from "../test-cases/org";
 import { testQueryKeys } from "../test-cases/queries";
 import { liveApi, type LiveFrame } from "./live-api";
 import {
+  LIVE_FRAME_CROSSFADE_MS,
   LIVE_FRAME_INTERVAL_MS,
   LIVE_INPUT_FLUSH_MS,
   LIVE_WATCH_INTERVAL_MS,
@@ -22,9 +23,11 @@ import {
   frameAge,
   keyToLiveInput,
   liveViewport,
+  nextFramePair,
   takeoverRole,
   toViewportPoint,
   wheelDeltaPixels,
+  type FramePair,
   type LiveInput,
   type Rect,
   type Size
@@ -38,9 +41,11 @@ import {
 
 type ShownFrame = { url: string; frameAt: number; viewport: Size | null };
 
-function useLiveFrames(runId: string, enabled: boolean): ShownFrame | null {
+// The latest frame and the one before it: the previous layer stays mounted for the crossfade and
+// its object URL is released once a third frame pushes it out (or the panel goes away).
+function useLiveFrames(runId: string, enabled: boolean): FramePair<ShownFrame> {
   const getToken = useAuthToken();
-  const [frame, setFrame] = React.useState<ShownFrame | null>(null);
+  const [frames, setFrames] = React.useState<FramePair<ShownFrame>>({ current: null, previous: null });
 
   React.useEffect(() => {
     if (!enabled) return;
@@ -65,9 +70,10 @@ function useLiveFrames(runId: string, enabled: boolean): ShownFrame | null {
           if (cancelled || !next || next.frameAt === lastAt) return;
           lastAt = next.frameAt;
           const url = URL.createObjectURL(next.blob);
-          setFrame((previous) => {
-            if (previous) URL.revokeObjectURL(previous.url);
-            return { url, frameAt: next.frameAt, viewport: next.viewport };
+          setFrames((pair) => {
+            const step = nextFramePair(pair, { url, frameAt: next.frameAt, viewport: next.viewport });
+            if (step.released) URL.revokeObjectURL(step.released.url);
+            return step.pair;
           });
         })
         .catch(() => undefined)
@@ -86,14 +92,28 @@ function useLiveFrames(runId: string, enabled: boolean): ShownFrame | null {
 
   React.useEffect(
     () => () => {
-      setFrame((previous) => {
-        if (previous) URL.revokeObjectURL(previous.url);
-        return null;
+      setFrames((pair) => {
+        for (const frame of [pair.current, pair.previous]) if (frame) URL.revokeObjectURL(frame.url);
+        return { current: null, previous: null };
       });
     },
     [runId]
   );
-  return frame;
+  // The outgoing layer is dropped once its fade has played, so two layers never stay stacked.
+  React.useEffect(() => {
+    if (!frames.previous) return;
+    const timer = window.setTimeout(
+      () =>
+        setFrames((pair) => {
+          if (!pair.previous) return pair;
+          URL.revokeObjectURL(pair.previous.url);
+          return { current: pair.current, previous: null };
+        }),
+      LIVE_FRAME_CROSSFADE_MS + 50
+    );
+    return () => window.clearTimeout(timer);
+  }, [frames.previous]);
+  return frames;
 }
 
 function useNow(intervalMs: number): number {
@@ -166,9 +186,10 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
   const queryClient = useQueryClient();
   const getToken = useAuthToken();
   const orgId = useTestOrgId();
-  const frame = useLiveFrames(run.id, Boolean(live?.available));
+  const frames = useLiveFrames(run.id, Boolean(live?.available));
+  const frame = frames.current;
   const now = useNow(500);
-    const stageRef = React.useRef<HTMLDivElement | null>(null);
+  const stageRef = React.useRef<HTMLDivElement | null>(null);
   const releaseRef = React.useRef<HTMLButtonElement | null>(null);
   const stage = useElementRect(stageRef);
   const role = takeoverRole(live, currentUserIds);
@@ -237,7 +258,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
       }, 120);
     }
   };
-    const onKeyDown = (event: React.KeyboardEvent) => {
+  const onKeyDown = (event: React.KeyboardEvent) => {
     if (!holding) return;
     const keys = { key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey };
     if (isLeaveChord(keys)) {
@@ -262,17 +283,15 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#0d0e10] text-white/85">
-      <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-2 text-sm">
+      <div className="flex h-9 items-center gap-3 border-b border-white/10 px-3 text-xs">
         <span className="inline-flex items-center gap-1.5 font-semibold text-white">
           <Radio className={cn("size-3.5", age.stale ? "text-white/40" : "text-red-400")} aria-hidden />
           Live
         </span>
-        <span className="text-white/55" aria-live="off">
-          frame {age.label} · {viewport.width}×{viewport.height}
+        <span className="text-white/55 tabular-nums" aria-live="off">
+          {age.label}
         </span>
-                {live.framesHidden ? (
-          <span className="text-xs text-white/55">frames hidden after a secret was entered</span>
-        ) : null}
+        {live.framesHidden ? <span className="text-white/55">frames hidden after a secret was entered</span> : null}
         {paused ? (
           <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/40 bg-amber-300/10 px-2 py-0.5 text-xs font-semibold text-amber-200">
             <PauseCircle className="size-3.5" aria-hidden /> paused
@@ -280,7 +299,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
         ) : null}
         <span className="ml-auto flex items-center gap-2">
           {holding ? (
-                        <Button ref={releaseRef} size="xs" variant="secondary" className="jl-tc-press" disabled={pending !== null} onClick={() => void takeover("stop")}>
+            <Button ref={releaseRef} size="xs" variant="secondary" className="jl-tc-press" disabled={pending !== null} onClick={() => void takeover("stop")}>
               <Undo2 aria-hidden /> {pending === "stop" ? "Releasing…" : "Release"}
             </Button>
           ) : mayTakeOver ? (
@@ -294,7 +313,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
       {holding ? (
         <div role="status" className="jl-tc-enter flex items-center gap-2 border-b border-amber-300/30 bg-amber-300/12 px-4 py-2 text-sm text-amber-100">
           <MousePointerClick className="size-4 shrink-0" aria-hidden />
-                    <span>
+          <span>
             <strong className="font-semibold">Paused: you control the browser.</strong> Nothing you do is cached. Keys go to the run;{" "}
             <kbd className="rounded border border-amber-200/40 px-1 font-mono text-xs">{LEAVE_CHORD_LABEL}</kbd> moves focus to Release.
           </span>
@@ -309,7 +328,7 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
         <div
           ref={stageRef}
           role={holding ? "application" : "img"}
-                    aria-label={
+          aria-label={
             holding
               ? `Remote browser. Clicks, keys and scrolling go to the run. Press ${LEAVE_CHORD_LABEL} to move focus to Release.`
               : "Live view of the run's browser"
@@ -326,35 +345,34 @@ export function LiveViewPanel(props: { run: TestRunDetail; currentUserIds: reado
           )}
         >
           {frame && shown ? (
-            <img
-              src={frame.url}
-              alt={current ? `Live frame during: ${current.label}` : "Live frame"}
-              draggable={false}
-              className={cn("absolute select-none rounded-md border shadow-2xl", holding ? "border-amber-300/60" : "border-white/10")}
-              style={{ left: shown.left, top: shown.top, width: shown.width, height: shown.height }}
-            />
+            <>
+              {frames.previous ? (
+                <img
+                  key={frames.previous.frameAt}
+                  src={frames.previous.url}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  className={cn("jl-live-frame absolute select-none rounded-md border shadow-2xl", holding ? "border-amber-300/60" : "border-white/10")}
+                  data-out="true"
+                  style={{ left: shown.left, top: shown.top, width: shown.width, height: shown.height }}
+                />
+              ) : null}
+              <img
+                key={frame.frameAt}
+                src={frame.url}
+                alt={current ? `Live frame during: ${current.label}` : "Live frame"}
+                draggable={false}
+                className={cn("jl-live-frame absolute select-none rounded-md border shadow-2xl", holding ? "border-amber-300/60" : "border-white/10")}
+                data-in="true"
+                style={{ left: shown.left, top: shown.top, width: shown.width, height: shown.height }}
+              />
+            </>
           ) : (
             <p className="grid h-full place-items-center text-base text-white/60">Waiting for the first frame…</p>
           )}
         </div>
       </div>
-
-      <p className="flex items-center gap-2 border-t border-white/10 px-4 py-2 text-sm text-white/70" aria-live="polite">
-        {current ? (
-          <>
-            {run.status === "paused" ? (
-              <span className="rounded bg-amber-300/15 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-amber-200">step paused</span>
-            ) : (
-              <span className="jl-tc-pulse inline-block size-2 rounded-full bg-primary" aria-hidden />
-            )}
-            <span className="truncate">
-              {current.ordinal}. {current.label}
-            </span>
-          </>
-        ) : (
-          <span>{paused ? "Paused before the next step." : "Starting…"}</span>
-        )}
-      </p>
     </div>
   );
 }

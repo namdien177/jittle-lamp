@@ -39,7 +39,10 @@ const blockedExplanations: Record<NonNullable<TestRunSummary["blockedReason"]>, 
   TRANSCRIPT_INVALID: "The transcript has lint errors that stop a run. Fix them in the Steps tab.",
   ENGINE_ERROR: "The execution engine failed before the app could be judged. The runner log has details.",
   CANCELLED: "The run was cancelled before it finished.",
-  INCONCLUSIVE: "The judge could not decide from the screen whether the assert holds."
+  INCONCLUSIVE: "The judge could not decide from the screen whether the assert holds.",
+  API_NOT_CONFIGURED: "This environment has no API origins configured, so API and hybrid modes cannot run. Add them in Testing settings → Environments.",
+  DATABASE_UNREACHABLE: "The runner could not connect to the database profile a [Query] step uses. Check the pool's network access and the profile.",
+  QUERY_REJECTED: "A [Query] step produced SQL the guard refused (not a single read-only SELECT inside the allowed schemas)."
 };
 
 export function explainBlockedReason(reason: TestRunSummary["blockedReason"]): string | null {

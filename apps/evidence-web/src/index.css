@@ -1,10 +1,13 @@
 /* Cascade order: legacy sits ABOVE Tailwind's preflight (`base`) so the
    embedded viewer's buttons/inputs keep their look, but BELOW `utilities` so
    Tailwind classes still win on the redesigned surfaces. */
-@layer theme, base, legacy, components, utilities;
+@layer theme, base, vendor, legacy, components, utilities;
 
 @import "tailwindcss";
 @import "video.js/dist/video-js.css" layer(legacy);
+/* xyflow's base stylesheet (case page Flow view, roadmap §3.4) sits in its own layer so the legacy
+   layer cannot override it. */
+@import "@xyflow/react/dist/style.css" layer(vendor);
 
 /* Legacy styling that the shared viewer (`@jittle-lamp/viewer-react`) and the
    `@jittle-lamp/ui` primitives render against. The workspace shell uses
@@ -863,10 +866,105 @@
 @keyframes jl-tc-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes jl-tc-pulse { 50% { opacity: .35; } }
 .jl-tc-run-pane .jl-vm-root { height: 100%; }
+/* The run pane sizes the media box itself (16:9 of the pane's width): the viewer's stacked layout
+   must not cap the video at a share of its own height, since its step list lives outside it. */
+.jl-tc-run-pane .jl-vm-root .jl-vm-body { display: flex; flex-direction: column; }
+.jl-tc-run-pane .jl-vm-root .jl-vm-left { flex: 1 1 auto; min-height: 0; }
+.jl-tc-run-pane .jl-vm-root .jl-vm-left .jl-vm-video-wrap { flex: 1 1 0; height: auto; min-height: 0; max-height: none; }
+/* Run view (roadmap §3.5, §3.7). The drawer slides over the media on transform only, 220 ms in and
+   160 ms out; the media keeps its box. Live frames crossfade 150 ms with the outgoing one blurred;
+   will-change stays on those two layers only. Spinners turn in 0.8 s. */
+.jl-run-drawer { transition: transform 160ms var(--ease-out), opacity 160ms var(--ease-out); transform: translateX(100%); opacity: 0; will-change: transform; }
+.jl-run-drawer[data-open="true"] { transition-duration: 220ms; transform: none; opacity: 1; }
+.jl-live-frame { transition: opacity 150ms var(--ease-out), filter 150ms var(--ease-out); will-change: opacity; }
+.jl-live-frame[data-out="true"] { opacity: 0; filter: blur(2px); }
+@starting-style { .jl-live-frame[data-in="true"] { opacity: 0; } }
+/* Step column under the media: the open row is tinted by its outcome, the dot carries the status. */
+.jl-run-step-row { border-left: 2px solid transparent; }
+@media (hover: hover) and (pointer: fine) { .jl-run-step-row:hover { background: color-mix(in oklab, var(--foreground) 4%, transparent); } }
+.jl-run-step[data-open="true"] > .jl-run-step-row, .jl-run-step[data-open="true"] > .jl-run-step-open { background: color-mix(in oklab, var(--foreground) 5%, transparent); }
+.jl-run-step[data-open="true"] > .jl-run-step-row { border-left-color: var(--foreground); }
+.jl-run-step[data-open="true"][data-status="failed"] > .jl-run-step-row, .jl-run-step[data-open="true"][data-status="failed"] > .jl-run-step-open { background: color-mix(in oklab, var(--destructive) 8%, transparent); }
+.jl-run-step[data-open="true"][data-status="failed"] > .jl-run-step-row { border-left-color: var(--destructive); }
+.jl-run-step[data-open="true"][data-status="blocked"] > .jl-run-step-row { border-left-color: var(--warning); }
+.jl-run-step[data-status="pending"] > .jl-run-step-row, .jl-run-step[data-status="skipped"] > .jl-run-step-row { opacity: .6; }
+.jl-run-step-open { border-left: 2px solid transparent; }
+.jl-run-step[data-open="true"] > .jl-run-step-open { border-left-color: var(--foreground); }
+.jl-run-step[data-open="true"][data-status="failed"] > .jl-run-step-open { border-left-color: var(--destructive); }
+.jl-run-dot { position: relative; display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--muted-foreground); transition: background-color 200ms ease; align-self: center; }
+.jl-run-dot[data-status="passed"] { background: var(--success); }
+.jl-run-dot[data-status="failed"] { background: var(--destructive); }
+.jl-run-dot[data-status="blocked"] { background: var(--warning); }
+.jl-run-dot[data-status="running"] { background: #2563eb; }
+.jl-run-dot[data-status="running"]::after { content: ""; position: absolute; inset: -3px; border-radius: 999px; border: 1.5px solid transparent; border-top-color: #2563eb; animation: jl-run-spin 0.8s linear infinite; }
+.jl-run-dot[data-status="pending"], .jl-run-dot[data-status="skipped"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted-foreground); }
+.jl-run-dot[data-playing="true"] { box-shadow: 0 0 0 2px color-mix(in oklab, var(--success) 45%, transparent); }
+.jl-run-steps[data-instant="true"] .jl-run-step-row, .jl-run-steps[data-instant="true"] .jl-run-dot { transition: none; }
+.jl-run-spin { animation: jl-run-spin 0.8s linear infinite; }
+@keyframes jl-run-spin { to { transform: rotate(360deg); } }
+/* Authoring and case page motion (roadmap §3.7). Only transform, opacity and colour move. */
+/* Hover colour only for a real pointer; touch and keyboard users get no hover state. */
+@media (hover: hover) and (pointer: fine) {
+  .jl-tc-hover { transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out); }
+  .jl-tc-hover:hover { background-color: var(--accent); color: var(--foreground); }
+}
+/* "What do you want to test?": scale from .96 and opacity, 180ms in, 120ms out, centred. */
+.jl-tc-dialog { transform-origin: center; transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out); }
+.jl-tc-dialog[data-starting-style] { opacity: 0; transform: scale(0.96); }
+.jl-tc-dialog[data-ending-style] { opacity: 0; transform: scale(0.96); transition-duration: 120ms; }
+/* Draft steps appear one after another: 40ms per row, 6px up, 240ms. */
+.jl-tc-stagger > * { animation: jl-tc-stagger-in 240ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms); }
+@keyframes jl-tc-stagger-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* Details drawer slides over the right pane; the pane never reflows. */
+.jl-tc-drawer { transition: transform 160ms var(--ease-out), opacity 160ms var(--ease-out); will-change: transform; }
+.jl-tc-drawer[data-open="false"] { transform: translateX(100%); opacity: 0; pointer-events: none; }
+.jl-tc-drawer[data-open="true"] { transform: none; opacity: 1; transition-duration: 220ms; }
+/* Keyboard-driven changes render without motion. */
+[data-instant="true"] .jl-tc-drawer, [data-instant="true"] .jl-tc-stagger > * { transition: none; animation: none; }
+/* Spinners spin fast. */
+.jl-tc-spin { animation-duration: 0.8s; }
+/* Hold-to-confirm: a 1.2s linear fill; releasing early snaps back in 200ms. */
+.jl-tc-hold { position: relative; overflow: hidden; }
+.jl-tc-hold-fill { position: absolute; inset: 0; background: color-mix(in oklab, currentColor 24%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
+.jl-tc-hold[data-holding="true"] .jl-tc-hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 1.2s linear; }
+/* Flow view (§3.4, §3.7): node borders move on colour only, 200ms; hover needs a fine pointer;
+   keyboard moves render instantly; handles exist for the edges and never show. */
+.jl-flow-node { transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out), transform 160ms var(--ease-out); }
+.jl-flow[data-instant="true"] .jl-flow-node { transition: none; }
+@media (hover: hover) and (pointer: fine) {
+  .jl-flow-node[role="button"]:hover { border-color: color-mix(in oklab, var(--foreground) 30%, var(--border)); }
+}
+.jl-flow .react-flow__handle { width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; background: transparent; opacity: 0; pointer-events: none; }
+.jl-flow .react-flow__edge-textbg { stroke: var(--border); stroke-width: 1; }
+/* Step type rail in the draft list (§3.3 colours). */
+.jl-tc-rail { background: var(--muted-foreground); }
+.jl-tc-rail[data-type="act"] { background: var(--success); }
+.jl-tc-rail[data-type="assert"] { background: #3b82f6; }
+.jl-tc-rail[data-type="open"] { background: var(--muted-foreground); opacity: .6; }
+.jl-tc-rail[data-type="login"], .jl-tc-rail[data-type="macro"] { background: var(--warning); }
+.jl-tc-rail[data-type="use"] { background: #8b5cf6; }
+.jl-tc-rail[data-type="extract"] { background: #14b8a6; }
+.jl-tc-rail[data-type="note"] { background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
 @media (prefers-reduced-motion: reduce) {
   .jl-tc-press, .jl-tc-row { transition: none; }
   .jl-tc-press:active { transform: none; }
   .jl-tc-enter, .jl-tc-pulse { animation: none; }
+  .jl-run-drawer { transition: opacity 160ms var(--ease-out); transform: none; }
+  .jl-run-drawer[data-open="false"] { visibility: hidden; }
+  .jl-live-frame { transition: opacity 150ms var(--ease-out); }
+  .jl-live-frame[data-out="true"] { filter: none; }
+  .jl-run-spin { animation: none; }
+  .jl-run-dot[data-status="running"]::after { animation: none; border-color: #2563eb; }
+  /* Colour and opacity stay; translate, scale and stagger go. */
+  .jl-tc-dialog { transition: opacity 180ms var(--ease-out); }
+  .jl-tc-dialog[data-starting-style], .jl-tc-dialog[data-ending-style] { transform: none; }
+  .jl-tc-stagger > * { animation: none; }
+  .jl-tc-drawer { transition: opacity 160ms var(--ease-out); }
+  .jl-tc-drawer[data-open="false"] { transform: none; }
+  .jl-tc-hold-fill { transition: none; }
+  .jl-flow-node { transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
+  .jl-flow-node:active { transform: none; }
+  .jl-flow .react-flow__edge.animated path { animation: none; }
 }
 /* Native form controls follow the app theme (legacy.css pins :root to dark). */
 .jl-tc-scope { color-scheme: light; }

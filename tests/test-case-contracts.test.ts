@@ -5,22 +5,36 @@ import { describe, expect, test } from "bun:test";
 
 import {
   applyLintFix,
+  caseOutputsOf,
   computeInstructionKey,
   computeTestCaseFingerprint,
+  expandedStepSchema,
   expandMacros,
+  linkedCaseSchema,
   lintTestCase,
   macroDefinitionSchema,
   parsedTestCaseSchema,
   parsedTranscriptDocumentSchema,
+  parseReusePolicy,
   parseStepArgs,
   parseTestCaseTranscript,
   parseTranscriptDocument,
+  producedNamesOf,
+  queryNameArg,
+  queryProfileArg,
+  serializeReusePolicy,
   serializeStepArgs,
   serializeTestCase,
   serializeTranscriptDocument,
   sha256Hex,
+  splitStepBinding,
   transcriptLintRules,
+  transcriptStepSchema,
   trigramSimilarity,
+  useAliasArg,
+  useCaseKeyArg,
+  useModeArg,
+  variableRoot,
   type ParsedTestCase
 } from "@jittle-lamp/shared";
 
@@ -558,5 +572,324 @@ describe("credential profile aliases", () => {
     expect(resolveCredentialAlias("PCF", ["PCF_HQ_ADMIN", "ILHAM_A"])).toBe("PCF_HQ_ADMIN");
     expect(resolveCredentialAlias("ILHAM", ["ILHAM_A", "ILHAM_B"])).toBeNull();
     expect(resolveCredentialAlias("PC", ["PCF_HQ_ADMIN"])).toBeNull();
+  });
+});
+
+// Roadmap 2026-10-13 §2.5, §2.6 and §5.1: [Use ... as alias, mode=], Outputs:/Reuse:, [Query]/[API].
+describe("chaining grammar (roadmap 2026-10-13)", () => {
+  const ruleIds = (text: string, context = {}) =>
+    lintTestCase(parseTestCaseTranscript(text).testCase, context).map((finding) => finding.ruleId);
+
+  test("[Use: KEY as alias, mode=api] parses the alias and mode; [Use: KEY, p=v] is unchanged", () => {
+    const { testCase } = parseTestCaseTranscript(
+      [
+        "# T",
+        "",
+        "[Use: TC-0012 as registration, mode=api, level=K1]",
+        "[Use: TC-0012, level=K1]",
+        "[Use: case=TC-0013 as approval]",
+        "[Use: TC-0014, mode=UI]",
+        "[Assert] the dashboard is visible"
+      ].join("\n")
+    );
+    const [aliased, plain, named, upper] = testCase.steps;
+    expect(aliased).toMatchObject({ type: "use", alias: "registration", mode: "api", binding: null });
+    expect(useCaseKeyArg(aliased?.args ?? [])).toBe("TC-0012");
+    expect(aliased?.args).toEqual([
+      { name: null, value: "TC-0012 as registration" },
+      { name: "mode", value: "api" },
+      { name: "level", value: "K1" }
+    ]);
+    expect(plain).toMatchObject({ type: "use", alias: null, mode: "auto" });
+    expect(useCaseKeyArg(plain?.args ?? [])).toBe("TC-0012");
+    expect(named).toMatchObject({ alias: "approval" });
+    expect(useCaseKeyArg(named?.args ?? [])).toBe("TC-0013");
+    expect(upper?.mode).toBe("ui");
+    expect(useAliasArg(parseStepArgs("TC-0012 as registration"))).toBe("registration");
+    expect(useAliasArg(parseStepArgs("TC-0012"))).toBeNull();
+    expect(useModeArg(parseStepArgs("TC-0012, mode=fast"))).toEqual({ mode: null, invalid: "fast" });
+    // Every other step type carries the new fields as null.
+    expect(testCase.steps[4]).toMatchObject({ type: "assert", alias: null, mode: null, binding: null });
+    // Round trip keeps the lines as written.
+    expect(serializeTestCase(testCase)).toBe(
+      [
+        "# T",
+        "",
+        "[Use: TC-0012 as registration, mode=api, level=K1]",
+        "[Use: TC-0012, level=K1]",
+        "[Use: case=TC-0013 as approval]",
+        "[Use: TC-0014, mode=UI]",
+        "[Assert] the dashboard is visible"
+      ].join("\n")
+    );
+  });
+
+  test("Outputs: and Reuse: metadata parse, serialise and round-trip", () => {
+    const text = [
+      "# Submit a registration",
+      "Key: TC-0012",
+      "Outputs: applicationId, studentId",
+      "Reuse: within 30m",
+      "",
+      "[Open] /registrations/new",
+      "[Act] submit the form",
+      "[Extract: applicationId] the application number in the banner",
+      "[Extract: studentId] the student id in the URL",
+      "[Assert] the application is listed"
+    ].join("\n");
+    const { testCase, diagnostics } = parseTestCaseTranscript(text);
+    expect(diagnostics).toEqual([]);
+    expect(testCase.metadata.outputs).toEqual(["applicationId", "studentId"]);
+    expect(testCase.metadata.reuse).toEqual({ kind: "within", ms: 30 * 60_000 });
+    expect(testCase.metadata.order).toEqual(["key", "outputs", "reuse"]);
+    expect(caseOutputsOf(testCase)).toEqual(["applicationId", "studentId"]);
+    expect(producedNamesOf(testCase)).toEqual(["applicationId", "studentId"]);
+    expect(serializeTestCase(testCase)).toBe(text);
+    parsedTestCaseSchema.parse(testCase);
+
+    for (const [input, policy, canonical] of [
+      ["never", { kind: "never" }, "never"],
+      ["within 30m", { kind: "within", ms: 1_800_000 }, "within 30m"],
+      ["within 2h", { kind: "within", ms: 7_200_000 }, "within 2h"],
+      ["within 1d", { kind: "within", ms: 86_400_000 }, "within 1d"],
+      ["within 90 minutes", { kind: "within", ms: 5_400_000 }, "within 90m"],
+      ["Within 2 hours", { kind: "within", ms: 7_200_000 }, "within 2h"]
+    ] as const) {
+      expect(parseReusePolicy(input)).toEqual(policy);
+      expect(serializeReusePolicy(policy)).toBe(canonical);
+    }
+    expect(parseReusePolicy("while rows exist")).toBeNull();
+    expect(parseReusePolicy("30m")).toBeNull();
+
+    // An explicit `Reuse: never` keeps its line; a case without one has none.
+    const explicit = parseTestCaseTranscript("# T\nReuse: never\n\n[Act] go").testCase;
+    expect(explicit.metadata.reuse).toEqual({ kind: "never" });
+    expect(serializeTestCase(explicit)).toBe("# T\nReuse: never\n\n[Act] go");
+    expect(serializeTestCase(parseTestCaseTranscript("# T\n\n[Act] go").testCase)).toBe("# T\n\n[Act] go");
+
+    // Invalid values are diagnostics; the policy stays never, the bad output name is dropped.
+    const bad = parseTestCaseTranscript("# T\nOutputs: ok, student.id\nReuse: while rows exist\n\n[Act] go");
+    expect(bad.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["invalid-metadata", "invalid-metadata"]);
+    expect(bad.testCase.metadata.outputs).toEqual(["ok"]);
+    expect(bad.testCase.metadata.reuse).toEqual({ kind: "never" });
+    // Pre-roadmap transcripts still parse with empty outputs and never.
+    const legacy = parseTestCaseTranscript(exampleTranscript).testCase;
+    expect(legacy.metadata.outputs).toEqual([]);
+    expect(legacy.metadata.reuse).toEqual({ kind: "never" });
+  });
+
+  test("[Query] and [API] bind their result with -> {name} and name a profile", () => {
+    const { testCase } = parseTestCaseTranscript(
+      [
+        "# T",
+        "",
+        "[Query: PCF_UAT_DB] a K1 student with a pending registration and no holds -> {student}",
+        "[Query: PCF_UAT_DB, name=k1-pending] the same students ->{rows}",
+        "[API: SV_BACKEND] POST /registrations for {student.id}   ->   {registration}",
+        "[Query: PCF_UAT_DB] the application {registration.applicationId} has status APPROVED",
+        "[api: profile=SV_BACKEND] GET /health"
+      ].join("\n")
+    );
+    const [first, second, third, check, lower] = testCase.steps;
+    expect(first).toMatchObject({
+      type: "query",
+      tag: "Query",
+      text: "a K1 student with a pending registration and no holds",
+      binding: "student",
+      credentialRefs: ["PCF_UAT_DB"],
+      variables: []
+    });
+    expect(second).toMatchObject({ binding: "rows", text: "the same students" });
+    expect(queryNameArg(second?.args ?? [])).toBe("k1-pending");
+    expect(queryProfileArg(second?.args ?? [])).toBe("PCF_UAT_DB");
+    expect(third).toMatchObject({ type: "api", binding: "registration", credentialRefs: ["SV_BACKEND"], variables: ["student.id"] });
+    // No arrow: a check. The reference it reads is still a variable of the step.
+    expect(check).toMatchObject({ binding: null, variables: ["registration.applicationId"] });
+    expect(lower).toMatchObject({ type: "api", binding: null, credentialRefs: ["SV_BACKEND"] });
+    expect(splitStepBinding("x -> {a.b}")).toEqual({ text: "x -> {a.b}", binding: null });
+    expect(splitStepBinding("x")).toEqual({ text: "x", binding: null });
+
+    // Serialisation writes the canonical ` -> {name}`; the model round-trips losslessly.
+    const serialized = serializeTestCase(testCase);
+    expect(serialized).toContain("[Query: PCF_UAT_DB] a K1 student with a pending registration and no holds -> {student}");
+    expect(serialized).toContain("[Query: PCF_UAT_DB, name=k1-pending] the same students -> {rows}");
+    expect(serialized).toContain("[API: SV_BACKEND] POST /registrations for {student.id} -> {registration}");
+    expect(withoutLines(parseTestCaseTranscript(serialized).testCase)).toEqual(withoutLines(testCase));
+
+    // The binding is part of the step identity; the arrow spacing is not.
+    const key = (text: string) => parseTestCaseTranscript(`# T\n\n${text}`).testCase.steps[0]?.instructionKey;
+    expect(key("[Query: DB] a student -> {student}")).toBe(key("[Query: DB] a student   ->{student}"));
+    expect(key("[Query: DB] a student -> {student}")).not.toBe(key("[Query: DB] a student -> {rows}"));
+    expect(key("[Query: DB] a student -> {student}")).not.toBe(key("[Query: DB] a student"));
+    // Steps without a binding keep the key they had before bindings existed.
+    expect(computeInstructionKey({ type: "act", macro: null, args: [], text: "click Save" })).toBe(
+      computeInstructionKey({ type: "act", macro: null, args: [], text: "click Save", binding: null })
+    );
+  });
+
+  test("dotted references resolve through aliases, bindings, params, columns and generated values", () => {
+    expect(variableRoot("student.id")).toBe("student");
+    expect(variableRoot("student")).toBe("student");
+    const text = [
+      "# T",
+      "Params: child",
+      "",
+      "[Use: TC-0012 as registration, mode=api]",
+      "[Query: PCF_UAT_DB] a K1 student named {child.name} -> {student}",
+      "[Open] /student-detail/{student.id}",
+      "[Assert] the page shows {student.name} and {registration.applicationId} and {person.name}",
+      "[Extract: invoice] the invoice number",
+      "[Assert] {invoice.total} is shown"
+    ].join("\n");
+    expect(ruleIds(text).filter((id) => id === "undeclared-variable")).toEqual([]);
+    // Alias and bindings only count from the line after the one that produces them.
+    const early = ruleIds("# T\n\n[Assert] {student.id} is shown\n[Query: DB] a student -> {student}\n[Assert] {nobody.id}");
+    expect(early.filter((id) => id === "undeclared-variable")).toHaveLength(2);
+    // Dataset columns as roots.
+    expect(
+      ruleIds("# T\n\n[Assert] {row.id} is shown\n\n## Dataset\n| row |\n| --- |\n| 1 |").filter((id) => id === "undeclared-variable")
+    ).toEqual([]);
+
+    // With the used case's outputs known, the field must be one of them; otherwise no warning.
+    const withOutputs = { cases: [{ key: "TC-0012", outputs: ["applicationId"] }] };
+    expect(ruleIds(text, withOutputs).filter((id) => id === "use-output-unknown")).toEqual([]);
+    const wrongField = text.replace("{registration.applicationId}", "{registration.studentId}");
+    const findings = lintTestCase(parseTestCaseTranscript(wrongField).testCase, withOutputs).filter(
+      (finding) => finding.ruleId === "use-output-unknown"
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.severity).toBe("warning");
+    expect(findings[0]?.message).toContain("applicationId");
+    expect(ruleIds(wrongField, { cases: [{ key: "TC-0012" }] }).filter((id) => id === "use-output-unknown")).toEqual([]);
+    expect(ruleIds(wrongField).filter((id) => id === "undeclared-variable")).toEqual([]);
+  });
+
+  test("lint rules for profiles, modes, reuse windows, shadowed bindings and outputs", () => {
+    expect(ruleIds("# T\n\n[Query] a student -> {student}\n[API] GET /health")).toEqual(
+      expect.arrayContaining(["query-needs-profile", "query-needs-profile"])
+    );
+    expect(ruleIds("# T\n\n[Query: DB] a student -> {student}\n[Assert] {student.id} is shown")).not.toContain("query-needs-profile");
+    // A [Query] check counts as a verifying step.
+    expect(ruleIds("# T\n\n[Act] submit\n[Query: DB] the row exists")).not.toContain("no-assert");
+    expect(ruleIds("# T\n\n[Act] submit\n[Query: DB] the row -> {row}")).toContain("no-assert");
+    expect(ruleIds("# T\n\n[Query: DB] a student -> {a.b}")).toContain("missing-argument");
+    expect(ruleIds("# T\n\n[Query: DB]")).toContain("missing-argument");
+
+    expect(ruleIds("# T\n\n[Use: TC-0001, mode=fast]\n[Assert] ok fine", { cases: [{ key: "TC-0001" }] })).toContain("use-mode-invalid");
+    expect(ruleIds("# T\n\n[Use: TC-0001, mode=hybrid]", { cases: [{ key: "TC-0001" }] })).toContain("use-mode-invalid");
+    expect(ruleIds("# T\n\n[Use: TC-0001, mode=Auto]", { cases: [{ key: "TC-0001" }] })).not.toContain("use-mode-invalid");
+
+    expect(ruleIds("# T\nReuse: within 0m\n\n[Assert] the page loads")).toContain("reuse-invalid");
+    expect(ruleIds("# T\nReuse: within 40d\n\n[Assert] the page loads")).toContain("reuse-invalid");
+    expect(ruleIds("# T\nReuse: within 30m\n\n[Assert] the page loads")).not.toContain("reuse-invalid");
+
+    expect(ruleIds("# T\nParams: student\n\n[Query: DB] a student -> {student}\n[Assert] {student.id} is shown")).toContain("binding-shadows-param");
+    expect(ruleIds("# T\nParams: student\n\n[Extract: student] the id\n[Assert] {student} is shown")).toContain("binding-shadows-param");
+    expect(ruleIds("# T\n\n[Query: DB] a student -> {student}\n[Assert] {student.id} is shown")).not.toContain("binding-shadows-param");
+
+    expect(ruleIds("# T\nOutputs: applicationId\n\n[Assert] the page loads")).toContain("outputs-undeclared-binding");
+    expect(ruleIds("# T\nOutputs: applicationId\n\n[Extract: applicationId] the id\n[Assert] {applicationId} is shown")).not.toContain("outputs-undeclared-binding");
+    expect(ruleIds("# T\nOutputs: student\n\n[Query: DB] a student -> {student}\n[Assert] {student.id} is shown")).not.toContain("outputs-undeclared-binding");
+    expect(
+      ruleIds("# T\nOutputs: registration\n\n[Use: TC-0001 as registration]\n[Assert] {registration.applicationId} is shown", { cases: [{ key: "TC-0001" }] })
+    ).not.toContain("outputs-undeclared-binding");
+
+    for (const id of ["query-needs-profile", "use-mode-invalid", "reuse-invalid", "binding-shadows-param", "outputs-undeclared-binding", "use-output-unknown"]) {
+      expect(transcriptLintRules.some((rule) => rule.id === id)).toBe(true);
+    }
+  });
+
+  test("expansion tags [Use] children with the block's alias and effective mode and keeps bindings", () => {
+    const inner = linkedCaseSchema.parse({
+      key: "TC-0011",
+      title: "Find a student",
+      version: 2,
+      params: [],
+      transcript: "# Find a student\nOutputs: student\n\n[Query: PCF_UAT_DB] a K1 student -> {student}",
+      outputs: ["student"]
+    });
+    const registration = linkedCaseSchema.parse({
+      key: "TC-0012",
+      title: "Submit a registration",
+      version: 5,
+      params: [{ name: "level", default: "K1", required: false }],
+      transcript: [
+        "# Submit a registration",
+        "Outputs: applicationId",
+        "",
+        "[Use: TC-0011 as found]",
+        "[Open] /registrations/new?student={found.student}&level={level}",
+        "[Extract: applicationId] the application number",
+        "[Assert] the application is listed"
+      ].join("\n"),
+      outputs: ["applicationId"]
+    });
+    const { testCase } = parseTestCaseTranscript(
+      "# T\n\n[Use: TC-0012 as registration, mode=api, level=K2]\n[Query: PCF_UAT_DB] the application {registration.applicationId} has status APPROVED -> {row}\n[Assert] {row.status} is APPROVED"
+    );
+    const { steps, errors } = expandMacros(testCase.steps, [], [inner, registration]);
+    expect(errors).toEqual([]);
+    for (const step of steps) expandedStepSchema.parse(step);
+
+    const use = steps.find((step) => step.depth === 0 && step.type === "use");
+    expect(use).toMatchObject({ alias: "registration", mode: "api", useAlias: null, useMode: null, macroVersion: 5 });
+    const children = steps.filter((step) => step.parentStepId === use?.stepId);
+    expect(children.map((step) => step.type)).toEqual(["use", "open", "extract", "assert"]);
+    expect(children.every((step) => step.useAlias === "registration" && step.useMode === "api")).toBe(true);
+    expect(children[1]?.text).toBe("/registrations/new?student={found.student}&level=K2");
+    // The nested block has its own alias and no mode of its own: it inherits `api`.
+    const nested = children[0];
+    expect(nested).toMatchObject({ alias: "found", mode: "auto", useAlias: "registration", useMode: "api" });
+    const grandchildren = steps.filter((step) => step.parentStepId === nested?.stepId);
+    expect(grandchildren).toHaveLength(1);
+    expect(grandchildren[0]).toMatchObject({ type: "query", binding: "student", useAlias: "found", useMode: "api", depth: 2, credentialRefs: ["PCF_UAT_DB"] });
+    // Steps of the case itself are outside any block.
+    const own = steps.filter((step) => step.depth === 0 && step.type !== "use");
+    expect(own.map((step) => [step.binding, step.useAlias, step.useMode])).toEqual([
+      ["row", null, null],
+      [null, null, null]
+    ]);
+  });
+
+  test("step ids stay stable for unchanged lines when a binding or alias changes", () => {
+    const original = parseTestCaseTranscript(
+      "# T\n\n[Use: TC-0012 as registration, mode=api]\n[Query: DB] a student -> {student}\n[Open] /student-detail/{student.id}\n[Assert] the page shows {student.name}"
+    ).testCase;
+    const edited = parseTestCaseTranscript(
+      "# T\n\n[Use: TC-0012 as reg, mode=api]\n[Query: DB] a student -> {learner}\n[Open] /student-detail/{student.id}\n[Assert] the page shows {student.name}",
+      { previousSteps: original.steps }
+    ).testCase;
+    expect(edited.steps[0]?.stepId).not.toBe(original.steps[0]?.stepId);
+    expect(edited.steps[1]?.stepId).not.toBe(original.steps[1]?.stepId);
+    expect(edited.steps[2]?.stepId).toBe(original.steps[2]?.stepId ?? "missing");
+    expect(edited.steps[3]?.stepId).toBe(original.steps[3]?.stepId ?? "missing");
+    // Only arrow spacing changed: same instruction, same id.
+    const spaced = parseTestCaseTranscript(
+      "# T\n\n[Use: TC-0012 as registration, mode=api]\n[Query: DB] a student   ->{student}\n[Open] /student-detail/{student.id}\n[Assert] the page shows {student.name}",
+      { previousSteps: original.steps }
+    ).testCase;
+    expect(spaced.steps.map((step) => step.stepId)).toEqual(original.steps.map((step) => step.stepId));
+  });
+
+  test("steps stored before alias, mode and binding existed still validate", () => {
+    const legacy = {
+      stepId: "st_0000000000000000",
+      instructionKey: `sha256:${"0".repeat(64)}`,
+      ordinal: 1,
+      line: 3,
+      type: "act",
+      tag: null,
+      macro: null,
+      args: [],
+      text: "click Save",
+      checkpointId: null,
+      variables: [],
+      credentialRefs: [],
+      fileRefs: [],
+      disabled: false
+    };
+    expect(transcriptStepSchema.parse(legacy)).toMatchObject({ alias: null, mode: null, binding: null });
+    expect(expandedStepSchema.parse({ ...legacy, parentStepId: null, depth: 0, macroVersion: null })).toMatchObject({ useAlias: null, useMode: null });
+    expect(linkedCaseSchema.parse({ key: "TC-1", title: "", version: 1, params: [], transcript: "" }).outputs).toBeUndefined();
   });
 });

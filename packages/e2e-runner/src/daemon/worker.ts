@@ -351,6 +351,13 @@ export async function executeClaimedRun(input: {
       prices: config.prices,
       ...(config.priceTableVersion ? { priceTableVersion: config.priceTableVersion } : {}),
       backend: { apiUrl: input.apiOrigin, runId: claimed.runId, runToken: claimed.runToken },
+      executionMode: claimed.executionMode,
+      apiOrigins: claimed.apiOrigins,
+      apiPolicy: claimed.apiPolicy,
+      reuseLookup: async (query) => {
+        const found = await client.recentOutputs(claimed.runId, claimed.runToken, query);
+        return found.runId ? { runId: found.runId, outputs: found.outputs } : null;
+      },
       progressScreenshots: true,
       liveDir,
       signal: controller.signal,
@@ -532,11 +539,15 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         continue;
       }
       let claimed: ClaimedRun | null = null;
+      // Suite batch siblings (roadmap 2026-10-13 §4.2): claimed with the run, started at once, so
+      // no lease waits idle; only free slots are asked for.
+      let siblings: ClaimedRun[] = [];
       let exploration: ClaimedExploration | null = null;
       try {
         claimInFlight = true;
-        const work = await client.claimWork(state.workerToken);
+        const work = await client.claimWork(state.workerToken, { batchCapacity: Math.max(1, concurrency - active.size) });
         claimed = work.run;
+        siblings = work.siblings;
         exploration = work.exploration;
       } catch (error) {
         if (error instanceof BackendError && (error.status === 401 || error.status === 403)) {
@@ -578,31 +589,34 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, pollMs));
         continue;
       }
-      const run = claimed;
-      log(`claimed ${run.runId} (${run.testCaseKey}, attempt ${run.attempt})`);
       const workDir = join(options.workDir, "runs");
       mkdirSync(workDir, { recursive: true });
-      const task = executeClaimedRun({
-        client,
-        claimed: run,
-        apiOrigin: options.apiOrigin,
-        workDir,
-        headed: options.headed ?? false,
-        allowClaudeCode: options.allowClaudeCode ?? false,
-        hostEnv: hostEnvForRuns(options.hostEnv ?? process.env, { allowClaudeCode: options.allowClaudeCode ?? false }),
-        log,
-        keepRunDirs: options.keepRunDirs ?? process.env.JL_RUNNER_KEEP_RUNS === "1"
-      })
-        .then(() => undefined)
-        .catch((error: unknown) => log(`run ${run.runId} crashed: ${error instanceof Error ? error.message : String(error)}`))
-        .finally(() => {
-          active.delete(run.runId);
-          activeRuns.delete(run.runId);
-        });
-      active.set(run.runId, task);
-      activeRuns.add(run.runId);
+      const launch = (run: ClaimedRun, sibling: boolean) => {
+        log(`claimed ${run.runId} (${run.testCaseKey}, attempt ${run.attempt}${sibling ? ", batch sibling" : ""})`);
+        const task = executeClaimedRun({
+          client,
+          claimed: run,
+          apiOrigin: options.apiOrigin,
+          workDir,
+          headed: options.headed ?? false,
+          allowClaudeCode: options.allowClaudeCode ?? false,
+          hostEnv: hostEnvForRuns(options.hostEnv ?? process.env, { allowClaudeCode: options.allowClaudeCode ?? false }),
+          log,
+          keepRunDirs: options.keepRunDirs ?? process.env.JL_RUNNER_KEEP_RUNS === "1"
+        })
+          .then(() => undefined)
+          .catch((error: unknown) => log(`run ${run.runId} crashed: ${error instanceof Error ? error.message : String(error)}`))
+          .finally(() => {
+            active.delete(run.runId);
+            activeRuns.delete(run.runId);
+          });
+        active.set(run.runId, task);
+        activeRuns.add(run.runId);
+        return task;
+      };
+      const tasks = [launch(claimed, false), ...siblings.map((run) => launch(run, true))];
       if (options.once) {
-        await task;
+        await Promise.all(tasks);
         break;
       }
     }

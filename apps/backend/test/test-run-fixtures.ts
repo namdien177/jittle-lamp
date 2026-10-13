@@ -35,7 +35,7 @@ export const buildRunReport = (
 		outcome?: RunReport["outcome"];
 		status?: RunReport["status"];
 		providerCost?: number | null;
-		modes?: Array<"agent" | "replayed" | "handoff" | null>;
+		modes?: Array<"agent" | "replayed" | "handoff" | "deterministic" | null>;
 	} = {},
 ): RunReport => {
 	const started = new Date("2026-10-03T10:00:00.000Z");

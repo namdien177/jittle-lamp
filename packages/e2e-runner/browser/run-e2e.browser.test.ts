@@ -12,7 +12,11 @@ import { runTranscript, type RunTranscriptResult } from "../src/run";
 import { startFixtureApp, type FixtureApp } from "../test/fixtures/app/server";
 
 // Browser test: the fixture transcript runs twice through the real e2e engine and Chromium with
-// the mock model. Run 1 is agent-driven, run 2 replays every Act with zero act model calls.
+// the mock model. Run 1 is agent-driven, run 2 replays every Act with zero act model calls and
+// both Asserts from their deterministic checks with zero judge calls (roadmap 2026-10-13 §4.1);
+// the Login macro's wait step is the one judge call left. The Login macro is three acts
+// (identifier, password + submit, sign out): e2e 0.19+ records no step whose screen does not
+// change, so the password fill shares its step with the submit.
 
 const FIXTURE_PASSWORD = "fixture-Pa55word!";
 // A secret passed as a run param; it is unused by the case and must still never be written.
@@ -58,18 +62,39 @@ describe("jl-e2e run against the fixture app (mock model)", () => {
     const report = runs[0]?.report;
     runReportSchema.parse(report);
     expect(report?.outcome).toBe("passed");
-    expect(report?.totals.stepsAgent).toBe(4);
-    expect(report?.totals.usage.modelCalls).toBe(9);
-    expect(report?.totals.judgeUsage.modelCalls).toBe(3);
+    expect(report?.totals.stepsAgent).toBe(3);
+    expect(report?.totals.usage.modelCalls).toBe(8);
+    // Three judgements (wait, two asserts) plus one check question per passed assert.
+    expect(report?.totals.judgeUsage.modelCalls).toBe(5);
+    const asserts = report?.steps.filter((step) => step.type === "assert") ?? [];
+    expect(asserts.map((step) => step.cacheDetail)).toEqual([
+      "check recorded: expect(screen.getByRole('heading', 'Welcome, HQ admin')).toBeVisible()",
+      "check recorded: expect(screen.getByLabel('Email')).toBeVisible()"
+    ]);
+  });
+
+  test("run 2 replays both Asserts from their checks with zero judge calls", () => {
+    const report = runs[1]?.report;
+    const asserts = report?.steps.filter((step) => step.type === "assert") ?? [];
+    expect(asserts).toHaveLength(2);
+    expect(asserts.every((step) => step.status === "passed" && step.mode === "deterministic" && step.cacheReason === "hit" && step.usage.modelCalls === 0)).toBe(true);
+    expect(asserts.map((step) => step.cacheDetail)).toEqual([
+      "check expect(screen.getByRole('heading', 'Welcome, HQ admin')).toBeVisible()",
+      "check expect(screen.getByLabel('Email')).toBeVisible()"
+    ]);
+    // Only the Login macro's wait step still asks the judge.
+    expect(report?.totals.judgeUsage.modelCalls).toBe(1);
+    expect(report?.steps.find((step) => step.type === "wait")?.usage.modelCalls).toBe(1);
   });
 
   test("run 2 replays every Act step with zero act model calls", () => {
     const report = runs[1]?.report;
     expect(report?.outcome).toBe("passed");
     const acts = report?.steps.filter((step) => step.type === "act") ?? [];
-    expect(acts).toHaveLength(4);
+    expect(acts).toHaveLength(3);
     expect(acts.every((step) => step.mode === "replayed" && step.usage.modelCalls === 0)).toBe(true);
-    expect(report?.totals.stepsReplayed).toBe(4);
+    expect(acts.every((step) => step.cacheDetail === null)).toBe(true);
+    expect(report?.totals.stepsReplayed).toBe(3);
     expect(report?.totals.usage.modelCalls).toBe(0);
     expect(report?.steps.find((step) => step.type === "login")?.mode).toBe("replayed");
   });
@@ -87,12 +112,19 @@ describe("jl-e2e run against the fixture app (mock model)", () => {
     expect(report?.steps.find((step) => step.type === "screenshot")?.screenshot).toContain(".png");
   });
 
-  test("cached step scripts map to transcript steps and render Playwright", () => {
+  test("cached step scripts map to transcript steps and render Playwright; checks sit beside them", () => {
     const cacheDir = join(cwd, ".e2e", "cache");
-    const files = readdirSync(cacheDir).map((name) => JSON.parse(readFileSync(join(cacheDir, name), "utf8")) as { stepId: string; renderedCode: string });
+    const files = readdirSync(cacheDir)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => JSON.parse(readFileSync(join(cacheDir, name), "utf8")) as { stepId: string; renderedCode: string });
     const actIds = runs[0]?.report.steps.filter((step) => step.type === "act").map((step) => step.stepId).sort();
     expect(files.map((file) => file.stepId).sort()).toEqual(actIds ?? []);
     expect(files.map((file) => file.renderedCode).join("\n")).toContain("page.getByRole('button', { name: 'Sign in' }).click()");
+    const checks = readdirSync(join(cacheDir, "checks")).map((name) => JSON.parse(readFileSync(join(cacheDir, "checks", name), "utf8")) as { stepId: string; status: string; check: { locator: unknown } });
+    const assertIds = runs[0]?.report.steps.filter((step) => step.type === "assert").map((step) => step.stepId).sort();
+    expect(checks.map((file) => file.stepId).sort()).toEqual(assertIds ?? []);
+    expect(checks.every((file) => file.status === "active")).toBe(true);
+    expect(checks.map((file) => file.check.locator)).toEqual(expect.arrayContaining([{ role: "heading", name: "Welcome, HQ admin" }, { label: "Email" }]));
   });
 
   test("evidence: archive v4 with step annotations, step-tagged entries and a valid upload ZIP", async () => {
@@ -105,7 +137,19 @@ describe("jl-e2e run against the fixture app (mock model)", () => {
     expect(steps).toHaveLength(run.report.steps.length);
     expect(archive.sections.network.some((entry) => entry.payload.url.endsWith("/api/login") && entry.tags?.some((tag) => tag.startsWith("step:")))).toBe(true);
     expect(archive.sections.console.map((entry) => entry.payload.message)).toEqual(expect.arrayContaining(["login ok", "signed out"]));
+    const login = archive.sections.network.find((entry) => entry.payload.url.endsWith("/api/login"));
+    expect(login?.payload.method).toBe("POST");
+    expect(login?.payload.status).toBe(200);
+    expect(login?.payload.request.body?.value).toContain('"email":"admin@example.test"');
+    expect(login?.payload.request.body?.value).not.toContain(FIXTURE_PASSWORD);
+    expect(login?.payload.request.headers.some((header) => header.name === "content-type")).toBe(true);
+    // The login response races the page's own navigation; the dashboard's summary fetch does not.
+    const summary = archive.sections.network.find((entry) => entry.payload.url.endsWith("/api/summary"));
+    expect(summary?.payload.response?.body?.value).toBe('{"classes":4}');
+    expect(summary?.payload.durationMs).toBeGreaterThanOrEqual(0);
     expect(archive.sections.actions.filter((entry) => entry.payload.kind === "interaction" && entry.payload.type === "click").length).toBeGreaterThanOrEqual(3);
+    expect(archive.sections.actions.filter((entry) => entry.payload.kind === "interaction" && entry.payload.type === "navigation").length).toBeGreaterThanOrEqual(3);
+    expect(statSync(bundle.recordingPath).size).toBeGreaterThan(0);
 
     let received: Uint8Array | null = null;
     const fakeFetch = (async (_url: URL, init: RequestInit) => {

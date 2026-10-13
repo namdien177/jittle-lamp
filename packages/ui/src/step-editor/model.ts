@@ -763,7 +763,7 @@ export function formatStepChip(
   row: Pick<StepRow, "tag" | "args">,
   macros: readonly EditorMacro[],
   cases: readonly EditorCase[] = []
-): { tag: string; params: string | null; hint?: string } {
+): { tag: string; params: string | null; hint?: string; title?: string } {
   const { type, macro } = resolveStepType(row.tag);
   const tag = row.tag ?? "Act";
   if (row.args.length === 0) return { tag, params: null };
@@ -772,12 +772,13 @@ export function formatStepChip(
     const title = key === null ? undefined : cases.find((linked) => linked.key.toLowerCase() === key.toLowerCase())?.title;
     const rest = row.args.filter((arg) => arg.name !== null && arg.name.toLowerCase() !== "case");
     const params = [key, ...rest.map((arg) => `${arg.name}: ${arg.value}`)].filter(Boolean).join(" · ");
-    return title ? { tag, params, hint: `${key} · ${title}` } : { tag, params };
+    return title ? { tag, params, hint: `${key} · ${title}`, title } : { tag, params };
   }
   if (type === "login") {
+    // The row's verb already says "Login"; the chip is the profile itself.
     const profile = loginProfileArg(row.args);
     const rest = row.args.filter((arg) => arg.name !== null && arg.name.toLowerCase() !== "profile");
-    return { tag, params: [profile ? `profile: ${profile}` : null, ...rest.map((arg) => `${arg.name}: ${arg.value}`)].filter(Boolean).join(" · ") };
+    return { tag, params: [profile, ...rest.map((arg) => `${arg.name}: ${arg.value}`)].filter(Boolean).join(" · ") };
   }
   if (type === "macro" && macro !== null) {
     const definition = macros.find((candidate) => candidate.name.toLowerCase() === macro.toLowerCase());
@@ -797,7 +798,9 @@ export const phrasingTemplates: Record<TranscriptStepType, string> = {
   extract: "the value to read, e.g. the order id in the header",
   note: "context for the report",
   use: "note for the reader, e.g. sign in as the parent first",
-  macro: "note for the reader"
+  macro: "note for the reader",
+  query: "what to look up, e.g. a K1 student with a pending registration -> {student}",
+  api: "the call to make, e.g. POST /registrations for {student.id} -> {registration}"
 };
 
 // Element names as "role name" from rendered Playwright (`getByRole('menuitem', { name: 'Đăng xuất' })`).

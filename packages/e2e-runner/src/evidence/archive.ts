@@ -1,5 +1,3 @@
-import { unzipSync } from "fflate";
-
 import {
   checkpointTag,
   generateArchiveEntryId,
@@ -15,35 +13,19 @@ import {
   type SessionArchive
 } from "@jittle-lamp/shared";
 
-// Playwright trace (written by e2e with secrets already masked) → session archive v4 (ADR 0002
-// decision 4, handover 0.5). Interactions come from the trace's input actions, with targets from
-// e2e's engine events; network and console from the trace; step annotations and `step:<id>` tags
-// from the run report. Everything passes through the run's redactor before it is returned.
+import type { CapturedConsole, CapturedNavigation, CapturedRequest } from "../runtime/capture";
+import type { QueryStepLogEvent } from "../runtime/step-log";
 
-type TraceEvent = Record<string, unknown> & { type?: string };
+// Runner capture → session archive v4 (ADR 0002 decision 4, handover 0.5; roadmap 2026-10-13
+// phase A). e2e 0.19 removed the Playwright trace, so the sections come from the runner's own
+// worker-side capture (requests.jsonl, console.jsonl, navigations.jsonl written by
+// runtime/capture.ts), interactions from e2e's engine events (progress.jsonl), and step
+// annotations and `step:<id>` tags from the run report. Everything passes through the run's
+// redactor before it is returned.
 
 export type EngineEvent = { at: string; name: string; detail: string };
 // What a person did during a live take-over (design.md §5.4): tagged user:takeover.
 export type TakeoverEvent = { at: string; stepId: string | null; kind: "start" | "end" | "input"; inputKind?: string; detail: string };
-
-const maxBodyBytes = 64 * 1024;
-const sensitiveHeaders = new Set(["authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token", "x-csrf-token"]);
-const textMime = /^(?:text\/|application\/(?:json|xml|javascript|x-www-form-urlencoded|graphql)|[^;]*\+json|[^;]*\+xml)/i;
-
-function parseLines(bytes: Uint8Array | undefined): TraceEvent[] {
-  if (!bytes) return [];
-  return new TextDecoder()
-    .decode(bytes)
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .flatMap((line) => {
-      try {
-        return [JSON.parse(line) as TraceEvent];
-      } catch {
-        return [];
-      }
-    });
-}
 
 function subtypeOf(resourceType: unknown): NetworkSubtype {
   switch (resourceType) {
@@ -60,39 +42,6 @@ function subtypeOf(resourceType: unknown): NetworkSubtype {
     default:
       return "other";
   }
-}
-
-function headers(list: unknown): Array<{ name: string; value: string }> {
-  if (!Array.isArray(list)) return [];
-  return list.flatMap((entry: { name?: unknown; value?: unknown }) =>
-    typeof entry.name === "string" && entry.name.length > 0
-      ? [{ name: entry.name, value: sensitiveHeaders.has(entry.name.toLowerCase()) ? "[redacted]" : String(entry.value ?? "") }]
-      : []
-  );
-}
-
-function body(
-  files: Record<string, Uint8Array>,
-  content: { _file?: unknown; mimeType?: unknown; size?: unknown; text?: unknown } | undefined
-) {
-  if (!content) return undefined;
-  const mimeType = typeof content.mimeType === "string" && content.mimeType !== "x-unknown" ? content.mimeType : undefined;
-  const file = typeof content._file === "string" ? files[content._file] : undefined;
-  const raw = file ?? (typeof content.text === "string" ? new TextEncoder().encode(content.text) : undefined);
-  if (!raw) return typeof content.size === "number" && content.size > 0 ? { disposition: "unavailable" as const, ...(mimeType ? { mimeType } : {}), reason: "body not kept in the trace" } : undefined;
-  if (mimeType && !textMime.test(mimeType)) {
-    return { disposition: "omitted" as const, mimeType, byteLength: raw.byteLength, reason: "binary body" };
-  }
-  const truncated = raw.byteLength > maxBodyBytes;
-  const value = new TextDecoder().decode(truncated ? raw.slice(0, maxBodyBytes) : raw);
-  return {
-    disposition: truncated ? ("truncated" as const) : ("captured" as const),
-    encoding: "utf8" as const,
-    ...(mimeType ? { mimeType } : {}),
-    value,
-    byteLength: raw.byteLength,
-    ...(truncated ? { omittedByteLength: raw.byteLength - maxBodyBytes } : {})
-  };
 }
 
 type StepWindow = { stepId: string; checkpointId: string | null; parentStepId: string | null; start: number; end: number };
@@ -117,19 +66,45 @@ function tagsAt(windows: readonly StepWindow[], ms: number): string[] {
   return [stepTag(innermost.stepId), ...(innermost.checkpointId ? [checkpointTag(innermost.checkpointId)] : [])];
 }
 
-// e2e engine details read like `tap button "Sign in"` or `type "…" into textbox "Email"`.
+// e2e engine details read like `tap button "Sign in"`, `type "…" into textbox "Email"` or
+// `press "Enter" on textbox "Password"`: the target is the trailing `role "name"`.
 export function parseTarget(detail: string): { role?: string; name?: string; textPreview?: string } {
-  const match = /([a-z]+)\s+"([^"]*)"\s*$/i.exec(detail);
+  const match = /([a-z]+)\s+"([^"]*)"\s*(?:\([^)]*\))?\s*$/i.exec(detail);
   if (!match?.[1]) return { textPreview: detail.slice(0, 240) };
   const name = match[2] ?? "";
   return { role: match[1], name, ...(name ? { textPreview: name.slice(0, 240) } : {}) };
 }
 
+// Engine event names, agent grammar (agent/actions.js) and replayed locator kinds alike.
+const clickActions = new Set(["tap", "doubleTap", "longPress", "secondaryTap", "tapAt", "click", "dblclick", "hover", "hoverAt"]);
+const inputActions = new Set(["type", "typeSecret", "typeText", "fill", "select", "selectOption", "upload", "setInputFiles", "check", "uncheck", "clear"]);
+const keyActions = new Set(["press", "pressKey"]);
+
+// The key of `press "Enter" on textbox "Email"`; the whole detail is a fallback for odd prose.
+function parseKey(detail: string): string {
+  const match = /^press\s+"([^"]*)"/i.exec(detail);
+  return match?.[1] || "Unidentified";
+}
+
+function parseNavigateUrl(detail: string): string | null {
+  const match = /^navigate to\s+"([^"]*)"/i.exec(detail);
+  const url = match?.[1];
+  if (!url) return null;
+  return /^https?:/i.test(url) ? url : null;
+}
+
 export type BuildArchiveInput = {
-  traceZip: Uint8Array | null;
   report: RunReport;
+  requests: readonly CapturedRequest[];
+  consoleLog: readonly CapturedConsole[];
+  navigations: readonly CapturedNavigation[];
   engineEvents: readonly EngineEvent[];
   takeoverEvents?: readonly TakeoverEvent[];
+  // [Query] steps (roadmap §5.4): one `integration` entry each, tagged like actions.
+  queryEvents?: readonly QueryStepLogEvent[];
+  // When the recording's first frame was written (e2e's video artifact `startedAt`); the runner's
+  // `attempt-started` time stands in when the engine reported none.
+  videoStartedAt: string | null;
   sessionId: string;
   name: string;
   videoDurationMs: number | null;
@@ -137,22 +112,8 @@ export type BuildArchiveInput = {
 };
 
 export function buildRunArchive(input: BuildArchiveInput): { archive: SessionArchive; videoStartedAt: string } {
-  const files = input.traceZip ? unzipSync(input.traceZip) : {};
-  const traceEvents = Object.entries(files)
-    .filter(([name]) => name.endsWith(".trace"))
-    .flatMap(([, bytes]) => parseLines(bytes));
-  const networkEvents = Object.entries(files)
-    .filter(([name]) => name.endsWith(".network"))
-    .flatMap(([, bytes]) => parseLines(bytes));
-
-  const options = traceEvents.find((event) => event.type === "context-options");
-  const wallTime = typeof options?.wallTime === "number" ? options.wallTime : Date.parse(input.report.startedAt);
-  const monotonicTime = typeof options?.monotonicTime === "number" ? options.monotonicTime : 0;
-  const wall = (time: unknown) => wallTime + ((typeof time === "number" ? time : monotonicTime) - monotonicTime);
-
-  // The video starts with the page; step offsets and the timeline anchor both measure from it.
-  const pageEvent = traceEvents.find((event) => event.type === "event" && event.method === "page");
-  const videoStartMs = pageEvent ? wall(pageEvent.time) : wallTime;
+  const parsedVideoStart = input.videoStartedAt ? Date.parse(input.videoStartedAt) : Number.NaN;
+  const videoStartMs = Number.isNaN(parsedVideoStart) ? Date.parse(input.report.startedAt) : parsedVideoStart;
   const videoStartedAt = new Date(videoStartMs).toISOString();
   const windows = stepWindows(input.report);
 
@@ -231,16 +192,59 @@ export function buildRunArchive(input: BuildArchiveInput): { archive: SessionArc
     });
   }
 
-  // Interactions: input actions from the trace, targets from the nearest engine event.
-  const engine = input.engineEvents.map((event) => ({ ...event, ms: Date.parse(event.at) }));
-  const usedEngine = new Set<number>();
-  for (const event of traceEvents) {
-    if (event.type !== "before") continue;
-    const method = String(event.method ?? "");
-    const params = (event.params ?? {}) as Record<string, unknown>;
-    const ms = wall(event.startTime);
-    if (method === "goto" && typeof params.url === "string") {
-      const url = params.url;
+  // Statements [Query] steps ran, redacted by column already; the run's redactor passes once more.
+  for (const event of input.queryEvents ?? []) {
+    const ms = Date.parse(event.at);
+    if (Number.isNaN(ms)) continue;
+    actions.push({
+      at: ms,
+      build: (seq, index) => ({
+        id: generateArchiveEntryId(sessionId, "actions", index),
+        seq,
+        at: event.at,
+        tags: tagsAt(windows, ms).length > 0 ? tagsAt(windows, ms) : [stepTag(event.stepId)],
+        payload: {
+          kind: "integration",
+          integration: "sql",
+          profile: event.profile,
+          statement: event.statement,
+          rowCount: event.rowCount,
+          sample: event.sample,
+          durationMs: event.durationMs
+        }
+      })
+    });
+  }
+
+  // Navigations of the top document, from the capture: `app.open`, submits, the app's own moves.
+  for (const navigation of input.navigations) {
+    if (navigation.event !== "navigated") continue;
+    const ms = Date.parse(navigation.at);
+    actions.push({
+      at: ms,
+      build: (seq, index) => ({
+        id: generateArchiveEntryId(sessionId, "actions", index),
+        seq,
+        at: navigation.at,
+        tags: tagsAt(windows, ms),
+        payload: { kind: "interaction", type: "navigation", url: navigation.url, navigationType: "location" }
+      })
+    });
+  }
+
+  // Interactions: one per engine action (agent-driven or replayed), target from its prose.
+  for (const event of input.engineEvents) {
+    const ms = Date.parse(event.at);
+    if (Number.isNaN(ms)) continue;
+    const name = event.name;
+    const isClick = clickActions.has(name);
+    const isInput = inputActions.has(name);
+    const isKey = keyActions.has(name);
+    if (name === "navigate") {
+      const url = parseNavigateUrl(event.detail);
+      // The capture already lists this navigation when the browser performed it.
+      if (!url) continue;
+      if (input.navigations.some((navigation) => navigation.url === url && Math.abs(Date.parse(navigation.at) - ms) < 5_000)) continue;
       actions.push({
         at: ms,
         build: (seq, index) => ({
@@ -253,27 +257,14 @@ export function buildRunArchive(input: BuildArchiveInput): { archive: SessionArc
       });
       continue;
     }
-    if (!["click", "dblclick", "fill", "type", "press", "selectOption", "check", "uncheck", "hover", "setInputFiles", "tap"].includes(method)) continue;
-    let nearest = -1;
-    let distance = Number.POSITIVE_INFINITY;
-    engine.forEach((candidate, index) => {
-      if (usedEngine.has(index)) return;
-      const delta = Math.abs(candidate.ms - ms);
-      if (delta < distance) {
-        distance = delta;
-        nearest = index;
-      }
-    });
-    const matched = nearest >= 0 && distance < 5_000 ? engine[nearest] : undefined;
-    if (matched) usedEngine.add(nearest);
-    const target = parseTarget(matched?.detail ?? method);
+    if (!isClick && !isInput && !isKey) continue;
+    const target = parseTarget(event.detail || name);
     const interactionTarget = {
       selectorAlternates: [],
       ...(target.role ? { role: target.role } : {}),
       ...(target.name ? { name: target.name } : {}),
       ...(target.textPreview ? { textPreview: target.textPreview } : {})
     };
-    const isInput = method === "fill" || method === "type" || method === "selectOption" || method === "setInputFiles";
     actions.push({
       at: ms,
       build: (seq, index) => ({
@@ -281,79 +272,71 @@ export function buildRunArchive(input: BuildArchiveInput): { archive: SessionArc
         seq,
         at: new Date(ms).toISOString(),
         tags: tagsAt(windows, ms),
-        // Typed values are never kept (same rule as the extension): only their length.
+        // Typed values are never kept (same rule as the extension); e2e's prose already masks secrets.
         payload: isInput
           ? {
               kind: "interaction",
               type: "input",
               target: interactionTarget,
-              inputKind: method === "selectOption" ? "select" : "text",
+              inputKind: name === "select" || name === "selectOption" ? "select" : name === "check" || name === "uncheck" ? "checkbox" : "text",
               redacted: true,
-              ...(typeof params.value === "string" ? { valueLength: params.value.length } : {})
+              ...(name === "check" || name === "uncheck" ? { checked: name === "check" } : {})
             }
-          : method === "press"
-            ? { kind: "interaction", type: "keyboard", eventType: "keydown", key: String(params.key ?? "Unidentified") || "Unidentified", target: interactionTarget }
+          : isKey
+            ? { kind: "interaction", type: "keyboard", eventType: "keydown", key: parseKey(event.detail), target: interactionTarget }
             : { kind: "interaction", type: "click", target: interactionTarget }
       })
     });
   }
 
-  for (const event of traceEvents) {
-    if (event.type !== "console") continue;
-    const ms = wall(event.time);
-    const messageType = String(event.messageType ?? "log");
-    const level = messageType === "error" ? "error" : messageType === "warning" || messageType === "warn" ? "warn" : messageType === "debug" ? "debug" : "info";
-    const text = String(event.text ?? "");
+  for (const entry of input.consoleLog) {
+    const ms = Date.parse(entry.at);
+    if (Number.isNaN(ms)) continue;
     consoleEntries.push({
       at: ms,
       build: (seq, index) => ({
         id: generateArchiveEntryId(sessionId, "console", index),
         seq,
-        at: new Date(ms).toISOString(),
+        at: entry.at,
         tags: tagsAt(windows, ms),
-        payload: { kind: "console", level, message: text, args: [] }
+        payload: { kind: "console", level: entry.level, message: entry.source === "pageerror" ? `Uncaught ${entry.message}` : entry.message, args: [] }
       })
     });
   }
 
-  for (const event of networkEvents) {
-    if (event.type !== "resource-snapshot") continue;
-    const snapshot = (event.snapshot ?? {}) as Record<string, any>;
-    const request = snapshot.request ?? {};
-    const response = snapshot.response ?? {};
-    if (typeof request.url !== "string" || !/^https?:/i.test(request.url)) continue;
-    const ms = typeof snapshot.startedDateTime === "string" ? Date.parse(snapshot.startedDateTime) : wall(snapshot._monotonicTime);
-    const subtype = subtypeOf(snapshot._resourceType);
-    const status = typeof response.status === "number" && response.status >= 100 && response.status <= 599 ? response.status : undefined;
-    const requestBody = request.postData ? body(files, { _file: request.postData._file, mimeType: request.postData.mimeType, text: request.postData.text }) : undefined;
-    const responseBody = body(files, response.content);
+  for (const request of input.requests) {
+    const ms = Date.parse(request.startedAt);
+    if (Number.isNaN(ms)) continue;
+    if (!/^https?:/i.test(request.url)) continue;
+    const subtype = subtypeOf(request.resourceType);
+    const status = typeof request.status === "number" && request.status >= 100 && request.status <= 599 ? request.status : undefined;
     networkEntries.push({
       at: ms,
       build: (seq, index) => ({
         id: generateArchiveEntryId(sessionId, "network", index),
         seq,
-        at: new Date(ms).toISOString(),
+        at: request.startedAt,
         tags: tagsAt(windows, ms),
         subtype,
         payload: {
           kind: "network",
-          method: String(request.method ?? "GET"),
+          method: request.method || "GET",
           url: request.url,
           subtype,
           ...(status ? { status } : {}),
-          ...(typeof response.statusText === "string" && response.statusText.length > 0 ? { statusText: response.statusText } : {}),
-          ...(typeof snapshot.time === "number" && snapshot.time >= 0 ? { durationMs: snapshot.time } : {}),
-          request: { headers: headers(request.headers), cookies: [], ...(requestBody ? { body: requestBody } : {}) },
+          ...(request.statusText ? { statusText: request.statusText } : {}),
+          ...(typeof request.durationMs === "number" && request.durationMs >= 0 ? { durationMs: request.durationMs } : {}),
+          request: { headers: request.requestHeaders, cookies: [], ...(request.requestBody ? { body: request.requestBody } : {}) },
           ...(status
             ? {
                 response: {
-                  headers: headers(response.headers),
+                  headers: request.responseHeaders ?? [],
                   setCookieHeaders: [],
                   setCookies: [],
-                  ...(responseBody ? { body: responseBody } : {})
+                  ...(request.responseBody ? { body: request.responseBody } : {})
                 }
               }
-            : { failureText: String(response._failureText ?? "request did not complete") })
+            : { failureText: request.failureText ?? "request did not complete" })
         }
       })
     });

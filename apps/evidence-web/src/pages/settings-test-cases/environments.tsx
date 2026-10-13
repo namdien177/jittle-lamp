@@ -15,6 +15,7 @@ import { SimpleSelect } from "../../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import { cn } from "../../lib/cn";
 import { testAdminApi, type EnvironmentInput } from "../../test-cases/admin-api";
+import { apiConfigForm, parseApiConfig, type ApiConfigForm } from "../../test-cases/api-mode-model";
 import { testAdminKeys, useRunnerPools, useTestAdminMutation, useTestEnvironments, useTestPermissions } from "../../test-cases/admin-queries";
 import { AdminCard, ErrorNote, ReadOnlyNotice, pressable } from "../../test-cases/admin-ui";
 import { agentInstructionsCounter, dataLocaleLabel, dataLocaleOptions, environmentNamePattern, isHttpUrl, runnerPoolValue } from "../../test-config/config-ui";
@@ -81,6 +82,11 @@ export function SettingsTestEnvironmentsPage(): React.JSX.Element {
                     <span className="whitespace-nowrap font-mono text-sm font-semibold text-foreground">{environment.name}</span>
                     {environment.dataLocale ? <span className="block whitespace-nowrap text-xs text-muted-foreground">data · {dataLocaleLabel(environment.dataLocale)}</span> : null}
                     {environment.agentInstructions ? <span className="block whitespace-nowrap text-xs text-muted-foreground">instructions · {environment.agentInstructions.length.toLocaleString()} chars</span> : null}
+                    {environment.apiOrigins.length > 0 ? (
+                      <span className="block whitespace-nowrap text-xs text-muted-foreground">
+                        API · {environment.apiOrigins.length} origin{environment.apiOrigins.length === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell className="max-w-64 font-mono text-xs">
                     <TruncatedText>{environment.baseUrl}</TruncatedText>
@@ -143,7 +149,9 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
   const [agentInstructions, setAgentInstructions] = useState(source?.agentInstructions ?? "");
   const [dataLocale, setDataLocale] = useState(source?.dataLocale ?? "");
   const [notes, setNotes] = useState(source?.notes ?? "");
+  const [api, setApi] = useState<ApiConfigForm>(() => apiConfigForm(source));
   const [submitted, setSubmitted] = useState(false);
+  const setApiField = (field: keyof ApiConfigForm) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setApi((current) => ({ ...current, [field]: event.target.value }));
 
   const save = useTestAdminMutation(
     (getToken, body: EnvironmentInput) => (source ? testAdminApi.updateEnvironment(getToken, source.id, body) : testAdminApi.createEnvironment(getToken, body)),
@@ -159,7 +167,10 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
   ];
   if (!poolOptions.some((option) => option.value === runnerPool)) poolOptions.push({ label: `${runnerPool} (no such pool)`, value: runnerPool });
   const localeOptions = dataLocaleOptions();
-  const valid = !nameError && !urlError && !counter.over;
+  // API replay configuration (roadmap §2.5): origins gate the non-Full execution modes.
+  const apiConfig = parseApiConfig(api);
+  const apiErrors = apiConfig.errors;
+  const valid = !nameError && !urlError && !counter.over && Object.keys(apiErrors).length === 0;
 
   const submit = async () => {
     setSubmitted(true);
@@ -172,7 +183,8 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
       runnerPool,
       agentInstructions: agentInstructions.trim() ? agentInstructions : null,
       dataLocale: dataLocale === "" ? null : dataLocale,
-      notes: notes.trim() ? notes : null
+      notes: notes.trim() ? notes : null,
+      ...apiConfig.value
     });
     props.onClose();
   };
@@ -249,6 +261,26 @@ function EnvironmentDialog(props: { environment: TestEnvironment | null; pools: 
           <Field label="Notes" htmlFor="env-notes">
             <Textarea id="env-notes" value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} maxLength={2000} />
           </Field>
+          <fieldset className="grid gap-4 rounded-md border border-border p-3" aria-label="API replay">
+            <legend className="px-1 text-xs font-medium text-muted-foreground">API replay</legend>
+            <Field label="API origins" htmlFor="env-api-origins" error={submitted ? apiErrors.origins : undefined} hint="One per line. Empty keeps Fast preconditions and API only off.">
+              <Textarea id="env-api-origins" value={api.origins} onChange={setApiField("origins")} rows={2} className="font-mono" placeholder="https://api-uat.example.com" />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="OpenAPI URL" htmlFor="env-openapi-url" error={submitted ? apiErrors.openapiUrl : undefined}>
+                <Input id="env-openapi-url" value={api.openapiUrl} onChange={setApiField("openapiUrl")} className="font-mono" inputMode="url" placeholder="https://api-uat.example.com/openapi.json" />
+              </Field>
+              <Field label="Allowed paths" htmlFor="env-api-paths" error={submitted ? apiErrors.allowedPaths : undefined} hint="One per line, * and ** globs. Empty allows every path.">
+                <Textarea id="env-api-paths" value={api.allowedPaths} onChange={setApiField("allowedPaths")} rows={2} className="font-mono" placeholder="/api/**" />
+              </Field>
+              <Field label="Max requests per step" htmlFor="env-api-max" error={submitted ? apiErrors.maxRequestsPerStep : undefined}>
+                <Input id="env-api-max" value={api.maxRequestsPerStep} onChange={setApiField("maxRequestsPerStep")} inputMode="numeric" className="font-mono" />
+              </Field>
+              <Field label="Rate limit per second" htmlFor="env-api-rate" error={submitted ? apiErrors.rateLimitPerSecond : undefined}>
+                <Input id="env-api-rate" value={api.rateLimitPerSecond} onChange={setApiField("rateLimitPerSecond")} inputMode="decimal" className="font-mono" />
+              </Field>
+            </div>
+          </fieldset>
         </fieldset>
         <ErrorNote error={save.error} />
       </form>

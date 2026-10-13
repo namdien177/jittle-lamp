@@ -17,7 +17,14 @@ import {
 
 export const listColumnIds = ["key", "title", "tags", "status", "lastOutcome", "passRate", "costAvg", "environment", "steps", "updated", "lastRun"] as const;
 export type ListColumnId = (typeof listColumnIds)[number];
-export const defaultColumns: ListColumnId[] = ["key", "title", "tags", "lastOutcome", "passRate", "costAvg"];
+// Key, Title, Last outcome, Last run (roadmap §3.6); tags, pass rate and cost are optional columns.
+export const defaultColumns: ListColumnId[] = ["key", "title", "lastOutcome", "lastRun"];
+
+// "Never run" = no run in the last hundred years; the list API has no separate flag.
+export const neverRunDays = 36_500;
+export function noRunsLabel(days: number): string {
+  return days >= neverRunDays ? "never run" : `no runs in ${days}d`;
+}
 
 export const listColumnLabels: Record<ListColumnId, string> = {
   key: "Key",
