@@ -33,6 +33,56 @@ import {
   runSettingsToForm
 } from "../apps/evidence-web/src/test-config/config-ui";
 import { bellAccessibleName, notificationHref, unreadBadgeLabel } from "../apps/evidence-web/src/notifications/notification-links";
+import {
+  addSchemaChips,
+  formatQueryParams,
+  parseQueryParams,
+  postgresFieldsFromForm,
+  postgresFormFromFields,
+  queryFormErrors,
+  queryFormValid,
+  removeSchemaChip
+} from "../apps/evidence-web/src/pages/settings-test-cases/postgres-form";
+
+// Settings → Credentials (Postgres kind) and Settings → Queries (roadmap 2026-10-13 §5).
+describe("postgres credential form and queries page helpers", () => {
+  it("maps stored postgres fields onto the form and back, with the chips as one allowlist field", () => {
+    const form = postgresFormFromFields({ host: "db.internal", port: "5433", database: "sv", user: "readonly", ssl: "true", schema_allowlist: "public, reporting" });
+    expect(form).toEqual({ host: "db.internal", port: "5433", database: "sv", user: "readonly", ssl: "require", schemas: ["public", "reporting"] });
+    expect(postgresFormFromFields({}).ssl).toBe("disable");
+    expect(postgresFormFromFields({ ssl: "verify-full" }).ssl).toBe("verify-full");
+    expect(postgresFieldsFromForm(form)).toEqual({
+      fields: { host: "db.internal", port: "5433", database: "sv", user: "readonly", ssl: "require", schema_allowlist: "public,reporting" },
+      errors: {}
+    });
+    const empty = postgresFieldsFromForm({ host: " ", port: "70000", database: "", user: "", ssl: "disable", schemas: [] });
+    expect(empty.errors).toEqual({ host: "Required.", port: "1–65535.", database: "Required.", user: "Required.", schemas: "At least one schema." });
+  });
+
+  it("adds and removes schema chips from typed text and reports bad names", () => {
+    expect(addSchemaChips([], "public, Reporting auth")).toEqual({ schemas: ["public", "reporting", "auth"], rejected: [] });
+    expect(addSchemaChips(["public"], "public 1bad")).toEqual({ schemas: ["public"], rejected: ["1bad"] });
+    expect(removeSchemaChip(["public", "auth"], "auth")).toEqual(["public"]);
+  });
+
+  it("checks a saved query inline: name, profile, the guard against the profile's allowlist and the params", () => {
+    const credential = { fields: { schema_allowlist: "public" } };
+    const ok = queryFormErrors({ credentialId: "c1", name: "k1-pending", sqlText: "select id from students where level = $1", paramsText: "level" }, credential);
+    expect(ok).toEqual({ sql: [] });
+    expect(queryFormValid(ok)).toBe(true);
+    const bad = queryFormErrors({ credentialId: "", name: "1 bad", sqlText: "delete from auth.users where id = $1", paramsText: "a, b" }, null);
+    expect(bad.credentialId).toBe("Choose a profile.");
+    expect(bad.name).toContain("starting with a letter");
+    expect(bad.sql).toContain('"delete" is not allowed in a query.');
+    expect(bad.sql).toContain("The profile has no schema allowlist; nothing may be read.");
+    expect(bad.params).toBe("The SQL uses 1 placeholder; 2 params declared.");
+    expect(queryFormValid(bad)).toBe(false);
+    expect(queryFormErrors({ credentialId: "c1", name: "x", sqlText: "   ", paramsText: "" }, credential).sql).toEqual(["Write a SELECT."]);
+    expect(queryFormErrors({ credentialId: "c1", name: "x", sqlText: "select 1 from students", paramsText: "1bad" }, credential).params).toBe("Not a name: 1bad.");
+    expect(parseQueryParams("level, centre.id")).toEqual({ params: [{ name: "level", kind: "text" }, { name: "centre.id", kind: "text" }], invalid: [] });
+    expect(formatQueryParams([{ name: "level", kind: "text" }, { name: "centre", kind: "number" }])).toBe("level, centre");
+  });
+});
 
 describe("settings helpers", () => {
   it("validates key/value rows and reports invalid or repeated names", () => {
@@ -384,6 +434,106 @@ describe("variables", () => {
       { key: "PLAIN", value: "https://example.test#anchor" },
       { key: "ESCAPED", value: 'say "hi"' },
       { key: "UNCLOSED", value: '"abc' }
+    ]);
+  });
+});
+
+// Roadmap 2026-10-13 §2.5: the Execution choice of the run dialog and the API fields of an
+// environment; §3.4: the API scripts listed in the Details drawer.
+import {
+  apiConfigForm,
+  apiScriptSummaries,
+  defaultExecutionMode,
+  executionChoices,
+  flagCandidateOptions,
+  hasUseBlocks,
+  isHttpOrigin,
+  parseApiConfig
+} from "../apps/evidence-web/src/test-cases/api-mode-model";
+
+describe("API mode settings", () => {
+  const configured = { apiOrigins: ["https://api.example.test"] };
+  const unconfigured = { apiOrigins: [] as string[] };
+
+  it("greys out the non-Full choices until the environment has API origins, and labels API only", () => {
+    expect(executionChoices(unconfigured).map((choice) => [choice.value, choice.disabled])).toEqual([
+      ["full", false],
+      ["hybrid", true],
+      ["api", true]
+    ]);
+    expect(executionChoices(configured).every((choice) => !choice.disabled)).toBe(true);
+    expect(executionChoices(configured).find((choice) => choice.value === "api")?.note).toBe("does not test the UI");
+    expect(executionChoices(null).filter((choice) => choice.disabled)).toHaveLength(2);
+  });
+
+  it("defaults to Fast preconditions only for cases with [Use] blocks on a configured environment", () => {
+    expect(hasUseBlocks([{ type: "open" }, { type: "use" }])).toBe(true);
+    expect(hasUseBlocks([{ type: "use", disabled: true }])).toBe(false);
+    expect(hasUseBlocks(undefined)).toBe(false);
+    expect(defaultExecutionMode({ hasUseBlocks: true, environment: configured })).toBe("hybrid");
+    expect(defaultExecutionMode({ hasUseBlocks: true, environment: unconfigured })).toBe("full");
+    expect(defaultExecutionMode({ hasUseBlocks: false, environment: configured })).toBe("full");
+  });
+
+  it("validates the API fields inline and round-trips them", () => {
+    const form = apiConfigForm({
+      apiOrigins: ["https://api.example.test"],
+      openapiUrl: "https://api.example.test/openapi.json",
+      apiPolicy: { allowedPaths: ["/api/**"], maxRequestsPerStep: 20, rateLimitPerSecond: 5 }
+    });
+    expect(form).toEqual({ origins: "https://api.example.test", openapiUrl: "https://api.example.test/openapi.json", allowedPaths: "/api/**", maxRequestsPerStep: "20", rateLimitPerSecond: "5" });
+    const parsed = parseApiConfig({ ...form, origins: "https://api.example.test/\n\n https://other.example.test " });
+    expect(parsed.errors).toEqual({});
+    expect(parsed.value).toEqual({
+      apiOrigins: ["https://api.example.test", "https://other.example.test"],
+      openapiUrl: "https://api.example.test/openapi.json",
+      apiPolicy: { allowedPaths: ["/api/**"], maxRequestsPerStep: 20, rateLimitPerSecond: 5 }
+    });
+    expect(apiConfigForm(null)).toEqual({ origins: "", openapiUrl: "", allowedPaths: "", maxRequestsPerStep: "50", rateLimitPerSecond: "10" });
+    expect(parseApiConfig(apiConfigForm(null)).value).toEqual({ apiOrigins: [], openapiUrl: null, apiPolicy: { allowedPaths: [], maxRequestsPerStep: 50, rateLimitPerSecond: 10 } });
+    const invalid = parseApiConfig({ origins: "https://api.example.test/v1", openapiUrl: "ftp://x", allowedPaths: "api/**", maxRequestsPerStep: "0", rateLimitPerSecond: "-1" });
+    expect(Object.keys(invalid.errors).sort()).toEqual(["allowedPaths", "maxRequestsPerStep", "openapiUrl", "origins", "rateLimitPerSecond"]);
+    expect(isHttpOrigin("https://api.example.test")).toBe(true);
+    expect(isHttpOrigin("https://api.example.test/path")).toBe(false);
+  });
+
+  it("summarises API scripts per step and offers seq:path candidates for a flag", () => {
+    const script = {
+      id: "sc1",
+      testCaseId: "tc",
+      stepId: "s1",
+      instructionKey: "k",
+      environmentId: null,
+      keyHash: "api:s1",
+      version: 1,
+      renderedCode: "",
+      status: "active" as const,
+      staleReason: null,
+      verifiedCount: 0,
+      recordedFromRunId: null,
+      lastReplayedAt: null,
+      createdAt: 0,
+      kind: "api-requests" as const,
+      requests: {
+        schemaVersion: "jl-api-1" as const,
+        stepId: "s1",
+        instructionKey: null,
+        recordedAt: "2026-10-13T00:00:00.000Z",
+        auth: {},
+        requests: [
+          { seq: 1, method: "POST", origin: "https://api.example.test", pathTemplate: "/api/x", query: {}, headersTemplate: {}, bodyKind: null, numericLeaves: [], mutation: true, check: true, captures: [], expect: null },
+          { seq: 2, method: "GET", origin: "https://api.example.test", pathTemplate: "/api/x/1", query: {}, headersTemplate: {}, bodyKind: null, numericLeaves: [], mutation: false, check: false, captures: [], expect: null }
+        ],
+        reviewFlags: []
+      },
+      reviewFlags: [{ seq: 2, location: "path[3]", value: "1", reason: "r", candidates: [{ fromSeq: 1, path: "id", sample: "1" }, { fromSeq: 1, fromStepId: "s0", path: "data.id", sample: "2" }] }]
+    };
+    const summaries = apiScriptSummaries([script, { ...script, id: "ui", kind: "ui-actions" as const, requests: null, reviewFlags: undefined }]);
+    expect([...summaries.keys()]).toEqual(["s1"]);
+    expect(summaries.get("s1")?.map((summary) => [summary.requests, summary.mutations, summary.flags])).toEqual([[2, 1, 1]]);
+    expect(flagCandidateOptions(script.reviewFlags[0]!).map((option) => [option.label, option.fromSeq, option.fromStepId, option.path])).toEqual([
+      ["1:id = 1", 1, undefined, "id"],
+      ["1:data.id = 2", 1, "s0", "data.id"]
     ]);
   });
 });

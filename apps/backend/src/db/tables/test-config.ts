@@ -78,6 +78,11 @@ export const testEnvironments = sqliteTable(
 		// Locale of generated values ({person.name}); null means en.
 		dataLocale: text("data_locale"),
 		notes: text("notes"),
+		// API replay (roadmap 2026-10-13 §2.5): origins API scripts may call, the OpenAPI document
+		// and the request policy. Empty origins block hybrid/api runs with API_NOT_CONFIGURED.
+		apiOriginsJson: text("api_origins_json").notNull().default("[]"),
+		openapiUrl: text("openapi_url"),
+		apiPolicyJson: text("api_policy_json"),
 		createdBy: text("created_by").references(() => users.id, {
 			onDelete: "set null",
 		}),
@@ -148,6 +153,7 @@ export const testCredentials = sqliteTable(
 				"github_app",
 				"gitlab_token",
 				"slack_webhook",
+				"postgres",
 			],
 		})
 			.notNull()
@@ -186,8 +192,44 @@ export const testCredentials = sqliteTable(
 		index("test_credentials_org_kind_idx").on(table.orgId, table.kind),
 		check(
 			"test_credentials_kind_check",
-			sql`${table.kind} in ('login', 'model_key', 'jira', 'github_app', 'gitlab_token', 'slack_webhook')`,
+			sql`${table.kind} in ('login', 'model_key', 'jira', 'github_app', 'gitlab_token', 'slack_webhook', 'postgres')`,
 		),
+	],
+);
+
+// Named SQL per postgres profile (roadmap 2026-10-13 §5.1): `[Query: DB, name=k1-pending]`
+// runs a reviewed query instead of agent-written SQL.
+export const testQueries = sqliteTable(
+	"test_queries",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => createUuidV7()),
+		orgId: text("org_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		credentialId: text("credential_id")
+			.notNull()
+			.references(() => testCredentials.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		sqlText: text("sql_text").notNull(),
+		// Declared parameters, `[{ name, kind }]`, bound as placeholders by the runner.
+		paramsJson: text("params_json").notNull().default("[]"),
+		createdBy: text("created_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		...timestamps,
+		deletedAt: integer("deleted_at"),
+		deletedBy: text("deleted_by").references(() => users.id, {
+			onDelete: "set null",
+		}),
+	},
+	(table) => [
+		uniqueIndex("test_queries_org_credential_name_unique")
+			.on(table.orgId, table.credentialId, sql`lower(${table.name})`)
+			.where(sql`${table.deletedAt} is null`),
+		index("test_queries_org_idx").on(table.orgId),
+		index("test_queries_credential_idx").on(table.credentialId),
 	],
 );
 

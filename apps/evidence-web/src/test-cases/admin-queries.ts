@@ -35,6 +35,7 @@ export const testAdminKeys = {
   importBatch: (orgId: string | null, batchId: string) => testKeys.importBatch(orgId, batchId),
   environments: (orgId: string | null) => testKeys.environments(orgId),
   credentials: (orgId: string | null) => testKeys.credentials(orgId),
+  queries: (orgId: string | null) => [...testKeys.config(orgId), "queries"] as const,
   macros: (orgId: string | null) => testKeys.macros(orgId),
   tags: (orgId: string | null) => testKeys.tags(orgId),
   runSettings: (orgId: string | null) => testKeys.runSettings(orgId),
@@ -125,6 +126,7 @@ export const useImportBatch = (batchId: string | null) =>
 
 export const useTestEnvironments = () => useOrgQuery(testAdminKeys.environments, testAdminApi.listEnvironments);
 export const useTestCredentials = () => useOrgQuery(testAdminKeys.credentials, testAdminApi.listCredentials);
+export const useTestQueries = () => useOrgQuery(testAdminKeys.queries, testAdminApi.listQueries);
 export const useTestMacros = () => useOrgQuery(testAdminKeys.macros, testAdminApi.listMacros);
 export const useTestTags = () => useOrgQuery(testAdminKeys.tags, testAdminApi.listTags);
 export const useTestRunSettings = () => useOrgQuery(testAdminKeys.runSettings, testAdminApi.getRunSettings);

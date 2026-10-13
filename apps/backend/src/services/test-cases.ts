@@ -6,11 +6,13 @@ import {
 	lintTestCase,
 	loginProfileArg,
 	type MacroParam,
+	type ModelAccountEvent,
 	macroParamSchema,
 	type ParsedTestCase,
 	parseTestCaseTranscript,
 	parseTranscriptDocument,
 	resolveCredentialAlias,
+	reusePolicySchema,
 	type SimilarTestCase,
 	type StepScript,
 	serializeTestCase,
@@ -45,6 +47,7 @@ import {
 import { z } from "zod/v4";
 
 import {
+	organizationAgentNotes,
 	organizationTestCounters,
 	testCaseDatasets,
 	testCases,
@@ -58,6 +61,17 @@ import {
 	type testSuites,
 } from "../db/schema";
 import { conflict, HttpError, notFound } from "../http/test-http";
+import { applyModelAccountEvents } from "./model-accounts";
+import {
+	defaultOutboundPolicy,
+	guardedFetch,
+	type OutboundPolicy,
+} from "./outbound-http";
+import { parseApiScript, parseReviewFlags } from "./test-api-scripts";
+import type { TestSecrets } from "./test-config";
+import { extractTranscript } from "./test-import-parsers";
+import type { TextGenerator } from "./test-imports";
+import { resolveModelKeys } from "./test-settings";
 import type { BackendDb } from "./user-provisioning";
 
 // Test case storage on top of the shared transcript model (design.md §3, §4, §7; ADR 0002
@@ -134,8 +148,8 @@ export const parseSingleCase = (
 
 export type LintContext = {
 	macros: Array<{ name: string; params: MacroParam[] }>;
-	// Keys a [Use: KEY] step may name.
-	cases: Array<{ key: string }>;
+	// Keys a [Use: KEY] step may name, with the outputs `{alias.name}` may read.
+	cases: Array<{ key: string; outputs?: string[] }>;
 	caseKey?: string;
 	environmentVariables?: string[];
 };
@@ -151,10 +165,13 @@ export const loadLintContext = async (
 	});
 	const cases = await db.query.testCases.findMany({
 		where: and(eq(testCases.orgId, orgId), isNull(testCases.deletedAt)),
-		columns: { key: true },
+		columns: { key: true, outputsJson: true },
 	});
 	const context: LintContext = {
-		cases,
+		cases: cases.map((row) => ({
+			key: row.key,
+			outputs: parseJsonColumn(row.outputsJson, stringArray, []),
+		})),
 		// The runner ships Login; without it every [Login: X] would lint as an unknown macro.
 		macros: withBuiltinMacroSignatures(
 			macros.map((macro) => ({
@@ -207,6 +224,12 @@ export const deriveCaseColumns = (
 		fingerprint: computeTestCaseFingerprint(parsed),
 		retries: parsed.metadata.retries ?? 0,
 		externalId: parsed.metadata.externalId,
+		outputsJson: JSON.stringify(parsed.metadata.outputs),
+		// `never` is the default and stays null.
+		reusePolicyJson:
+			parsed.metadata.reuse.kind === "never"
+				? null
+				: JSON.stringify(parsed.metadata.reuse),
 	};
 };
 
@@ -537,6 +560,7 @@ const emptyStats = (): TestCaseStats => ({
 	runs: 0,
 	lastOutcome: null,
 	lastRunAt: null,
+	lastRunId: null,
 	passRate: null,
 	flakyRate: null,
 	avgDurationMs: null,
@@ -569,6 +593,7 @@ export const computeCaseStats = async (
 	if (caseIds.length === 0) return stats;
 
 	const recent = await db.all<{
+		id: string;
 		test_case_id: string;
 		outcome: "passed" | "failed" | "blocked";
 		flaky: number;
@@ -578,7 +603,7 @@ export const computeCaseStats = async (
 		model_calls: number;
 		tokens: number;
 	}>(sql`select * from (
-		select ${testRuns.testCaseId} as test_case_id, ${testRuns.outcome} as outcome,
+		select ${testRuns.id} as id, ${testRuns.testCaseId} as test_case_id, ${testRuns.outcome} as outcome,
 			${testRuns.flaky} as flaky, ${testRuns.finishedAt} as finished_at,
 			${testRuns.durationMs} as duration_ms, ${testRuns.costUsd} as cost_usd,
 			${testRuns.modelCalls} as model_calls,
@@ -632,6 +657,7 @@ export const computeCaseStats = async (
 		const latest = runs[0];
 		entry.lastOutcome = latest?.outcome ?? null;
 		entry.lastRunAt = latest?.finished_at ?? null;
+		entry.lastRunId = latest?.id ?? null;
 		// Blocked runs are excluded from pass rates (design.md §2 "Verdicts").
 		const judged = runs.filter((run) => run.outcome !== "blocked");
 		entry.passRate =
@@ -825,6 +851,10 @@ export const toCaseDetail = async (
 		sourceRef: row.sourceRef,
 		fingerprint: row.fingerprint,
 		retries: row.retries,
+		outputs: parseJsonColumn(row.outputsJson, stringArray, []),
+		reuse: parseJsonColumn(row.reusePolicyJson, reusePolicySchema, {
+			kind: "never",
+		}),
 		requiredConfig: await computeRequiredConfig(db, row, row.environmentId),
 	};
 };
@@ -1119,10 +1149,40 @@ export const toStepScript = (
 	recordedFromRunId: row.recordedFromRunId,
 	lastReplayedAt: row.lastReplayedAt,
 	createdAt: row.createdAt,
+	kind: row.kind,
+	// API scripts carry their requests and review flags (roadmap §2.3); UI scripts neither.
+	...(row.kind === "api-requests"
+		? {
+				requests: parseApiScript(row),
+				reviewFlags: parseReviewFlags(row),
+			}
+		: {}),
 });
 
 // Copies active scripts of unchanged instructions to a duplicate so it replays on its first run
 // (ADR 0002 decision 13).
+// Checks, API scripts and SQL scripts key their row by step id (`check:<stepId>` and friends), so
+// an inherited row must follow the duplicate's step id; UI action keys are content hashes and stay.
+const inheritedKeyHash = (keyHash: string, stepId: string): string => {
+	const prefix = ["check:", "api:", "sql:"].find((candidate) =>
+		keyHash.startsWith(candidate),
+	);
+	return prefix ? `${prefix}${stepId}` : keyHash;
+};
+
+const inheritedScriptKindColumns = (
+	script: Pick<
+		typeof testStepScripts.$inferSelect,
+		"kind" | "checkJson" | "requestsJson" | "sqlText" | "reviewFlagsJson"
+	>,
+) => ({
+	kind: script.kind,
+	checkJson: script.checkJson,
+	requestsJson: script.requestsJson,
+	sqlText: script.sqlText,
+	reviewFlagsJson: script.reviewFlagsJson,
+});
+
 export const inheritStepScripts = async (
 	db: BackendDb,
 	input: { source: TestCaseRow; target: TestCaseRow },
@@ -1164,11 +1224,12 @@ export const inheritStepScripts = async (
 				stepIdsJson: JSON.stringify(stepIds),
 				instructionKey: script.instructionKey,
 				environmentId: script.environmentId,
-				keyHash: script.keyHash,
+				keyHash: inheritedKeyHash(script.keyHash, stepIds[0] ?? script.stepId),
 				entryJson: script.entryJson,
 				version: 1,
 				actionsJson: script.actionsJson,
 				endStateJson: script.endStateJson,
+				...inheritedScriptKindColumns(script),
 				renderedCode: script.renderedCode,
 				recordedFromRunId: script.recordedFromRunId,
 				inheritedFromScriptId: script.id,
@@ -1193,11 +1254,12 @@ export const inheritStepScripts = async (
 			stepIdsJson: JSON.stringify(stepIds),
 			instructionKey,
 			environmentId: script.environmentId,
-			keyHash: script.keyHash,
+			keyHash: inheritedKeyHash(script.keyHash, stepIds[0] ?? script.stepId),
 			entryJson: script.entryJson,
 			version: 1,
 			actionsJson: script.actionsJson,
 			endStateJson: script.endStateJson,
+			...inheritedScriptKindColumns(script),
 			renderedCode: script.renderedCode,
 			recordedFromRunId: script.recordedFromRunId,
 			inheritedFromScriptId: script.id,
@@ -1267,4 +1329,299 @@ export const suiteMembers = async (
 		for (const row of rows) if (!ids.includes(row.id)) ids.push(row.id);
 	}
 	return loadCases(db, orgId, ids);
+};
+
+// ---------------------------------------------------------------------------------------------
+// Draft from plain language (roadmap §3.2 "What do you want to test?")
+// ---------------------------------------------------------------------------------------------
+
+export type DraftTranscriptInput = {
+	orgId: string;
+	actorUserId: string | null;
+	text: string;
+	environmentId: string;
+	startFromCaseId?: string | undefined;
+	generateText: TextGenerator;
+	outbound?: OutboundPolicy;
+};
+
+export type DraftTranscriptResult = {
+	title: string;
+	transcript: string;
+	lint: LintFinding[];
+	similar: SimilarTestCase[];
+};
+
+// The first non-empty line, as a placeholder title and as the similarity probe.
+export const draftPlaceholderTitle = (text: string): string =>
+	text
+		.split("\n")
+		.map((line) => line.trim())
+		.find((line) => line.length > 0)
+		?.replace(/^#+\s*/, "")
+		.slice(0, 200) ?? "Untitled test";
+
+// Plain language as a one-case document with every line as a Note: what "Write steps myself"
+// saves, and what the similarity check compares against existing steps.
+export const draftNotesTranscript = (text: string): string => {
+	const title = draftPlaceholderTitle(text);
+	const notes = text
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+		.map((line) => `[Note] ${line.replace(/^#+\s*/, "")}`);
+	return `# ${title}\n\n${notes.join("\n")}\n`;
+};
+
+// The grammar lines are the ones explorationTranscriptPrompt gives the model
+// (packages/shared/src/test-exploration.ts), so both paths write the same dialect.
+export const draftTranscriptPrompt = (input: {
+	text: string;
+	environment: {
+		name: string;
+		baseUrl: string;
+		variables: readonly string[];
+		agentInstructions: string | null;
+	};
+	agentNotes: string | null;
+	profiles: readonly string[];
+	macros: ReadonlyArray<{ name: string; params: MacroParam[] }>;
+	similar: ReadonlyArray<{ key: string; title: string; transcript: string }>;
+	startFrom: { key: string; title: string } | null;
+	parseError?: string | null;
+}): string =>
+	[
+		"Write one end-to-end test case as a Jittle Lamp transcript document from the description below.",
+		"Format: a '# Title' line, then one step per line. Use [Open] <path> to navigate, [Act] <one user intent> for actions,",
+		"[Assert] <specific expected result> for checks, and '## Checkpoint: <name>' headings to group asserts.",
+		"Allowed step tags: [Open], [Act], [Assert], [Wait], [Screenshot], [Extract: name], [Note], [Use: KEY], and these macros only:",
+		...input.macros.map(
+			(macro) =>
+				`  [${macro.name}: ${macro.params.map((param) => param.name).join(", ") || "no params"}]`,
+		),
+		input.profiles.length > 0
+			? `Sign in only with [Login: <PROFILE>] and only these credential profiles: ${input.profiles.join(", ")}.`
+			: "No credential profile exists; do not write [Login] steps.",
+		input.environment.variables.length > 0
+			? `Environment variables you may reference as {vars.NAME}: ${input.environment.variables.join(", ")}.`
+			: "The environment has no variables.",
+		"Never write passwords or secrets. Name what the user sees on screen (labels, headings), not selectors.",
+		"One intent per Act; every expected result is its own Assert under a checkpoint.",
+		"Use {person.name}, {person.email}, {phone.number} or {location.address} where the description asks for made-up personal data.",
+		"Return only the transcript, without code fences or commentary.",
+		"",
+		`Environment: ${input.environment.name} (${input.environment.baseUrl})`,
+		...(input.environment.agentInstructions
+			? ["Environment instructions:", input.environment.agentInstructions]
+			: []),
+		...(input.agentNotes
+			? ["Organisation notes for the agent:", input.agentNotes]
+			: []),
+		...(input.startFrom
+			? [
+					`Start from the existing case ${input.startFrom.key} (${input.startFrom.title}): the first step must be [Use: ${input.startFrom.key}], then continue from where it ends.`,
+				]
+			: []),
+		...(input.similar.length > 0
+			? [
+					"",
+					"Existing cases on the same topic; match their wording and labels, and do not duplicate them:",
+					...input.similar.flatMap((testCase) => [
+						"",
+						`--- ${testCase.key} ---`,
+						testCase.transcript.trim(),
+					]),
+					"---",
+				]
+			: []),
+		"",
+		"Description:",
+		input.text.trim(),
+		...(input.parseError
+			? [
+					"",
+					`Your previous answer could not be parsed: ${input.parseError}. Write the transcript again following the format exactly.`,
+				]
+			: []),
+	].join("\n");
+
+type DraftParse =
+	| { ok: true; testCase: ParsedTestCase }
+	| { ok: false; error: string };
+
+const parseDraft = (raw: string): DraftParse => {
+	let parsed: ReturnType<typeof parseTestCaseTranscript>;
+	try {
+		parsed = parseTestCaseTranscript(raw);
+	} catch (error) {
+		return {
+			ok: false,
+			error:
+				error instanceof Error
+					? error.message
+					: "transcript could not be parsed",
+		};
+	}
+	const diagnostic = parsed.diagnostics[0];
+	if (diagnostic) {
+		return {
+			ok: false,
+			error: `line ${diagnostic.line}: ${diagnostic.message}`,
+		};
+	}
+	// Untagged lines parse as steps, so prose without a heading would pass as a case.
+	if (parsed.testCase.title.trim().length === 0) {
+		return { ok: false, error: "missing the '# Title' line" };
+	}
+	const executable = parsed.testCase.steps.filter(
+		(step) => !step.disabled && step.type !== "note",
+	);
+	if (executable.length === 0)
+		return { ok: false, error: "no executable steps" };
+	return { ok: true, testCase: parsed.testCase };
+};
+
+// Insert `[Use: KEY]` as the first step when the model left it out.
+const withStartFrom = (transcript: string, key: string): string => {
+	if (new RegExp(`^\\[Use:\\s*${key}\\]`, "im").test(transcript))
+		return transcript;
+	const lines = transcript.split("\n");
+	const firstStep = lines.findIndex(
+		(line, index) => index > 0 && /^(\[|## )/.test(line),
+	);
+	if (firstStep === -1) return `${transcript.trimEnd()}\n\n[Use: ${key}]\n`;
+	lines.splice(firstStep, 0, `[Use: ${key}]`);
+	return lines.join("\n");
+};
+
+export const draftTranscriptFromText = async (
+	db: BackendDb,
+	secrets: TestSecrets,
+	input: DraftTranscriptInput,
+): Promise<DraftTranscriptResult> => {
+	const environment = await db.query.testEnvironments.findFirst({
+		where: and(
+			eq(testEnvironments.id, input.environmentId),
+			eq(testEnvironments.orgId, input.orgId),
+			isNull(testEnvironments.deletedAt),
+		),
+	});
+	if (!environment) {
+		throw notFound(
+			"TEST_ENVIRONMENT_NOT_FOUND",
+			"Test environment not found in this organisation",
+		);
+	}
+	const startFromRow = input.startFromCaseId
+		? await getTestCaseRow(db, input.orgId, input.startFromCaseId)
+		: null;
+	const context = await loadLintContext(db, input.orgId, environment.id);
+	const credentials = await db.query.testCredentials.findMany({
+		where: and(
+			eq(testCredentials.orgId, input.orgId),
+			eq(testCredentials.kind, "login"),
+			isNull(testCredentials.deletedAt),
+		),
+		columns: { profile: true, environmentId: true },
+	});
+	const profiles = [
+		...new Set(
+			credentials
+				.filter(
+					(credential) =>
+						credential.environmentId === null ||
+						credential.environmentId === environment.id,
+				)
+				.map((credential) => credential.profile),
+		),
+	];
+	const notes = await db.query.organizationAgentNotes.findFirst({
+		where: eq(organizationAgentNotes.orgId, input.orgId),
+	});
+	const similar = await findSimilarCases(db, input.orgId, {
+		transcript: draftNotesTranscript(input.text),
+		limit: 3,
+		...(startFromRow ? { excludeIds: [startFromRow.id] } : {}),
+	});
+	const similarRows = await loadCases(
+		db,
+		input.orgId,
+		similar.map((item) => item.id),
+	);
+	const prompt = (parseError: string | null) =>
+		draftTranscriptPrompt({
+			text: input.text,
+			environment: {
+				name: environment.name,
+				baseUrl: environment.baseUrl,
+				variables: context.environmentVariables ?? [],
+				agentInstructions: environment.agentInstructions,
+			},
+			agentNotes: notes?.notes ? notes.notes : null,
+			profiles,
+			macros: context.macros,
+			similar: similarRows.map((row) => ({
+				key: row.key,
+				title: row.title,
+				transcript: row.transcript,
+			})),
+			startFrom: startFromRow
+				? { key: startFromRow.key, title: startFromRow.title }
+				: null,
+			parseError,
+		});
+
+	const model = await resolveModelKeys(db, secrets, {
+		orgId: input.orgId,
+		actorUserId: input.actorUserId,
+		reason: "test_case.draft",
+	});
+	const outbound = input.outbound ?? defaultOutboundPolicy;
+	const modelFetch = ((url: string | URL | Request, init?: RequestInit) =>
+		guardedFetch(
+			fetch,
+			outbound,
+			url instanceof Request ? url.url : String(url),
+			init ?? {},
+		)) as typeof fetch;
+	const accountEvents: ModelAccountEvent[] = [];
+	const ask = async (parseError: string | null) =>
+		extractTranscript(
+			await input.generateText({
+				modelId: model.act,
+				apiKeys: model.apiKeys,
+				accounts: model.accounts,
+				onAccountEvent: (event) => accountEvents.push(event),
+				fetch: modelFetch,
+				prompt: prompt(parseError),
+			}),
+		);
+	try {
+		let raw = await ask(null);
+		let attempt = parseDraft(raw);
+		// One more try with the parse error in the prompt; a second failure is the caller's.
+		if (!attempt.ok) {
+			raw = await ask(attempt.error);
+			attempt = parseDraft(raw);
+		}
+		if (!attempt.ok) {
+			throw new HttpError(
+				422,
+				"DRAFT_UNPARSEABLE",
+				`The model's draft could not be parsed: ${attempt.error}`,
+				{ raw },
+			);
+		}
+		let transcript = `${serializeTestCase(attempt.testCase, { forceHeading: true })}\n`;
+		if (startFromRow) transcript = withStartFrom(transcript, startFromRow.key);
+		const final = parseSingleCase(transcript);
+		return {
+			title: final.title,
+			transcript,
+			lint: lintTestCase(final, context),
+			similar,
+		};
+	} finally {
+		await applyModelAccountEvents(db, input.orgId, accountEvents);
+	}
 };

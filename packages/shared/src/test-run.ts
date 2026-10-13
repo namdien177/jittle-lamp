@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { stepRequestsSummarySchema } from "./api-script";
 import { runModelAccountsReportSchema } from "./model-accounts";
 import { isoTimestampSchema } from "./session";
 import { transcriptStepTypeSchema } from "./test-case";
@@ -9,20 +10,33 @@ import { transcriptStepTypeSchema } from "./test-case";
 export const testRunStatusSchema = z.enum(["queued", "claimed", "running", "paused", "completed", "failed", "cancelled"]);
 export const testRunOutcomeSchema = z.enum(["passed", "failed", "blocked"]);
 export const testRunStepStatusSchema = z.enum(["passed", "failed", "blocked", "skipped"]);
-export const testRunStepModeSchema = z.enum(["agent", "replayed", "handoff", "deterministic"]);
+// `api-replayed`: the step's API script ran instead of the browser; `api-handoff`: the API script
+// failed and the browser took over; `query`: a [Query]/[API] step ran against its profile.
+export const testRunStepModeSchema = z.enum(["agent", "replayed", "handoff", "deterministic", "api-replayed", "api-handoff", "query"]);
+// How a run executes its steps and [Use] blocks (roadmap 2026-10-13 §2.5).
+export const executionModeSchema = z.enum(["full", "hybrid", "api"]);
 export const cacheModeSchema = z.enum(["read-write", "read-only", "off", "strict"]);
-export const testRunTriggerSchema = z.enum(["manual", "cli", "mcp", "ci", "webhook"]);
+// `repair`: queued by the finalizer for a strict regression run that stopped on REPLAY_STALE
+// (roadmap 2026-10-13 §4.3); it re-records the stale scripts in read-write mode.
+export const testRunTriggerSchema = z.enum(["manual", "cli", "mcp", "ci", "webhook", "repair"]);
 export const testRunnerKindSchema = z.enum(["cloud", "self-hosted", "cli"]);
 
 // Why a step did not replay from its cached script.
+// e2e 0.20 reason tokens (cache.mdx "Why a step was not replayed") plus the runner's own
+// `cache-off` and `not-cacheable`; `retry` is folded into `no-entry` (runs never retry).
 export const cacheReasonSchema = z.enum([
   "hit",
   "no-entry",
+  "invalid-entry",
+  "truncated",
   "wrong-context",
   "target-not-found",
   "target-ambiguous",
+  "gap",
   "end-mismatch",
   "action-failed",
+  "action-uncertain",
+  "viewport-changed",
   "cache-off",
   "not-cacheable"
 ]);
@@ -45,7 +59,12 @@ export const blockedReasonSchema = z.enum([
   "TRANSCRIPT_INVALID",
   "ENGINE_ERROR",
   "CANCELLED",
-  "INCONCLUSIVE"
+  "INCONCLUSIVE",
+  // Roadmap 2026-10-13: API mode on an environment without api_origins (decision 2), a [Query]
+  // profile that cannot be reached, and SQL the guardrails refused to run.
+  "API_NOT_CONFIGURED",
+  "DATABASE_UNREACHABLE",
+  "QUERY_REJECTED"
 ]);
 
 export const modelUsageSchema = z.object({
@@ -79,6 +98,9 @@ export const runStepResultSchema = z.object({
   status: testRunStepStatusSchema,
   mode: testRunStepModeSchema.nullable(),
   cacheReason: cacheReasonSchema.nullable(),
+  // e2e's `step.cache.detail`: where a replay stopped and why. Optional so reports from runners
+  // older than e2e 0.19 still validate.
+  cacheDetail: z.string().nullable().optional(),
   startedAt: isoTimestampSchema.nullable(),
   finishedAt: isoTimestampSchema.nullable(),
   durationMs: z.number().nonnegative().nullable(),
@@ -89,7 +111,12 @@ export const runStepResultSchema = z.object({
   screenshot: z.string().min(1).nullable(),
   actions: z.number().int().nonnegative(),
   usage: modelUsageSchema,
-  visionInput: z.boolean()
+  visionInput: z.boolean(),
+  // Variables the step produced ([Extract], [Query]/[API] binding, a [Use] block's outputs);
+  // absent from runners older than outputs.
+  outputs: z.record(z.string(), z.string()).optional(),
+  // API replay summary: requests sent, how many were mutations, and each request for the run page.
+  requests: stepRequestsSummarySchema.optional()
 });
 
 export const runArtifactSchema = z.object({
@@ -149,13 +176,20 @@ export const runReportSchema = z.object({
   artifacts: z.array(runArtifactSchema),
   errors: z.array(z.object({ code: z.string().min(1), message: z.string() })),
   // Usage and failures per model account; absent from runners older than model accounts.
-  modelAccounts: runModelAccountsReportSchema.optional()
+  modelAccounts: runModelAccountsReportSchema.optional(),
+  // Absent from runners older than execution modes; the backend then reads it as `full`.
+  executionMode: executionModeSchema.optional(),
+  // Every variable the run produced, merged over its steps (roadmap §2.6).
+  outputs: z.record(z.string(), z.string()).optional(),
+  // Runs whose outputs stood in for [Use] blocks under a Reuse: window.
+  reusedFromRunIds: z.array(z.string().min(1)).optional()
 });
 
 export type TestRunStatus = z.infer<typeof testRunStatusSchema>;
 export type TestRunOutcome = z.infer<typeof testRunOutcomeSchema>;
 export type TestRunStepStatus = z.infer<typeof testRunStepStatusSchema>;
 export type TestRunStepMode = z.infer<typeof testRunStepModeSchema>;
+export type ExecutionMode = z.infer<typeof executionModeSchema>;
 export type CacheMode = z.infer<typeof cacheModeSchema>;
 export type CacheReason = z.infer<typeof cacheReasonSchema>;
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;

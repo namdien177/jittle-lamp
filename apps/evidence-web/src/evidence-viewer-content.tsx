@@ -91,6 +91,10 @@ export type EvidenceViewerContentProps = {
   onPlayingStepIdChange?: (stepId: string | null) => void;
   // Embedded: where the page header wants the viewer's actions (Download ZIP).
   actionsContainer?: HTMLElement | null;
+  // Run view: the stream (Actions, Requests, Logs, Info) renders into this drawer element instead
+  // of beside the video; `infoPanel` is the host's content for its Info tab.
+  paneContainer?: HTMLElement | null;
+  infoPanel?: React.ReactNode;
 };
 
 type SectionItem = ReturnType<typeof buildSectionTimeline>[number] & {
@@ -528,6 +532,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
         {...(props.onInfoOpen ? { onInfoOpen: props.onInfoOpen } : {})}
         compact
         embedded={embedded}
+        {...(props.paneContainer !== undefined ? { paneContainer: props.paneContainer } : {})}
+        {...(props.infoPanel !== undefined ? { infoPanel: props.infoPanel } : {})}
         {...(props.onDetailsOpen ? { onDetailsOpen: props.onDetailsOpen } : {})}
         onClose={closeViewer}
         mode={viewerMode}

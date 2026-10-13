@@ -1,9 +1,11 @@
 import {
   addModelUsage,
+  cacheReasonSchema,
   emptyModelUsage,
   runReportSchema,
   type BlockedReason,
   type CacheReason,
+  type ExecutionMode,
   type ModelUsage,
   type RunArtifact,
   type RunnerInfo,
@@ -13,7 +15,7 @@ import {
 } from "@jittle-lamp/shared";
 
 import type { PlannedStep, RunPlan } from "../plan";
-import type { StepLogEvent } from "../runtime/step-log";
+import type { QueryStepLogEvent, StepLogEvent } from "../runtime/step-log";
 
 // Joins what e2e reports (report.json: per-step status, cache mode, token totals; ai-trace.json:
 // per-call usage including reasoning tokens) with the runner's own step log (transcript step ids,
@@ -38,9 +40,25 @@ export type E2eReportStep = {
     cacheWriteTokens?: number;
     estimatedCostUsd?: number;
   };
-  cache?: { mode?: string; reason?: string; replayedActions?: number; totalActions?: number };
+  // report-1 since e2e 0.19: `entry` is the cache key, `detail` says where a replay stopped,
+  // `write` what became of the recording when the attempt settled.
+  cache?: {
+    mode?: string;
+    reason?: string;
+    detail?: string;
+    entry?: string;
+    derived?: string;
+    notRecorded?: string;
+    write?: Record<string, unknown>;
+    replayedActions?: number;
+    totalActions?: number;
+  };
+  screen?: Record<string, unknown>;
   error?: { code?: string; message?: string; explanation?: string };
 };
+
+export type E2eReportArtifact = { id?: string; kind?: string; mediaType?: string; path?: string; startedAt?: string };
+export type E2eAppLogLine = { source?: string; level?: string; text?: string; at?: string; step?: number };
 
 export type E2eReport = {
   schemaVersion?: string;
@@ -48,7 +66,10 @@ export type E2eReport = {
     status?: string;
     exitCode?: number;
     targets?: Array<{ engine?: { name?: string; version?: string } }>;
-    results?: Array<{ status?: string; attempts?: Array<{ status?: string; steps?: E2eReportStep[] }> }>;
+    results?: Array<{
+      status?: string;
+      attempts?: Array<{ status?: string; steps?: E2eReportStep[]; artifacts?: E2eReportArtifact[]; appLog?: E2eAppLogLine[] }>;
+    }>;
   };
 };
 
@@ -119,15 +140,36 @@ function usageFromReportStep(step: E2eReportStep | undefined): ModelUsage {
   };
 }
 
-export function modeOf(step: PlannedStep, e2eStep: E2eReportStep | undefined): { mode: TestRunStepMode | null; cacheReason: CacheReason | null } {
+// e2e 0.20 reason tokens (cache.mdx), kept as they are; `retry` never happens with retries: 0 and
+// means the same as no entry; anything newer than this list is reported as a failed action.
+const knownReasons = new Set<string>(cacheReasonSchema.options);
+
+type CheckOutcome = NonNullable<Extract<StepLogEvent, { type: "step-finished" }>["check"]>;
+
+// An Assert with a deterministic check (roadmap 2026-10-13 §4.1): replayed from the check with
+// no model call, or judged again because the check went stale, or judged and then recorded.
+export function assertModeOf(check: CheckOutcome): { mode: TestRunStepMode; cacheReason: CacheReason; cacheDetail: string } {
+  switch (check.status) {
+    case "hit":
+      return { mode: "deterministic", cacheReason: "hit", cacheDetail: `check ${check.locator}` };
+    case "stale":
+      return { mode: "agent", cacheReason: "action-failed", cacheDetail: `check ${check.locator} no longer holds${check.reason ? `: ${check.reason}` : ""}` };
+    case "recorded":
+      return { mode: "agent", cacheReason: "no-entry", cacheDetail: `check recorded: ${check.locator}` };
+  }
+}
+
+export function modeOf(step: PlannedStep, e2eStep: E2eReportStep | undefined, check?: CheckOutcome | undefined, query?: QueryStepLogEvent | null): { mode: TestRunStepMode | null; cacheReason: CacheReason | null } {
   if (step.type === "open" || step.type === "screenshot" || step.type === "note") return { mode: "deterministic", cacheReason: "not-cacheable" };
+  if (step.type === "assert" && check) return assertModeOf(check);
+  // [Query] steps (roadmap §5.2): a cached or saved statement is a hit, agent-written SQL is not.
+  if (step.type === "query") return { mode: "query", cacheReason: !query ? null : query.tier === "agent" ? "no-entry" : "hit" };
   if (step.type !== "act") return { mode: "agent", cacheReason: "not-cacheable" };
   const cache = e2eStep?.cache;
   if (!cache?.mode) return { mode: "agent", cacheReason: "no-entry" };
   if (cache.mode === "self-finalized") return { mode: "replayed", cacheReason: "hit" };
   const reason = (cache.reason ?? "no-entry") as string;
-  const known: CacheReason[] = ["no-entry", "wrong-context", "target-not-found", "target-ambiguous", "end-mismatch", "action-failed"];
-  const cacheReason = (known as string[]).includes(reason) ? (reason as CacheReason) : reason === "retry" || reason === "invalid-entry" ? "no-entry" : "action-failed";
+  const cacheReason: CacheReason = knownReasons.has(reason) ? (reason as CacheReason) : reason === "retry" ? "no-entry" : "action-failed";
   if (cache.mode === "agent-concluded") return { mode: "handoff", cacheReason };
   return { mode: agentSideReasons.has(reason) ? "agent" : "handoff", cacheReason };
 }
@@ -150,8 +192,17 @@ const blockedReasonByCode: Record<string, BlockedReason> = {
   MISSING_CREDENTIAL: "MISSING_CREDENTIAL",
   MISSING_VARIABLE: "MISSING_VARIABLE",
   STEP_BUDGET_EXHAUSTED: "STEP_BUDGET_EXHAUSTED",
-  REPLAY_STALE: "REPLAY_STALE"
+  REPLAY_STALE: "REPLAY_STALE",
+  // [Query] steps (roadmap §5.3)
+  DATABASE_UNREACHABLE: "DATABASE_UNREACHABLE",
+  QUERY_REJECTED: "QUERY_REJECTED"
 };
+
+// The statement a [Query] step ran and what came back, for the step list and the run page.
+export function queryCacheDetail(query: QueryStepLogEvent): string {
+  const rows = query.rowCount === 1 ? "1 row" : `${query.rowCount} rows`;
+  return `${query.statement}\n-- ${rows} · ${query.tier} · ${query.profile} · ${Math.round(query.durationMs)}ms`;
+}
 
 export function blockedReasonFor(code: string | null): BlockedReason {
   return (code && blockedReasonByCode[code]) || "INCONCLUSIVE";
@@ -175,6 +226,9 @@ export type BuildReportInput = {
   blocked?: { reason: BlockedReason; message: string } | null;
   cancelled?: boolean;
   attempt?: number;
+  executionMode?: ExecutionMode;
+  // [Use] blocks a reused run stood in for (api/reuse.ts): their steps are skipped, not missing.
+  reused?: { stepIds: ReadonlySet<string>; blocks: ReadonlyArray<{ stepId: string; runId: string }>; runIds: readonly string[] };
 };
 
 export function buildRunReport(input: BuildReportInput): RunReport {
@@ -185,11 +239,24 @@ export function buildRunReport(input: BuildReportInput): RunReport {
   const started = new Map<string, Extract<StepLogEvent, { type: "step-started" }>>();
   const finished = new Map<string, Extract<StepLogEvent, { type: "step-finished" }>>();
   const screenshots = new Map<string, string>();
+  const outputsByStep = new Map<string, Record<string, string>>();
+  const runOutputs: Record<string, string> = {};
+  const apiReplays = new Map<string, Extract<StepLogEvent, { type: "api-replay" }>>();
+  const queries = new Map<string, QueryStepLogEvent>();
   for (const event of input.stepLog) {
     if (event.type === "step-started") started.set(event.stepId, event);
     if (event.type === "step-finished") finished.set(event.stepId, event);
     if (event.type === "screenshot") screenshots.set(event.stepId, event.path);
+    if (event.type === "output") {
+      outputsByStep.set(event.stepId, { ...(outputsByStep.get(event.stepId) ?? {}), [event.name]: event.value });
+      runOutputs[event.name] = event.value;
+    }
+    if (event.type === "api-replay") apiReplays.set(event.stepId, event);
+    // The last query event of a step wins: a cached replay that handed off is followed by the
+    // agent's statement.
+    if (event.type === "query") queries.set(event.stepId, event);
   }
+  const reusedBlockOf = (stepId: string) => input.reused?.blocks.find((block) => stepId === block.stepId || stepId.startsWith(`${block.stepId}.`)) ?? null;
 
   const e2eSteps = (input.e2eReport?.run?.results?.[0]?.attempts?.at(-1)?.steps ?? []).filter((step) => e2eApis.has(step.api ?? ""));
   const traceUsage = usageFromAiTrace(input.aiTrace);
@@ -230,10 +297,21 @@ export function buildRunReport(input: BuildReportInput): RunReport {
       usage = addModelUsage(usage, fromTrace && fromTrace.modelCalls > 0 ? { ...fromTrace, costUsd: fromReport.costUsd } : fromReport);
     }
 
-    const { mode, cacheReason } = begin ? modeOf(step, e2eStep) : { mode: null, cacheReason: null };
+    const query = queries.get(step.stepId) ?? null;
+    const ui = begin ? modeOf(step, e2eStep, end?.check, query) : { mode: null, cacheReason: null };
+    // An API step (roadmap §2.4): replayed from its script, or handed to the UI call after a
+    // failed check; the hand-off keeps the UI mode's cache reason.
+    const api = apiReplays.get(step.stepId);
+    const { mode, cacheReason } = api ? { mode: api.outcome === "replayed" ? ("api-replayed" as const) : ("api-handoff" as const), cacheReason: api.outcome === "replayed" ? ("hit" as const) : ui.cacheReason } : ui;
+    const reused = reusedBlockOf(step.stepId);
+    // Tokens the agent tier spent writing SQL; e2e's trace never sees that call.
+    if (query && query.usage.modelCalls > 0) {
+      usage = addModelUsage(usage, { modelId: query.usage.modelId, modelCalls: query.usage.modelCalls, inputTokens: query.usage.inputTokens, cachedInputTokens: 0, outputTokens: query.usage.outputTokens, reasoningTokens: 0, costUsd: null });
+    }
     const startedAt = begin?.at ?? null;
     const finishedAt = end?.at ?? null;
     const status: RunStepResult["status"] = !begin ? "skipped" : !end ? "failed" : end.status;
+    const outputs = outputsByStep.get(step.stepId);
     return {
       stepId: step.stepId,
       parentStepId: step.parentStepId,
@@ -244,6 +322,17 @@ export function buildRunReport(input: BuildReportInput): RunReport {
       status,
       mode,
       cacheReason,
+      cacheDetail: reused
+        ? `reused from run ${reused.runId}`
+        : api?.outcome === "handoff"
+          ? `API replay stopped at request ${api.seq}: ${api.reason}`
+          : begin
+            ? query
+              ? queryCacheDetail(query)
+              : end?.check
+                ? assertModeOf(end.check).cacheDetail
+                : (e2eStep?.cache?.detail ?? null)
+            : null,
       startedAt,
       finishedAt,
       durationMs: startedAt && finishedAt ? Date.parse(finishedAt) - Date.parse(startedAt) : null,
@@ -253,7 +342,9 @@ export function buildRunReport(input: BuildReportInput): RunReport {
       screenshot: screenshots.get(step.stepId) ?? null,
       actions: e2eStep?.metrics?.actionSteps ?? e2eStep?.cache?.totalActions ?? 0,
       usage: usage.modelId === null && usage.modelCalls === 0 ? emptyModelUsage() : usage,
-      visionInput: false
+      visionInput: false,
+      ...(outputs ? { outputs } : {}),
+      ...(api ? { requests: { count: api.count, mutations: api.mutations, items: api.items } } : {})
     };
   });
 
@@ -263,6 +354,7 @@ export function buildRunReport(input: BuildReportInput): RunReport {
     const children = steps.filter((step) => step.parentStepId === group.stepId && step.status !== "skipped");
     const acts = children.filter((step) => step.type === "act");
     group.cacheReason = null;
+    group.cacheDetail = null;
     group.mode =
       children.length === 0
         ? null
@@ -292,8 +384,9 @@ export function buildRunReport(input: BuildReportInput): RunReport {
     blockedReason = "ENGINE_ERROR";
     errors.push({ code: blockedReason, message: `e2e exited with code ${input.exitCode}` });
   }
-  // A run where steps that should have executed never did cannot pass.
-  const unfinished = leaf.some((step) => step.status === "skipped") && !failedStep && !blockedStep;
+  // A run where steps that should have executed never did cannot pass; steps a reused run stood
+  // in for were never meant to.
+  const unfinished = leaf.some((step) => step.status === "skipped" && !reusedBlockOf(step.stepId)) && !failedStep && !blockedStep;
   if (!input.blocked && !blockedReason && unfinished && input.e2eReport !== null) {
     blockedReason = "ENGINE_ERROR";
     errors.push({ code: blockedReason, message: "Some steps never ran." });
@@ -330,9 +423,9 @@ export function buildRunReport(input: BuildReportInput): RunReport {
     steps,
     totals: {
       stepsTotal: leaf.length,
-      stepsReplayed: acts.filter((step) => step.mode === "replayed").length,
+      stepsReplayed: acts.filter((step) => step.mode === "replayed" || step.mode === "api-replayed").length,
       stepsAgent: acts.filter((step) => step.mode === "agent").length,
-      stepsHandoff: acts.filter((step) => step.mode === "handoff").length,
+      stepsHandoff: acts.filter((step) => step.mode === "handoff" || step.mode === "api-handoff").length,
       usage: actUsage,
       judgeUsage
     },
@@ -340,6 +433,9 @@ export function buildRunReport(input: BuildReportInput): RunReport {
     flaky: false,
     attempt: input.attempt ?? 1,
     artifacts: input.artifacts,
-    errors
+    errors,
+    ...(input.executionMode ? { executionMode: input.executionMode } : {}),
+    ...(Object.keys(runOutputs).length > 0 ? { outputs: runOutputs } : {}),
+    ...(input.reused && input.reused.runIds.length > 0 ? { reusedFromRunIds: [...input.reused.runIds] } : {})
   });
 }

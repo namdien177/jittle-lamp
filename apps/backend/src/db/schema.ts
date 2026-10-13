@@ -128,6 +128,7 @@ export {
 	testCredentials,
 	testEnvironments,
 	testMacros,
+	testQueries,
 	testRateBuckets,
 	testRunSettings,
 } from "./tables/test-config";

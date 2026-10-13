@@ -47,6 +47,15 @@ export const compactStyles = `
 [data-embedded="true"] .jl-vm-tabs-row { padding: 6px 8px; }
 [data-embedded="true"] .jl-vm-right[data-collapsed="true"] { flex-basis: 36px; width: 36px; }
 [data-embedded="true"] .jl-vm-stream-rail { width: 36px; grid-template-rows: auto; align-content: start; padding-top: 10px; }
+/* Run view: the stream lives in the host's drawer (ViewerModalProps.paneContainer); the body is
+   the video alone and the pane fills whatever box the host gives it. */
+[data-drawer="true"] .jl-vm-left { border-right: 0; }
+.jl-vm-drawer-pane.jl-vm-root { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; background: var(--jl-vm-bg); }
+.jl-vm-drawer-pane .jl-vm-right { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; }
+.jl-vm-drawer-pane .jl-vm-step-filter-text { display: none; }
+.jl-vm-drawer-pane .jl-vm-drawer-info { gap: 12px; padding: 12px; }
+.jl-vm-drawer-pane .jl-vm-supplemental { max-height: none; overflow: visible; border-right: 0; background: transparent; }
+.jl-vm-drawer-pane .jl-vm-discussion { padding: 0; }
 @media (max-width: 900px) {
   [data-compact="true"].jl-vm-root, [data-compact="true"].jl-vm-modal { height: 100dvh; min-height: 0; }
   [data-compact="true"] .jl-vm-body { flex-direction: column; overflow: hidden; }

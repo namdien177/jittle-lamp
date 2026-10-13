@@ -82,6 +82,9 @@ export const testCases = sqliteTable(
 		externalId: text("external_id"),
 		fingerprint: text("fingerprint").notNull(),
 		retries: integer("retries").notNull().default(0),
+		// `Outputs:` names and the `Reuse:` policy (roadmap 2026-10-13 §2.6); null = never.
+		outputsJson: text("outputs_json").notNull().default("[]"),
+		reusePolicyJson: text("reuse_policy_json"),
 		...timestamps,
 		deletedAt: integer("deleted_at"),
 		deletedBy: text("deleted_by").references(() => users.id, {
@@ -218,8 +221,20 @@ export const testStepScripts = sqliteTable(
 		keyHash: text("key_hash").notNull(),
 		entryJson: text("entry_json").notNull(),
 		version: integer("version").notNull().default(1),
+		// What the script is (roadmap 2026-10-13 §6): browser actions, replayable API requests,
+		// a deterministic assert check or SQL for a [Query] step.
+		kind: text("kind", {
+			enum: ["ui-actions", "api-requests", "assert-check", "sql"],
+		})
+			.notNull()
+			.default("ui-actions"),
 		actionsJson: text("actions_json"),
 		endStateJson: text("end_state_json"),
+		requestsJson: text("requests_json"),
+		checkJson: text("check_json"),
+		sqlText: text("sql_text"),
+		// Guardrail findings a reviewer should see before the script replays again.
+		reviewFlagsJson: text("review_flags_json"),
 		renderedCode: text("rendered_code").notNull().default(""),
 		recordedFromRunId: text("recorded_from_run_id"),
 		inheritedFromScriptId: text("inherited_from_script_id"),
@@ -242,6 +257,10 @@ export const testStepScripts = sqliteTable(
 		check(
 			"test_step_scripts_status_check",
 			sql`${table.status} in ('active', 'stale', 'invalid')`,
+		),
+		check(
+			"test_step_scripts_kind_check",
+			sql`${table.kind} in ('ui-actions', 'api-requests', 'assert-check', 'sql')`,
 		),
 	],
 );

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   appendDraftEvent,
+  buildTimeline,
   createSessionArchive,
   createSessionDraft,
   getStepAnnotations,
@@ -13,8 +14,10 @@ import {
   sessionArchiveV3Schema,
   sessionSchemaVersion,
   stepTag,
+  parseIntegrationLabel,
   toExtensionWireArchive,
-  transitionDraftPhase
+  transitionDraftPhase,
+  upgradeSessionArchiveInput
 } from "@jittle-lamp/shared";
 
 import { makeRunnerArchive, runnerSteps } from "./fixtures/e2e/runner-archive";
@@ -357,7 +360,7 @@ describe("session archive v4", () => {
 
   test("parseSessionArchiveJson upgrades v3 archives in memory", () => {
     const archive = parseSessionArchiveJson(v3Json());
-    expect(archive.schemaVersion).toBe(4);
+    expect(archive.schemaVersion).toBe(sessionSchemaVersion);
     expect(archive.recorder).toEqual({
       kind: "browser-extension",
       extension: { kind: "browser-extension", name: "jittle-lamp", version: "1.8.2" }
@@ -383,7 +386,7 @@ describe("session archive v4", () => {
 
   test("rejects unknown schema versions and malformed step annotations", () => {
     const runner = makeRunnerArchive();
-    expect(safeParseSessionArchiveJson(JSON.stringify({ ...runner, schemaVersion: 5 })).success).toBe(false);
+    expect(safeParseSessionArchiveJson(JSON.stringify({ ...runner, schemaVersion: 6 })).success).toBe(false);
     const badStep = { ...runner, annotations: [{ kind: "step", id: "x", stepId: "st", ordinal: 0, type: "act", label: "x", status: "done" }] };
     expect(safeParseSessionArchiveJson(JSON.stringify(badStep)).success).toBe(false);
   });
@@ -392,5 +395,53 @@ describe("session archive v4", () => {
     const archive = makeRunnerArchive();
     const next = replaceMergeGroups(archive.annotations, []);
     expect(next.map((annotation) => annotation.kind)).toEqual(["step", "step"]);
+  });
+});
+
+// Roadmap 2026-10-13 §5.4: v5 adds the `integration` action payload for [Query]/[API] steps.
+describe("session archive v5", () => {
+  test("upgrades a v4 runner archive in memory without touching its entries", () => {
+    const raw = { ...makeRunnerArchive(), schemaVersion: 4 };
+    const archive = parseSessionArchiveJson(JSON.stringify(raw));
+    expect(archive.schemaVersion).toBe(sessionSchemaVersion);
+    expect(archive.sections.actions).toHaveLength(raw.sections.actions.length);
+    expect(archive.annotations).toEqual(raw.annotations);
+    expect(upgradeSessionArchiveInput({ schemaVersion: 4, x: 1 })).toEqual({ schemaVersion: 5, x: 1 });
+    expect(upgradeSessionArchiveInput({ schemaVersion: 5, x: 1 })).toEqual({ schemaVersion: 5, x: 1 });
+  });
+
+  test("carries an integration entry tagged with its step and labels it in the timeline", () => {
+    const runner = makeRunnerArchive();
+    const entry = {
+      id: "act-sql-1",
+      seq: 99,
+      at: runner.sections.actions[0]?.at ?? runner.createdAt,
+      tags: [stepTag(runnerSteps.open)],
+      payload: {
+        kind: "integration",
+        integration: "sql",
+        profile: "PCF_UAT_DB",
+        statement: "select id, name from students where level = $1 LIMIT 50",
+        rowCount: 2,
+        sample: [{ id: "stu-1", name: "Ann", email: "[redacted]" }],
+        durationMs: 42
+      }
+    };
+    const archive = parseSessionArchiveJson(JSON.stringify({ ...runner, sections: { ...runner.sections, actions: [...runner.sections.actions, entry] } }));
+    const stored = archive.sections.actions.find((action) => action.id === "act-sql-1");
+    expect(stored?.payload).toMatchObject({ kind: "integration", integration: "sql", profile: "PCF_UAT_DB", rowCount: 2 });
+    const item = buildTimeline(archive).find((candidate) => candidate.id === "act-sql-1");
+    expect(item?.kind).toBe("integration");
+    expect(item?.label.split("\n")[0]).toBe("SQL PCF_UAT_DB · 2 rows · 42ms");
+    expect(parseIntegrationLabel(item?.label ?? "")).toEqual({
+      header: "SQL PCF_UAT_DB · 2 rows · 42ms",
+      statement: "select id, name from students where level = $1 LIMIT 50",
+      sample: [{ id: "stu-1", name: "Ann", email: "[redacted]" }]
+    });
+    expect(parseIntegrationLabel("click button")).toBeNull();
+    // A query step mode is a valid archive step mode.
+    const withQueryStep = { ...runner, annotations: runner.annotations.map((annotation) => (annotation.kind === "step" ? { ...annotation, type: "query", mode: "query" } : annotation)) };
+    expect(safeParseSessionArchiveJson(JSON.stringify(withQueryStep)).success).toBe(true);
+    expect(safeParseSessionArchiveJson(JSON.stringify({ ...runner, sections: { ...runner.sections, actions: [{ ...entry, payload: { ...entry.payload, integration: "ftp" } }] } })).success).toBe(false);
   });
 });

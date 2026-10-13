@@ -78,7 +78,7 @@ describe("login identifier", () => {
     expect(plan.missing).toEqual([]);
     const typed = plan.steps.filter((step) => step.parentStepId !== null).map((step) => step.instruction);
     expect(typed).toContain("enter qa.admin@example.test into the login identifier field of the login form");
-    expect(typed).toContain("enter {{secret:ILHAM_ALL_ACCESS_ACCOUNT.password}} into the password field");
+    expect(typed).toContain("enter {{secret:ILHAM_ALL_ACCESS_ACCOUNT.password}} into the password field and submit the login form");
   });
 });
 

@@ -1,18 +1,16 @@
 import React from "react";
-import { useSearchParams } from "react-router";
-import type { TestCaseDetail, TestCaseSummary } from "@jittle-lamp/shared";
-import { isMacPlatform } from "@jittle-lamp/ui";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
+import type { TestCaseSummary } from "@jittle-lamp/shared";
 
 import { Button } from "../components/ui/button";
 import { SimpleDialog } from "../components/ui/dialog";
 import { Field } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { SimpleSelect } from "../components/ui/select";
-import { Sheet, SheetContent, SheetTitle } from "../components/ui/sheet";
 import { useAccountProfile } from "../queries";
 import { useToast } from "../toast";
-import { CaseDetailPane, type DetailTab } from "../test-cases/case-detail";
 import { CaseListPane, type BulkAction } from "../test-cases/case-list";
+import { caseHref } from "../test-cases/case-page-model";
 import { CaseSidebar } from "../test-cases/case-sidebar";
 import { useDebounced } from "../test-cases/editor-support";
 import {
@@ -21,7 +19,6 @@ import {
   defaultSort,
   emptyFilters,
   emptySelection,
-  leavingDetailNeedsConfirm,
   listKeyCommand,
   listKeyEventIgnored,
   listSelectionReducer,
@@ -53,12 +50,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.closest("[role='dialog'],[role='menu'],[role='listbox']") !== null;
 }
 
-// A field the user types into (not just any element inside a dialog).
-function isTextEntry(target: Element | null): target is HTMLElement {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || target.tagName === "TEXTAREA" || (target.tagName === "INPUT" && !["checkbox", "radio", "button", "submit"].includes((target as HTMLInputElement).type));
-}
-
 function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.closest("button, a[href], [role='button'], [role='menuitem'], [role='tab'], summary") !== null;
@@ -66,9 +57,10 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element {
   const toast = useToast();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const openId = searchParams.get("case");
-  const tab = (["steps", "sessions", "scripts"] as const).find((candidate) => candidate === searchParams.get("tab")) ?? "steps";
+  // The case used to open as a sheet at `?case=<id>`; it is a page now.
+  const legacyOpenId = searchParams.get("case");
   const duplicateIds = searchParams.get("duplicate")?.split(",").filter(Boolean) ?? [];
 
   const account = useAccountProfile();
@@ -117,29 +109,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
     setSearchParams(next, { replace: false });
   };
 
-  // Unsaved Steps-tab edits: leaving the case or the tab asks first (and so does closing the page).
-  const [detailDirty, setDetailDirty] = React.useState(false);
-  const [pendingLeave, setPendingLeave] = React.useState<(() => void) | null>(null);
-  const guardDetail = (next: { caseId: string | null; tab: DetailTab }, go: () => void) => {
-    if (leavingDetailNeedsConfirm({ dirty: detailDirty, current: { caseId: openId, tab }, next })) setPendingLeave(() => go);
-    else go();
-  };
-  React.useEffect(() => {
-    if (!detailDirty) return;
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [detailDirty]);
-  React.useEffect(() => setDetailDirty(false), [openId]);
-
-  const openCase = (id: string) => {
-    if (id === openId) return;
-    guardDetail({ caseId: id, tab: "steps" }, () => setParams({ case: id, tab: null }));
-  };
-  const closeCase = () => guardDetail({ caseId: null, tab: "steps" }, () => setParams({ case: null, tab: null }));
+  const openCase = (id: string) => navigate(caseHref(id));
 
   // Keyboard-driven changes render without motion; a pointer press turns motion back on.
   const [keyboardDriven, setKeyboardDriven] = React.useState(false);
@@ -211,7 +181,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
   // c quick create, d duplicate, r run. No animation on these: the row simply moves.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (quickCreate || runTarget || bulkDialog || pendingLeave || duplicateIds.length > 0) return;
+      if (quickCreate || runTarget || bulkDialog || duplicateIds.length > 0) return;
       if (listKeyEventIgnored(event)) return;
       const command = listKeyCommand({
         key: event.key,
@@ -223,9 +193,6 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
         inInteractive: isInteractiveTarget(event.target)
       });
       if (!command) return;
-      // Focus inside the detail pane keeps every key there except Escape.
-      const inDetail = event.target instanceof HTMLElement && event.target.closest("[data-pane='detail']") !== null;
-      if (inDetail && command !== "escape") return;
       setKeyboardDriven(true);
       switch (command) {
         case "next":
@@ -262,7 +229,6 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
         case "escape":
           if (event.target instanceof HTMLElement && isEditableTarget(event.target)) event.target.blur();
           else if (selection.selected.size > 0) dispatch({ type: "clear" });
-          else if (openId) closeCase();
           break;
       }
       event.preventDefault();
@@ -271,12 +237,7 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  const detailOpen = openId !== null;
-  // Keeps the case on screen while the sheet animates closed.
-  const lastOpenId = React.useRef<string | null>(null);
-  if (openId) lastOpenId.current = openId;
-  const shownId = openId ?? lastOpenId.current;
-  const sheetRef = React.useRef<HTMLDivElement | null>(null);
+  if (legacyOpenId) return <Navigate to={caseHref(legacyOpenId)} replace />;
 
   return (
     <div className="jl-tc-scope grid h-full min-h-0 grid-cols-1 lg:grid-cols-[232px_minmax(0,1fr)]">
@@ -317,7 +278,6 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           environments={environments}
           tagDefinitions={tagDefinitions}
           cursor={selection.cursor}
-          openId={openId}
           selected={selection.selected}
           onRowClick={(index, event) => {
             dispatch({ type: "set-cursor", index });
@@ -335,96 +295,16 @@ export function TestCasesPage(props: TestCasesPageProps = {}): React.JSX.Element
           onClearSelection={() => dispatch({ type: "clear" })}
           onBulk={(action) => runBulk(action, selectedIds)}
           bulkBusy={bulk.isPending}
+          onRunRow={(index) => {
+            const item = items[index];
+            if (item) runCase(item);
+          }}
           onQuickCreate={() => setQuickCreate(true)}
           scrollToCursorToken={scrollToken}
           instant={keyboardDriven}
         />
       </div>
-      {/* The open case slides in from the right over the list, like a dialog. */}
-      <Sheet
-        open={detailOpen}
-        onOpenChange={(open, details) => {
-          if (open) return;
-          // Escape while typing leaves the field first; a second Escape closes the case.
-          if (details.reason === "escape-key" && isTextEntry(document.activeElement)) {
-            document.activeElement.blur();
-            sheetRef.current?.focus();
-            return;
-          }
-          closeCase();
-        }}
-      >
-        <SheetContent
-          ref={sheetRef}
-          // Focus the sheet itself, not its first button; Tab moves into the case from there.
-          initialFocus={sheetRef}
-          side="right"
-          showCloseButton={false}
-          data-pane="detail"
-          className="jl-tc-scope w-full p-0 sm:w-[70vw] sm:min-w-[560px] sm:max-w-[1000px]"
-        >
-          <SheetTitle className="sr-only">Test case</SheetTitle>
-          {shownId ? (
-          <CaseDetailPane
-            key={shownId}
-            caseId={shownId}
-            tab={tab}
-            onTabChange={(next: DetailTab) => guardDetail({ caseId: openId, tab: next }, () => setParams({ tab: next === "steps" ? null : next }))}
-            onDirtyChange={setDetailDirty}
-            environments={environments}
-            tagDefinitions={tagDefinitions}
-            onRun={(detail: TestCaseDetail) => runCase(detail, detail.dataset !== null && detail.dataset.rows.length > 0)}
-            onDuplicate={onDuplicate}
-            onClose={closeCase}
-            onTagClick={(tag) => {
-              setFilters((current) => ({ ...current, tags: current.tags.includes(tag) ? current.tags : [...current.tags, tag] }));
-              closeCase();
-            }}
-          />
-          ) : null}
-        </SheetContent>
-      </Sheet>
-
-      {pendingLeave ? (
-        <SimpleDialog
-          open
-          onClose={() => setPendingLeave(null)}
-          size="sm"
-          title="Discard unsaved changes?"
-          description="The Steps tab has edits that are not saved yet."
-          footer={
-            <>
-              <Button size="sm" variant="ghost" onClick={() => setPendingLeave(null)} autoFocus>
-                Keep editing
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => {
-                  const go = pendingLeave;
-                  setPendingLeave(null);
-                  setDetailDirty(false);
-                  go();
-                }}
-              >
-                Discard changes
-              </Button>
-            </>
-          }
-        >
-          <p className="text-sm text-muted-foreground">Save with {isMacPlatform() ? "⌘S" : "Ctrl+S"} first to keep them.</p>
-        </SimpleDialog>
-      ) : null}
-      {quickCreate ? (
-        <QuickCreateDialog
-          onClose={() => setQuickCreate(false)}
-          onCreated={(createdIds) => {
-            setQuickCreate(false);
-            const first = createdIds[0];
-            if (first) openCase(first);
-          }}
-        />
-      ) : null}
+      {quickCreate ? <QuickCreateDialog onClose={() => setQuickCreate(false)} /> : null}
       {runTarget ? <RunDialog testCase={runTarget.testCase} hasDataset={runTarget.hasDataset} environments={environments} onClose={() => setRunTarget(null)} /> : null}
       {bulkDialog ? (
         <BulkDialogView

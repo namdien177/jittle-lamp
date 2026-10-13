@@ -3,7 +3,10 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClie
 import {
   parseSessionArchiveJson,
   type BulkTestCaseRequest,
+  type CreateTestCaseRequest,
   type CreateTestRunRequest,
+  type DraftTestCaseRequest,
+  type PatchStepScriptRequest,
   type TestCaseDetail,
   type TestCaseListResponse,
   type UpdateTestCaseRequest
@@ -237,12 +240,18 @@ export function useCreateTestCase() {
   const orgId = useTestOrgId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { transcript: string; environmentId?: string | null; status?: "draft" | "review" | "active" }) => testApi.createTestCase(getToken, input),
+    mutationFn: (input: Partial<CreateTestCaseRequest> & Pick<CreateTestCaseRequest, "transcript">) => testApi.createTestCase(getToken, input),
     onSuccess: (created) => {
       queryClient.setQueryData(testQueryKeys.detail(orgId, created.id), created);
       invalidateCaseLists(queryClient, orgId);
     }
   });
+}
+
+// Nothing is stored by a draft, so no cache entry changes.
+export function useDraftTestCase() {
+  const getToken = useAuthToken();
+  return useMutation({ mutationFn: (input: DraftTestCaseRequest) => testApi.draftTestCase(getToken, input) });
 }
 
 export function useUpdateTestCase() {
@@ -299,6 +308,18 @@ export function useCancelTestRun() {
     onSuccess: (_result, input) => {
       void queryClient.invalidateQueries({ queryKey: testQueryKeys.run(orgId, input.runId) });
       void queryClient.invalidateQueries({ queryKey: testQueryKeys.runs(orgId, input.testCaseId) });
+    }
+  });
+}
+
+export function useFixApiScript() {
+  const getToken = useAuthToken();
+  const orgId = useTestOrgId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { testCaseId: string; scriptId: string; fixes: PatchStepScriptRequest["fixes"] }) => testApi.fixApiScript(getToken, input.testCaseId, input.scriptId, input.fixes),
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: testQueryKeys.scripts(orgId, input.testCaseId) });
     }
   });
 }

@@ -1,4 +1,5 @@
 import {
+  recentOutputsResponseSchema,
   cacheEntryReadResponseSchema,
   claimRunResponseSchema,
   liveControlResponseSchema,
@@ -98,9 +99,11 @@ export class BackendClient {
     return (await this.claimWork(workerToken)).run;
   }
 
-  // A run, or when the pool has none queued, an import item to explore.
-  claimWork(workerToken: string): Promise<{ run: ClaimedRun | null; exploration: ClaimedExploration | null }> {
-    return this.request("POST", "/runner-pools/claim", workerToken, claimRunResponseSchema, {});
+  // A run, or when the pool has none queued, an import item to explore. With `batchCapacity` n
+  // the backend adds up to n-1 queued siblings of a suite batch, each with its own lease.
+  async claimWork(workerToken: string, options: { batchCapacity?: number } = {}): Promise<{ run: ClaimedRun | null; siblings: ClaimedRun[]; exploration: ClaimedExploration | null }> {
+    const response = await this.request("POST", "/runner-pools/claim", workerToken, claimRunResponseSchema, { batchCapacity: options.batchCapacity ?? 1 });
+    return { run: response.run, siblings: response.siblings ?? [], exploration: response.exploration };
   }
 
   explorationConfig(workerToken: string, explorationId: string): Promise<ExplorationConfig> {
@@ -137,6 +140,12 @@ export class BackendClient {
 
   cacheWrite(runId: string, runToken: string, keyHash: string, body: { entry: unknown; stepIds: string[]; instructionKey: string | null; renderedCode: string }) {
     return this.request("PUT", `/test-runs/${encodeURIComponent(runId)}/cache/${encodeURIComponent(keyHash)}`, runToken, null, body);
+  }
+
+  // Outputs of the newest passed run of a used case inside its Reuse: window (roadmap §2.6).
+  recentOutputs(runId: string, runToken: string, query: { caseKey: string; paramsHash: string; withinMs: number }) {
+    const params = new URLSearchParams({ caseKey: query.caseKey, paramsHash: query.paramsHash, withinMs: String(query.withinMs) });
+    return this.request("GET", `/test-runs/${encodeURIComponent(runId)}/reuse?${params.toString()}`, runToken, recentOutputsResponseSchema);
   }
 
   async liveControl(runId: string, runToken: string, after: number): Promise<LiveControlResponse | null> {

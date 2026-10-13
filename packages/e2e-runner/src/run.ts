@@ -3,16 +3,23 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSyn
 import { dirname, join, resolve } from "node:path";
 
 import {
+  defaultApiPolicy,
   defaultModelPrices,
   defaultPriceTableVersion,
   priceRunReport,
   sha256Hex,
+  type ApiPolicy,
   type BlockedReason,
+  type ExecutionMode,
   type LinkedCase,
   type MacroDefinition,
   type ModelPrice,
   type TranscriptStep, type CacheMode, type RunArtifact, type RunnerInfo, type RunReport, type RunModelAccountsReport } from "@jittle-lamp/shared";
 
+import { resolveApiSteps } from "./api/modes";
+import { recordApiScripts } from "./api/record";
+import { applyReuse, emptyReuse, type ReuseLookup, type ReuseResult } from "./api/reuse";
+import { createBackendApiScriptStore, createFileApiScriptStore } from "./api/store";
 import { loadEnvFiles, type EnvFile } from "./config/env-files";
 import { credentialLoginContext, collectSecretValues, resolveRunConfig, type OrgRunConfig, type ResolvedRunConfig } from "./config/resolve";
 import { generateProject, type GeneratedProject } from "./generate/project";
@@ -64,6 +71,14 @@ export type RunTranscriptOptions = {
   liveDir?: string;
   priceTableVersion?: string;
   log?: (line: string) => void;
+  // Roadmap 2026-10-13 §2.5: how steps and [Use] blocks execute, and the environment's API
+  // configuration for scripts; `reuseLookup` answers [Use] blocks under a Reuse: window
+  // (daemon runs; `reuse: false` or no lookup means every block runs).
+  executionMode?: ExecutionMode;
+  apiOrigins?: readonly string[];
+  apiPolicy?: ApiPolicy;
+  reuse?: boolean;
+  reuseLookup?: ReuseLookup;
 };
 
 export type RunTranscriptResult = {
@@ -72,7 +87,8 @@ export type RunTranscriptResult = {
   runDir: string;
   reportPath: string;
   recordingPath: string | null;
-  tracePath: string | null;
+  // When the recording's first frame was written, from e2e's video artifact.
+  recordingStartedAt: string | null;
   screenshotDir: string;
   project: GeneratedProject | null;
   redact: (text: string) => string;
@@ -206,11 +222,12 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       if (value) claudeCodeEnv[name] = value;
     }
   }
-  const redact = createRedactor([
+  const secretValues = [
     ...collectSecretValues(config),
     ...Object.values(claudeCodeEnv).filter((value) => !/^https?:/.test(value)),
     ...(options.backend ? [options.backend.runToken] : [])
-  ]);
+  ];
+  const redact = createRedactor(secretValues);
   const log = (line: string) => options.log?.(redact(line));
 
   const viewport = options.viewport ?? defaultViewport;
@@ -236,6 +253,9 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   // test_model_prices at finalisation (design.md §3.1).
   const priceReport = (report: RunReport) =>
     priceRunReport(report, options.prices ?? defaultModelPrices, options.priceTableVersion ?? defaultPriceTableVersion, model);
+  const executionMode: ExecutionMode = options.executionMode ?? "full";
+  const apiConfig = { executionMode, apiOrigins: options.apiOrigins ?? [], apiPolicy: options.apiPolicy ?? defaultApiPolicy };
+  let reuse: ReuseResult = emptyReuse();
 
   const finish = (input: {
     blocked?: { reason: BlockedReason; message: string } | null;
@@ -247,7 +267,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     artifacts?: RunArtifact[];
     project?: GeneratedProject | null;
     recordingPath?: string | null;
-    tracePath?: string | null;
+    recordingStartedAt?: string | null;
     modelAccounts?: RunModelAccountsReport | null;
   }): RunTranscriptResult => {
     const built = priceReport(buildRunReport({
@@ -266,7 +286,9 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
         finishedAt: new Date().toISOString(),
         artifacts: input.artifacts ?? [],
         blocked: input.blocked ?? null,
-        cancelled: input.cancelled ?? false
+        cancelled: input.cancelled ?? false,
+        executionMode,
+        reused: { stepIds: reuse.skippedStepIds, blocks: reuse.blocks, runIds: reuse.reusedFromRunIds }
       }));
     const report = redactJson(input.modelAccounts ? { ...built, modelAccounts: input.modelAccounts } : built, redact);
     writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
@@ -278,7 +300,7 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       runDir,
       reportPath,
       recordingPath: input.recordingPath ?? null,
-      tracePath: input.tracePath ?? null,
+      recordingStartedAt: input.recordingStartedAt ?? null,
       screenshotDir,
       project: input.project ?? null,
       redact,
@@ -291,7 +313,8 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     return finish({ blocked: { reason: plan.blockedReason, message: plan.blockedMessage ?? plan.blockedReason } });
   }
 
-  const needsModel = plan.steps.some((step) => step.executes && ["act", "assert", "wait", "extract"].includes(step.type));
+  // [Query] steps may need the act model to write SQL (roadmap §5.2 tier 2).
+  const needsModel = plan.steps.some((step) => step.executes && ["act", "assert", "wait", "extract", "query"].includes(step.type));
   if (needsModel) {
     const keys = Object.fromEntries([...config.providerKeys].map(([name, value]) => [name, value.value]));
     try {
@@ -305,6 +328,18 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   }
 
   const cacheDir = resolve(options.cwd, options.cacheDir ?? config.cacheDir ?? join(".e2e", "cache"));
+  // API scripts (roadmap §2.3) and reuse (§2.6) are decided before the project is generated: the
+  // test file calls `jl.replayApiOrFallback` for steps with an active script and leaves out the
+  // steps a reused run stands in for.
+  const apiStore = options.backend
+    ? createBackendApiScriptStore({ apiUrl: options.backend.apiUrl, runId: options.backend.runId, runToken: options.backend.runToken })
+    : createFileApiScriptStore({ dir: cacheDir, environment: plan.environmentName });
+  const apiSteps = await resolveApiSteps(plan.steps, apiConfig, apiStore, log);
+  if (options.reuse !== false && options.reuseLookup) reuse = await applyReuse(plan, cases, options.reuseLookup, log);
+  const apiScriptsPath = join(runDir, "api-scripts.json");
+  writeFileSync(apiScriptsPath, JSON.stringify({ apiOrigins: apiConfig.apiOrigins, apiPolicy: apiConfig.apiPolicy, scripts: apiSteps.scripts }, null, 2));
+  const reusePath = join(runDir, "reuse.json");
+  writeFileSync(reusePath, JSON.stringify({ outputs: reuse.outputs, runIds: reuse.reusedFromRunIds, blocks: reuse.blocks }, null, 2));
   const project = generateProject({
     dir: join(runDir, "project"),
     plan,
@@ -313,7 +348,9 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
     cacheStoreDir: cacheDir,
     headed: options.headed ?? false,
     viewport,
-    timeoutMs: options.timeoutMs ?? 15 * 60_000
+    timeoutMs: options.timeoutMs ?? 15 * 60_000,
+    apiStepIds: new Set(Object.keys(apiSteps.scripts)),
+    skipStepIds: reuse.skippedStepIds
   });
 
   // instructionDigest → transcript step, so cache files say which step they belong to.
@@ -326,6 +363,12 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   }
   const cacheIndexPath = join(runDir, "cache-index.json");
   writeFileSync(cacheIndexPath, JSON.stringify(cacheIndex, null, 2));
+
+  // Saved queries for [Query: P, name=x]: the organisation's (run config) plus a local
+  // `.jl/queries.json` for CLI runs; names only reach the child through this file's path.
+  const queriesPath = join(runDir, "queries.json");
+  const localQueries = readJson<unknown[]>(join(options.cwd, ".jl", "queries.json")) ?? [];
+  writeFileSync(queriesPath, JSON.stringify([...config.queries, ...(Array.isArray(localQueries) ? localQueries : [])]));
 
   const stepLogPath = join(runDir, "steps.jsonl");
   const progressPath = join(runDir, "progress.jsonl");
@@ -340,7 +383,17 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       JL_STEP_LOG: stepLogPath,
       JL_PROGRESS_LOG: progressPath,
       JL_SCREENSHOT_DIR: screenshotDir,
+      // Network, console and navigation capture (runtime/capture.ts) lands next to the step log.
+      JL_CAPTURE_DIR: runDir,
       JL_CACHE_INDEX: cacheIndexPath,
+      JL_API_SCRIPTS: apiScriptsPath,
+      JL_API_CACHE_DIR: cacheDir,
+      JL_REUSE_FILE: reusePath,
+      // Assert checks (runtime/assert-check.ts) follow the run's cache mode and file store.
+      JL_CACHE_MODE: cacheMode,
+      JL_CACHE_DIR: cacheDir,
+      JL_SQL_CACHE_DIR: join(cacheDir, "sql"),
+      JL_QUERIES_FILE: queriesPath,
       ...(usesAccounts
         ? { JL_MODEL_ACCOUNT_LOG: accountLogPath, JL_MODEL_PRICES: JSON.stringify(options.prices ?? defaultModelPrices) }
         : {}),
@@ -351,10 +404,16 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
       ...(options.recordModelFixture ? { JL_RECORD_MODEL_FIXTURE: resolve(options.cwd, options.recordModelFixture) } : {})
     }
   });
+  // The worker redacts its capture by env name, so it never needs the secret list itself.
+  const secretSet = new Set(secretValues);
+  childEnv.JL_REDACT_ENVS = Object.entries(childEnv)
+    .filter(([, value]) => secretSet.has(value))
+    .map(([name]) => name)
+    .join(",");
 
   const e2eBin = join(e2ePackageDir, "dist/cli/bin.js");
   const args = [e2eBin, "run", "--config", project.configPath, "--ai-trace", ...(options.headed ? ["--headed"] : [])];
-  log(`e2e run (${plan.steps.filter((step) => step.executes).length} steps, cache ${cacheMode})`);
+  log(`e2e run (${plan.steps.filter((step) => step.executes).length} steps, cache ${cacheMode}, mode ${executionMode}${Object.keys(apiSteps.scripts).length > 0 ? `, ${Object.keys(apiSteps.scripts).length} api scripts` : ""})`);
 
   const outputLog = join(runDir, "e2e-output.log");
   const timeoutMs = (options.timeoutMs ?? 15 * 60_000) + 120_000;
@@ -414,19 +473,19 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   const artifacts: RunArtifact[] = [];
   const artifactDir = join(runDir, "artifacts");
   mkdirSync(artifactDir, { recursive: true });
-  const video = findFiles(join(project.outputDir, "artifacts"), "video.webm").at(-1);
-  const trace = findFiles(join(project.outputDir, "artifacts"), "trace.zip").at(-1);
+  // e2e 0.19+: `<output>/results/<test>/attempt-<n>/video/video.webm` (later segments are
+  // video-part<n>.webm); the first segment of the last attempt is the recording.
+  const video = findFiles(join(project.outputDir, "results"), "video.webm").at(-1);
   let recordingPath: string | null = null;
-  let tracePath: string | null = null;
+  let recordingStartedAt: string | null = null;
   if (video) {
     recordingPath = join(artifactDir, "recording.webm");
     copyFileSync(video, recordingPath);
     artifacts.push({ kind: "recording", path: "recording.webm", mimeType: "video/webm", bytes: statSync(recordingPath).size });
-  }
-  if (trace) {
-    tracePath = join(artifactDir, "trace.zip");
-    copyFileSync(trace, tracePath);
-    artifacts.push({ kind: "trace", path: "trace.zip", mimeType: "application/zip", bytes: statSync(tracePath).size });
+    const segment = (e2eReport?.run?.results?.[0]?.attempts?.at(-1)?.artifacts ?? []).find(
+      (artifact) => artifact.kind === "video" && typeof artifact.path === "string" && artifact.path.endsWith("video.webm")
+    );
+    recordingStartedAt = segment?.startedAt ?? null;
   }
   for (const event of stepLog) {
     if (event.type === "screenshot" && existsSync(event.path)) {
@@ -438,15 +497,26 @@ export async function runTranscript(options: RunTranscriptOptions): Promise<RunT
   const modelAccounts = usesAccounts ? summarizeAccountLog(readAccountLog(accountLogPath)) : null;
   if (options.signal?.aborted) {
     // e2e traps SIGTERM and exits 130.
-    return finish({ blocked: { reason: "CANCELLED", message: "Run cancelled." }, cancelled: true, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
+    return finish({ blocked: { reason: "CANCELLED", message: "Run cancelled." }, cancelled: true, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, recordingStartedAt, modelAccounts });
   }
   const stopMessage = budgetStop ?? (modelAccounts?.stopped ? "Every model account that may serve this run has spent its budget." : null);
   if (stopMessage) {
-    return finish({ blocked: { reason: "BUDGET_EXCEEDED", message: stopMessage }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
+    return finish({ blocked: { reason: "BUDGET_EXCEEDED", message: stopMessage }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, recordingStartedAt, modelAccounts });
   }
   if (spawnError || timedOut) {
     const message = timedOut ? `e2e did not finish within ${timeoutMs} ms` : `could not start e2e: ${(spawnError as Error | null)?.message ?? "unknown error"}`;
-    return finish({ blocked: { reason: "ENGINE_ERROR", message }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
+    return finish({ blocked: { reason: "ENGINE_ERROR", message }, e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, recordingStartedAt, modelAccounts });
   }
-  return finish({ e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, tracePath, modelAccounts });
+  const result = finish({ e2eReport, aiTrace, stepLog, exitCode, artifacts, project, recordingPath, recordingStartedAt, modelAccounts });
+  await recordApiScripts({
+    report: result.report,
+    plan,
+    stepLog,
+    requestsPath: join(runDir, "requests.jsonl"),
+    config: apiConfig,
+    store: apiStore,
+    cacheMode,
+    log
+  });
+  return result;
 }

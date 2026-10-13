@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type {
 	ClaimedRun,
 	CreateTestRunResponse,
+	TestCaseDetail,
 	TestRunConfig,
 	TestRunDetail,
 } from "@jittle-lamp/shared";
@@ -13,6 +14,7 @@ import {
 	organizationActivityLogs,
 	testCaseEvidences,
 	testRuns,
+	testStepScripts,
 } from "../src/db/schema";
 import {
 	createTestCaseFixture,
@@ -384,6 +386,248 @@ describe("test run routes and runner contract", () => {
 		);
 		expect(forced.status).toBe(201);
 		expect(forced.body.runId).not.toBe(runId);
+	});
+
+	it("stores, replays and stales assert checks per step through the run token", async () => {
+		const fixture = await createTestCaseFixture();
+		const { testCase } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+		});
+		const runner = await registerRunner(fixture);
+		await fixture.call(`/test-cases/${testCase.id}/runs`, {
+			token: fixture.qa.token,
+			body: {},
+		});
+		const claim = await fixture.call<{ run: ClaimedRun }>(
+			"/runner-pools/claim",
+			{ token: runner.workerToken, body: {} },
+		);
+		const claimed = claim.body.run;
+		const assertStep = claimed.steps.find((step) => step.type === "assert");
+		if (!assertStep) throw new Error("Expected an assert step");
+		const path = `/test-runs/${claimed.runId}/cache/check/${assertStep.stepId}`;
+		const miss = await fixture.call<{ status: string }>(path, {
+			token: claimed.runToken,
+		});
+		expect(miss.body).toEqual({ status: "miss" });
+		const check = {
+			schemaVersion: "jl-assert-check-1",
+			locator: { role: "heading", name: "Sign in" },
+			matcher: "visible",
+			expected: null,
+			recordedAt: "2026-10-13T10:00:00.000Z",
+		};
+		const write = await fixture.call(path, {
+			method: "PUT",
+			token: claimed.runToken,
+			body: {
+				check,
+				instructionKey: assertStep.instructionKey,
+				renderedCode:
+					"expect(screen.getByRole('heading', 'Sign in')).toBeVisible()",
+			},
+		});
+		expect(write.body).toEqual({ ok: true });
+		const hit = await fixture.call<{ status: string; check: unknown }>(path, {
+			token: claimed.runToken,
+		});
+		expect(hit.body).toEqual({ status: "hit", check });
+		// Another token cannot read the run's checks.
+		expect((await fixture.call(path, { token: fixture.qa.token })).status).toBe(
+			401,
+		);
+		const scripts = await fixture.call<{
+			items: Array<{ stepId: string; renderedCode: string }>;
+		}>(`/test-cases/${testCase.id}/scripts`, { token: fixture.qa.token });
+		expect(scripts.body.items).toEqual([
+			expect.objectContaining({
+				stepId: assertStep.stepId,
+				instructionKey: assertStep.instructionKey,
+				renderedCode:
+					"expect(screen.getByRole('heading', 'Sign in')).toBeVisible()",
+			}),
+		]);
+		const row = await fixture.db.query.testStepScripts.findFirst({
+			where: eq(testStepScripts.stepId, assertStep.stepId),
+		});
+		expect(row).toMatchObject({
+			kind: "assert-check",
+			keyHash: `check:${assertStep.stepId}`,
+			recordedFromRunId: claimed.runId,
+			environmentId: claimed.environmentId,
+		});
+		// A re-record supersedes the active check.
+		await fixture.call(path, {
+			method: "PUT",
+			token: claimed.runToken,
+			body: {
+				check: { ...check, locator: { label: "Email" } },
+				instructionKey: assertStep.instructionKey,
+				renderedCode: "expect(screen.getByLabel('Email')).toBeVisible()",
+			},
+		});
+		const versions = await fixture.db.query.testStepScripts.findMany({
+			where: eq(testStepScripts.stepId, assertStep.stepId),
+		});
+		expect(versions.map((v) => [v.version, v.status]).sort()).toEqual([
+			[1, "stale"],
+			[2, "active"],
+		]);
+		const stale = await fixture.call<{ ok: boolean; stale: number }>(path, {
+			method: "PUT",
+			token: claimed.runToken,
+			body: { stale: true, reason: "heading not visible" },
+		});
+		expect(stale.body).toEqual({ ok: true, stale: 1 });
+		expect(
+			(
+				await fixture.call<{ status: string }>(path, {
+					token: claimed.runToken,
+				})
+			).body,
+		).toEqual({ status: "miss" });
+		expect(
+			(
+				await fixture.db.query.testStepScripts.findFirst({
+					where: and(
+						eq(testStepScripts.stepId, assertStep.stepId),
+						eq(testStepScripts.version, 2),
+					),
+				})
+			)?.staleReason,
+		).toBe("heading not visible");
+		// The UI script endpoints never see a check: it has no e2e key hash.
+		expect(
+			(
+				await fixture.call<{ status: string }>(
+					`/test-runs/${claimed.runId}/cache/check%3A${assertStep.stepId}`,
+					{ token: claimed.runToken },
+				)
+			).body,
+		).toEqual({ status: "miss" });
+
+		// A strict run reads and stales but never records.
+		await fixture.call(`/test-runs/${claimed.runId}/finalize`, {
+			token: claimed.runToken,
+			body: { report: buildRunReport(claimed), evidenceId: null },
+		});
+		await fixture.call(`/test-cases/${testCase.id}/runs`, {
+			token: fixture.qa.token,
+			body: { cacheMode: "strict", force: true },
+		});
+		const strict = (
+			await fixture.call<{ run: ClaimedRun }>("/runner-pools/claim", {
+				token: runner.workerToken,
+				body: {},
+			})
+		).body.run;
+		const strictPath = `/test-runs/${strict.runId}/cache/check/${assertStep.stepId}`;
+		const refused = await fixture.call<{ code: string }>(strictPath, {
+			method: "PUT",
+			token: strict.runToken,
+			body: { check, instructionKey: null, renderedCode: "" },
+		});
+		expect(refused.status).toBe(409);
+		expect(JSON.stringify(refused.body)).toContain("TEST_RUN_CACHE_READ_ONLY");
+		expect(
+			(
+				await fixture.call<{ ok: boolean; stale: number }>(strictPath, {
+					method: "PUT",
+					token: strict.runToken,
+					body: { stale: true, reason: "gone" },
+				})
+			).body,
+		).toEqual({ ok: true, stale: 0 });
+	});
+
+	it("claims a suite batch's siblings for one worker up to its capacity and the pool's ceiling", async () => {
+		const fixture = await createTestCaseFixture();
+		const { testCase, environmentId } = await seedRunnableCase(fixture, {
+			password: FAKE_PASSWORD,
+		});
+		const runner = await registerRunner(fixture, "devbox", 3);
+		const others = [];
+		for (const title of ["Second case", "Third case", "Fourth case"]) {
+			const created = await fixture.call<TestCaseDetail>("/test-cases", {
+				token: fixture.qa.token,
+				body: { transcript: loginTranscript(title), environmentId },
+			});
+			expect(created.status).toBe(201);
+			others.push(created.body);
+		}
+		const suite = await fixture.call<{ id: string }>("/test-suites", {
+			token: fixture.qa.token,
+			body: {
+				name: "Nightly",
+				memberIds: [testCase.id, ...others.map((row) => row.id)],
+			},
+		});
+		const requested = await fixture.call<CreateTestRunResponse>(
+			`/test-suites/${suite.body.id}/runs`,
+			{ token: fixture.qa.token, body: {} },
+		);
+		expect(requested.body.runIds).toHaveLength(4);
+		// Capacity 3 asks for two siblings; the pool allows three concurrent runs.
+		const claim = await fixture.call<{
+			run: ClaimedRun;
+			siblings: ClaimedRun[];
+		}>("/runner-pools/claim", {
+			token: runner.workerToken,
+			body: { batchCapacity: 3 },
+		});
+		expect(claim.status).toBe(200);
+		expect(claim.body.siblings).toHaveLength(2);
+		const all = [claim.body.run, ...claim.body.siblings];
+		expect(new Set(all.map((run) => run.runId)).size).toBe(3);
+		expect(new Set(all.map((run) => run.runToken)).size).toBe(3);
+		expect(all.every((run) => run.cacheMode === "strict")).toBe(true);
+		for (const run of all) {
+			const row = await fixture.db.query.testRuns.findFirst({
+				where: eq(testRuns.id, run.runId),
+			});
+			expect(row).toMatchObject({
+				status: "claimed",
+				workerLeaseOwner: runner.workerId,
+				batchId: requested.body.batchId,
+			});
+			// Each sibling's token serves its own run.
+			const config = await fixture.call(`/test-runs/${run.runId}/config`, {
+				token: run.runToken,
+			});
+			expect(config.status).toBe(200);
+		}
+		// The pool is full: the fourth run waits, even with capacity to spare.
+		const full = await fixture.call<{ run: ClaimedRun | null }>(
+			"/runner-pools/claim",
+			{ token: runner.workerToken, body: { batchCapacity: 3 } },
+		);
+		expect(full.body.run).toBeNull();
+		// A single case run has no siblings, whatever the capacity.
+		await fixture.call(`/test-runs/${claim.body.run.runId}/finalize`, {
+			token: claim.body.run.runToken,
+			body: { report: buildRunReport(claim.body.run), evidenceId: null },
+		});
+		await fixture.call(`/test-cases/${testCase.id}/runs`, {
+			token: fixture.qa.token,
+			body: { force: true, priority: 90 },
+		});
+		const single = await fixture.call<{
+			run: ClaimedRun;
+			siblings: ClaimedRun[];
+		}>("/runner-pools/claim", {
+			token: runner.workerToken,
+			body: { batchCapacity: 3 },
+		});
+		expect(single.body.run.cacheMode).toBe("read-write");
+		expect(single.body.siblings).toEqual([]);
+		expect(
+			(
+				await fixture.call<{ code: string }>("/runner-pools/claim", {
+					token: runner.workerToken,
+					body: { batchCapacity: 0 },
+				})
+			).status,
+		).toBe(422);
 	});
 
 	it("applies queue caps and the token bucket with 429s", async () => {

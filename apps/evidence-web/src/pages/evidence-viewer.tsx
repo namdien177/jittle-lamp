@@ -616,7 +616,9 @@ export function CloudEvidencePage(): React.JSX.Element {
 
 /**
  * The shared viewer on one cloud evidence, embedded in another page (the test run detail). The
- * host controls the step filter; video URLs are renewed like on the evidence page.
+ * host controls the step filter; video URLs are renewed like on the evidence page. With
+ * `paneContainer` the stream renders into the host's drawer and its Info tab carries `infoPanel`
+ * plus the discussion and tags, which load once `discussionEnabled` (the drawer is open).
  */
 export function EmbeddedEvidenceViewer(props: {
   evidenceId: string;
@@ -625,14 +627,25 @@ export function EmbeddedEvidenceViewer(props: {
   stepOffsetsMs?: Readonly<Record<string, number>>;
   onPlayingStepIdChange?: (stepId: string | null) => void;
   actionsContainer?: HTMLElement | null;
+  paneContainer?: HTMLElement | null;
+  infoPanel?: React.ReactNode;
+  discussionEnabled?: boolean;
   onClose: () => void;
 }): React.JSX.Element {
   const auth = useAuth();
+  const toast = useToast();
   const query = useRemoteEvidence({ remoteEvidenceId: props.evidenceId });
+  const accountQuery = useAccountProfile();
   const stableGetToken: FetchToken = useRef(() => auth.getToken()).current;
   const latestUrlsRef = useRef<{ videoReadUrl: ArtifactReadUrl; archiveReadUrl: ArtifactReadUrl } | null>(null);
   const loaded: RemoteEvidenceData | null = query.data?.kind === "loaded" ? query.data.data : null;
   if (loaded && !latestUrlsRef.current) latestUrlsRef.current = { videoReadUrl: loaded.videoReadUrl, archiveReadUrl: loaded.archiveReadUrl };
+  const discussionEnabled = props.discussionEnabled === true;
+  const [commentDraft, setCommentDraft] = useState("");
+  const commentsQuery = useEvidenceComments(discussionEnabled ? loaded?.evidenceId ?? null : null, loaded?.orgId);
+  const tagsQuery = useEvidenceTags(loaded?.orgId, discussionEnabled);
+  const createComment = useCreateEvidenceComment();
+  const updateTags = useUpdateEvidenceTags();
 
   useRenewArtifactUrls({
     enabled: Boolean(loaded && auth.isSignedIn),
@@ -671,9 +684,55 @@ export function EmbeddedEvidenceViewer(props: {
     videoEl.currentTime = currentTime;
   };
 
+  const submitComment = async (): Promise<void> => {
+    const body = commentDraft.trim();
+    if (!body || createComment.isPending) return;
+    try {
+      await createComment.mutateAsync({ evidenceId: loaded.evidenceId, body, ...(loaded.orgId ? { orgId: loaded.orgId } : {}) });
+      setCommentDraft("");
+    } catch {
+      // The mutation state drives the inline discussion notice.
+    }
+  };
+  const canUpdateEvidenceTags =
+    accountQuery.data?.organizations.some((org) => org.id === loaded.evidence.orgId && (org.role === "owner" || org.role === "admin" || org.role === "moderator")) === true;
+  const updateEvidenceTags = (tagIds: string[]): void => {
+    updateTags.mutate(
+      { evidenceId: loaded.evidenceId, tagIds },
+      { onError: (error) => toast.error("Unable to update tags", error instanceof Error ? error.message : undefined) }
+    );
+  };
+  const discussionNotice = commentsQuery.isError
+    ? commentsQuery.error instanceof Error
+      ? commentsQuery.error.message
+      : "Unable to load discussion."
+    : createComment.isError
+      ? createComment.error instanceof Error
+        ? createComment.error.message
+        : "Unable to add comment."
+      : discussionEnabled && commentsQuery.isPending
+        ? "Loading discussion..."
+        : null;
+  const discussion = discussionEnabled
+    ? {
+        discussionComments: (commentsQuery.data?.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body, authorLabel: comment.authorLabel, createdAt: comment.createdAt })),
+        discussionValue: commentDraft,
+        discussionSaving: createComment.isPending,
+        discussionNotice,
+        onDiscussionChange: setCommentDraft,
+        onSubmitDiscussion: () => void submitComment(),
+        evidenceTags: loaded.evidence.tags,
+        availableEvidenceTags: tagsQuery.data?.tags ?? [],
+        canUpdateEvidenceTags,
+        evidenceTagsSaving: updateTags.isPending || tagsQuery.isPending,
+        onEvidenceTagsChange: updateEvidenceTags
+      }
+    : {};
+
   return (
     <EvidenceViewerContent
       key={loaded.evidenceId}
+      {...discussion}
       loadedArchive={loaded.session.archive}
       loadedTimeline={loaded.session.timeline}
       loadedMergeGroups={loaded.session.mergeGroups}
@@ -693,6 +752,8 @@ export function EmbeddedEvidenceViewer(props: {
       embedded
       {...(props.onPlayingStepIdChange ? { onPlayingStepIdChange: props.onPlayingStepIdChange } : {})}
       actionsContainer={props.actionsContainer ?? null}
+      {...(props.paneContainer !== undefined ? { paneContainer: props.paneContainer } : {})}
+      {...(props.infoPanel !== undefined ? { infoPanel: props.infoPanel } : {})}
     />
   );
 }

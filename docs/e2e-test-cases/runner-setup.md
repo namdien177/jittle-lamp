@@ -32,7 +32,7 @@ A worker uses the token only when it has no stored credential. It then gets its 
 
 ### Docker (cloud pool or any Linux host)
 
-The cloud host needs Docker Compose and a published or preloaded image. It does **not** need Git, Bun, or this repository. The image contains Node 22, Chromium, the runner bundles and the TypeScript modules the engine loads; it excludes other apps, tests and build tools.
+The cloud host needs Docker Compose and a published or preloaded image. It does **not** need Git, Bun, or this repository. The image contains Node 24, Chromium, the runner bundles and the TypeScript modules the engine loads; it excludes other apps, tests and build tools.
 
 **From CI:** download `release-artifacts/runner/` from the `build_runner_image` job, or use the image at `$CI_REGISTRY_IMAGE/e2e-runner:<release version>`. CI publishes semver tags on matching `vX.Y.Z` release tags; main builds use `sha-<commit>` tags. Use a released semver image for managed updates, and keep release tags immutable.
 
@@ -84,7 +84,7 @@ Use `node update-runner.mjs --offline` for disconnected hosts after loading the 
 
 ### systemd (self-hosted devbox)
 
-Requirements: Node 22.12 or newer, Bun 1.4.2 to build, and a network path to the app under test (VPN up).
+Requirements: Node 22.22.3 or newer on the 22 line, or Node 24.8 or newer (e2e 0.18+ refuses older Node and refuses to run its tests under Bun; the runner always spawns `node` for the e2e process), Bun 1.4.2 to build, and a network path to the app under test (VPN up).
 
 ```bash
 sudo useradd --system --create-home jl-runner

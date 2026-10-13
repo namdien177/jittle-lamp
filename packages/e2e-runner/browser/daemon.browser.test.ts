@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { unzipSync } from "fflate";
 
 import {
+  cacheCheckWriteRequestSchema,
   cacheEntryWriteRequestSchema,
   finalizeTestRunRequestSchema,
   parseTestCaseTranscript,
@@ -32,6 +33,8 @@ let backend: ReturnType<typeof Bun.serve>;
 const queue: string[] = [];
 const cache = new Map<string, unknown>();
 const liveCache = new Map<string, { entry: unknown; stepIds: string[] }>();
+// Assert checks by step id (roadmap 2026-10-13 §4.1), as test_step_scripts rows of kind assert-check.
+const checks = new Map<string, { check: unknown; renderedCode: string; status: "active" | "stale" }>();
 // The live test's fixture: the logout act's first model turn takes 3 s, so the take-over the fake
 // backend starts when that step begins reaches the worker before the act's first action.
 const liveFixture = join(mkdtempSync(join(tmpdir(), "jl-live-fixture-")), "live.mock.json");
@@ -127,6 +130,18 @@ beforeAll(() => {
         }
         return json({ cancelRequested: false, leaseExpiresAt: Date.now() + 30000, takeoverRequested: false });
       }
+      if (action === "cache" && keyHash?.startsWith("check/")) {
+        const stepId = decodeURIComponent(keyHash.slice("check/".length));
+        const stored = checks.get(stepId);
+        if (request.method === "GET") return stored?.status === "active" ? json({ status: "hit", check: stored.check }) : json({ status: "miss" });
+        const body = cacheCheckWriteRequestSchema.parse(await request.json());
+        if ("stale" in body) {
+          if (stored) checks.set(stepId, { ...stored, status: "stale" });
+          return json({ ok: true, stale: stored ? 1 : 0 });
+        }
+        checks.set(stepId, { check: body.check, renderedCode: body.renderedCode, status: "active" });
+        return json({ ok: true });
+      }
       if (action === "cache") {
         const store = runId.startsWith("run_live") ? liveCache : cache;
         if (request.method === "GET") return store.has(keyHash ?? "") ? json({ status: "hit", entry: (store.get(keyHash ?? "") as { entry: unknown }).entry }) : json({ status: "miss" });
@@ -167,12 +182,20 @@ describe("jl-e2e-runner daemon", () => {
     const second = finalized.get("run_2");
     expect(first?.report.outcome).toBe("passed");
     expect(first?.evidenceId).toBe("ev_run_1");
-    expect(first?.report.totals.stepsAgent).toBe(4);
+    expect(first?.report.totals.stepsAgent).toBe(3);
     expect(first?.report.priceTableVersion).toBe("org-test");
     expect(first?.report.totals.usage.costUsd).toBeGreaterThan(0);
-    expect(second?.report.totals.stepsReplayed).toBe(4);
+    expect(second?.report.totals.stepsReplayed).toBe(3);
     expect(second?.report.totals.usage.modelCalls).toBe(0);
-    expect(cache.size).toBe(4);
+    expect(cache.size).toBe(3);
+    // Run 1 stored one check per Assert on the backend; run 2 replayed both, so only the Login
+    // macro's wait step asked the judge.
+    expect([...checks.values()].map((entry) => entry.renderedCode).sort()).toEqual([
+      "expect(screen.getByLabel('Email')).toBeVisible()",
+      "expect(screen.getByRole('heading', 'Welcome, HQ admin')).toBeVisible()"
+    ]);
+    expect(second?.report.totals.judgeUsage.modelCalls).toBe(1);
+    expect(second?.report.steps.filter((step) => step.type === "assert").every((step) => step.mode === "deterministic" && step.cacheReason === "hit")).toBe(true);
 
     // Step ids are the server's, so progress maps onto test_run_steps.
     const reported = new Set((progress.get("run_1") ?? []).flatMap((body) => body.steps.map((step) => step.stepId)));
@@ -216,9 +239,9 @@ describe("live view and take-over (design.md §5.4)", () => {
     expect(live.uploads.length).toBeGreaterThan(0);
     expect(live.uploads.filter((upload) => upload === "hidden")).toHaveLength(1);
     expect(live.uploads.slice(live.uploads.indexOf("hidden") + 1)).not.toContain("frame");
-    // The other three acts were cached; the one taken over was not.
+    // The other two acts were cached; the one taken over was not.
     const cachedSteps = [...liveCache.values()].flatMap((value) => value.stepIds);
-    expect(cachedSteps).toHaveLength(3);
+    expect(cachedSteps).toHaveLength(2);
     expect(cachedSteps).not.toContain(live.takeoverStepId);
 
     const archive = JSON.parse(new TextDecoder().decode(evidence.get("run_live_1")?.["session.archive.json"])) as {

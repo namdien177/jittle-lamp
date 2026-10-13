@@ -93,7 +93,7 @@ export function cleanCaseIds(items: readonly Pick<TestCaseSummary, "id" | "lintE
 
 // The editor belongs to the test-case list page; the review queue only links to it.
 export function caseEditorHref(id: string): string {
-  return `/test-cases?case=${encodeURIComponent(id)}`;
+  return `/test-cases/${encodeURIComponent(id)}`;
 }
 
 // `shift+a` never approves directly: it opens this confirmation (null when nothing qualifies).

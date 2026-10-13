@@ -6,6 +6,10 @@ import { appendAccountLog } from "../model/account-log";
 import { createAccountLedger } from "../model/failover";
 import { resolveModel } from "../model/providers";
 
+declare global {
+  var __jlActModel: { id: string; model: LanguageModelV4 } | undefined;
+}
+
 // Loaded by the generated e2e.config.ts inside the e2e process: builds the act and judge models
 // from the JL_* environment the runner injected. One instance per distinct id, so a `mock:`
 // fixture shared by act and judge is consumed in order. With JL_MODEL_ACCOUNTS the provider's
@@ -30,6 +34,9 @@ export async function createModelsFromEnv(env: Readonly<Record<string, string | 
     ...options,
     ...(env.JL_RECORD_MODEL_FIXTURE ? { recordFixture: env.JL_RECORD_MODEL_FIXTURE } : {})
   });
+  // [Query] steps (runtime/query.ts) write SQL with the same act model instance, so a `mock:`
+  // fixture is consumed in order and one account ledger counts every call.
+  globalThis.__jlActModel = { id: actId, model: act.model };
   if (judgeId === actId) return { model: act.model, judge: act.model };
   const judge = await resolveModel(judgeId, {
     ...options,

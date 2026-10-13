@@ -1,18 +1,18 @@
 import React from "react";
-import { AlertCircle, Bookmark, ChevronRight, ClipboardCheck, Clock, Layers, Plus, RefreshCcw, Trash2, type LucideIcon } from "lucide-react";
+import { AlertCircle, Bookmark, ChevronRight, CirclePlay, Layers, Plus, RefreshCcw, Trash2, type LucideIcon } from "lucide-react";
 
 import { cn } from "../lib/cn";
-import { emptyFilters, toggleValue, viewMatches, type ListColumnId, type ListFilters, type ListSort, type SavedView, type TagGroup } from "./list-model";
+import { emptyFilters, neverRunDays, toggleValue, viewMatches, type ListColumnId, type ListFilters, type ListSort, type SavedView, type TagGroup } from "./list-model";
 import { Hint } from "../components/ui/tooltip";
 
 type QuickView = { id: string; label: string; icon: LucideIcon; filters: Partial<ListFilters> };
 
+// Three views (roadmap §3.6) plus "All"; the review queue has its own page.
 const quickViews: QuickView[] = [
-  { id: "all", label: "All cases", icon: Layers, filters: {} },
-  { id: "review", label: "Review queue", icon: ClipboardCheck, filters: { status: ["review"] } },
-  { id: "failed", label: "Failed last run", icon: AlertCircle, filters: { lastOutcome: ["failed"] } },
-  { id: "stale", label: "Stale cache", icon: RefreshCcw, filters: { staleCache: true } },
-  { id: "idle", label: "No runs in 30 days", icon: Clock, filters: { noRunsSinceDays: 30 } }
+  { id: "all", label: "All", icon: Layers, filters: {} },
+  { id: "failed", label: "Failed", icon: AlertCircle, filters: { lastOutcome: ["failed"] } },
+  { id: "never-run", label: "Never run", icon: CirclePlay, filters: { noRunsSinceDays: neverRunDays } },
+  { id: "stale", label: "Stale", icon: RefreshCcw, filters: { staleCache: true } }
 ];
 
 export function CaseSidebar(props: {

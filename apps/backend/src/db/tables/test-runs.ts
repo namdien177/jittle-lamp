@@ -168,6 +168,18 @@ export const testRuns = sqliteTable(
 		})
 			.notNull()
 			.default("read-write"),
+		// Roadmap 2026-10-13 §2.5: how steps and [Use] blocks execute.
+		executionMode: text("execution_mode", {
+			enum: ["full", "hybrid", "api"],
+		})
+			.notNull()
+			.default("full"),
+		// `light` keeps screenshots and the report but no recording (API-only runs).
+		evidencePolicy: text("evidence_policy", { enum: ["full", "light"] })
+			.notNull()
+			.default("full"),
+		// Runs whose outputs stood in for [Use] blocks under a Reuse: window (§2.6).
+		reusedFromRunIdsJson: text("reused_from_run_ids_json"),
 		dedupeKey: text("dedupe_key").notNull(),
 		// Set on runs created by a non-forced request: at most one such run per dedupe key is
 		// open at a time (unique index below). Forced runs and retries leave it 0.
@@ -175,7 +187,7 @@ export const testRuns = sqliteTable(
 			.notNull()
 			.default(false),
 		trigger: text("trigger", {
-			enum: ["manual", "cli", "mcp", "ci", "webhook"],
+			enum: ["manual", "cli", "mcp", "ci", "webhook", "repair"],
 		})
 			.notNull()
 			.default("manual"),
@@ -292,6 +304,14 @@ export const testRuns = sqliteTable(
 			"test_runs_status_check",
 			sql`${table.status} in ('queued', 'claimed', 'running', 'paused', 'completed', 'failed', 'cancelled')`,
 		),
+		check(
+			"test_runs_execution_mode_check",
+			sql`${table.executionMode} in ('full', 'hybrid', 'api')`,
+		),
+		check(
+			"test_runs_evidence_policy_check",
+			sql`${table.evidencePolicy} in ('full', 'light')`,
+		),
 	],
 );
 
@@ -343,6 +363,9 @@ export const testRunSteps = sqliteTable(
 		visionInput: integer("vision_input", { mode: "boolean" })
 			.notNull()
 			.default(false),
+		// Variables the step produced and, for API replay, the requests it sent (roadmap §6).
+		outputsJson: text("outputs_json"),
+		requestsJson: text("requests_json"),
 		...timestamps,
 	},
 	(table) => [

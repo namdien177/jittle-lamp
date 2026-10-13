@@ -10,6 +10,7 @@
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@clerk/react": "^6.17.3",
+    "@dagrejs/dagre": "^3.0.0",
     "@hookform/resolvers": "^5.9.1",
     "@jittle-lamp/shared": "workspace:*",
     "@jittle-lamp/ui": "workspace:*",
@@ -17,6 +18,7 @@
     "@jittle-lamp/viewer-react": "workspace:*",
     "@tanstack/react-query": "^5.104.0",
     "@vercel/analytics": "^2.0.1",
+    "@xyflow/react": "^12.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fflate": "0.8.3",

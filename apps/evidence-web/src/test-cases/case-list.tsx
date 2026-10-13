@@ -1,5 +1,6 @@
 import React from "react";
-import { ArrowDownUp, Columns3, Filter, Plus, Search, X } from "lucide-react";
+import { Link } from "react-router";
+import { ArrowDownUp, Columns3, Filter, Play, Plus, Search, X } from "lucide-react";
 import type { TestCaseSummary, TestEnvironment, TestTag } from "@jittle-lamp/shared";
 import { useVirtualWindow } from "@jittle-lamp/ui";
 
@@ -17,6 +18,7 @@ import {
 import { Skeleton } from "../components/ui/skeleton";
 import { Hint } from "../components/ui/tooltip";
 import { CaseStatusBadge, Kbd, OutcomeBadge, TagChip } from "./bits";
+import { runHref } from "./case-page-model";
 import {
   activeFilterCount,
   formatCost,
@@ -24,6 +26,7 @@ import {
   formatRelative,
   listColumnIds,
   listColumnLabels,
+  noRunsLabel,
   toggleValue,
   type ListColumnId,
   type ListFilters,
@@ -71,7 +74,7 @@ export function CaseListPane(props: {
   environments: readonly TestEnvironment[];
   tagDefinitions: readonly TestTag[];
   cursor: number;
-  openId: string | null;
+  openId?: string | null;
   selected: ReadonlySet<string>;
   onRowClick: (index: number, event: React.MouseEvent) => void;
   onToggleRow: (index: number, shift: boolean) => void;
@@ -79,6 +82,8 @@ export function CaseListPane(props: {
   onClearSelection: () => void;
   onBulk: (action: BulkAction) => void;
   bulkBusy: boolean;
+  // "Run" in the outcome cell of a never-run row.
+  onRunRow?: (index: number) => void;
   onQuickCreate: () => void;
   scrollToCursorToken: number;
   headerAccessory?: React.ReactNode;
@@ -119,7 +124,7 @@ export function CaseListPane(props: {
           <>
             {props.headerAccessory}
             <Button size="sm" onClick={props.onQuickCreate} className="jl-tc-press" aria-keyshortcuts="c">
-              <Plus aria-hidden /> New case <Kbd>c</Kbd>
+              <Plus aria-hidden /> New <Kbd>c</Kbd>
             </Button>
           </>
         }
@@ -258,7 +263,7 @@ export function CaseListPane(props: {
           ))}
           {filters.environmentId ? <FilterChip label={`env: ${envNames.get(filters.environmentId) ?? filters.environmentId}`} onRemove={() => setFilters({ environmentId: null })} /> : null}
           {filters.staleCache ? <FilterChip label="stale cache" onRemove={() => setFilters({ staleCache: false })} /> : null}
-          {filters.noRunsSinceDays !== null ? <FilterChip label={`no runs in ${filters.noRunsSinceDays}d`} onRemove={() => setFilters({ noRunsSinceDays: null })} /> : null}
+          {filters.noRunsSinceDays !== null ? <FilterChip label={noRunsLabel(filters.noRunsSinceDays)} onRemove={() => setFilters({ noRunsSinceDays: null })} /> : null}
           <button type="button" className="jl-tc-press ml-1 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" onClick={() => props.onFiltersChange({ ...filters, status: [], tags: [], environmentId: null, source: [], lastOutcome: [], staleCache: false, noRunsSinceDays: null })}>
             Clear filters
           </button>
@@ -329,7 +334,16 @@ export function CaseListPane(props: {
           <p className="p-6 text-base text-destructive">{props.error}</p>
         ) : !props.loading && items.length === 0 ? (
           <div className="p-8 text-center text-base text-muted-foreground">
-            {activeFilterCount(filters) > 0 ? "No case matches these filters." : "No test cases yet. Press c to write the first one."}
+            {activeFilterCount(filters) > 0 ? (
+              "No case matches these filters."
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <span>No test cases yet.</span>
+                <Button size="sm" className="jl-tc-press" onClick={props.onQuickCreate}>
+                  <Plus aria-hidden /> New <Kbd>c</Kbd>
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ height: win.totalHeight, position: "relative" }}>
@@ -359,6 +373,7 @@ export function CaseListPane(props: {
                     tagColors={tagColors}
                     onClick={(event) => props.onRowClick(index, event)}
                     onToggle={(shift) => props.onToggleRow(index, shift)}
+                    onRun={props.onRunRow ? () => props.onRunRow?.(index) : undefined}
                   />
                 );
               })}
@@ -436,6 +451,7 @@ const CaseRow = React.memo(function CaseRow(props: {
   tagColors: ReadonlyMap<string, string>;
   onClick: (event: React.MouseEvent) => void;
   onToggle: (shift: boolean) => void;
+  onRun?: (() => void) | undefined;
 }): React.JSX.Element {
   const { item } = props;
   const stale = item.stats.staleSteps > 0;
@@ -467,17 +483,39 @@ const CaseRow = React.memo(function CaseRow(props: {
         );
       case "status":
         return <CaseStatusBadge status={item.status} />;
-      case "lastOutcome":
+      case "lastOutcome": {
+        // Never run: the cell is the Run button (roadmap §3.6).
+        if (item.stats.lastOutcome === null) {
+          return props.onRun ? (
+            <Button size="xs" variant="outline" className="jl-tc-press" aria-label={`Run ${item.key}`} onClick={(event) => {
+              event.stopPropagation();
+              props.onRun?.();
+            }}>
+              <Play aria-hidden /> Run
+            </Button>
+          ) : (
+            <OutcomeBadge outcome={null} />
+          );
+        }
+        // The badge links to the run behind it.
+        const badge = item.stats.lastRunId ? (
+          <Link to={runHref(item.stats.lastRunId)} className="jl-tc-press inline-flex rounded" aria-label={`Open the last run of ${item.key}`} onClick={(event) => event.stopPropagation()}>
+            <OutcomeBadge outcome={item.stats.lastOutcome} />
+          </Link>
+        ) : (
+          <OutcomeBadge outcome={item.stats.lastOutcome} />
+        );
         return stale && item.stats.lastOutcome !== "failed" ? (
           <span className="flex items-center gap-1">
-            <OutcomeBadge outcome={item.stats.lastOutcome} />
+            {badge}
             <Hint label={`${item.stats.staleSteps} stale cached step${item.stats.staleSteps === 1 ? "" : "s"}`}>
               <span className="text-2xs text-warning">stale</span>
             </Hint>
           </span>
         ) : (
-          <OutcomeBadge outcome={item.stats.lastOutcome} />
+          badge
         );
+      }
       case "passRate":
         return <span className="block text-right font-mono text-sm tabular-nums">{formatPassRate(item.stats.passRate)}</span>;
       case "costAvg":

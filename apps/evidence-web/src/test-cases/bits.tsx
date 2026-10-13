@@ -4,6 +4,7 @@ import { splitTag } from "@jittle-lamp/ui";
 
 import { cn } from "../lib/cn";
 import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
 import { runLabel, runTone } from "./run-model";
 import { Hint, TruncatedText } from "../components/ui/tooltip";
 
@@ -105,5 +106,51 @@ export function CopyCommand(props: { command: string; onCopied?: () => void }): 
         {copied ? "Copied" : "Copy"}
       </button>
     </div>
+  );
+}
+
+// Hold-to-confirm for rare destructive actions (roadmap §3.7): 1.2s press fills the button,
+// releasing early cancels. The timer decides; the fill only shows it.
+export const holdToConfirmMs = 1200;
+
+export function HoldToConfirmButton(props: { label: string; onConfirm: () => void; disabled?: boolean; className?: string }): React.JSX.Element {
+  const [holding, setHolding] = React.useState(false);
+  const timer = React.useRef<number | null>(null);
+  const stop = () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+    setHolding(false);
+  };
+  const start = () => {
+    if (props.disabled || timer.current !== null) return;
+    setHolding(true);
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      setHolding(false);
+      props.onConfirm();
+    }, holdToConfirmMs);
+  };
+  React.useEffect(() => stop, []);
+  return (
+    <Button
+      variant="destructive"
+      size="sm"
+      className={cn("jl-tc-hold jl-tc-press", props.className)}
+      data-holding={holding ? "true" : "false"}
+      disabled={props.disabled}
+      aria-label={`${props.label} (hold)`}
+      onPointerDown={start}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && !event.repeat) start();
+      }}
+      onKeyUp={stop}
+      onBlur={stop}
+    >
+      <span className="jl-tc-hold-fill" aria-hidden />
+      <span className="relative">{holding ? "Hold…" : props.label}</span>
+    </Button>
   );
 }

@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { CacheMode } from "@jittle-lamp/shared";
+import type { CacheMode, ExecutionMode } from "@jittle-lamp/shared";
 
 import { loadEnvFiles } from "./config/env-files";
 import { describeResolvedConfig, formatConfigTable, resolveRunConfig } from "./config/resolve";
@@ -158,6 +158,9 @@ export async function main(argv: readonly string[]): Promise<number> {
       params: parseVars(flagList(args, "var")),
       headed: flag(args, "headed") === "true",
       ...(flag(args, "cache") ? { cacheMode: flag(args, "cache") as CacheMode } : {}),
+      // --mode full|hybrid|api (roadmap §2.5); --no-reuse runs every [Use] block.
+      ...(flag(args, "mode") ? { executionMode: flag(args, "mode") as ExecutionMode } : {}),
+      reuse: flag(args, "no-reuse") !== "true",
       ...(flag(args, "record-model-fixture") ? { recordModelFixture: flag(args, "record-model-fixture") as string } : {}),
       allowClaudeCode: flag(args, "allow-claude-code") === "true",
       log: (line) => console.error(`[jl-e2e] ${line}`),

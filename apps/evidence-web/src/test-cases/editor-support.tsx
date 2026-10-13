@@ -92,7 +92,7 @@ export function SimilarHint(props: { title: string; excludeId?: string | null })
             <Link
               key={item.id}
               role="listitem"
-              to={`/test-cases?case=${encodeURIComponent(item.id)}`}
+              to={`/test-cases/${encodeURIComponent(item.id)}`}
               className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
               onClick={() => setOpen(false)}
             >

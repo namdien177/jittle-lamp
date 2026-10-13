@@ -105,6 +105,7 @@ export function breadcrumbsFor(pathname: string): Crumb[] {
   if (pathname.startsWith("/test-cases/review")) return [{ label: "Testing", to: "/test-cases" }, { label: "Review queue" }];
   if (/^\/test-cases\/import\/[^/]+/.test(pathname)) return [{ label: "Testing", to: "/test-cases" }, { label: "Import", to: "/test-cases/import" }, { label: "Batch" }];
   if (pathname.startsWith("/test-cases/import")) return [{ label: "Testing", to: "/test-cases" }, { label: "Import" }];
+  if (/^\/test-cases\/[^/]+/.test(pathname)) return [{ label: "Testing" }, { label: "Test cases", to: "/test-cases" }, { label: "Case" }];
   if (pathname.startsWith("/test-cases")) return [{ label: "Testing" }, { label: "Test cases" }];
   if (pathname.startsWith("/test-runs")) return [{ label: "Testing" }, { label: "Test cases", to: "/test-cases" }, { label: "Run" }];
   if (/^\/organisations\/[^/]+/.test(pathname)) return [{ label: "Workspace" }, { label: "Organisations", to: "/organisations" }, { label: "Organisation" }];

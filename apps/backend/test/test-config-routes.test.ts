@@ -296,6 +296,143 @@ describe("test configuration routes", () => {
 		expect(notes.body.notes).toBe("Use the E2E prefix.");
 	});
 
+	it("stores API replay settings on environments and postgres profiles as credentials", async () => {
+		const fixture = await createTestCaseFixture();
+		const env = await fixture.call<TestEnvironment>("/test-environments", {
+			token: fixture.admin.token,
+			body: {
+				name: "pcf-uat",
+				baseUrl: "https://uat.example.test",
+				apiOrigins: ["https://api.example.test"],
+				openapiUrl: "https://api.example.test/openapi.json",
+				apiPolicy: { allowedPaths: ["/api/**"], maxRequestsPerStep: 20 },
+			},
+		});
+		expect(env.status).toBe(201);
+		expect(env.body).toMatchObject({
+			apiOrigins: ["https://api.example.test"],
+			openapiUrl: "https://api.example.test/openapi.json",
+			apiPolicy: {
+				allowedPaths: ["/api/**"],
+				maxRequestsPerStep: 20,
+				rateLimitPerSecond: 10,
+			},
+		});
+		// A PATCH that does not mention the API settings keeps them.
+		const patched = await fixture.call<TestEnvironment>(
+			`/test-environments/${env.body.id}`,
+			{
+				method: "PATCH",
+				token: fixture.admin.token,
+				body: { notes: "shared UAT" },
+			},
+		);
+		expect(patched.body).toMatchObject({
+			notes: "shared UAT",
+			apiOrigins: ["https://api.example.test"],
+			openapiUrl: "https://api.example.test/openapi.json",
+		});
+		const withPath = await fixture.call(`/test-environments/${env.body.id}`, {
+			method: "PATCH",
+			token: fixture.admin.token,
+			body: { apiOrigins: ["https://api.example.test/v1"] },
+		});
+		expect(withPath.status).toBe(422);
+		const cleared = await fixture.call<TestEnvironment>(
+			`/test-environments/${env.body.id}`,
+			{
+				method: "PATCH",
+				token: fixture.admin.token,
+				body: { apiOrigins: [], openapiUrl: null },
+			},
+		);
+		expect(cleared.body).toMatchObject({ apiOrigins: [], openapiUrl: null });
+		// Environments saved before the roadmap read as unconfigured.
+		const plain = await fixture.call<TestEnvironment>("/test-environments", {
+			token: fixture.admin.token,
+			body: { name: "plain", baseUrl: "https://plain.example.test" },
+		});
+		expect(plain.body).toMatchObject({
+			apiOrigins: [],
+			openapiUrl: null,
+			apiPolicy: {
+				allowedPaths: [],
+				maxRequestsPerStep: 50,
+				rateLimitPerSecond: 10,
+			},
+		});
+
+		const database = await fixture.call<TestCredential>("/test-credentials", {
+			token: fixture.admin.token,
+			body: {
+				profile: "PCF_UAT_DB",
+				kind: "postgres",
+				environmentId: env.body.id,
+				fields: {
+					host: "db.example.test",
+					port: "5432",
+					database: "sv",
+					user: "qa_reader",
+					ssl: "require",
+					schema_allowlist: "public",
+				},
+				secretFields: { password: FAKE_PASSWORD },
+			},
+		});
+		expect(database.status).toBe(201);
+		expect(database.body).toMatchObject({
+			profile: "PCF_UAT_DB",
+			kind: "postgres",
+			fields: { host: "db.example.test", schema_allowlist: "public" },
+			secretFieldNames: ["password"],
+			loginField: null,
+		});
+		expect(JSON.stringify(database.body)).not.toContain(FAKE_PASSWORD);
+		const noPassword = await fixture.call("/test-credentials", {
+			token: fixture.admin.token,
+			body: {
+				profile: "NO_PASSWORD_DB",
+				kind: "postgres",
+				fields: { host: "h", database: "d", user: "u" },
+			},
+		});
+		expect(noPassword.status).toBe(422);
+		expect(noPassword.body).toMatchObject({
+			error: { code: "CREDENTIAL_POSTGRES_PASSWORD_REQUIRED" },
+		});
+		const noHost = await fixture.call("/test-credentials", {
+			token: fixture.admin.token,
+			body: {
+				profile: "NO_HOST_DB",
+				kind: "postgres",
+				fields: { database: "d", user: "u" },
+				secretFields: { password: FAKE_PASSWORD },
+			},
+		});
+		expect(noHost.status).toBe(422);
+		// A PATCH keeps the kind and public fields and only touches the secret.
+		const rotated = await fixture.call<TestCredential>(
+			`/test-credentials/${database.body.id}`,
+			{
+				method: "PATCH",
+				token: fixture.admin.token,
+				body: { secretFields: { password: "fake-rotated-db-pass" } },
+			},
+		);
+		expect(rotated.status).toBe(200);
+		expect(rotated.body).toMatchObject({
+			kind: "postgres",
+			fields: { host: "db.example.test", database: "sv" },
+		});
+		const listed = await fixture.call<{ items: TestCredential[] }>(
+			"/test-credentials",
+			{ token: fixture.developer.token },
+		);
+		expect(listed.body.items.map((item) => [item.profile, item.kind])).toEqual([
+			["PCF_UAT_DB", "postgres"],
+		]);
+	});
+
 	it("fails credential writes clearly without a master key", async () => {
 		const fixture = await createTestCaseFixture({
 			env: { JL_SECRETS_MASTER_KEY: undefined },

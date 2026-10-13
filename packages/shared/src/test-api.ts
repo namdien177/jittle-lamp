@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { apiRequestScriptSchema, apiReviewFlagSchema, stepRequestsSummarySchema } from "./api-script";
 import { isFakeDataLocale } from "./fake-data";
 import { runModelAccountSchema } from "./model-accounts";
 import { claimedExplorationSchema, importItemExplorationSchema } from "./test-exploration";
@@ -8,6 +9,7 @@ import {
   lintFindingSchema,
   macroParamSchema,
   paramDeclarationSchema,
+  reusePolicySchema,
   transcriptDatasetSchema,
   transcriptStepSchema,
   transcriptStepTypeSchema
@@ -16,6 +18,7 @@ import {
   blockedReasonSchema,
   cacheModeSchema,
   cacheReasonSchema,
+  executionModeSchema,
   modelPriceSchema,
   modelUsageSchema,
   runReportSchema,
@@ -54,6 +57,8 @@ export const testCaseStatsSchema = z.object({
   runs: z.number().int().nonnegative(),
   lastOutcome: testRunOutcomeSchema.nullable(),
   lastRunAt: epochMs.nullable(),
+  // The finished run behind lastOutcome, so the list can link the badge to it (roadmap §3.6).
+  lastRunId: id.nullable().default(null),
   // Over the last ten finished runs (design.md handover §6: "ten-run averages").
   passRate: z.number().min(0).max(1).nullable(),
   flakyRate: z.number().min(0).max(1).nullable(),
@@ -97,6 +102,9 @@ export const testCaseDetailSchema = testCaseSummarySchema.extend({
   sourceRef: z.string().nullable(),
   fingerprint: z.string().min(1),
   retries: z.number().int().nonnegative(),
+  // `Outputs:` and `Reuse:` metadata (roadmap 2026-10-13 §2.6).
+  outputs: z.array(z.string()).default([]),
+  reuse: reusePolicySchema.default({ kind: "never" }),
   // Names the case needs from the chosen environment and which are unresolved (design.md §9.3).
   requiredConfig: z.object({
     variables: z.array(z.string()),
@@ -196,6 +204,23 @@ export const similarTestCaseSchema = z.object({
 
 export const similarTestCasesResponseSchema = z.object({ items: z.array(similarTestCaseSchema) });
 
+// "What do you want to test?" (roadmap §3.2): plain language in, a drafted transcript out. The
+// case is not created; the client reviews the draft, then creates it and runs it.
+export const draftTestCaseRequestSchema = z.object({
+  text: z.string().min(1).max(8000),
+  environmentId: id,
+  // The draft starts with `[Use: KEY]` of this case.
+  startFromCaseId: id.optional()
+});
+
+export const draftTestCaseResponseSchema = z.object({
+  title: z.string(),
+  // A one-case transcript document, parseable as written.
+  transcript: z.string().min(1),
+  lint: z.array(lintFindingSchema),
+  similar: z.array(similarTestCaseSchema)
+});
+
 // ---------------------------------------------------------------------------------------------
 // Import, review queue
 // ---------------------------------------------------------------------------------------------
@@ -287,7 +312,12 @@ export const stepScriptSchema = z.object({
   verifiedCount: z.number().int().nonnegative(),
   recordedFromRunId: id.nullable(),
   lastReplayedAt: epochMs.nullable(),
-  createdAt: epochMs
+  createdAt: epochMs,
+  // Roadmap 2026-10-13 §6: what the script is; absent from backends older than API scripts.
+  kind: z.enum(["ui-actions", "api-requests", "assert-check", "sql"]).optional(),
+  // Set on `api-requests` scripts: the replayable requests and what a reviewer should look at.
+  requests: apiRequestScriptSchema.nullable().optional(),
+  reviewFlags: z.array(apiReviewFlagSchema).optional()
 });
 
 // Runner ↔ backend cache.store (handover 1b.2): the e2e record travels as opaque JSON.
@@ -301,6 +331,35 @@ export const cacheEntryWriteRequestSchema = z.object({
   instructionKey: z.string().min(1).nullable(),
   renderedCode: z.string()
 });
+
+// Deterministic assert checks (roadmap 2026-10-13 §4.1): after a judged assert passes, the runner
+// stores the one locator and matcher that prove it as a `test_step_scripts` row of kind
+// `assert-check`. On replay the step runs the matcher with no model call; a check that no longer
+// holds is marked stale and the judge takes the step over (or REPLAY_STALE under strict).
+export const assertCheckLocatorSchema = z.union([
+  z.object({ role: z.string().min(1), name: z.string().min(1) }),
+  z.object({ label: z.string().min(1) }),
+  z.object({ text: z.string().min(1) }),
+  z.object({ testId: z.string().min(1) })
+]);
+export const assertCheckSchema = z.object({
+  schemaVersion: z.literal("jl-assert-check-1"),
+  // null only with the `url` matcher, which needs no control.
+  locator: assertCheckLocatorSchema.nullable(),
+  matcher: z.enum(["visible", "text", "url"]),
+  // The text the control must contain, or the URL the page must have; null for `visible`.
+  expected: z.string().nullable(),
+  recordedAt: z.string().min(1)
+});
+export const cacheCheckReadResponseSchema = z.object({
+  status: z.enum(["hit", "miss"]),
+  check: assertCheckSchema.optional()
+});
+export const cacheCheckWriteRequestSchema = z.union([
+  z.object({ check: assertCheckSchema, instructionKey: z.string().min(1).nullable(), renderedCode: z.string() }),
+  // A replay that no longer holds: the active check goes stale with the reason.
+  z.object({ stale: z.literal(true), reason: z.string().max(2000) })
+]);
 
 export const testSuiteSchema = z.object({
   id,
@@ -324,12 +383,17 @@ export const upsertTestSuiteRequestSchema = z.object({
 export const createTestRunRequestSchema = z.object({
   environmentId: id.nullable().optional(),
   params: z.record(z.string(), z.string()).default({}),
-  cacheMode: cacheModeSchema.default("read-write"),
+  // Absent means read-write, except for suite batches, which default to strict (roadmap
+  // 2026-10-13 §4.3); the backend resolves it per request.
+  cacheMode: cacheModeSchema.optional(),
   force: z.boolean().default(false),
   trigger: testRunTriggerSchema.default("manual"),
   priority: z.number().int().min(0).max(100).optional(),
   // Dataset: run every enabled row as a batch.
-  dataset: z.boolean().default(false)
+  dataset: z.boolean().default(false),
+  // `hybrid` and `api` need the environment's API origins; without them the run is created
+  // blocked with API_NOT_CONFIGURED (roadmap 2026-10-13 decision 2).
+  executionMode: executionModeSchema.default("full")
 });
 
 export const createTestRunResponseSchema = z.object({
@@ -362,7 +426,9 @@ export const testRunStepSchema = z.object({
   observed: z.string().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
   screenshotUrl: z.string().nullable(),
-  usage: modelUsageSchema
+  usage: modelUsageSchema,
+  outputs: z.record(z.string(), z.string()).optional(),
+  requests: stepRequestsSummarySchema.optional()
 });
 
 export const testRunMetricsSchema = z.object({
@@ -416,11 +482,19 @@ export const testRunSummarySchema = z.object({
 export const testRunDetailSchema = testRunSummarySchema.extend({
   params: z.record(z.string(), z.string()),
   cacheMode: cacheModeSchema,
+  // Absent from backends older than execution modes; read it as `full`.
+  executionMode: executionModeSchema.optional(),
+  // Merged step outputs and the runs reused for [Use] blocks (roadmap §2.6).
+  outputs: z.record(z.string(), z.string()).optional(),
+  reusedFromRunIds: z.array(id).optional(),
   runnerInfo: runnerInfoSchema.nullable(),
   error: z.string().nullable(),
   steps: z.array(testRunStepSchema),
   transcript: z.string(),
   currentStepId: z.string().nullable(),
+  // The repair run the finalizer queued for this strict run after REPLAY_STALE (§4.3); absent
+  // from backends older than repair runs.
+  repairRunId: id.nullable().optional(),
   // Live view (phase 2): set while a runner streams frames and accepts take-over.
   live: z
     .object({
@@ -472,6 +546,35 @@ export const testRunProgressResponseSchema = z.object({
   // Live view: a viewer asked to take over the browser.
   takeoverRequested: z.boolean().default(false)
 });
+
+// ---------------------------------------------------------------------------------------------
+// Environment API configuration (roadmap 2026-10-13 §2.5, §6)
+// ---------------------------------------------------------------------------------------------
+
+// Limits on API replay against an environment. An empty `allowedPaths` allows every path under
+// the environment's `apiOrigins`.
+export const apiPolicySchema = z.object({
+  allowedPaths: z.array(z.string().min(1)).max(200).default([]),
+  maxRequestsPerStep: z.number().int().positive().max(1000).default(50),
+  rateLimitPerSecond: z.number().positive().max(1000).default(10)
+});
+export const defaultApiPolicy: z.infer<typeof apiPolicySchema> = { allowedPaths: [], maxRequestsPerStep: 50, rateLimitPerSecond: 10 };
+
+// An absolute http(s) origin: scheme and host, no path, query or fragment.
+export const httpOriginSchema = z.string().refine((value) => {
+  if (!/^https?:\/\//i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.pathname === "/" && url.search === "" && url.hash === "";
+  } catch {
+    return false;
+  }
+}, "Use an http(s) origin such as https://api.example.test, without a path.");
+
+export const credentialKindSchema = z.enum(["login", "model_key", "jira", "github_app", "gitlab_token", "slack_webhook", "postgres"]);
+
+// Public fields of a `postgres` profile; `password` is its secret field (roadmap §5.1).
+export const postgresCredentialFields = ["host", "port", "database", "user", "ssl", "schema_allowlist"] as const;
 
 // ---------------------------------------------------------------------------------------------
 // Runner pools, workers, claim, per-run config (design.md §5.4, §9.3, §10.1)
@@ -580,13 +683,26 @@ export const claimedRunSchema = z.object({
   environmentId: id.nullable(),
   params: z.record(z.string(), z.string()),
   cacheMode: cacheModeSchema,
+  executionMode: executionModeSchema.default("full"),
+  // The environment's API configuration (roadmap §2.5): where API scripts may send requests.
+  apiOrigins: z.array(z.string()).default([]),
+  openapiUrl: z.string().nullable().default(null),
+  apiPolicy: apiPolicySchema.default(defaultApiPolicy),
   leaseExpiresAt: epochMs,
   attempt: z.number().int().positive(),
   // Per-run token for GET /test-runs/:id/config, progress, cache and evidence upload; valid for the lease.
   runToken: z.string().min(1)
 });
-// A worker gets a run or, when its pool has no run queued, an exploration (import).
-export const claimRunResponseSchema = z.object({ run: claimedRunSchema.nullable(), exploration: claimedExplorationSchema.nullable().default(null) });
+// A worker gets a run or, when its pool has no run queued, an exploration (import). With
+// `batchCapacity` n > 1 and a first run from a suite batch, up to n-1 queued runs of the same
+// batch, environment, cache mode and execution mode come along as `siblings`, each leased to the
+// worker with its own run token (roadmap 2026-10-13 §4.2).
+export const claimRunRequestSchema = z.object({ batchCapacity: z.number().int().min(1).max(50).default(1) });
+export const claimRunResponseSchema = z.object({
+  run: claimedRunSchema.nullable(),
+  siblings: z.array(claimedRunSchema).optional(),
+  exploration: claimedExplorationSchema.nullable().default(null)
+});
 
 // The resolved environment and decrypted credentials for one run (§9.3). Matches the runner's
 // OrgRunConfig; returned only to a run token, never to a browser.
@@ -602,6 +718,8 @@ export const testRunConfigSchema = z.object({
   credentials: z.array(
     z.object({
       profile: z.string().min(1),
+      // `login` for browser sign-in, `postgres` for a [Query] profile; absent means login.
+      kind: credentialKindSchema.optional(),
       fields: z.record(z.string(), z.string()),
       loginField: z.string().regex(/^[a-z][a-z0-9_]*$/).nullable().default(null),
       secretFields: z.record(z.string(), z.string())
@@ -615,7 +733,10 @@ export const testRunConfigSchema = z.object({
   // Phase 2: organisation agent notes, prepended to environment agent instructions.
   agentNotes: z.string().nullable().default(null),
   prices: z.array(modelPriceSchema).default([]),
-  priceTableVersion: z.string().nullable().default(null)
+  priceTableVersion: z.string().nullable().default(null),
+  // Saved queries of the postgres profiles this run's [Query] steps name (roadmap §5.2 tier 3);
+  // absent from backends older than named queries.
+  queries: z.array(z.object({ profile: z.string().min(1), name: z.string().min(1), sqlText: z.string().min(1), params: z.array(z.lazy(() => testQueryParamSchema)).default([]) })).optional()
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -631,6 +752,10 @@ export const testEnvironmentSchema = z.object({
   agentInstructions: z.string().max(16_384).nullable(),
   dataLocale: z.string().nullable().default(null),
   notes: z.string().nullable(),
+  // API replay configuration (roadmap §2.5); `apiOrigins` empty means API mode is not set up.
+  apiOrigins: z.array(z.string()).default([]),
+  openapiUrl: z.string().nullable().default(null),
+  apiPolicy: apiPolicySchema.default(defaultApiPolicy),
   usedByCases: z.number().int().nonnegative(),
   createdAt: epochMs,
   updatedAt: epochMs
@@ -646,10 +771,12 @@ export const upsertTestEnvironmentRequestSchema = z.object({
     .refine(isFakeDataLocale, "Unknown data locale")
     .nullable()
     .optional(),
-  notes: z.string().max(2000).nullable().optional()
+  notes: z.string().max(2000).nullable().optional(),
+  // Omitted fields keep their stored value (PATCH merges over the row).
+  apiOrigins: z.array(httpOriginSchema).max(20).optional(),
+  openapiUrl: httpUrlSchema.nullable().optional(),
+  apiPolicy: apiPolicySchema.optional()
 });
-
-export const credentialKindSchema = z.enum(["login", "model_key", "jira", "github_app", "gitlab_token", "slack_webhook"]);
 
 export const testCredentialSchema = z.object({
   id,
@@ -675,6 +802,52 @@ export const upsertTestCredentialRequestSchema = z.object({
   secretFields: z.record(z.string().regex(/^[a-z][a-z0-9_]*$/), z.string().min(1).nullable()).default({}),
   loginField: z.string().regex(/^[a-z][a-z0-9_]*$/).nullable().optional(),
   loginMacroId: id.nullable().optional()
+}).superRefine((request, ctx) => {
+  if (request.kind !== "postgres") return;
+  // A [Query] profile needs enough to open a connection; the password is its secret field.
+  for (const name of ["host", "database", "user"] as const) {
+    if (!request.fields[name]) ctx.addIssue({ code: "custom", path: ["fields", name], message: `A postgres profile needs "${name}".` });
+  }
+  const port = request.fields.port;
+  if (port !== undefined && !/^[1-9]\d{0,4}$/.test(port)) {
+    ctx.addIssue({ code: "custom", path: ["fields", "port"], message: "port must be a number between 1 and 65535." });
+  }
+  const ssl = request.fields.ssl;
+  if (ssl !== undefined && !/^(true|false|require|disable|prefer|verify-full)$/.test(ssl)) {
+    ctx.addIssue({ code: "custom", path: ["fields", "ssl"], message: "ssl must be true, false, require, disable, prefer or verify-full." });
+  }
+  const unknown = Object.keys(request.fields).filter((name) => !(postgresCredentialFields as readonly string[]).includes(name));
+  if (unknown.length > 0) {
+    ctx.addIssue({ code: "custom", path: ["fields"], message: `Unknown postgres field(s): ${unknown.join(", ")}.` });
+  }
+  const secret = Object.keys(request.secretFields).filter((name) => name !== "password");
+  if (secret.length > 0) {
+    ctx.addIssue({ code: "custom", path: ["secretFields"], message: "A postgres profile has one secret field: password." });
+  }
+});
+
+// Named SQL per postgres profile (roadmap §5.2 tier 3): `[Query: DB, name=k1-pending]` runs a
+// reviewed statement instead of agent-written SQL. `params` name the run values bound to `$1..$n`.
+export const testQueryParamSchema = z.object({
+  name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_.]*$/),
+  kind: z.enum(["text", "number"]).default("text")
+});
+export const testQuerySchema = z.object({
+  id,
+  credentialId: id,
+  profile: z.string().min(1),
+  name: z.string().min(1),
+  sqlText: z.string().min(1),
+  params: z.array(testQueryParamSchema),
+  createdBy: id.nullable(),
+  createdAt: epochMs,
+  updatedAt: epochMs
+});
+export const upsertTestQueryRequestSchema = z.object({
+  credentialId: id,
+  name: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,62}$/),
+  sqlText: z.string().min(1).max(20_000),
+  params: z.array(testQueryParamSchema).max(20).default([])
 });
 
 export const testMacroSchema = z.object({
@@ -949,6 +1122,8 @@ export type UpdateTestCaseRequest = z.infer<typeof updateTestCaseRequestSchema>;
 export type DuplicateTestCaseRequest = z.infer<typeof duplicateTestCaseRequestSchema>;
 export type BulkTestCaseRequest = z.infer<typeof bulkTestCaseRequestSchema>;
 export type SimilarTestCase = z.infer<typeof similarTestCaseSchema>;
+export type DraftTestCaseRequest = z.infer<typeof draftTestCaseRequestSchema>;
+export type DraftTestCaseResponse = z.infer<typeof draftTestCaseResponseSchema>;
 export type ImportBatch = z.infer<typeof importBatchSchema>;
 export type ImportItem = z.infer<typeof importItemSchema>;
 export type CreateImportRequest = z.infer<typeof createImportRequestSchema>;
@@ -964,9 +1139,18 @@ export type TestRunProgressRequest = z.infer<typeof testRunProgressRequestSchema
 export type FinalizeTestRunRequest = z.infer<typeof finalizeTestRunRequestSchema>;
 export type RunnerPool = z.infer<typeof runnerPoolSchema>;
 export type ClaimedRun = z.infer<typeof claimedRunSchema>;
+export type ClaimRunRequest = z.infer<typeof claimRunRequestSchema>;
+export type AssertCheck = z.infer<typeof assertCheckSchema>;
+export type AssertCheckLocator = z.infer<typeof assertCheckLocatorSchema>;
+export type CacheCheckWriteRequest = z.infer<typeof cacheCheckWriteRequestSchema>;
 export type TestRunConfig = z.infer<typeof testRunConfigSchema>;
 export type TestEnvironment = z.infer<typeof testEnvironmentSchema>;
+export type ApiPolicy = z.infer<typeof apiPolicySchema>;
+export type CredentialKind = z.infer<typeof credentialKindSchema>;
 export type TestCredential = z.infer<typeof testCredentialSchema>;
+export type TestQuery = z.infer<typeof testQuerySchema>;
+export type TestQueryParam = z.infer<typeof testQueryParamSchema>;
+export type UpsertTestQueryRequest = z.infer<typeof upsertTestQueryRequestSchema>;
 export type TestMacro = z.infer<typeof testMacroSchema>;
 export type TestTag = z.infer<typeof testTagSchema>;
 export type TestRunSettings = z.infer<typeof testRunSettingsSchema>;

@@ -1,6 +1,12 @@
+import type { ClaimedRun } from "@jittle-lamp/shared";
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
-import { runnerPools, runnerWorkers, testRuns } from "../db/schema";
+import {
+	runnerPools,
+	runnerWorkers,
+	testRunBatches,
+	testRuns,
+} from "../db/schema";
 import { withBusyRetry } from "./db-busy";
 import {
 	dispatchPendingNotifications,
@@ -10,6 +16,7 @@ import {
 import { BUDGET_EXCEEDED, releaseBudgetBlockedRuns } from "./test-run-budget";
 import {
 	ACTIVE_RUN_STATUSES,
+	buildClaimedRun,
 	poolConcurrency,
 	RUN_HEARTBEAT_MS,
 	RUN_LEASE_MS,
@@ -30,18 +37,33 @@ export { withBusyRetry };
 // takes a 30 s lease. Same lease pattern as migration-worker.ts. Runs waiting on the daily model
 // budget (BUDGET_EXCEEDED) are skipped until the sweep releases them.
 
+// Siblings of a suite batch claim (roadmap 2026-10-13 §4.2): the same batch, environment, cache
+// and execution mode, so one e2e process can run them with one configuration.
+export type ClaimBatchFilter = Pick<
+	TestRunRow,
+	"batchId" | "environmentId" | "cacheMode" | "executionMode"
+>;
+
 export const claimNextRun = async (
 	db: BackendDb,
 	input: {
 		pool: RunnerPoolRow;
 		workerId: string;
 		now?: number;
+		batch?: ClaimBatchFilter;
 	},
 ): Promise<{ run: TestRunRow; runToken: string } | null> => {
 	const now = input.now ?? Date.now();
 	const concurrency = await poolConcurrency(db, input.pool);
 	const runToken = createOpaqueToken(RUN_TOKEN_PREFIX);
 	const leaseExpiresAt = now + RUN_LEASE_MS;
+	const batch = input.batch;
+	const batchFilter = batch
+		? sql`and candidate.batch_id = ${batch.batchId}
+					and candidate.environment_id is ${batch.environmentId}
+					and candidate.cache_mode = ${batch.cacheMode}
+					and candidate.execution_mode = ${batch.executionMode}`
+		: sql``;
 	const claimed = await withBusyRetry(() =>
 		db.all<{ id: string }>(sql`
 			update test_runs set
@@ -61,6 +83,7 @@ export const claimNextRun = async (
 					and candidate.status = 'queued'
 					and candidate.cancel_requested_at is null
 					and (candidate.blocked_reason is null or candidate.blocked_reason <> ${BUDGET_EXCEEDED})
+					${batchFilter}
 					and (
 						select count(*) from test_runs active
 						where active.runner_pool_id = ${input.pool.id}
@@ -80,6 +103,42 @@ export const claimNextRun = async (
 		.where(eq(runnerWorkers.id, input.workerId));
 	const run = await db.query.testRuns.findFirst({ where: eq(testRuns.id, id) });
 	return run ? { run, runToken } : null;
+};
+
+// Up to `capacity - 1` more queued runs of the first run's suite batch, each leased to the same
+// worker with its own token (roadmap 2026-10-13 §4.2). Only suite batches: a dataset batch runs
+// one case with different params and a CI batch answers a commit, both best kept per run. The
+// pool's max_concurrent_runs still bounds every claim through claimNextRun's guard.
+export const claimBatchSiblings = async (
+	db: BackendDb,
+	input: {
+		pool: RunnerPoolRow;
+		workerId: string;
+		first: TestRunRow;
+		capacity: number;
+		now?: number;
+	},
+): Promise<ClaimedRun[]> => {
+	// A single-run claim, or a run outside any batch, has no siblings.
+	if (input.capacity <= 1 || !input.first.batchId) return [];
+	const batch = await db.query.testRunBatches.findFirst({
+		where: eq(testRunBatches.id, input.first.batchId),
+		columns: { kind: true },
+	});
+	// Only suite batches share one e2e process.
+	if (batch?.kind !== "suite") return [];
+	const siblings: ClaimedRun[] = [];
+	for (let slot = 1; slot < input.capacity; slot += 1) {
+		const claimed = await claimNextRun(db, {
+			pool: input.pool,
+			workerId: input.workerId,
+			...(input.now === undefined ? {} : { now: input.now }),
+			batch: input.first,
+		});
+		if (!claimed) break;
+		siblings.push(await buildClaimedRun(db, claimed.run, claimed.runToken));
+	}
+	return siblings;
 };
 
 // Releases the worker slot once the run finished or the lease moved on.

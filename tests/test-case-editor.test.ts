@@ -264,7 +264,8 @@ describe("pickers", () => {
     expect(formatStepChip({ tag: "Use", args: [{ name: null, value: "TC-0001" }, { name: "profile", value: "PCF" }] }, [], cases)).toEqual({
       tag: "Use",
       params: "TC-0001 · profile: PCF",
-      hint: "TC-0001 · Parent can log in"
+      hint: "TC-0001 · Parent can log in",
+      title: "Parent can log in"
     });
   });
 
@@ -272,7 +273,7 @@ describe("pickers", () => {
     const loginParams = typeOptions("", [loginMacro]).find((option) => option.tag === "Login")?.params ?? [];
     const loginArgs = argsFromParamValues(loginParams, { profile: "PCF_HQ_ADMIN" });
     expect(loginArgs).toEqual([{ name: null, value: "PCF_HQ_ADMIN" }]);
-    expect(formatStepChip({ tag: "Login", args: loginArgs }, [loginMacro])).toEqual({ tag: "Login", params: "profile: PCF_HQ_ADMIN" });
+    expect(formatStepChip({ tag: "Login", args: loginArgs }, [loginMacro])).toEqual({ tag: "Login", params: "PCF_HQ_ADMIN" });
 
     const levelArgs = argsFromParamValues(selectLevel.params, { level: "K1", branch: "BR-01" });
     expect(levelArgs).toEqual([
@@ -528,19 +529,36 @@ describe("read-only editor", () => {
     for (const command of ["focus-prev", "focus-next", "picker-close", "run"] as const) expect(editorCommandAllowed(command, true)).toBe(true);
   });
 
-  test("renders without add, drag, remove or fix controls and with read-only fields", () => {
+  test("marks the row of activeStepId as selected and tags every step row with its id", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login\n[Act] click save");
+    const second = doc.rows.find((row) => row.kind === "step" && row.text === "click save");
+    const stepId = second?.kind === "step" ? second.stepId : null;
+    expect(stepId).not.toBeNull();
+    const html = renderToStaticMarkup(React.createElement(StepEditor, { doc, onChange: () => undefined, readOnly: true, activeStepId: stepId }));
+    expect(html).toContain(`data-step-id="${stepId}"`);
+    expect(html.match(/data-selected="true"/g)?.length ?? 0).toBe(1);
+  });
+
+  test("renders the same rows without inputs, handles, pickers or fix controls", () => {
     const doc = docFromTranscript("# Case\n\n[Open] /login\n[Act] click #save then wait\n\n## Checkpoint: Done\n[Assert] the page is visible");
     const html = renderToStaticMarkup(React.createElement(StepEditor, { doc, onChange: () => undefined, readOnly: true }));
+    expect(html).toContain('data-readonly="true"');
+    expect(html).not.toContain("<input");
     expect(html).not.toContain("+ Add step");
-    expect(html).not.toContain('draggable="true"');
+    expect(html).not.toContain("jl-se-handle");
     expect(html).not.toContain("jl-se-fix");
+    expect(html).not.toContain("jl-se-chip");
     expect(html).not.toContain("Remove checkpoint heading");
-    const inputs = html.match(/<input class="jl-se-input[^>]*>/g) ?? [];
-    expect(inputs.length).toBe(4);
-    expect(inputs.every((input) => input.includes('readOnly=""'))).toBe(true);
+    expect(html).not.toContain("Keyboard shortcuts");
+    // The instruction column still reads as the test: a verb for the type, text for the step.
+    expect(html.match(/class="jl-se-verb"/g)).toHaveLength(3);
+    expect(html).toContain("click #save then wait");
+    expect(html).toContain('class="jl-se-heading-text"');
+    expect(html).toContain(">Done<");
     const editable = renderToStaticMarkup(React.createElement(StepEditor, { doc, onChange: () => undefined }));
     expect(editable).toContain("+ Add step");
-    expect(editable).toContain("jl-se-fix");
+    expect(editable).toContain('aria-label="Keyboard shortcuts"');
+    expect(editable.match(/<input class="jl-se-input/g)).toHaveLength(4);
   });
 
   test("roving tabindex: only the first row's controls are tabbable before focus", () => {
@@ -549,6 +567,113 @@ describe("read-only editor", () => {
     const inputs = [...html.matchAll(/<input[^>]*aria-label="Step \d+ instruction"[^>]*>/g)].map((match) => match[0]);
     expect(inputs).toHaveLength(3);
     expect(inputs.map((input) => /tabindex="0"/i.test(input))).toEqual([true, false, false]);
+  });
+});
+
+describe("presentation (roadmap §3.3)", () => {
+  const render = (props: Omit<Parameters<typeof StepEditor>[0], "onChange">) =>
+    renderToStaticMarkup(React.createElement(StepEditor, { onChange: () => undefined, ...props }));
+
+  test("a step row is ordinal + verb + instruction; plain steps carry no verb and the type chip waits for focus", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login\n[Act] click the Save button\n[Assert] the Saved toast is visible");
+    const html = render({ doc });
+    expect([...html.matchAll(/<div role="row"[^>]*data-type="(open|act|assert)"/g)].map((match) => match[1])).toEqual(["open", "act", "assert"]);
+    expect(html).toContain('<button type="button" class="jl-se-verb" data-type="open" title="Open" aria-label="Step type Open. Click to change, Alt+Up or Alt+Down from the step" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" tabindex="-1">Open</button>');
+    expect(html).toContain('class="jl-se-verb" data-type="assert"');
+    expect(html).toMatch(/class="jl-se-verb" data-type="assert"[^>]*>Assert</);
+    expect(html).toMatch(/<span class="jl-se-verb" data-type="act"[^>]*><\/span>/);
+    expect(html).not.toContain("jl-se-rail");
+    expect(html).not.toContain("jl-se-chip");
+    expect(html.match(/<span class="jl-se-num">\d<\/span>/g)).toEqual(['<span class="jl-se-num">1</span>', '<span class="jl-se-num">2</span>', '<span class="jl-se-num">3</span>']);
+    expect(html).toContain(">click the Save button<");
+  });
+
+  test("lint shows as one dot per row; messages and fixes stay hidden until the row is focused or hovered", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login\n[Act] click #submit-btn then open {missing}\n[Assert] the page is visible");
+    const html = render({ doc });
+    const dots = html.match(/<span class="jl-se-lintdot"[^>]*>/g) ?? [];
+    // The Act row has three warnings; the Assert row an info (no checkpoint); the Open row nothing.
+    expect(dots.map((dot) => dot.match(/data-severity="(\w+)"/)?.[1])).toEqual(["warning", "info"]);
+    expect(dots[0]).toContain('aria-label="3 lint findings"');
+    expect(dots[0]).toContain("Two intents in one step");
+    expect(html).not.toContain("jl-se-popover");
+    expect(html).not.toContain("jl-se-fix");
+    expect(html).toContain("3 warnings");
+  });
+
+  test("a checkpoint is a section header with the step count and one status chip from stepStatus", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login\n\n## Checkpoint: Signed in\n[Assert] the Dashboard heading is visible\n[Assert] the Sign out menu item is visible");
+    const steps = testCaseFromDoc(doc).steps;
+    const [open, first, second] = steps;
+    if (!open || !first || !second) throw new Error("expected three steps");
+    const passed = render({
+      doc,
+      stepStatus: {
+        [open.stepId]: { cache: "active", lastOutcome: "passed" },
+        [first.stepId]: { cache: null, lastOutcome: "passed" },
+        [second.stepId]: { cache: null, lastOutcome: "passed" }
+      }
+    });
+    expect(passed).toContain('class="jl-se-chip-status" data-outcome="passed"');
+    expect(passed).toContain('class="jl-se-section-count">2 steps<');
+    expect(passed).toContain('aria-label="Checkpoint title"');
+    const failed = render({ doc, stepStatus: { [first.stepId]: { cache: null, lastOutcome: "passed" }, [second.stepId]: { cache: null, lastOutcome: "failed" } } });
+    expect(failed).toContain('class="jl-se-chip-status" data-outcome="failed"');
+    expect(failed).not.toContain('class="jl-se-chip-status" data-outcome="passed"');
+    const none = render({ doc });
+    expect(none).not.toContain("jl-se-chip-status");
+  });
+
+  test("the trailing status cell renders only when it has something to show", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login\n[Assert] the page is visible");
+    const [open] = testCaseFromDoc(doc).steps;
+    if (!open) throw new Error("expected a step");
+    expect(render({ doc })).not.toContain("jl-se-status");
+    const cached = render({ doc, stepStatus: { [open.stepId]: { cache: "active", lastOutcome: "passed" } } });
+    expect(cached.match(/class="jl-se-status"/g)).toHaveLength(1);
+    expect(cached).toContain('aria-label="cached"');
+    expect(cached).toContain('class="jl-se-outcome" data-outcome="passed"');
+    const stale = render({ doc, stepStatus: { [open.stepId]: { cache: "stale", lastOutcome: null } } });
+    expect(stale).toContain('aria-label="stale"');
+    expect(stale).not.toContain("jl-se-outcome");
+  });
+
+  test("the ? button toggles the cheat sheet popover; the shortcut footer is gone", () => {
+    const doc = docFromTranscript("# Case\n\n[Open] /login");
+    const closed = render({ doc, helpOpen: false });
+    expect(closed).toContain('aria-label="Keyboard shortcuts" aria-haspopup="dialog" aria-expanded="false"');
+    expect(closed).not.toContain("jl-se-cheat");
+    expect(closed).not.toContain("jl-se-footer");
+    const open = render({ doc, helpOpen: true });
+    expect(open).toContain('aria-expanded="true"');
+    expect(open).toContain('class="jl-se-cheat" role="dialog"');
+    expect(open.match(/<kbd>/g)?.length ?? 0).toBeGreaterThanOrEqual(10);
+  });
+
+  test("empty editor shows one hint line and a ghost row", () => {
+    const html = render({ doc: emptyEditorDoc("Case") });
+    expect(html).toContain("Type what the user does, one step per line");
+    expect(html.match(/<div role="row"/g)).toHaveLength(1);
+    expect(html).toContain('data-blank="true"');
+    const readOnly = render({ doc: emptyEditorDoc("Case"), readOnly: true });
+    expect(readOnly).toContain("No steps");
+    expect(readOnly).not.toContain("Type what the user does");
+  });
+
+  test("macro rows keep their parameters inline and fold the expansion into a disclosure", () => {
+    const doc = docFromTranscript("# Case\n\n[Login: PCF_HQ_ADMIN]\n[Assert] the Dashboard heading is visible");
+    const html = render({ doc, macros: [loginMacro], macrosLoaded: true });
+    expect(html).toContain('data-type="login"');
+    expect(html).toContain(">PCF_HQ_ADMIN</button>");
+    expect(html).not.toContain("🔒");
+    expect(html).toContain('<details class="jl-se-expansion"><summary>↳ 3 steps</summary>');
+    expect(html).toContain('aria-label="Steps from macro Login"');
+    // Read-only: the chip sits inside the instruction's flow and the verb names the row, so no
+    // placeholder word follows the chip.
+    const readOnly = render({ doc, macros: [loginMacro], macrosLoaded: true, readOnly: true });
+    expect(readOnly).toMatch(/<span class="jl-se-verb" data-type="login"[^>]*>Login<\/span>/);
+    expect(readOnly).toContain('<div class="jl-se-display" data-empty="false"><span class="jl-se-params">PCF_HQ_ADMIN</span></div>');
+    expect(readOnly).not.toContain(">Login</div>");
   });
 });
 

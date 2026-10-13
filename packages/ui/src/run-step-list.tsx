@@ -13,7 +13,7 @@ export type RunStepListStep = {
   type: string;
   label: string;
   status: "pending" | "running" | "passed" | "failed" | "blocked" | "skipped";
-  mode: "agent" | "replayed" | "handoff" | "deterministic" | null;
+  mode: "agent" | "replayed" | "handoff" | "deterministic" | "api-replayed" | "api-handoff" | "query" | null;
   cacheReason: string | null;
   durationMs: number | null;
   videoOffsetMs: number | null;
@@ -55,7 +55,10 @@ const modeLabel: Record<NonNullable<RunStepListStep["mode"]>, string> = {
   agent: "agent",
   replayed: "replayed",
   handoff: "hand-off",
-  deterministic: "direct"
+  deterministic: "direct",
+  "api-replayed": "API replayed",
+  "api-handoff": "API hand-off",
+  query: "query"
 };
 
 export function formatStepDuration(ms: number | null): string {

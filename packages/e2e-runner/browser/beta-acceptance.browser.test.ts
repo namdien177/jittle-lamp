@@ -140,7 +140,7 @@ describe("beta definition of done (handover §6)", () => {
     const run1 = await runDetail(first.body.runId);
     expect(run1).toMatchObject({ status: "completed", outcome: "passed" });
     expect(run1.subscribers.length).toBeGreaterThanOrEqual(2);
-    expect(run1.metrics.stepsAgent).toBe(4);
+    expect(run1.metrics.stepsAgent).toBe(3);
     expect(run1.evidenceId).not.toBeNull();
 
     // A third request within the dedupe window attaches to the finished run unless forced.
@@ -152,15 +152,15 @@ describe("beta definition of done (handover §6)", () => {
     await runWorkerOnce();
     const run2 = await runDetail(forced.body.runId);
     expect(run2.outcome).toBe("passed");
-    expect(run2.metrics.stepsReplayed).toBe(4);
+    expect(run2.metrics.stepsReplayed).toBe(3);
     const acts = run2.steps.filter((step) => step.type === "act");
     expect(acts.every((step) => step.mode === "replayed" && step.usage.modelCalls === 0)).toBe(true);
   }, 240_000);
 
   test("each run shows model ids, tokens, cost and duration; the case shows ten-run averages", async () => {
     const runs = await api<{ items: Array<{ id: string; metrics: TestRunDetail["metrics"] }> }>(`/test-cases/${caseId}/runs`, fx.qa.token);
-    const agentRun = runs.body.items.find((run) => run.metrics.stepsAgent === 4);
-    expect(agentRun?.metrics).toMatchObject({ modelId: expect.stringContaining("mock"), stepsTotal: 10 });
+    const agentRun = runs.body.items.find((run) => run.metrics.stepsAgent === 3);
+    expect(agentRun?.metrics).toMatchObject({ modelId: expect.stringContaining("mock"), stepsTotal: 9 });
     expect(agentRun?.metrics.inputTokens).toBeGreaterThan(0);
     expect(agentRun?.metrics.costUsd).toBeGreaterThan(0);
     expect(agentRun?.metrics.durationMs).toBeGreaterThan(0);
@@ -169,7 +169,8 @@ describe("beta definition of done (handover §6)", () => {
     expect(detail.body.stats.passRate).toBe(1);
     expect(detail.body.stats.avgDurationMs).toBeGreaterThan(0);
     expect(detail.body.stats.avgCostUsd).toBeGreaterThan(0);
-    expect(detail.body.stats.cachedSteps).toBe(4);
+    // Three UI scripts plus the two assert checks (roadmap 2026-10-13 §4.1).
+    expect(detail.body.stats.cachedSteps).toBe(5);
   });
 
   test("duplicating a case with find/replace replays unchanged steps on its first run", async () => {
@@ -178,12 +179,15 @@ describe("beta definition of done (handover §6)", () => {
     });
     expect(duplicated.status).toBe(201);
     expect(duplicated.body.testCase.title).toBe("Admin sign-out returns a clean login form");
-    expect(duplicated.body.inheritedScripts).toBe(4);
+    // Three UI scripts plus the two assert-check rows; the duplicate copies the rows without
+    // their kind and check (see STATUS.md 2026-10-13 phase B follow-ups), so the first run
+    // records the checks again while the acts replay.
+    expect(duplicated.body.inheritedScripts).toBe(5);
     const run = await api<CreateTestRunResponse>(`/test-cases/${duplicated.body.testCase.id}/runs`, fx.qa.token, { environmentId });
     await runWorkerOnce();
     const detail = await runDetail(run.body.runId);
     expect(detail.outcome).toBe("passed");
-    expect(detail.metrics.stepsReplayed).toBe(4);
+    expect(detail.metrics.stepsReplayed).toBe(3);
     expect(detail.metrics.stepsAgent).toBe(0);
   }, 180_000);
 

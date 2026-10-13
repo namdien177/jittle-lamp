@@ -1,288 +1,443 @@
 import React from "react";
-import { ArrowLeft, ArrowRight, Check, ChevronRight, Lightbulb, Pencil } from "lucide-react";
-import { parseTranscriptDocument, serializeTestCase } from "@jittle-lamp/shared";
-import { TestCaseEditor, emptyEditorDoc, isMacPlatform, serializeEditorDoc, type EditorDoc, type TestCaseEditorMode } from "@jittle-lamp/ui";
+import { useNavigate } from "react-router";
+import { ArrowLeft, ArrowRight, Pencil, Sparkles, X } from "lucide-react";
+import type { DraftTestCaseResponse, LintFinding } from "@jittle-lamp/shared";
 
-import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { Kbd } from "../components/ui/kbd";
+import { ConfirmDialog, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Input } from "../components/ui/input";
+import { SimpleSelect } from "../components/ui/select";
+import { Spinner } from "../components/ui/spinner";
+import { Textarea } from "../components/ui/textarea";
+import { Hint } from "../components/ui/tooltip";
 import { cn } from "../lib/cn";
 import { useToast } from "../toast";
-import { CaseDetailsForm } from "./case-details-form";
-import { SimilarHint, useEditorCatalog } from "./editor-support";
-import { useCreateTestCase } from "./queries";
+import {
+  defaultEnvironmentId,
+  describeDraftError,
+  draftRows,
+  filterStartFromCases,
+  lintSummary,
+  loadLastEnvironment,
+  manualTranscript,
+  storeLastEnvironment,
+  withTitle,
+  type StartFromCase
+} from "./draft-model";
+import { useTestOrgId } from "./org";
+import { useCreateTestCase, useCreateTestRun, useDraftTestCase, useLinkableCases, useTestEnvironments } from "./queries";
+import { describeRunRequestError } from "./run-errors";
 
-// New case (`c`) in two steps: the details (what the case proves and where it runs), then the
-// instructions on their own page. Pasting a multi-case document in Text view offers to split it
-// into one case per `# title`.
+// "What do you want to test?" (roadmap §3.2): one screen from the New button, `c` and the empty
+// state. Plain text in; either a placeholder case opens in the editor ("Write steps myself"), or
+// the act model drafts the steps, the draft is shown in place, and "Save and run" creates the
+// case and queues its first run (decision 3: a watched authoring run saves the case as active).
 
-type Step = "details" | "steps";
+export type QuickCreatePhase = "compose" | "drafting" | "drafted" | "saving" | "queueing";
 
-const STEPS: readonly { id: Step; label: string }[] = [
-  { id: "details", label: "Details" },
-  { id: "steps", label: "Instructions" }
-];
+export type QuickCreateDraft = Pick<DraftTestCaseResponse, "transcript" | "lint" | "similar"> & { title: string };
 
-const writingTips = ["One intent per step", "Act first, then Assert what should be true", "Name what you see on screen, not selectors"];
+export type QuickCreateViewProps = {
+  text: string;
+  onTextChange: (text: string) => void;
+  environments: ReadonlyArray<{ id: string; name: string }>;
+  environmentId: string;
+  onEnvironmentChange: (id: string) => void;
+  startFromCases: readonly StartFromCase[];
+  startFrom: StartFromCase | null;
+  onStartFromChange: (testCase: StartFromCase | null) => void;
+  phase: QuickCreatePhase;
+  draft: QuickCreateDraft | null;
+  onDraftTitleChange: (title: string) => void;
+  error: string | null;
+  onWriteMyself: () => void;
+  onDraft: () => void;
+  onBackToText: () => void;
+  onSaveAndRun: () => void;
+  onClose: () => void;
+};
 
-export function QuickCreateDialog(props: { onClose: () => void; onCreated: (ids: string[]) => void }): React.JSX.Element {
+const placeholder = ["Login as PCF HQ admin, open the registration list,", "open the first pending application and approve it.", "The status should change to Approved."].join("\n");
+
+export function QuickCreateDialog(props: { onClose: () => void }): React.JSX.Element {
   const toast = useToast();
-  const catalog = useEditorCatalog();
+  const navigate = useNavigate();
+  const orgId = useTestOrgId();
+  const environmentsQuery = useTestEnvironments();
+  const casesQuery = useLinkableCases();
+  const draftMutation = useDraftTestCase();
   const create = useCreateTestCase();
-  const [doc, setDoc] = React.useState<EditorDoc>(() => emptyEditorDoc());
-  const [step, setStep] = React.useState<Step>("details");
-  const [mode, setMode] = React.useState<TestCaseEditorMode>("steps");
-  const [showMore, setShowMore] = React.useState(false);
-  const [titleTouched, setTitleTouched] = React.useState(false);
-  const [split, setSplit] = React.useState<{ document: string; cases: number } | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  const environment = catalog.environmentFor(doc, null);
-  const hasTitle = doc.title.trim().length > 0;
+  const createRun = useCreateTestRun();
+  const storage = typeof window === "undefined" ? null : window.localStorage;
 
-  const createOne = async (transcript: string, environmentId: string | null) =>
-    create.mutateAsync({ transcript, status: "active", ...(environmentId ? { environmentId } : {}) });
+  const [text, setText] = React.useState("");
+  const [environmentId, setEnvironmentId] = React.useState("");
+  const [startFrom, setStartFrom] = React.useState<StartFromCase | null>(null);
+  const [phase, setPhase] = React.useState<QuickCreatePhase>("compose");
+  const [draft, setDraft] = React.useState<QuickCreateDraft | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = React.useState(false);
 
-  const next = () => {
-    setTitleTouched(true);
-    if (hasTitle) setStep("steps");
+  const environments = React.useMemo(() => (environmentsQuery.data ?? []).map((environment) => ({ id: environment.id, name: environment.name })), [environmentsQuery.data]);
+  const startFromCases = casesQuery.data?.cases ?? [];
+
+  // Opens on the last used environment of this organisation.
+  React.useEffect(() => {
+    if (environmentId || environments.length === 0) return;
+    setEnvironmentId(defaultEnvironmentId(environments, loadLastEnvironment(storage, orgId)));
+  }, [environments, environmentId, orgId, storage]);
+
+  const chooseEnvironment = (id: string) => {
+    setEnvironmentId(id);
+    storeLastEnvironment(storage, orgId, id);
   };
 
-  const submit = async () => {
+  const busy = phase === "drafting" || phase === "saving" || phase === "queueing";
+  const hasText = text.trim().length > 0;
+
+  const requestClose = () => {
     if (busy) return;
-    if (!hasTitle) {
-      setTitleTouched(true);
-      setStep("details");
+    if (hasText && phase === "compose") {
+      setConfirmDiscard(true);
       return;
     }
-    setBusy(true);
+    props.onClose();
+  };
+
+  const writeMyself = async () => {
+    if (!hasText || busy) return;
+    setError(null);
+    setPhase("saving");
     try {
-      const created = await createOne(serializeEditorDoc(doc), environment?.id ?? null);
-      toast.success(`Created ${created.key}`, created.title);
-      props.onCreated([created.id]);
-    } catch (error) {
-      toast.error("Create failed", error instanceof Error ? error.message : undefined);
-    } finally {
-      setBusy(false);
+      const created = await create.mutateAsync({ transcript: manualTranscript(text), status: "active", source: "manual", ...(environmentId ? { environmentId } : {}) });
+      toast.success("Case saved", created.key);
+      props.onClose();
+      navigate(`/test-cases/${encodeURIComponent(created.id)}?edit=1`);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not save the case.");
+      setPhase("compose");
     }
   };
 
-  const createSplit = async () => {
-    if (!split || busy) return;
-    setBusy(true);
-    const ids: string[] = [];
+  const draftWithAi = async () => {
+    if (!hasText || busy || !environmentId) return;
+    setError(null);
+    setPhase("drafting");
     try {
-      for (const testCase of parseTranscriptDocument(split.document).cases) {
-        const env = testCase.metadata.env ? catalog.environments.find((candidate) => candidate.name === testCase.metadata.env) : undefined;
-        ids.push((await createOne(serializeTestCase(testCase), env?.id ?? null)).id);
-      }
-      toast.success(`Created ${ids.length} cases`);
-      props.onCreated(ids);
-    } catch (error) {
-      toast.error(`Created ${ids.length} of ${split.cases}`, error instanceof Error ? error.message : undefined);
-      if (ids.length > 0) props.onCreated(ids);
-    } finally {
-      setBusy(false);
+      const result = await draftMutation.mutateAsync({ text, environmentId, ...(startFrom ? { startFromCaseId: startFrom.key } : {}) });
+      setDraft({ title: result.title, transcript: result.transcript, lint: result.lint, similar: result.similar });
+      setPhase("drafted");
+    } catch (failure) {
+      setError(describeDraftError(failure));
+      setPhase("compose");
     }
   };
 
-  const extras = [doc.metadata.links.length > 0, doc.metadata.params.length > 0, doc.dataset !== null].filter(Boolean).length;
+  const saveAndRun = async () => {
+    if (!draft || busy) return;
+    setError(null);
+    setPhase("saving");
+    let caseId: string;
+    try {
+      const created = await create.mutateAsync({ transcript: withTitle(draft.transcript, draft.title), status: "active", source: "ai", environmentId });
+      caseId = created.id;
+      toast.success("Case saved", created.key);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not save the case.");
+      setPhase("drafted");
+      return;
+    }
+    setPhase("queueing");
+    try {
+      const run = await createRun.mutateAsync({ testCaseId: caseId, environmentId, cacheMode: "read-write", trigger: "manual" });
+      toast.success(run.attached ? "Attached to a queued run" : `Run queued${run.queuePosition === null ? "" : ` (position ${run.queuePosition + 1})`}`);
+    } catch (failure) {
+      // The case exists; the page offers Run again.
+      toast.error("Run request failed", describeRunRequestError(failure).message);
+    }
+    props.onClose();
+    navigate(`/test-cases/${encodeURIComponent(caseId)}`);
+  };
 
   return (
-    <Dialog
-      open
-      disablePointerDismissal
-      onOpenChange={(open) => {
-        if (!open && !busy) props.onClose();
-      }}
-    >
-      <DialogContent size={step === "details" ? "lg" : "xl"} className="jl-tc-scope transition-[max-width] duration-200">
-        <DialogHeader className="gap-3">
-          <Stepper current={step} onSelect={(target) => (target === "steps" ? next() : setStep(target))} />
-          <div className="space-y-1">
-            <DialogTitle>{step === "details" ? "New test case" : "Write the instructions"}</DialogTitle>
-            <DialogDescription>
-              {step === "details" ? "Say what the case proves and where it runs. Steps come next." : "The agent follows these steps like a user and checks every Assert."}
-            </DialogDescription>
-          </div>
-        </DialogHeader>
-
-        <DialogBody
-          // The instructions page keeps a steady height while rows are added.
-          className={cn("gap-5 pt-2", step === "steps" && "min-h-[min(520px,62vh)]")}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-              event.preventDefault();
-              void submit();
-            }
-          }}
-        >
-          {step === "details" ? (
-            <>
-              <CaseDetailsForm
-                layout="stacked"
-                fields={["title", "environment", "tags", "description"]}
-                doc={doc}
-                onChange={setDoc}
-                environments={catalog.environments}
-                tagSuggestions={catalog.tagSuggestions}
-                autoFocusTitle
-                titleError={titleTouched && !hasTitle ? "Add a title: it says what the case proves." : undefined}
-                titleAccessory={<SimilarHint title={doc.title} />}
-                onTitleEnter={next}
-              />
-              <div className="rounded-lg border border-border">
-                <button
-                  type="button"
-                  aria-expanded={showMore}
-                  onClick={() => setShowMore((value) => !value)}
-                  className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent/60"
-                >
-                  <ChevronRight aria-hidden className={cn("size-4 text-muted-foreground transition-transform duration-150", showMore && "rotate-90")} />
-                  Links, params and dataset
-                  <span className="font-normal text-muted-foreground">{extras > 0 ? `${extras} set` : "Optional"}</span>
-                </button>
-                {showMore ? (
-                  <div className="border-t border-border p-4">
-                    <CaseDetailsForm
-                      layout="stacked"
-                      fields={["links", "params", "dataset"]}
-                      doc={doc}
-                      onChange={setDoc}
-                      environments={catalog.environments}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{doc.title}</p>
-                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    <span>{environment ? `Runs on ${environment.name}` : "No default environment"}</span>
-                    {doc.metadata.tags.slice(0, 4).map((tag) => (
-                      <Badge key={tag} variant="outline" className="font-normal">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setStep("details")}>
-                  <Pencil aria-hidden />
-                  Edit details
-                </Button>
-              </div>
-
-              <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Writing tips">
-                <Lightbulb aria-hidden className="size-3.5 text-warning" />
-                {writingTips.map((tip) => (
-                  <li key={tip} className="flex items-center gap-1.5">
-                    <Check aria-hidden className="size-3 text-primary" />
-                    {tip}
-                  </li>
-                ))}
-              </ul>
-
-              {split ? (
-                <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm">
-                  <span className="mr-auto">The pasted document holds {split.cases} cases.</span>
-                  <Button size="sm" variant="ghost" onClick={() => setSplit(null)} disabled={busy}>
-                    Dismiss
-                  </Button>
-                  <Button size="sm" onClick={() => void createSplit()} disabled={busy}>
-                    Split into {split.cases} cases
-                  </Button>
-                </div>
-              ) : null}
-
-              <TestCaseEditor
-                doc={doc}
-                onChange={setDoc}
-                mode={mode}
-                onModeChange={setMode}
-                autoFocus
-                macros={catalog.macros}
-                macrosLoaded={catalog.macrosLoaded}
-                cases={catalog.cases}
-                casesLoaded={catalog.casesLoaded}
-                credentials={catalog.credentials}
-                environmentVariables={environment ? Object.keys(environment.variables) : []}
-                environmentName={environment?.name ?? null}
-                onMultiCasePaste={(document, cases) => setSplit({ document, cases })}
-              />
-            </>
-          )}
-        </DialogBody>
-
-        <DialogFooter className="items-center sm:justify-between">
-          {step === "details" ? (
-            <>
-              <span className="hidden text-xs text-muted-foreground sm:inline">
-                <Kbd>↵</Kbd> in the title goes to the next step
-              </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={props.onClose}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={next}>
-                  Next: instructions
-                  <ArrowRight aria-hidden />
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <Button variant="ghost" size="sm" onClick={() => setStep("details")} disabled={busy}>
-                <ArrowLeft aria-hidden />
-                Back
-              </Button>
-              <Button size="sm" onClick={() => void submit()} disabled={busy}>
-                {busy ? "Creating…" : "Create case"}
-                <Kbd className="border-primary-foreground/20 bg-primary-foreground/15 text-primary-foreground">{isMacPlatform() ? "⌘S" : "Ctrl+S"}</Kbd>
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog
+        open
+        disablePointerDismissal
+        onOpenChange={(open) => {
+          if (!open) requestClose();
+        }}
+      >
+        <DialogContent size={phase === "drafted" || phase === "queueing" ? "xl" : "lg"} showCloseButton={false} className="jl-tc-scope jl-tc-dialog">
+          <QuickCreateView
+            text={text}
+            onTextChange={setText}
+            environments={environments}
+            environmentId={environmentId}
+            onEnvironmentChange={chooseEnvironment}
+            startFromCases={startFromCases}
+            startFrom={startFrom}
+            onStartFromChange={setStartFrom}
+            phase={phase}
+            draft={draft}
+            onDraftTitleChange={(title) => setDraft((current) => (current ? { ...current, title } : current))}
+            error={error}
+            onWriteMyself={() => void writeMyself()}
+            onDraft={() => void draftWithAi()}
+            onBackToText={() => {
+              setPhase("compose");
+              setError(null);
+            }}
+            onSaveAndRun={() => void saveAndRun()}
+            onClose={requestClose}
+          />
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="Discard what you typed?"
+        confirmLabel="Discard"
+        destructive
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          props.onClose();
+        }}
+      />
+    </>
   );
 }
 
-function Stepper(props: { current: Step; onSelect: (step: Step) => void }): React.JSX.Element {
-  const currentIndex = STEPS.findIndex((item) => item.id === props.current);
+// The dialog's content without the Dialog root, so it renders in tests and in any host.
+export function QuickCreateView(props: QuickCreateViewProps): React.JSX.Element {
+  const { phase, draft } = props;
+  const busy = phase === "drafting" || phase === "saving" || phase === "queueing";
+  const hasText = props.text.trim().length > 0;
+  const showDraft = draft !== null && phase !== "compose" && phase !== "drafting";
+
   return (
-    <ol className="flex items-center gap-2 text-xs" aria-label="Progress">
-      {STEPS.map((item, index) => {
-        const state = index < currentIndex ? "done" : index === currentIndex ? "current" : "upcoming";
-        return (
-          <li key={item.id} className="flex items-center gap-2">
-            {index > 0 ? <span aria-hidden className="h-px w-6 bg-border" /> : null}
-            <button
-              type="button"
-              aria-current={state === "current" ? "step" : undefined}
-              onClick={() => props.onSelect(item.id)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md py-0.5 pr-1.5 font-medium transition-colors",
-                state === "current" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+    <>
+      <DialogHeader className="pr-5">
+        <div className="flex items-center justify-between gap-3">
+          <DialogTitle>{showDraft ? "Review the draft" : "What do you want to test?"}</DialogTitle>
+          <Hint label="Close">
+            <Button variant="ghost" size="icon-sm" className="jl-tc-press -mr-1" aria-label="Close" onClick={props.onClose} disabled={busy}>
+              <X aria-hidden />
+            </Button>
+          </Hint>
+        </div>
+      </DialogHeader>
+
+      <DialogBody className="gap-4 pt-2">
+        {showDraft && draft ? (
+          <DraftView draft={draft} onTitleChange={props.onDraftTitleChange} disabled={busy} />
+        ) : (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <Textarea
+                autoFocus
+                value={props.text}
+                disabled={busy}
+                maxLength={8000}
+                rows={6}
+                placeholder={placeholder}
+                aria-label="Describe the test"
+                aria-invalid={props.error ? true : undefined}
+                className="min-h-[9.5rem] resize-y text-base leading-relaxed"
+                onChange={(event) => props.onTextChange(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    props.onDraft();
+                  }
+                }}
+              />
+              {props.error ? (
+                <p role="alert" className="jl-tc-enter text-sm text-destructive">
+                  {props.error}
+                </p>
+              ) : null}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                Environment
+                <SimpleSelect
+                  ariaLabel="Environment"
+                  value={props.environmentId}
+                  disabled={busy || props.environments.length === 0}
+                  onValueChange={props.onEnvironmentChange}
+                  options={props.environments.length > 0 ? props.environments.map((environment) => ({ value: environment.id, label: environment.name })) : [{ value: "", label: "No environment yet" }]}
+                />
+              </label>
+              <StartFromPicker cases={props.startFromCases} value={props.startFrom} onChange={props.onStartFromChange} disabled={busy} />
+            </div>
+          </>
+        )}
+      </DialogBody>
+
+      <DialogFooter className="items-center sm:justify-between">
+        {showDraft ? (
+          <>
+            <Button variant="ghost" size="sm" className="jl-tc-press" onClick={props.onBackToText} disabled={busy}>
+              <ArrowLeft aria-hidden /> Back
+            </Button>
+            <Button size="sm" className="jl-tc-press" onClick={props.onSaveAndRun} disabled={busy} aria-busy={busy}>
+              {phase === "saving" ? <PendingLabel>Saving…</PendingLabel> : phase === "queueing" ? <PendingLabel>Queueing…</PendingLabel> : "Save and run"}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="outline" size="sm" className="jl-tc-press" onClick={props.onWriteMyself} disabled={busy || !hasText} aria-busy={phase === "saving"}>
+              {phase === "saving" ? <PendingLabel>Saving…</PendingLabel> : (
+                <>
+                  <Pencil aria-hidden /> Write steps myself
+                </>
               )}
-            >
-              <span
-                className={cn(
-                  "grid size-5 place-items-center rounded-full border text-xs tabular-nums",
-                  state === "current" && "border-primary bg-primary text-primary-foreground",
-                  state === "done" && "border-primary/40 bg-primary/10 text-brand-300",
-                  state === "upcoming" && "border-border text-muted-foreground"
-                )}
+            </Button>
+            <Button size="sm" className="jl-tc-press" onClick={props.onDraft} disabled={busy || !hasText || !props.environmentId} aria-busy={phase === "drafting"} aria-keyshortcuts="Meta+Enter">
+              {phase === "drafting" ? <PendingLabel>Drafting…</PendingLabel> : (
+                <>
+                  <Sparkles aria-hidden /> Run it with AI <ArrowRight aria-hidden />
+                </>
+              )}
+            </Button>
+          </>
+        )}
+      </DialogFooter>
+    </>
+  );
+}
+
+function PendingLabel(props: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <>
+      <Spinner className="jl-tc-spin size-3.5" /> {props.children}
+    </>
+  );
+}
+
+// Search by key or title; the chosen case shows as a chip the draft starts from.
+function StartFromPicker(props: { cases: readonly StartFromCase[]; value: StartFromCase | null; onChange: (value: StartFromCase | null) => void; disabled: boolean }): React.JSX.Element {
+  const [query, setQuery] = React.useState("");
+  const [open, setOpen] = React.useState(false);
+  const matches = filterStartFromCases(props.cases, query);
+  const listId = React.useId();
+  return (
+    <div className="relative flex flex-col gap-1.5 text-xs text-muted-foreground">
+      <span>Start from</span>
+      {props.value ? (
+        <span className="flex h-8 items-center gap-2 rounded-md border border-border bg-secondary/60 px-2 text-sm text-foreground">
+          <span className="font-mono text-xs text-muted-foreground">{props.value.key}</span>
+          <span className="min-w-0 flex-1 truncate">{props.value.title}</span>
+          <button type="button" className="jl-tc-press rounded text-muted-foreground hover:text-foreground" aria-label="Clear start from" onClick={() => props.onChange(null)} disabled={props.disabled}>
+            <X className="size-3.5" aria-hidden />
+          </button>
+        </span>
+      ) : (
+        <Input
+          value={query}
+          disabled={props.disabled || props.cases.length === 0}
+          placeholder={props.cases.length === 0 ? "No cases yet" : "Optional"}
+          aria-label="Start from an existing case"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          onChange={(event) => {
+            setQuery(event.currentTarget.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              setOpen(false);
+            }
+            if (event.key === "Enter" && matches[0]) {
+              event.preventDefault();
+              props.onChange(matches[0]);
+              setOpen(false);
+            }
+          }}
+        />
+      )}
+      {open && !props.value && matches.length > 0 ? (
+        <ul id={listId} role="listbox" className="jl-tc-enter absolute left-0 right-0 top-[calc(100%+4px)] z-50 flex flex-col gap-0.5 rounded-md border border-border-strong bg-popover p-1 shadow-pop">
+          {matches.map((testCase) => (
+            <li key={testCase.key} role="option" aria-selected={false}>
+              <button
+                type="button"
+                className="jl-tc-press jl-tc-hover flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  props.onChange(testCase);
+                  setOpen(false);
+                }}
               >
-                {state === "done" ? <Check className="size-3" aria-hidden /> : index + 1}
-              </span>
-              {item.label}
-            </button>
-          </li>
-        );
-      })}
-    </ol>
+                <span className="font-mono text-xs text-muted-foreground">{testCase.key}</span>
+                <span className="min-w-0 flex-1 truncate">{testCase.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+// The draft as a read-only step list: a colour rail per type, the instruction as the only text,
+// checkpoints as section headers, rows staggered in (§3.7).
+function DraftView(props: { draft: QuickCreateDraft; onTitleChange: (title: string) => void; disabled: boolean }): React.JSX.Element {
+  const rows = React.useMemo(() => draftRows(props.draft.transcript), [props.draft.transcript]);
+  const summary = lintSummary(props.draft.lint);
+  const errors = props.draft.lint.filter((finding) => finding.severity === "error").length;
+  return (
+    <div className="flex flex-col gap-3">
+      <Input
+        value={props.draft.title}
+        disabled={props.disabled}
+        aria-label="Title"
+        className="h-9 text-base font-medium"
+        onChange={(event) => props.onTitleChange(event.currentTarget.value)}
+      />
+      <ol className="jl-tc-stagger flex flex-col gap-0.5" aria-label="Draft steps">
+        {rows.map((row, index) =>
+          row.kind === "checkpoint" ? (
+            <li key={row.id} className="mt-2 px-1 pb-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground" style={{ "--i": index } as React.CSSProperties}>
+              {row.title}
+            </li>
+          ) : (
+            <li key={row.id} className={cn("flex min-h-10 items-center gap-3 rounded-md px-1 py-1.5", row.disabled && "opacity-50")} style={{ "--i": index } as React.CSSProperties}>
+              <Hint label={row.tag}>
+                <span className="jl-tc-rail h-7 w-1.5 shrink-0 rounded-full" data-type={row.type} aria-label={row.tag} role="img" />
+              </Hint>
+              <span className="min-w-0 flex-1 text-base leading-snug text-foreground">{row.text}</span>
+            </li>
+          )
+        )}
+      </ol>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span>{rows.filter((row) => row.kind === "step").length} steps</span>
+        {summary ? (
+          <Hint label={<LintList lint={props.draft.lint} />}>
+            <span className={cn("cursor-default", errors > 0 ? "text-destructive" : "text-warning")}>{summary}</span>
+          </Hint>
+        ) : null}
+        {props.draft.similar.length > 0 ? <span>{props.draft.similar.length} similar: {props.draft.similar.map((item) => item.key).join(", ")}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function LintList(props: { lint: readonly LintFinding[] }): React.JSX.Element {
+  return (
+    <ul className="flex max-w-xs flex-col gap-1">
+      {props.lint.slice(0, 8).map((finding, index) => (
+        <li key={`${finding.ruleId}-${index}`} className={finding.severity === "error" ? "text-destructive" : ""}>
+          {finding.message}
+        </li>
+      ))}
+    </ul>
   );
 }

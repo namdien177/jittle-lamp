@@ -262,7 +262,7 @@ describe("desktop test API client", () => {
     expect(calls[2]).toMatchObject({
       url: "https://api.example.test/test-cases/case-0412/runs",
       method: "POST",
-      body: { environmentId: "env-pcf-uat", force: true, params: {}, cacheMode: "read-write", trigger: "manual", dataset: false }
+      body: { environmentId: "env-pcf-uat", force: true, params: {}, executionMode: "full", trigger: "manual", dataset: false }
     });
     expect(await api.listEnvironments()).toEqual([fixtureEnvironment()]);
   });

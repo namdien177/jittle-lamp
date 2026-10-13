@@ -19,6 +19,7 @@ import {
   testCaseDetailSchema,
   testCaseListResponseSchema,
   testCredentialSchema,
+  testQuerySchema,
   testEnvironmentSchema,
   testMacroSchema,
   testRunSettingsSchema,
@@ -109,6 +110,10 @@ export type EnvironmentInput = {
   // Omitted keeps the stored locale (the Variables page saves only variables).
   dataLocale?: string | null;
   notes: string | null;
+  // API replay configuration (roadmap §2.5); omitted keeps the stored values.
+  apiOrigins?: string[];
+  openapiUrl?: string | null;
+  apiPolicy?: { allowedPaths: string[]; maxRequestsPerStep: number; rateLimitPerSecond: number };
 };
 
 export type CredentialInput = {
@@ -120,6 +125,9 @@ export type CredentialInput = {
   // Write-only: a string sets the value, null removes the field, omitted keeps it.
   secretFields: Record<string, string | null>;
 };
+
+// Saved query per postgres profile (roadmap 2026-10-13 §5.2 tier 3).
+export type QueryInput = { credentialId: string; name: string; sqlText: string; params: Array<{ name: string; kind: "text" | "number" }> };
 
 export type MacroInput = {
   name: string;
@@ -186,6 +194,12 @@ export const testAdminApi = {
     request(getToken, `/test-credentials/${id(credentialId)}/rotate`, oneOf(testCredentialSchema, "credential"), json("POST", { secretFields })),
   deleteCredential: (getToken: FetchToken, credentialId: string) =>
     request(getToken, `/test-credentials/${id(credentialId)}`, okSchema, { method: "DELETE" }),
+  // Saved queries ----------------------------------------------------------------------------
+  listQueries: (getToken: FetchToken) => request(getToken, "/test-queries", listOf(testQuerySchema, "queries")),
+  createQuery: (getToken: FetchToken, body: QueryInput) => request(getToken, "/test-queries", oneOf(testQuerySchema, "query"), json("POST", body)),
+  updateQuery: (getToken: FetchToken, queryId: string, body: QueryInput) =>
+    request(getToken, `/test-queries/${id(queryId)}`, oneOf(testQuerySchema, "query"), json("PATCH", body)),
+  deleteQuery: (getToken: FetchToken, queryId: string) => request(getToken, `/test-queries/${id(queryId)}`, okSchema, { method: "DELETE" }),
 
   // Macros ------------------------------------------------------------------------------------
   listMacros: (getToken: FetchToken) => request(getToken, "/test-macros", listOf(testMacroSchema, "macros")),
