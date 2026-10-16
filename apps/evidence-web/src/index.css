@@ -15,6 +15,7 @@
    embedded evidence viewer keeps review parity with the desktop app, so its CSS
    stays. */
 @import "./legacy.css" layer(legacy);
+@import "./landing.css" layer(components);
 
 @source "./**/*.{ts,tsx}";
 
