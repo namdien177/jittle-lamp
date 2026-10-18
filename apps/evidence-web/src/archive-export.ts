@@ -15,11 +15,13 @@ export function buildReviewedArchive(input: {
   mergeGroups: ActionMergeGroup[];
   now?: Date;
 }): SessionArchive {
-  return sessionArchiveSchema.parse({
+  // The loaded archive is already parsed, so the viewer only swaps the merge groups in. Exports
+  // validate the result once more (WebReviewedSessionZipExporter).
+  return {
     ...input.archive,
     updatedAt: (input.now ?? new Date()).toISOString(),
     annotations: replaceMergeGroups(input.archive.annotations, input.mergeGroups)
-  });
+  };
 }
 
 export type ReviewedSessionZipInput = {
@@ -31,7 +33,7 @@ export type ReviewedSessionZipInput = {
 
 export class WebReviewedSessionZipExporter implements SessionExporter<ReviewedSessionZipInput, Uint8Array> {
   export(input: ReviewedSessionZipInput): Uint8Array {
-    const archive = buildReviewedArchive(
+    const archive = sessionArchiveSchema.parse(buildReviewedArchive(
       input.now
         ? {
             archive: input.archive,
@@ -42,7 +44,7 @@ export class WebReviewedSessionZipExporter implements SessionExporter<ReviewedSe
             archive: input.archive,
             mergeGroups: input.mergeGroups
           }
-    );
+    ));
 
     return zipSync({
       [sessionArchiveFileName]: new TextEncoder().encode(`${JSON.stringify(archive, null, 2)}\n`),

@@ -64,6 +64,8 @@ const optionalNetworkCapturePermissions: chrome.permissions.Permissions = {
 const networkBodyCaptureByteLimit = 64 * 1024;
 const networkBodyFetchByteLimit = 512 * 1024;
 const networkDuplicateWindowMs = 1_000;
+// Only their URL, status, timing and size are recorded (see compactSessionArchive in shared).
+const staticAssetSubtypes = new Set<NetworkSubtype>(["stylesheet", "script", "image", "font", "media"]);
 const pendingRecoveryTimeoutMs = 15_000;
 const pendingRecoveryAlarmPrefix = "jittle-lamp.pending-recovery.";
 const maxRecordingDurationMs = 5 * 60 * 1000;
@@ -2763,10 +2765,12 @@ function isDuplicateNetworkEvent(
   return hasCrossSourceDuplicate;
 }
 
+// The page probe reports URLs without their query string while CDP and webRequest keep it, so
+// both sides are compared without it; otherwise every request with a query is stored twice.
 function networkEventFingerprint(payload: NetworkEventPayload): string {
   return [
     payload.method.toUpperCase(),
-    payload.url,
+    sanitizeCapturedUrl(payload.url),
     payload.status?.toString() ?? "",
     payload.failureText ?? ""
   ].join("\n");
@@ -2881,6 +2885,17 @@ async function captureResponseBody(
 
   const declaredLength = declaredBodyLength(requestState.responseHeaders);
 
+  if (requestState.subtype && staticAssetSubtypes.has(requestState.subtype)) {
+    const mimeType = requestState.responseMimeType;
+
+    return {
+      disposition: "omitted",
+      ...(mimeType ? { mimeType } : {}),
+      ...(declaredLength !== undefined ? { byteLength: declaredLength, omittedByteLength: declaredLength } : {}),
+      reason: "Static asset bodies are not kept in the archive."
+    };
+  }
+
   if (declaredLength !== undefined && declaredLength > networkBodyFetchByteLimit) {
     const mimeType = requestState.responseMimeType;
 
@@ -2899,6 +2914,19 @@ async function captureResponseBody(
       "Network.getResponseBody",
       { requestId }
     )) as CdpResponseBodyResult;
+
+    if (result.base64Encoded) {
+      const byteLength = estimateBase64ByteLength(result.body ?? "");
+      const mimeType = requestState.responseMimeType;
+
+      return {
+        disposition: "omitted",
+        ...(mimeType ? { mimeType } : {}),
+        byteLength,
+        omittedByteLength: byteLength,
+        reason: "Binary bodies are not kept in the archive."
+      };
+    }
 
     return createBodyCapture({
       value: result.body ?? "",

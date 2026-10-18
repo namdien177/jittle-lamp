@@ -30,6 +30,7 @@ import { createTestConfigRoutes } from "./routes/test-config";
 import { createTestLiveRoutes } from "./routes/test-live";
 import { createTestRunRoutes } from "./routes/test-runs";
 import { createTestWebhookRoutes } from "./routes/test-webhooks";
+import { createArchiveCompactor } from "./services/archive-compaction";
 import {
 	type ArtifactStorage,
 	createArtifactStorage,
@@ -134,6 +135,10 @@ export const createApp = (
 			: {}),
 	});
 
+	const archiveCompactor = db
+		? createArchiveCompactor({ db, storageRegistry, logger })
+		: null;
+
 	// Live view state of running runs (one backend instance; see services/test-live.ts).
 	const liveHub = dependencies.liveHub ?? createLiveHub();
 
@@ -146,6 +151,7 @@ export const createApp = (
 		videoNormalizationQueue,
 		videoNormalizer,
 		keyProvider,
+		archiveCompactor,
 	});
 	const auth = createClerkAuthPlugin(core);
 	const organizationMigration = db
@@ -302,6 +308,7 @@ export const createApp = (
 		keyProvider,
 		liveHub,
 		outbound,
+		archiveCompactor,
 	};
 };
 

@@ -1,4 +1,5 @@
 import {
+  compactSessionArchive,
   checkpointTag,
   generateArchiveEntryId,
   takeoverTag,
@@ -428,6 +429,7 @@ export function buildRunArchive(input: BuildArchiveInput): { archive: SessionArc
     ]
   };
 
-  const archive = sessionArchiveSchema.parse(JSON.parse(input.redact(JSON.stringify(raw))));
+  // Same clean-up as extension recordings: no preflights, analytics or asset bodies, secrets masked.
+  const archive = compactSessionArchive(sessionArchiveSchema.parse(JSON.parse(input.redact(JSON.stringify(raw)))));
   return { archive, videoStartedAt };
 }

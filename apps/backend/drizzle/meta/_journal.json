@@ -281,6 +281,13 @@
       "when": 1791838507481,
       "tag": "0039_api_replay_outputs_postgres",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1792346186150,
+      "tag": "0040_archive_compaction_version",
+      "breakpoints": true
     }
   ]
 }

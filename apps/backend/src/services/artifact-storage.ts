@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { gunzipSync, gzipSync } from "node:zlib";
 import {
 	DeleteObjectCommand,
 	GetObjectCommand,
@@ -130,6 +131,40 @@ export type S3StorageConfig = {
 	serverSideEncryption: boolean;
 };
 
+// JSON artifacts (session archives) shrink several times under gzip. They are stored with
+// Content-Encoding: gzip, so browsers and fetch() decompress signed-URL downloads on their own
+// and getObject returns the original bytes; checksums in the database stay those of the
+// original. Small bodies are not worth the header.
+const GZIP_MIN_BYTES = 1024;
+
+const shouldGzip = (contentType: string, body: Uint8Array) =>
+	body.byteLength >= GZIP_MIN_BYTES &&
+	/^application\/(?:[\w.+-]+\+)?json\b/i.test(contentType);
+
+export const encodeStoredBody = (
+	contentType: string,
+	body: Uint8Array,
+	checksumSha256: string,
+): { body: Uint8Array; checksumSha256: string; contentEncoding?: "gzip" } => {
+	if (!shouldGzip(contentType, body)) return { body, checksumSha256 };
+	const compressed = new Uint8Array(gzipSync(body));
+	if (compressed.byteLength >= body.byteLength) return { body, checksumSha256 };
+	return {
+		body: compressed,
+		// S3 verifies the checksum of the bytes it receives, which are now the compressed ones.
+		checksumSha256: createHash("sha256").update(compressed).digest("base64"),
+		contentEncoding: "gzip",
+	};
+};
+
+export const decodeStoredBody = (
+	body: Uint8Array,
+	contentEncoding: string | undefined,
+): Uint8Array =>
+	contentEncoding?.toLowerCase() === "gzip"
+		? new Uint8Array(gunzipSync(body))
+		: body;
+
 // One S3 (or S3-compatible) bucket; used for the JittleLamp default storage and for the
 // buckets organisations bring themselves (services/storage-registry.ts).
 export const createS3ArtifactStorage = (
@@ -151,13 +186,21 @@ export const createS3ArtifactStorage = (
 	return {
 		mode: "s3",
 		putObject: async (input) => {
+			const stored = encodeStoredBody(
+				input.contentType,
+				input.body,
+				input.checksumSha256,
+			);
 			await client.send(
 				new PutObjectCommand({
 					Bucket: config.bucket,
 					Key: objectKey(input.key),
-					Body: input.body,
+					Body: stored.body,
 					ContentType: input.contentType,
-					ChecksumSHA256: input.checksumSha256,
+					...(stored.contentEncoding
+						? { ContentEncoding: stored.contentEncoding }
+						: {}),
+					ChecksumSHA256: stored.checksumSha256,
 					...(config.serverSideEncryption
 						? { ServerSideEncryption: "AES256" as const }
 						: {}),
@@ -174,7 +217,10 @@ export const createS3ArtifactStorage = (
 			if (!response.Body) {
 				throw new Error("Stored artifact body is empty");
 			}
-			return response.Body.transformToByteArray();
+			return decodeStoredBody(
+				await response.Body.transformToByteArray(),
+				response.ContentEncoding,
+			);
 		},
 		createReadUrl: async (input) => {
 			const ttlSeconds =

@@ -116,7 +116,7 @@ export function writeEvidenceBundle(result: RunTranscriptResult): EvidenceBundle
     ]
   };
 
-  const archiveJson = new TextEncoder().encode(`${JSON.stringify(archive, null, 2)}\n`);
+  const archiveJson = new TextEncoder().encode(`${JSON.stringify(archive)}\n`);
   const recording = new Uint8Array(readFileSync(result.recordingPath));
   const archivePath = join(dir, sessionArchiveFileName);
   const recordingPath = join(dir, recordingFileName);

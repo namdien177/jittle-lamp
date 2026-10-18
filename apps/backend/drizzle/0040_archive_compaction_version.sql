@@ -1,0 +1,1 @@
+ALTER TABLE `evidence_artifacts` ADD `compaction_version` integer;

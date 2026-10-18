@@ -418,6 +418,11 @@ function truncateLabelText(value: string): string {
   return normalized.length > 64 ? `${normalized.slice(0, 61)}...` : normalized;
 }
 
+// Base64 bodies are binary; matching against their encoding only costs time.
+function searchableBodyText(body: { encoding?: "utf8" | "base64" | undefined; value?: string | undefined } | undefined): string {
+  return body?.encoding === "base64" ? "" : (body?.value ?? "");
+}
+
 function matchesNetworkSearch(item: TimelineItem, query: string): boolean {
   if (item.payload.kind !== "network") {
     return false;
@@ -430,8 +435,8 @@ function matchesNetworkSearch(item: TimelineItem, query: string): boolean {
     item.payload.failureText ?? "",
     ...item.payload.request.headers.flatMap((header) => [header.name, header.value]),
     ...(item.payload.response?.headers ?? []).flatMap((header) => [header.name, header.value]),
-    item.payload.request.body?.value ?? "",
-    item.payload.response?.body?.value ?? ""
+    searchableBodyText(item.payload.request.body),
+    searchableBodyText(item.payload.response?.body)
   ].join("\n");
 
   const regexMatch = query.trim().match(/^\/(.*)\/([dgimsuvy]*)$/);

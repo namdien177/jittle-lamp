@@ -1,4 +1,5 @@
 export * from "./session";
+export * from "./archive-compaction";
 export * from "./extension";
 export * from "./timeline";
 export * from "./migration";

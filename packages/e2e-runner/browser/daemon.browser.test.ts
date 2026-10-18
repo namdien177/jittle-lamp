@@ -210,7 +210,7 @@ describe("jl-e2e-runner daemon", () => {
     const files = evidence.get("run_1") ?? {};
     expect(Object.keys(files)).toEqual(expect.arrayContaining(["session.archive.json", "recording.webm", "run-report.json"]));
     const archive = new TextDecoder().decode(files["session.archive.json"]);
-    expect(archive).toContain('"kind": "e2e-runner"');
+    expect((JSON.parse(archive) as { recorder?: { kind?: string } }).recorder?.kind).toBe("e2e-runner");
     for (const [name, bytes] of Object.entries(files)) {
       expect({ name, leaks: new TextDecoder().decode(bytes).includes(FIXTURE_PASSWORD) }).toEqual({ name, leaks: false });
     }

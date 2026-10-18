@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { storePendingRecording, readPendingRecording, deletePendingRecording } from "./pending-recording";
 import {
+  compactSessionArchive,
   offscreenRequestSchema,
   toExtensionWireArchive,
   type OffscreenRequest,
@@ -1278,7 +1279,7 @@ function finalizeArchiveForExport(
   recordingMimeType: string,
   videoDurationMs: number | null
 ): { archive: SessionArchive; jsonBlob: Blob } {
-  let nextArchive = withRecordingArtifact(archive, {
+  let nextArchive = withRecordingArtifact(compactSessionArchive(archive), {
     bytes: recordingBytes,
     mimeType: recordingMimeType || "video/webm"
   });
@@ -1378,8 +1379,9 @@ function artifactPath(
 }
 
 // The extension keeps writing schema version 3 until its next release (ADR 0002 decision 8).
+// No indentation: it adds a quarter to the file and nothing reads the archive by eye.
 function stringifyArchive(archive: SessionArchive): string {
-  return `${JSON.stringify(toExtensionWireArchive(archive), null, 2)}\n`;
+  return `${JSON.stringify(toExtensionWireArchive(archive))}\n`;
 }
 
 async function retainPendingRecording(recording: PendingCloudRetry): Promise<void> {

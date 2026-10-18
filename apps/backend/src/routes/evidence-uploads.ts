@@ -40,7 +40,6 @@ import {
 	recordOrganizationActivity,
 } from "../services/organization-activity";
 import {
-	getOrganizationMembershipRole,
 	getOrganizationRolePermissions,
 	organizationMemberHasPermission,
 } from "../services/organization-permissions";
@@ -562,6 +561,7 @@ const resolveRequestedOrgId = async (args: {
 			ok: true;
 			orgId: string;
 			localUserId: string;
+			role: string;
 	  }
 	| { ok: false; error: ReturnType<typeof createApiError> }
 > => {
@@ -590,7 +590,7 @@ const resolveRequestedOrgId = async (args: {
 			eq(organizationMembers.userId, workspace.localUserId),
 			isNull(organizationMembers.teamId),
 		),
-		columns: { id: true },
+		columns: { role: true },
 	});
 	if (!membership) {
 		args.set.status = 403;
@@ -609,6 +609,7 @@ const resolveRequestedOrgId = async (args: {
 		ok: true,
 		orgId: resolvedOrgId,
 		localUserId: workspace.localUserId,
+		role: membership.role,
 	};
 };
 
@@ -2007,12 +2008,14 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 					},
 					async ({
 						storageRegistry,
+						archiveCompactor,
 						authContext,
 						db,
 						params,
 						query,
 						request,
 						requestId,
+						requestLogger,
 						set,
 					}) => {
 						set.headers["cache-control"] = "private, no-store";
@@ -2028,17 +2031,42 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							set,
 						});
 						if (!resolvedOrg.ok) return resolvedOrg.error;
-						// Preserve both gates used by the metadata and signed-read endpoints.
-						const role = await getOrganizationMembershipRole(db, {
-							organizationId: resolvedOrg.orgId,
-							localUserId: resolvedOrg.localUserId,
-						});
-						const permissions = role
-							? await getOrganizationRolePermissions(db, {
-									organizationId: resolvedOrg.orgId,
-									role,
-								})
-							: new Set<string>();
+						// Preserve both gates used by the metadata and signed-read endpoints. The evidence
+						// loads alongside the permission check; it is only returned once both gates pass.
+						const [permissions, evidence] = await Promise.all([
+							getOrganizationRolePermissions(db, {
+								organizationId: resolvedOrg.orgId,
+								role: resolvedOrg.role,
+							}),
+							db.query.evidences.findFirst({
+								where: and(
+									eq(evidences.id, params.id),
+									eq(evidences.orgId, resolvedOrg.orgId),
+									isNull(evidences.deletedAt),
+								),
+								// The viewer has no use for the thumbnail, the largest column here.
+								columns: {
+									id: true,
+									orgId: true,
+									title: true,
+									sourceType: true,
+									sourceExternalId: true,
+									sourceMetadata: true,
+									thumbnailMimeType: true,
+									createdBy: true,
+									createdAt: true,
+									updatedAt: true,
+								},
+								with: {
+									artifacts: { orderBy: desc(evidenceArtifacts.createdAt) },
+									tags: {
+										with: {
+											tag: { columns: { id: true, name: true, color: true } },
+										},
+									},
+								},
+							}),
+						]);
 						if (
 							!permissions.has("evidence.view") ||
 							!permissions.has("evidence.download")
@@ -2051,34 +2079,6 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								403,
 							);
 						}
-						const evidence = await db.query.evidences.findFirst({
-							where: and(
-								eq(evidences.id, params.id),
-								eq(evidences.orgId, resolvedOrg.orgId),
-								isNull(evidences.deletedAt),
-							),
-							columns: {
-								id: true,
-								orgId: true,
-								title: true,
-								sourceType: true,
-								sourceExternalId: true,
-								sourceMetadata: true,
-								thumbnailBase64: true,
-								thumbnailMimeType: true,
-								createdBy: true,
-								createdAt: true,
-								updatedAt: true,
-							},
-							with: {
-								artifacts: { orderBy: desc(evidenceArtifacts.createdAt) },
-								tags: {
-									with: {
-										tag: { columns: { id: true, name: true, color: true } },
-									},
-								},
-							},
-						});
 						if (!evidence) {
 							set.status = 404;
 							return createApiError(
@@ -2152,7 +2152,11 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								};
 							}),
 						);
-						await recordOrganizationActivity(db, {
+						// Older archives get smaller in the background; this open still reads the
+						// current object.
+						archiveCompactor?.schedule(archive);
+						// The audit entry is written after the response is sent; the links do not wait on it.
+						void recordOrganizationActivity(db, {
 							organizationId: resolvedOrg.orgId,
 							actorUserId: resolvedOrg.localUserId,
 							action: "evidence.download_url.created",
@@ -2160,18 +2164,33 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							message: "Created evidence playback links",
 							metadata: { artifactIds: [video.id, archive.id] },
 							ipAddress: getRequestIpAddress(request),
+						}).catch((error: unknown) => {
+							requestLogger.warn(
+								{
+									event: "evidence.playback.activity-log-failed",
+									evidenceId: evidence.id,
+									requestId,
+									error: error instanceof Error ? error.message : String(error),
+								},
+								"failed to record evidence playback activity",
+							);
 						});
 						return {
 							evidence: {
 								...summary,
+								thumbnailBase64: null,
 								...parseEvidenceStats(summary.sourceMetadata),
 								status: deriveEvidenceStatus(artifacts),
 								tags: tags.map((assignment) => assignment.tag),
 								createdByProfile: null,
 							},
 							artifacts: artifacts.map(
-								({ s3Key: _storageKey, storageId: _storageId, ...artifact }) =>
-									artifact,
+								({
+									s3Key: _storageKey,
+									storageId: _storageId,
+									compactionVersion: _compactionVersion,
+									...artifact
+								}) => artifact,
 							),
 							readUrls,
 						};

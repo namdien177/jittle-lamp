@@ -5,6 +5,7 @@ import { isVercelPreviewOrigin } from "../config/preview-origins";
 
 import type { RuntimeConfig } from "../config/runtime";
 import { createApiError } from "../http/api-error";
+import type { ArchiveCompactor } from "../services/archive-compaction";
 import type { ArtifactStorage } from "../services/artifact-storage";
 import {
 	StorageAccessError,
@@ -24,6 +25,8 @@ type CorePluginParams = {
 	videoNormalizationQueue: TaskQueue;
 	videoNormalizer: VideoNormalizer;
 	keyProvider: KeyProvider;
+	// Null without a database.
+	archiveCompactor: ArchiveCompactor | null;
 };
 
 const getRequestId = (
@@ -92,6 +95,7 @@ export const createCorePlugin = ({
 	videoNormalizationQueue,
 	videoNormalizer,
 	keyProvider,
+	archiveCompactor,
 }: CorePluginParams) =>
 	new Elysia({ name: "backend-core" })
 		.decorate({
@@ -103,6 +107,7 @@ export const createCorePlugin = ({
 			videoNormalizationQueue,
 			videoNormalizer,
 			keyProvider,
+			archiveCompactor,
 		})
 		.use(
 			// Official CORS plugin handles preflight (204), Vary, and origin

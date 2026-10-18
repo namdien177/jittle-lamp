@@ -52,6 +52,10 @@ export const evidenceArtifacts = sqliteTable(
 			.$type<EvidenceArtifactUploadStatus>()
 			.notNull()
 			.default("pending"),
+		// archiveCompactionVersion (shared) the network-log archive was last compacted with; null =
+		// never. Opening an evidence compacts older archives in the background
+		// (services/archive-compaction.ts).
+		compactionVersion: integer("compaction_version"),
 		createdAt: integer("created_at")
 			.notNull()
 			.$defaultFn(() => Date.now()),
