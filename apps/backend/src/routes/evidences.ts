@@ -17,10 +17,15 @@ import {
 	createDbUnavailableError,
 } from "../http/api-error";
 import {
+	catchDailyQuotaExceeded,
+	createDailyQuotaExceededError,
+} from "../http/daily-upload-quota";
+import {
 	type ClerkAuthPlugin,
 	requireSessionScope,
 } from "../plugins/clerk-auth";
 import { relocateArtifactsForOrg } from "../services/artifact-relocation";
+import { assertDailyUploadQuota } from "../services/daily-upload-quota";
 import {
 	deleteUnreferencedArtifactKeys,
 	EVIDENCE_BIN_RETENTION_MS,
@@ -811,6 +816,7 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 							403: apiErrorSchema,
 							404: apiErrorSchema,
 							409: apiErrorSchema,
+							429: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
@@ -933,6 +939,22 @@ export const createEvidenceRoutes = (auth: ClerkAuthPlugin) =>
 								uploadStatus: true,
 							},
 						});
+						// Checked before relocation so a refused copy leaves no copied objects behind.
+						const targetWrite = await storageRegistry.forWrite(
+							body.targetOrgId,
+						);
+						const quotaExceeded = await assertDailyUploadQuota(db, {
+							orgId: body.targetOrgId,
+							storageId: targetWrite.storageId,
+							additionalBytes: artifacts.reduce(
+								(total, artifact) => total + artifact.bytes,
+								0,
+							),
+						}).then(() => null, catchDailyQuotaExceeded);
+						if (quotaExceeded) {
+							set.status = 429;
+							return createDailyQuotaExceededError(requestId, quotaExceeded);
+						}
 						const placements =
 							body.targetOrgId === evidence.orgId
 								? artifacts.map((artifact) => ({

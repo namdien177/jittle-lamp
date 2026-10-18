@@ -18,6 +18,10 @@ import {
 	createDbUnavailableError,
 } from "../http/api-error";
 import {
+	catchDailyQuotaExceeded,
+	createDailyQuotaExceededError,
+} from "../http/daily-upload-quota";
+import {
 	type ClerkAuthPlugin,
 	requireSessionScope,
 } from "../plugins/clerk-auth";
@@ -26,6 +30,10 @@ import {
 	formatClerkDisplayName,
 	resolveClerkUserProfile,
 } from "../services/clerk-user-profile";
+import {
+	assertDailyUploadQuota,
+	DailyUploadQuotaExceededError,
+} from "../services/daily-upload-quota";
 import {
 	evidenceActivityEntity,
 	getRequestIpAddress,
@@ -323,6 +331,9 @@ type UploadedBlobMetadata = {
 };
 
 const UPLOAD_SESSION_TTL_MS = 5 * 60 * 1000;
+
+const sumDeclaredBytes = (artifacts: ReadonlyArray<{ bytes: number }>) =>
+	artifacts.reduce((total, artifact) => total + Math.trunc(artifact.bytes), 0);
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
 const DEFAULT_EVIDENCE_PAGE_SIZE = 24;
 const MAX_EVIDENCE_PAGE_SIZE = 100;
@@ -622,6 +633,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							429: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
@@ -752,7 +764,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							workspace.activeOrgId,
 						);
 						const now = Date.now();
-						const created = await db.transaction(async (tx) => {
+						const transaction = db.transaction(async (tx) => {
 							const [evidence] = existingEvidence
 								? await tx
 										.update(evidences)
@@ -791,6 +803,12 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 									.delete(evidenceArtifacts)
 									.where(eq(evidenceArtifacts.evidenceId, evidence.id));
 							}
+							await assertDailyUploadQuota(tx, {
+								orgId: evidence.orgId,
+								storageId: writeTarget.storageId,
+								additionalBytes: sumDeclaredBytes(body.artifacts),
+								now,
+							});
 
 							await tx
 								.insert(desktopRecordingSessions)
@@ -857,6 +875,11 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								uploadSessions,
 							};
 						});
+						const created = await transaction.catch(catchDailyQuotaExceeded);
+						if (created instanceof DailyUploadQuotaExceededError) {
+							set.status = 429;
+							return createDailyQuotaExceededError(requestId, created);
+						}
 
 						if (replacedArtifactKeys.length > 0) {
 							const { failed: failedDeleteCount } =
@@ -907,6 +930,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							400: apiErrorSchema,
 							401: apiErrorSchema,
 							403: apiErrorSchema,
+							429: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
@@ -980,7 +1004,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							workspace.activeOrgId,
 						);
 						const now = Date.now();
-						const created = await db.transaction(async (tx) => {
+						const transaction = db.transaction(async (tx) => {
 							const [evidence] = await tx
 								.insert(evidences)
 								.values({
@@ -1002,6 +1026,12 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							if (!evidence) {
 								throw new Error("Failed to create draft evidence");
 							}
+							await assertDailyUploadQuota(tx, {
+								orgId: evidence.orgId,
+								storageId: writeTarget.storageId,
+								additionalBytes: Math.trunc(body.artifact.bytes),
+								now,
+							});
 
 							const [artifact] = await tx
 								.insert(evidenceArtifacts)
@@ -1059,6 +1089,11 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								s3Key: artifact.s3Key,
 							};
 						});
+						const created = await transaction.catch(catchDailyQuotaExceeded);
+						if (created instanceof DailyUploadQuotaExceededError) {
+							set.status = 429;
+							return createDailyQuotaExceededError(requestId, created);
+						}
 						await recordOrganizationActivity(db, {
 							organizationId: created.organizationId,
 							actorUserId: workspace.localUserId,
@@ -1104,6 +1139,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							401: apiErrorSchema,
 							403: apiErrorSchema,
 							413: apiErrorSchema,
+							429: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
@@ -1202,7 +1238,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							workspace.activeOrgId,
 						);
 						const now = Date.now();
-						const created = await db.transaction(async (tx) => {
+						const transaction = db.transaction(async (tx) => {
 							const [evidence] = await tx
 								.insert(evidences)
 								.values({
@@ -1223,6 +1259,12 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							if (!evidence) {
 								throw new Error("Failed to create manual upload evidence");
 							}
+							await assertDailyUploadQuota(tx, {
+								orgId: evidence.orgId,
+								storageId: writeTarget.storageId,
+								additionalBytes: sumDeclaredBytes(body.artifacts),
+								now,
+							});
 
 							const uploadSessions = [];
 							for (const artifactInput of body.artifacts) {
@@ -1267,6 +1309,11 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								uploadSessions,
 							};
 						});
+						const created = await transaction.catch(catchDailyQuotaExceeded);
+						if (created instanceof DailyUploadQuotaExceededError) {
+							set.status = 429;
+							return createDailyQuotaExceededError(requestId, created);
+						}
 
 						await recordOrganizationActivity(db, {
 							organizationId: created.organizationId,
@@ -2374,6 +2421,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							410: apiErrorSchema,
 							413: apiErrorSchema,
 							422: apiErrorSchema,
+							429: apiErrorSchema,
 							500: apiErrorSchema,
 							503: apiErrorSchema,
 						},
@@ -2424,6 +2472,7 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 								storageId: true,
 								kind: true,
 								mimeType: true,
+								bytes: true,
 								uploadStatus: true,
 								createdAt: true,
 							},
@@ -2504,6 +2553,19 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 						if (payload.byteLength > maximumBytes) {
 							set.status = 413;
 							return tooLargeResponse;
+						}
+
+						// The quota was reserved with the declared size; charge anything sent beyond it.
+						if (payload.byteLength > artifact.bytes) {
+							const quotaExceeded = await assertDailyUploadQuota(db, {
+								orgId: artifact.evidence.orgId,
+								storageId: artifact.storageId,
+								additionalBytes: payload.byteLength - artifact.bytes,
+							}).then(() => null, catchDailyQuotaExceeded);
+							if (quotaExceeded) {
+								set.status = 429;
+								return createDailyQuotaExceededError(requestId, quotaExceeded);
+							}
 						}
 
 						const uploadedBlob: UploadedBlobMetadata = {

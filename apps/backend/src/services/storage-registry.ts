@@ -185,7 +185,7 @@ export const createStorageRegistry = (input: {
 					409,
 				);
 			}
-			// Future: the default storage quota check goes here.
+			// Daily upload limits for this storage: services/daily-upload-quota.ts.
 			return { storageId: null, storage: input.defaultStorage };
 		},
 		forConfig: build,

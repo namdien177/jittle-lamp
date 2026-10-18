@@ -14,6 +14,7 @@ import {
 	users,
 } from "../src/db/schema";
 import type { ArtifactStorage } from "../src/services/artifact-storage";
+import { ORGANIZATION_DAILY_UPLOAD_LIMIT_BYTES } from "../src/services/daily-upload-quota";
 import { recordStorageDailyUsage } from "../src/services/organization-storage";
 import { createStorageTransferWorker } from "../src/services/storage-transfer";
 import { ensureUserAndPersonalOrganization } from "../src/services/user-provisioning";
@@ -583,5 +584,53 @@ describe("organization storage", () => {
 		expect(
 			ctx.s3.bucket("jittle-lamp-default").get(copied?.s3Key ?? ""),
 		).toEqual(new TextEncoder().encode("private bytes"));
+	});
+
+	it("applies the daily upload limit only to the JittleLamp default storage", async () => {
+		const ctx = await setup();
+		// Fill today's default-storage quota for the organisation.
+		const { artifact } = await ctx.seedArtifact({
+			createdBy: ctx.admin.userId,
+			bucket: "jittle-lamp-default",
+		});
+		await ctx.db
+			.update(evidenceArtifacts)
+			.set({ bytes: ORGANIZATION_DAILY_UPLOAD_LIMIT_BYTES })
+			.where(eq(evidenceArtifacts.id, artifact.id));
+		const startUpload = () =>
+			ctx.call("POST", "/evidences/uploads/start", {
+				body: {
+					title: "Quota upload",
+					sourceType: "browser",
+					artifact: {
+						kind: "attachment",
+						mimeType: "application/octet-stream",
+						bytes: 1024,
+						checksum: "sha256:abc",
+					},
+				},
+			});
+
+		const refused = await startUpload();
+		expect(refused.status).toBe(429);
+		expect(refused.json.error.code).toBe("DAILY_UPLOAD_LIMIT_EXCEEDED");
+
+		const created = await ctx.call("POST", `/orgs/${ctx.org.id}/storages`, {
+			body: ctx.storageInput("team-bucket"),
+		});
+		expect(created.status).toBe(201);
+		const selected = await ctx.call(
+			"PATCH",
+			`/orgs/${ctx.org.id}/storage/settings`,
+			{ body: { defaultStorageId: created.json.id } },
+		);
+		expect(selected.status).toBe(200);
+
+		const ownStorage = await startUpload();
+		expect(ownStorage.status).toBe(200);
+		const stored = await ctx.db.query.evidenceArtifacts.findFirst({
+			where: eq(evidenceArtifacts.id, ownStorage.json.uploadId),
+		});
+		expect(stored?.storageId).toBe(created.json.id);
 	});
 });

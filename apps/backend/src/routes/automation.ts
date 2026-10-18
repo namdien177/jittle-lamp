@@ -17,6 +17,10 @@ import {
 	createApiError,
 	createDbUnavailableError,
 } from "../http/api-error";
+import {
+	catchDailyQuotaExceeded,
+	createDailyQuotaExceededError,
+} from "../http/daily-upload-quota";
 import type { ClerkAuthPlugin } from "../plugins/clerk-auth";
 import { verifyAiUserAccess } from "../services/ai-user-access";
 import {
@@ -25,6 +29,10 @@ import {
 	revokeAutomationApiToken,
 	verifyAutomationApiToken,
 } from "../services/automation-api-tokens";
+import {
+	assertDailyUploadQuota,
+	DailyUploadQuotaExceededError,
+} from "../services/daily-upload-quota";
 import {
 	evidenceActivityEntity,
 	getRequestIpAddress,
@@ -446,6 +454,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 					403: apiErrorSchema,
 					413: apiErrorSchema,
 					415: apiErrorSchema,
+					429: apiErrorSchema,
 					500: apiErrorSchema,
 					503: apiErrorSchema,
 				},
@@ -600,7 +609,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 				const sourceExternalId =
 					query.sourceExternalId?.trim() || validated.archive.sessionId;
 				const writeTarget = await storageRegistry.forWrite(apiToken.orgId);
-				const created = await db.transaction(async (tx) => {
+				const transaction = db.transaction(async (tx) => {
 					const [evidence] = await tx
 						.insert(evidences)
 						.values({
@@ -630,6 +639,14 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 					if (!evidence) {
 						throw new Error("Failed to create automation evidence");
 					}
+					await assertDailyUploadQuota(tx, {
+						orgId: evidence.orgId,
+						storageId: writeTarget.storageId,
+						additionalBytes:
+							validated.recordingWebm.byteLength +
+							validated.archiveJson.byteLength,
+						now,
+					});
 
 					await tx
 						.insert(desktopRecordingSessions)
@@ -703,6 +720,11 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 						artifacts: [recordingArtifact, archiveArtifact],
 					};
 				});
+				const created = await transaction.catch(catchDailyQuotaExceeded);
+				if (created instanceof DailyUploadQuotaExceededError) {
+					set.status = 429;
+					return createDailyQuotaExceededError(requestId, created);
+				}
 
 				const recordingArtifact = created.artifacts.find(
 					(artifact) => artifact.kind === "recording",
