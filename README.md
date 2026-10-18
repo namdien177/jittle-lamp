@@ -46,6 +46,7 @@ The current product path centers on a connected evidence workflow:
 - shared event/session/message schemas designed around reviewable `WebM + JSON` evidence artifacts
 - sanitized page URLs and interaction metadata without raw typed field values
 - richer debugger-backed network events including request/response headers, cookies, bodies, and best-effort omission/truncation metadata
+- compact session archives: secrets masked, no CORS preflights, analytics beacons, static asset bodies or binary bodies (see [Session archive compaction](#session-archive-compaction))
 - desktop capture intake, session playback, timeline review, network detail inspection, tag editing, and note saving
 - authenticated upload to the backend with organization-aware evidence ownership
 - browser-based evidence review through share links
@@ -133,7 +134,7 @@ bun run dev:test-auth:setup
 The extension captures the session artifacts:
 
 - `recording.webm`
-- `session.events.json`
+- `session.archive.json`
 
 When the desktop companion is running, the extension hands those artifacts to the app for review, organization, upload, and sharing.
 
@@ -200,6 +201,15 @@ Then commit the version bump, merge it to `main`, and create the release tag:
 git tag v0.1.1
 git push origin main --tags
 ```
+
+`origin` is the GitLab repository, but the release workflow runs on GitHub. Until the migration
+finishes, push the same `main` and tag to GitHub as well:
+
+```bash
+git push git@github.com:namdien177/jittle-lamp.git main refs/tags/v0.1.1
+```
+
+Push `main` before the tag: the workflow rejects a tag that is not the current GitHub `main` HEAD.
 
 ### 2. Chromium extension release asset
 
@@ -377,7 +387,7 @@ The companion only accepts artifact writes from `chrome-extension://` origins an
 - **desktop companion server**: localhost intake route used by the extension to hand artifacts to the app
 - **content script**: content-ready + interaction capture (`click`, `input`, `submit`, `navigation`)
 
-The exported JSON is the shared `SessionBundle` object rather than a bare event array. The recorder intentionally avoids raw typed field values, strips query/hash fragments from captured page URLs, preserves network request URLs as captured by the browser, and keeps captured network credentials/cookies available for authorized evidence review.
+The exported JSON is the shared session archive rather than a bare event array. The recorder intentionally avoids raw typed field values and strips query/hash fragments from captured page URLs. Network request URLs keep their query string, but sensitive parameters are masked, as are credentials and cookies (see below).
 
 ### Expanded network capture
 
@@ -386,7 +396,26 @@ When the Chrome debugger is attached, the recorder now exports richer per-reques
 - request headers and associated cookies
 - request post data / body when CDP exposes it
 - response headers plus parsed `set-cookie` headers/cookies
-- response bodies captured after `Network.loadingFinished`
+- response bodies captured after `Network.loadingFinished`, except static assets (images, fonts, media, CSS, scripts) and binary bodies, which keep only their size
 - omission/truncation metadata when bodies are unavailable or too large to store in-session
+
+Requests are captured from both CDP and an in-page probe; duplicates from the two sources are dropped.
+
+### Session archive compaction
+
+Every archive goes through `compactSessionArchive` (`packages/shared/src/archive-compaction.ts`) before it leaves the recorder. The extension, the e2e runner and the backend all use it:
+
+- CORS preflight (`OPTIONS`) and analytics/beacon requests are removed; their count is written to the archive `notes`.
+- Static assets keep URL, status, timing and size only; binary bodies are replaced by their byte length.
+- Sensitive header values (`Authorization`, `Cookie`, `Set-Cookie`, API keys, CSRF tokens), cookie values, sensitive query parameters and body fields such as `password` or `token` are masked to `<first 4>****<last 4>`. Values shorter than 12 characters are masked entirely.
+- Repeated console lines in a row collapse into one with a `(×N)` count; the console section is capped at 3000 lines, dropping the oldest debug/info lines first.
+- Archives are written without indentation.
+
+Older archives are compacted lazily: opening an evidence whose archive was compacted with an older `archiveCompactionVersion` (or never) queues a background job on the backend. It rewrites the stored object under the same key, in the schema version it was stored with, and updates `bytes` and `checksum` on every artifact row sharing it. Organisations in the middle of a migration or storage transfer are skipped until it finishes. When the rules change, bump `archiveCompactionVersion` so existing archives are compacted again.
+
+## Evidence storage
+
+- S3 storage gzips JSON artifacts of 1 KB or more and stores them with `Content-Encoding: gzip`. Browsers and `fetch()` decompress signed-URL downloads on their own, and `getObject` returns the original bytes. Checksums in the database are those of the uncompressed file.
+- Uploads to the JittleLamp default storage are capped per organisation per UTC day: 100 MB for personal workspaces and 1.5 GB for organisations (`apps/backend/src/services/daily-upload-quota.ts`). Organisations writing to their own S3 storage are not limited. Over the limit, upload routes return `429 DAILY_UPLOAD_LIMIT_EXCEEDED`.
 
 The popup still shows session status locally, but it now receives a typed active-session summary instead of the full live event draft so larger sessions do not obviously break the popup path.
