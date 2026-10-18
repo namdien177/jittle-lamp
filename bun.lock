@@ -17,7 +17,7 @@
     },
     "apps/backend": {
       "name": "@jittle-lamp/backend",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.1143.0",
         "@aws-sdk/s3-request-presigner": "^3.1143.0",
@@ -44,7 +44,7 @@
     },
     "apps/desktop": {
       "name": "@jittle-lamp/desktop",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "@clerk/react": "^6.17.3",
         "@hookform/resolvers": "^5.9.1",
@@ -70,7 +70,7 @@
     },
     "apps/evidence-web": {
       "name": "@jittle-lamp/evidence-web",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "@base-ui/react": "^1.8.0",
         "@clerk/react": "^6.17.3",
@@ -101,7 +101,7 @@
     },
     "apps/extension": {
       "name": "@jittle-lamp/extension",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "@jittle-lamp/shared": "workspace:*",
         "lucide": "^1.48.0",
@@ -112,7 +112,7 @@
     },
     "apps/mcp": {
       "name": "@jittle-lamp/mcp",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "@jittle-lamp/shared": "workspace:*",
         "@modelcontextprotocol/sdk": "1.31.0",
@@ -151,7 +151,7 @@
     },
     "packages/shared": {
       "name": "@jittle-lamp/shared",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "zod": "4.6.5",
       },
@@ -173,14 +173,14 @@
     },
     "packages/viewer-core": {
       "name": "@jittle-lamp/viewer-core",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "@jittle-lamp/shared": "workspace:*",
       },
     },
     "packages/viewer-react": {
       "name": "@jittle-lamp/viewer-react",
-      "version": "1.8.3",
+      "version": "1.8.5",
       "dependencies": {
         "@jittle-lamp/shared": "workspace:*",
         "@jittle-lamp/viewer-core": "workspace:*",
