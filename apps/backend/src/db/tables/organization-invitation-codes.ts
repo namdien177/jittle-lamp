@@ -38,6 +38,9 @@ export const organizationInvitationCodes = sqliteTable(
 			.notNull()
 			.default("developer"),
 		codeHash: text("code_hash").notNull(),
+		// Kept readable so managers can copy the link again later. Null for codes created before
+		// this column existed; those only ever had a hash.
+		code: text("code"),
 		passwordHash: text("password_hash"),
 		emailDomain: text("email_domain"),
 		expiresAt: integer("expires_at"),
@@ -75,6 +78,7 @@ export const createOrganizationInvitationCodeInputSchema = z.object({
 	label: z.string().trim().min(1).max(80),
 	role: organizationInvitationCodeRoleSchema.default("developer"),
 	codeHash: z.string().min(32),
+	code: z.string().min(1),
 	passwordHash: z.string().min(32).nullable().optional(),
 	emailDomain: z
 		.string()

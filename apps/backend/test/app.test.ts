@@ -827,13 +827,92 @@ describe("routes", () => {
 			updateOrganizationRolePermissions(db, {
 				organizationId: owner.organizationId,
 				role: "moderator",
-				permissions: [
-					"evidence.view",
-					"invitations.disable",
-					"invitations.create",
-				],
+				permissions: ["evidence.view", "invitations.disable", "roles.manage"],
 			}),
 		).rejects.toThrow("Only the Admin role can hold admin-only permissions.");
+	});
+
+	it("lets moderators create invitation links and copy them again later", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		const owner = await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_invite_link_owner",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_invite_link_owner" },
+		});
+		for (const [clerkUserId, role] of [
+			["user_clerk_invite_link_moderator", "moderator"],
+			["user_clerk_invite_link_developer", "developer"],
+		] as const) {
+			const member = await ensureUserAndPersonalOrganization(db, {
+				clerkUserId,
+				source: "clerk-callback",
+				rawPayload: { userId: clerkUserId },
+			});
+			await db.insert(organizationMembers).values({
+				organizationId: owner.organizationId,
+				userId: member.userId,
+				role,
+			});
+		}
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const tokenFor = (subject: string) =>
+			new SignJWT({ scope: "read write" })
+				.setProtectedHeader({ alg: "RS256" })
+				.setSubject(subject)
+				.setAudience("test-audience")
+				.setIssuedAt()
+				.setExpirationTime("5m")
+				.sign(privateKey);
+		const moderatorToken = await tokenFor("user_clerk_invite_link_moderator");
+		const developerToken = await tokenFor("user_clerk_invite_link_developer");
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+		const createCode = (token: string) =>
+			app.handle(
+				new Request(
+					`http://localhost/orgs/${owner.organizationId}/invitation-codes`,
+					{
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							authorization: `Bearer ${token}`,
+						},
+						body: JSON.stringify({ label: "Onboarding", role: "developer" }),
+					},
+				),
+			);
+
+		const forbidden = await createCode(developerToken);
+		expect(forbidden.status).toBe(403);
+
+		const created = await createCode(moderatorToken);
+		expect(created.status).toBe(200);
+		const { code } = (await created.json()) as { code: { code: string } };
+		expect(code.code.length).toBeGreaterThan(0);
+
+		const listed = await app.handle(
+			new Request(`http://localhost/orgs/${owner.organizationId}/invitations`, {
+				headers: { authorization: `Bearer ${moderatorToken}` },
+			}),
+		);
+		expect(listed.status).toBe(200);
+		const body = (await listed.json()) as { codes: { code: string | null }[] };
+		expect(body.codes.map((entry) => entry.code)).toEqual([code.code]);
 	});
 
 	it("only retries failed provisioning for the same Clerk user", async () => {

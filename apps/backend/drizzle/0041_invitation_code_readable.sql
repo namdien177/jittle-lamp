@@ -1,0 +1,1 @@
+ALTER TABLE `organization_invitation_codes` ADD `code` text;

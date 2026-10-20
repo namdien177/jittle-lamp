@@ -15,6 +15,7 @@ import {
   Building2,
   ChevronLeft,
   ChevronRight,
+  Copy,
   KeyRound,
   LogOut,
   Pencil,
@@ -90,6 +91,7 @@ import {
   useUpdateMemberRole,
 } from "../queries";
 import { useToast } from "../toast";
+import { copyToClipboard } from "../utils";
 import { Hint } from "../components/ui/tooltip";
 
 type SortKey = "name" | "joinedAt" | "role";
@@ -210,6 +212,10 @@ function roleBadge(role: string): React.JSX.Element {
   const variant =
     role === "admin" ? "brand" : role === "moderator" ? "default" : "muted";
   return <Badge variant={variant}>{roleLabel(role)}</Badge>;
+}
+
+function getInviteUrl(code: string): string {
+  return `${window.location.origin}/join?code=${encodeURIComponent(code)}`;
 }
 
 function canManageOthersEvidence(role: string | undefined): boolean {
@@ -857,6 +863,18 @@ export function OrgInvitationsTab(): React.JSX.Element {
     }
   };
 
+  const copyInvite = async (
+    code: string,
+    kind: "link" | "code",
+  ): Promise<void> => {
+    try {
+      await copyToClipboard(kind === "link" ? getInviteUrl(code) : code);
+      toast.success(kind === "link" ? "Invitation link copied" : "Code copied");
+    } catch {
+      toast.error("Unable to copy to the clipboard.");
+    }
+  };
+
   const toggleCode = async (code: ApiInvitationCode): Promise<void> => {
     ctx.setError(null);
     try {
@@ -913,14 +931,14 @@ export function OrgInvitationsTab(): React.JSX.Element {
             <Button
               variant="outline"
               onClick={() => setShowDirectInvite(true)}
-              disabled={!ctx.canAdmin || busy}
+              disabled={busy}
             >
               <Plus aria-hidden />
               Invite email
             </Button>
             <Button
               onClick={() => setShowCreate(true)}
-              disabled={!ctx.canAdmin || busy || codes.length >= 3}
+              disabled={busy || codes.length >= 3}
             >
               <Plus aria-hidden />
               Create code
@@ -942,6 +960,14 @@ export function OrgInvitationsTab(): React.JSX.Element {
                 {createdCode}
               </code>
               <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void copyInvite(createdCode, "link")}
+              >
+                <Copy aria-hidden />
+                Copy link
+              </Button>
+              <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setCreatedCode(null)}
@@ -960,6 +986,14 @@ export function OrgInvitationsTab(): React.JSX.Element {
               <code className="flex-1 truncate rounded-md bg-muted px-2.5 py-2 font-mono text-base">
                 {createdDirectToken}
               </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void copyInvite(createdDirectToken, "link")}
+              >
+                <Copy aria-hidden />
+                Copy link
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -1000,6 +1034,15 @@ export function OrgInvitationsTab(): React.JSX.Element {
                       <span className="block capitalize text-muted-foreground">
                         {code.role}
                       </span>
+                      {code.code ? (
+                        <code className="mt-1 block truncate font-mono text-sm text-muted-foreground">
+                          {code.code}
+                        </code>
+                      ) : (
+                        <span className="mt-1 block text-sm text-muted-foreground">
+                          Created before links could be shown again
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="hidden text-base text-muted-foreground md:table-cell">
                       {[
@@ -1024,6 +1067,25 @@ export function OrgInvitationsTab(): React.JSX.Element {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1.5">
+                        {code.code ? (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void copyInvite(code.code ?? "", "link")}
+                            >
+                              <Copy aria-hidden />
+                              Copy link
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void copyInvite(code.code ?? "", "code")}
+                            >
+                              Copy code
+                            </Button>
+                          </>
+                        ) : null}
                         {ctx.canReviewRequests ? (
                           <Button
                             variant="ghost"
@@ -1259,7 +1321,6 @@ export function OrgInvitationsTab(): React.JSX.Element {
 /* ── Roles tab ──────────────────────────────────────────────────────────────── */
 
 const adminOnlyPermissions = new Set<OrganizationPermission>([
-  "invitations.create",
   "roles.manage",
   "members.assign_role",
   "members.kick",

@@ -108,6 +108,7 @@ const invitationCodeSchema = t.Object({
 	id: t.String({ minLength: 1 }),
 	label: t.String({ minLength: 1 }),
 	role: roleSchema,
+	code: t.Union([t.String({ minLength: 1 }), t.Null()]),
 	hasPassword: t.Boolean(),
 	emailDomain: t.Union([t.String({ minLength: 1 }), t.Null()]),
 	expiresAt: t.Union([t.Number(), t.Null()]),
@@ -118,7 +119,7 @@ const invitationCodeSchema = t.Object({
 });
 
 const createdInvitationCodeSchema = t.Composite(
-	invitationCodeSchema,
+	t.Omit(invitationCodeSchema, ["code"]),
 	t.Object({
 		code: t.String({ minLength: 1 }),
 		organizationId: t.String({ minLength: 1 }),
@@ -1124,16 +1125,17 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						);
 						if (typeof localUserId !== "string") return localUserId;
 						if (
-							!(await ensureOrganizationOwner(db, {
+							!(await organizationMemberHasPermission(db, {
 								organizationId: params.orgId,
-								localUserId: localUserId,
+								localUserId,
+								permission: "invitations.create",
 							}))
 						) {
 							set.status = 403;
 							return createApiError(
 								requestId,
 								"ORG_INVITATION_CREATE_FORBIDDEN",
-								"Only admins can create invitations",
+								"Only moderators and admins can create invitations",
 								403,
 							);
 						}
@@ -1189,16 +1191,17 @@ export const createOrganizationRoutes = (auth: ClerkAuthPlugin) =>
 						);
 						if (typeof localUserId !== "string") return localUserId;
 						if (
-							!(await ensureOrganizationOwner(db, {
+							!(await organizationMemberHasPermission(db, {
 								organizationId: params.orgId,
-								localUserId: localUserId,
+								localUserId,
+								permission: "invitations.create",
 							}))
 						) {
 							set.status = 403;
 							return createApiError(
 								requestId,
 								"ORG_INVITATION_CREATE_FORBIDDEN",
-								"Only admins can create invitation codes",
+								"Only moderators and admins can create invitation codes",
 								403,
 							);
 						}

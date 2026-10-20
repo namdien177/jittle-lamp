@@ -87,6 +87,8 @@ export type ApiInvitationCode = {
   id: string;
   label: string;
   role: "moderator" | "member";
+  // Null for codes created before codes were stored readably.
+  code: string | null;
   hasPassword: boolean;
   emailDomain: string | null;
   expiresAt: number | null;

@@ -47,7 +47,6 @@ export const organizationPermissionSchema = z.enum([
 export const allOrganizationPermissions = organizationPermissionSchema.options;
 
 export const adminOnlyOrganizationPermissions = [
-	"invitations.create",
 	"roles.manage",
 	"members.assign_role",
 	"members.kick",
@@ -139,6 +138,7 @@ export const defaultRolePermissions = {
 		"evidence.delete.any",
 		"evidence.move.any",
 		"evidence.tags.manage",
+		"invitations.create",
 		"invitations.disable",
 		"join_requests.manage",
 		"activity.view",

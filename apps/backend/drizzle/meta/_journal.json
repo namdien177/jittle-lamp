@@ -288,6 +288,20 @@
       "when": 1792346186150,
       "tag": "0040_archive_compaction_version",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1792484423024,
+      "tag": "0041_invitation_code_readable",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1792484423505,
+      "tag": "0042_moderator_invitation_create",
+      "breakpoints": true
     }
   ]
 }

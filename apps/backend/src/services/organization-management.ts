@@ -95,6 +95,8 @@ export type InvitationCodeSummary = {
 	id: string;
 	label: string;
 	role: "admin" | "moderator" | "developer" | "qa_engineer";
+	// Null for codes created before codes were stored readably.
+	code: string | null;
 	hasPassword: boolean;
 	emailDomain: string | null;
 	expiresAt: number | null;
@@ -857,6 +859,7 @@ const summarizeInvitationCode = (row: {
 	id: string;
 	label: string;
 	role: "admin" | "moderator" | "developer" | "qa_engineer" | string;
+	code: string | null;
 	passwordHash: string | null;
 	emailDomain: string | null;
 	expiresAt: number | null;
@@ -868,6 +871,7 @@ const summarizeInvitationCode = (row: {
 	id: row.id,
 	label: row.label,
 	role: normalizeOrganizationRoleKey(row.role),
+	code: row.code,
 	hasPassword: Boolean(row.passwordHash),
 	emailDomain: row.emailDomain,
 	expiresAt: row.expiresAt,
@@ -981,6 +985,7 @@ export const listOrganizationInvitationCodes = async (
 			id: true,
 			label: true,
 			role: true,
+			code: true,
 			passwordHash: true,
 			emailDomain: true,
 			expiresAt: true,
@@ -1021,6 +1026,7 @@ export const createOrganizationInvitationCode = async (
 		label: args.label,
 		role: args.role,
 		codeHash: await hashInvitationToken(code),
+		code,
 		passwordHash: args.password
 			? await hashInvitationCodePassword(code, args.password)
 			: null,
@@ -1037,6 +1043,7 @@ export const createOrganizationInvitationCode = async (
 			id: organizationInvitationCodes.id,
 			label: organizationInvitationCodes.label,
 			role: organizationInvitationCodes.role,
+			code: organizationInvitationCodes.code,
 			passwordHash: organizationInvitationCodes.passwordHash,
 			emailDomain: organizationInvitationCodes.emailDomain,
 			expiresAt: organizationInvitationCodes.expiresAt,
@@ -1070,6 +1077,7 @@ export const setOrganizationInvitationCodeLocked = async (
 			id: organizationInvitationCodes.id,
 			label: organizationInvitationCodes.label,
 			role: organizationInvitationCodes.role,
+			code: organizationInvitationCodes.code,
 			passwordHash: organizationInvitationCodes.passwordHash,
 			emailDomain: organizationInvitationCodes.emailDomain,
 			expiresAt: organizationInvitationCodes.expiresAt,
