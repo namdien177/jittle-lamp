@@ -31,7 +31,7 @@ const createTestDb = async () => {
 };
 
 describe("daily upload quota", () => {
-	it("limits personal workspaces to 100 MB and organisations to 1.5 GB", async () => {
+	it("limits personal workspaces to 100 MB and organisations to 2 GB", async () => {
 		const { db } = await createTestDb();
 		const provisioned = await ensureUserAndPersonalOrganization(db, {
 			clerkUserId: "user_clerk_quota_limits",
@@ -50,7 +50,7 @@ describe("daily upload quota", () => {
 		expect(personal.limitBytes).toBe(PERSONAL_DAILY_UPLOAD_LIMIT_BYTES);
 		expect(PERSONAL_DAILY_UPLOAD_LIMIT_BYTES).toBe(100 * MB);
 		expect(organisation.limitBytes).toBe(ORGANIZATION_DAILY_UPLOAD_LIMIT_BYTES);
-		expect(ORGANIZATION_DAILY_UPLOAD_LIMIT_BYTES).toBe(1536 * MB);
+		expect(ORGANIZATION_DAILY_UPLOAD_LIMIT_BYTES).toBe(2048 * MB);
 	});
 
 	it("counts today's default-storage uploads but not failed, abandoned, earlier or own-storage ones", async () => {

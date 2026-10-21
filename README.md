@@ -416,6 +416,6 @@ Older archives are compacted lazily: opening an evidence whose archive was compa
 ## Evidence storage
 
 - S3 storage gzips JSON artifacts of 1 KB or more and stores them with `Content-Encoding: gzip`. Browsers and `fetch()` decompress signed-URL downloads on their own, and `getObject` returns the original bytes. Checksums in the database are those of the uncompressed file.
-- Uploads to the JittleLamp default storage are capped per organisation per UTC day: 100 MB for personal workspaces and 1.5 GB for organisations (`apps/backend/src/services/daily-upload-quota.ts`). Organisations writing to their own S3 storage are not limited. Over the limit, upload routes return `429 DAILY_UPLOAD_LIMIT_EXCEEDED`.
+- Uploads to the JittleLamp default storage are capped per organisation per UTC day: 100 MB for personal workspaces and 2 GB for organisations (`apps/backend/src/services/daily-upload-quota.ts`). Organisations writing to their own S3 storage are not limited. Over the limit, upload routes return `429 DAILY_UPLOAD_LIMIT_EXCEEDED`.
 
 The popup still shows session status locally, but it now receives a typed active-session summary instead of the full live event draft so larger sessions do not obviously break the popup path.
