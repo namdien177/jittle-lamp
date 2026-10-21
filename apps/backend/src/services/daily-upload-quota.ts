@@ -6,7 +6,7 @@ import type { BackendDb } from "./user-provisioning";
 // Daily cap on bytes added to the JittleLamp default storage. Organisations writing to their own
 // storage are not limited. Hard-coded until limits come from config or subscription tiers.
 export const PERSONAL_DAILY_UPLOAD_LIMIT_BYTES = 100 * 1024 * 1024;
-export const ORGANIZATION_DAILY_UPLOAD_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
+export const ORGANIZATION_DAILY_UPLOAD_LIMIT_BYTES = 3 * 1024 * 1024 * 1024;
 
 // Upload sessions that never received their blob stop counting once they expire.
 // Keep in step with UPLOAD_SESSION_TTL_MS in routes/evidence-uploads.ts.
