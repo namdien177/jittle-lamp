@@ -52,7 +52,7 @@ The manual workflow this feature replaces lives outside the repo in the owner's 
 | Tester Army `e2e` | 0.16.0, Apache-2.0, `ai` peer `^7.0.0`, Node ≥ 22.12, `@e2e-dev/web` engine | Docs: https://e2e.tester.army/docs (index at `/docs/llms.txt`). Key pages: `cache`, `executors`, `reference/config`, `reference/reporters`, `reference/agent`, `writing-an-engine`. No programmatic run API: runs through `e2e run` over `*.e2e.ts` + `e2e.config.ts`. Extension points we rely on: `cache.store`, `reporters`, `artifacts.store`, `agents.<name>.executor`. |
 | Vercel AI SDK | `ai` v7, `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/openai-compatible`, `@openrouter/ai-sdk-provider` | Agent API `ToolLoopAgent`, `isStepCount`; usage fields `inputTokens`, `inputTokenDetails.cacheReadTokens`, `outputTokens`, `outputTokenDetails.reasoningTokens`, `totalTokens`; per-step via `steps[].usage` and `onStepEnd`. The SDK returns tokens, not cost. |
 | Playwright | `playwright-core` (match `e2e`'s dev pin, 1.63 at handover) | Chromium for cloud and self-hosted runners; installed Chrome only for `--headed` local runs. |
-| Electron | 44.5.0 in `apps/desktop` | Bundled Node satisfies ≥ 22.12 should anything run in the desktop process; by decision 3 nothing does. |
+| Electron | 44.9.3 in `apps/desktop` | Bundled Node satisfies ≥ 22.12 should anything run in the desktop process; by decision 3 nothing does. |
 | Anthropic model ids | `anthropic/claude-opus-5-5` (act), `anthropic/claude-sonnet-5-5` (judge) | AI SDK id form. Price table seeded in `test_model_prices`. |
 
 Pin exact versions in `package.json`; `e2e` is pre-1.0 and its engine version is part of its cache key.

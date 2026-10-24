@@ -56,7 +56,7 @@ See `docs/v1-scope.md` for more detail.
 
 ## Commands
 
-Use Bun 1.4.2, the version pinned for CI and containers.
+Use Bun 1.4.4, the version pinned for CI and containers.
 
 ```bash
 bun install

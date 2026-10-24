@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM oven/bun:1.4.2-slim AS build
+FROM oven/bun:1.4.4-slim AS build
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ COPY apps/backend ./apps/backend
 RUN bun run --cwd packages/shared build:js
 RUN bun run --cwd apps/backend build:js
 
-FROM oven/bun:1.4.2-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 
 WORKDIR /app/apps/backend
 

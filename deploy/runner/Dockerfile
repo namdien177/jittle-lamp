@@ -4,11 +4,11 @@
 # Build from the repository root:
 #   docker build -f deploy/runner/Dockerfile -t jittle-lamp/e2e-runner .
 
-FROM node:24-bookworm-slim AS build
+FROM node:24.22.1-bookworm-slim AS build
 
 ENV BUN_INSTALL=/opt/bun PATH=/opt/bun/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"
+  && curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.4"
 
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
@@ -31,7 +31,7 @@ COPY packages/shared ./packages/shared
 COPY packages/e2e-runner ./packages/e2e-runner
 RUN bun run --cwd packages/shared build:js && bun run --cwd packages/e2e-runner build
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
 
 # The generated project loads runtime TypeScript and its model/cache helpers through e2e's loader.
 WORKDIR /app

@@ -84,7 +84,7 @@ Use `node update-runner.mjs --offline` for disconnected hosts after loading the 
 
 ### systemd (self-hosted devbox)
 
-Requirements: Node 22.22.3 or newer on the 22 line, or Node 24.8 or newer (e2e 0.18+ refuses older Node and refuses to run its tests under Bun; the runner always spawns `node` for the e2e process), Bun 1.4.2 to build, and a network path to the app under test (VPN up).
+Requirements: Node 22.22.3 or newer on the 22 line, or Node 24.8 or newer (e2e 0.18+ refuses older Node and refuses to run its tests under Bun; the runner always spawns `node` for the e2e process), Bun 1.4.4 to build, and a network path to the app under test (VPN up).
 
 ```bash
 sudo useradd --system --create-home jl-runner

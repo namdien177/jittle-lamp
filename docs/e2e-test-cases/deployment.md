@@ -361,7 +361,7 @@ A runner pool belongs to one organisation. Each environment names its pool (Sett
    docker push <registry>/jittle-lamp-e2e-runner:<version>
    ```
 
-   The image is `mcr.microsoft.com/playwright:v1.63.0-noble` with Bun 1.4.2 for the build, runs as `pwuser`, and starts `jl-e2e-runner start`. CI builds it (`build_runner_image`) but does not push it anywhere (section 9).
+   The image is `mcr.microsoft.com/playwright:v1.63.0-noble` with Bun 1.4.4 for the build, runs as `pwuser`, and starts `jl-e2e-runner start`. CI builds it (`build_runner_image`) but does not push it anywhere (section 9).
 
 2. **Get a registration token for the organisation's cloud pool.** A member with `test_config.manage` opens Settings → Test cases → Runner pools and presses **New token** on the `cloud` pool. The token is shown once. Issuing a new one replaces the old one; registered workers keep working. The same route can be called directly (`POST /runner-pools/<cloud pool id>/registration-token` with a signed-in session token).
 
