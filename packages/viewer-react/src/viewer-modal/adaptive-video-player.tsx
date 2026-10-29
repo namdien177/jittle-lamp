@@ -4,6 +4,8 @@ import videojs from "video.js";
 import type Player from "video.js/dist/types/player";
 import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
+import { BigPlayButton, useBigPlayIdle } from "./big-play";
+import { CopyFrameButton } from "./copy-frame";
 import { SkipGapsButton, useGapSkipper, useSkipGapsPreference } from "./gap-skip";
 import { SeekBar, StepCaption, StepNavButtons, buildStepSegments } from "./seek-bar";
 import type { ViewerStepChip } from "./types";
@@ -141,6 +143,7 @@ export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.
   const [skipGaps, setSkipGaps] = useSkipGapsPreference();
   const gapSkipper = useGapSkipper(props.gapMarkersMs, skipGaps);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const bigPlay = useBigPlayIdle(isPlaying);
 
   const clearHideTimer = useCallback((): void => {
     if (hideTimerRef.current) {
@@ -345,7 +348,10 @@ export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.
         data-playing={isPlaying ? "true" : "false"}
         data-controls={controlsVisible ? "visible" : "hidden"}
         data-fullscreen={isFullscreen ? "true" : "false"}
-        onPointerMove={revealControls}
+        onPointerMove={() => {
+          revealControls();
+          bigPlay.poke();
+        }}
         onPointerLeave={() => {
           if (isPlaying) setControlsVisible(false);
         }}
@@ -377,11 +383,7 @@ export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.
           }}
         />
 
-        {!isPlaying ? (
-          <button type="button" className="jl-vm-vc-bigplay" aria-label="Play" onClick={togglePlay}>
-            <Play aria-hidden size={30} fill="currentColor" />
-          </button>
-        ) : null}
+        {!isPlaying ? <BigPlayButton visible={bigPlay.visible} onClick={togglePlay} /> : null}
 
         <div className="jl-vm-vc-bar" data-visible={controlsVisible ? "true" : "false"}>
           <button
@@ -436,6 +438,7 @@ export function AdaptiveEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.
           <button type="button" className="jl-vm-vc-rate" aria-label="Playback speed" data-tip="Playback speed" data-tip-side="top" onClick={cycleRate}>
             {rate}×
           </button>
+          <CopyFrameButton videoRef={videoNodeRef} />
 
           <button
             type="button"

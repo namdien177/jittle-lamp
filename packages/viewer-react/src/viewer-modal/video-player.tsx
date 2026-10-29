@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type * as React from "react";
 import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
+import { BigPlayButton, useBigPlayIdle } from "./big-play";
+import { CopyFrameButton } from "./copy-frame";
 import { SkipGapsButton, useGapSkipper, useSkipGapsPreference } from "./gap-skip";
 import { SeekBar, StepCaption, StepNavButtons, buildStepSegments } from "./seek-bar";
 import type { ViewerStepChip } from "./types";
@@ -150,6 +152,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   const [skipGaps, setSkipGaps] = useSkipGapsPreference();
   const gapSkipper = useGapSkipper(props.gapMarkersMs, skipGaps);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const bigPlay = useBigPlayIdle(isPlaying);
 
   const clearHideTimer = useCallback((): void => {
     if (hideTimerRef.current) {
@@ -322,7 +325,10 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
         data-playing={isPlaying ? "true" : "false"}
         data-controls={controlsVisible ? "visible" : "hidden"}
         data-fullscreen={isFullscreen ? "true" : "false"}
-        onPointerMove={revealControls}
+        onPointerMove={() => {
+          revealControls();
+          bigPlay.poke();
+        }}
         onPointerLeave={() => {
           if (isPlaying) setControlsVisible(false);
         }}
@@ -355,11 +361,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
           }}
         />
 
-        {!isPlaying ? (
-          <button type="button" className="jl-vm-vc-bigplay" aria-label="Play" onClick={togglePlay}>
-            <Play aria-hidden size={30} fill="currentColor" />
-          </button>
-        ) : null}
+        {!isPlaying ? <BigPlayButton visible={bigPlay.visible} onClick={togglePlay} /> : null}
 
         <div className="jl-vm-vc-bar" data-visible={controlsVisible ? "true" : "false"}>
           <button
@@ -414,6 +416,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
           <button type="button" className="jl-vm-vc-rate" aria-label="Playback speed" data-tip="Playback speed" data-tip-side="top" onClick={cycleRate}>
             {rate}×
           </button>
+          <CopyFrameButton videoRef={videoNodeRef} />
 
           <button
             type="button"
