@@ -213,13 +213,10 @@ function RemoteEvidenceLoader(props: {
   const canCopyLlmPrompt = !props.shareToken;
   const canTransferEvidence =
     !props.shareToken && currentUserId !== null && loaded.evidence.createdBy === currentUserId;
+  // Anyone in the evidence's organisation can tag it; share-link viewers cannot.
   const canUpdateEvidenceTags =
     !props.shareToken &&
-    accountQuery.data?.organizations.some(
-      (org) =>
-        org.id === loaded.evidence.orgId &&
-        (org.role === "owner" || org.role === "admin" || org.role === "moderator"),
-    ) === true;
+    accountQuery.data?.organizations.some((org) => org.id === loaded.evidence.orgId) === true;
 
   const openRenameDialog = (): void => {
     setRenameValue(loaded.evidence.title || loaded.session.archive.name);
@@ -694,8 +691,8 @@ export function EmbeddedEvidenceViewer(props: {
       // The mutation state drives the inline discussion notice.
     }
   };
-  const canUpdateEvidenceTags =
-    accountQuery.data?.organizations.some((org) => org.id === loaded.evidence.orgId && (org.role === "owner" || org.role === "admin" || org.role === "moderator")) === true;
+  // Anyone in the evidence's organisation can tag it.
+  const canUpdateEvidenceTags = accountQuery.data?.organizations.some((org) => org.id === loaded.evidence.orgId) === true;
   const updateEvidenceTags = (tagIds: string[]): void => {
     updateTags.mutate(
       { evidenceId: loaded.evidenceId, tagIds },

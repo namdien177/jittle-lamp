@@ -1915,11 +1915,13 @@ export const createEvidenceUploadRoutes = (auth: ClerkAuthPlugin) =>
 							);
 						}
 
+						// Anyone who can see the organisation's evidence can tag it; editing the tag list
+						// itself stays with evidence.tags.manage.
 						if (
 							!(await organizationMemberHasPermission(db, {
 								organizationId: evidence.orgId,
 								localUserId: authContext.localUserId,
-								permission: "evidence.tags.manage",
+								permission: "evidence.view",
 							}))
 						) {
 							set.status = 403;

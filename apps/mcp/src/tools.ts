@@ -309,7 +309,7 @@ export function registerJittleLampTools(
 		"set_evidence_tags",
 		{
 			description:
-				"Replace the evidence's assigned tags with up to 20 existing tag IDs. An empty list removes all assignments. Requires evidence tag management permission.",
+				"Replace the evidence's assigned tags with up to 20 existing tag IDs. An empty list removes all assignments. Any member who can view the evidence can tag it.",
 			inputSchema: z.strictObject({
 				evidenceId,
 				tagIds: z.array(identifier).max(20),
