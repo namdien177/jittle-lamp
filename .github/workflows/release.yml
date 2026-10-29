@@ -121,7 +121,8 @@ jobs:
 
   build-desktop:
     needs: validate-tag
-    runs-on: macos-14
+    # Native Rust/GPUI app for Apple silicon; it targets macOS 15, so build with the macOS 15 SDK.
+    runs-on: macos-15
     environment: production
 
     steps:
@@ -130,18 +131,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "24"
-
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Determine signing mode
         id: signing
@@ -162,46 +158,88 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Package macOS desktop release
+      # MACOS_CSC_LINK holds the base64-encoded Developer ID Application .p12.
+      - name: Import signing certificate
+        id: keychain
+        if: steps.signing.outputs.signed == 'true'
         env:
-          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-          JITTLE_LAMP_API_ORIGIN: ${{ secrets.JITTLE_LAMP_API_ORIGIN }}
-          JITTLE_LAMP_WEB_ORIGIN: ${{ secrets.JITTLE_LAMP_WEB_ORIGIN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.signed == 'true' && 'true' || 'false' }}
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/jl-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          certificate="$RUNNER_TEMP/jl-signing.p12"
+          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$certificate"
+          security import "$certificate" -k "$keychain" -P "$CSC_KEY_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          rm -f "$certificate"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          existing_keychains=()
+          while IFS= read -r line; do
+            existing_keychains+=("$(sed -e 's/^ *"//' -e 's/" *$//' <<< "$line")")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${existing_keychains[@]}"
+
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application/ { print $2; exit }')"
+          if [[ -z "$identity" ]]; then
+            echo "MACOS_CSC_LINK does not contain a Developer ID Application identity." >&2
+            security find-identity -v -p codesigning "$keychain" >&2
+            exit 1
+          fi
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+
+      # Builds libvpx and the release binary, signs the app (ad-hoc without a certificate),
+      # notarizes and staples app and DMG when signing, and writes the DMG to target/bundle.
+      - name: Package macOS desktop release
+        env:
+          JITTLE_LAMP_API_ORIGIN: ${{ secrets.JITTLE_LAMP_API_ORIGIN }}
+          JITTLE_LAMP_WEB_ORIGIN: ${{ secrets.JITTLE_LAMP_WEB_ORIGIN }}
+          JL_SIGN_IDENTITY: ${{ steps.keychain.outputs.identity }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: bun run --cwd apps/desktop package:ci
+        run: bun run release:package-desktop
 
       - name: Verify macOS app code signature
         shell: bash
         run: |
           set -euo pipefail
-
-          apps=()
-          while IFS= read -r app; do
-            apps+=("$app")
-          done < <(find apps/desktop/artifacts -name "Jittle Lamp.app" -type d)
-          if [[ ${#apps[@]} -ne 1 ]]; then
-            echo "Expected exactly one packaged macOS app bundle, found ${#apps[@]}"
-            find apps/desktop/artifacts -maxdepth 3 -type d -name "*.app" -print
+          app_bundle="apps/desktop/target/bundle/Jittle Lamp.app"
+          dmg="apps/desktop/target/bundle/jittle-lamp-desktop-${{ needs.validate-tag.outputs.version }}-macos-arm64.dmg"
+          if [[ ! -d "$app_bundle" || ! -f "$dmg" ]]; then
+            echo "Expected the packaged app bundle and DMG in apps/desktop/target/bundle"
+            ls -lah apps/desktop/target/bundle || true
             exit 1
           fi
 
-          app_bundle="${apps[0]}"
           codesign --verify --deep --strict --verbose=2 "$app_bundle"
           signature_details="$(codesign -dv --verbose=4 "$app_bundle" 2>&1)"
           echo "$signature_details"
 
-          if [[ "${{ steps.signing.outputs.signed }}" == "false" ]] && ! grep -q "Signature=adhoc" <<< "$signature_details"; then
-            echo "Expected unsigned release fallback to use an ad-hoc macOS signature."
-            exit 1
+          if [[ "${{ steps.signing.outputs.signed }}" == "false" ]]; then
+            if ! grep -q "Signature=adhoc" <<< "$signature_details"; then
+              echo "Expected unsigned release fallback to use an ad-hoc macOS signature."
+              exit 1
+            fi
+          else
+            grep -q "Authority=Developer ID Application" <<< "$signature_details"
+            xcrun stapler validate "$app_bundle"
+            xcrun stapler validate "$dmg"
+            spctl --assess --type execute --verbose=2 "$app_bundle"
           fi
+
+      - name: Remove signing keychain
+        if: always() && steps.keychain.outputs.keychain != ''
+        run: security delete-keychain "${{ steps.keychain.outputs.keychain }}" || true
 
       - name: Collect macOS release artifact
         env:
@@ -225,7 +263,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-desktop
-          path: release-artifacts/*
+          path: release-artifacts/*.dmg
           if-no-files-found: error
 
   publish-release:

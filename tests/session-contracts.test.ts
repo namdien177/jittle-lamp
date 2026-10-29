@@ -5,8 +5,11 @@ import {
   buildTimeline,
   createSessionArchive,
   createSessionDraft,
+  findRecordingArtifact,
   getStepAnnotations,
   parseSessionArchiveJson,
+  pickSessionBundleFiles,
+  recordingFileNameForMimeType,
   replaceMergeGroups,
   safeParseSessionArchiveJson,
   sanitizeCapturedUrl,
@@ -20,6 +23,7 @@ import {
   upgradeSessionArchiveInput
 } from "@jittle-lamp/shared";
 
+import { makeDesktopRecorderArchive, mp4Bytes, safariSource } from "./fixtures/desktop-recorder-archive";
 import { makeRunnerArchive, runnerSteps } from "./fixtures/e2e/runner-archive";
 
 describe("session contracts", () => {
@@ -443,5 +447,96 @@ describe("session archive v5", () => {
     const withQueryStep = { ...runner, annotations: runner.annotations.map((annotation) => (annotation.kind === "step" ? { ...annotation, type: "query", mode: "query" } : annotation)) };
     expect(safeParseSessionArchiveJson(JSON.stringify(withQueryStep)).success).toBe(true);
     expect(safeParseSessionArchiveJson(JSON.stringify({ ...runner, sections: { ...runner.sections, actions: [{ ...entry, payload: { ...entry.payload, integration: "ftp" } }] } })).success).toBe(false);
+  });
+});
+
+// The native macOS app (apps/desktop/DESIGN.md): a third recorder kind and an MP4 artifact,
+// both additive within v5.
+describe("desktop recorder archives", () => {
+  test("a desktop-recorder archive with an MP4 recording validates as v5", () => {
+    const written = makeDesktopRecorderArchive();
+    const archive = parseSessionArchiveJson(JSON.stringify(written));
+    expect(archive.schemaVersion).toBe(sessionSchemaVersion);
+    expect(archive.recorder).toEqual({
+      kind: "desktop-recorder",
+      recorder: { name: "jittle-lamp-desktop", version: "0.1.0", os: "macOS 26.1", source: safariSource }
+    });
+    expect(archive.page).toEqual({ url: "app://com.apple.Safari", title: "Safari" });
+    expect(findRecordingArtifact(archive)).toEqual({
+      kind: "recording.mp4",
+      relativePath: "jl_desktop_fixture/recording.mp4",
+      mimeType: "video/mp4",
+      bytes: 8
+    });
+    expect(archive.sections.console.map((entry) => entry.payload.level)).toEqual(["info", "error"]);
+    expect(buildTimeline(archive).filter((item) => item.section === "console")).toHaveLength(2);
+  });
+
+  test("display and window captures validate with screen:// and app:// page URLs", () => {
+    const display = makeDesktopRecorderArchive({
+      source: { type: "display", name: "Built-in Retina Display" },
+      pageUrl: "screen://display/1"
+    });
+    expect(display.page.url).toBe("screen://display/1");
+    expect(display.recorder.kind === "desktop-recorder" && display.recorder.recorder.source).toEqual({
+      type: "display",
+      name: "Built-in Retina Display"
+    });
+    const window = makeDesktopRecorderArchive({ source: { type: "window", name: "Checkout — Safari", bundleId: "com.apple.Safari", pid: 1 } });
+    expect(window.page.url).toBe("app://com.apple.Safari");
+  });
+
+  test("rejects malformed desktop recorder info", () => {
+    const valid = makeDesktopRecorderArchive();
+    const withRecorder = (recorder: unknown) => safeParseSessionArchiveJson(JSON.stringify({ ...valid, recorder })).success;
+    const info = valid.recorder.kind === "desktop-recorder" ? valid.recorder.recorder : null;
+    expect(withRecorder({ kind: "desktop-recorder", recorder: { ...info, source: { ...safariSource, type: "tab" } } })).toBe(false);
+    expect(withRecorder({ kind: "desktop-recorder", recorder: { ...info, os: undefined } })).toBe(false);
+    expect(withRecorder({ kind: "desktop-recorder", recorder: { ...info, source: { ...safariSource, pid: -1 } } })).toBe(false);
+    expect(withRecorder({ kind: "mobile-recorder", recorder: info })).toBe(false);
+    expect(
+      safeParseSessionArchiveJson(JSON.stringify({ ...valid, artifacts: [{ kind: "recording.mov", relativePath: "x", mimeType: "video/quicktime" }] })).success
+    ).toBe(false);
+  });
+
+  test("desktop archives cannot be written in the extension's v3 wire format", () => {
+    expect(() => toExtensionWireArchive(makeDesktopRecorderArchive())).toThrow("Only browser-extension archives");
+  });
+
+  test("v3 extension archives and v4 runner archives still upgrade to v5", () => {
+    const draft = createSessionDraft({ page: { title: "Example", url: "https://example.com" }, now: new Date("2026-01-01T00:00:00.000Z") });
+    const v5 = createSessionArchive(draft);
+    const v3 = { ...v5, schemaVersion: 3, recorder: { extension: { kind: "browser-extension", name: "jittle-lamp", version: "1.8.2" } } };
+    const upgradedV3 = parseSessionArchiveJson(JSON.stringify(v3));
+    expect(upgradedV3.schemaVersion).toBe(sessionSchemaVersion);
+    expect(upgradedV3.recorder.kind).toBe("browser-extension");
+    expect(findRecordingArtifact(upgradedV3)?.kind).toBe("recording.webm");
+
+    const upgradedV4 = parseSessionArchiveJson(JSON.stringify({ ...makeRunnerArchive(), schemaVersion: 4 }));
+    expect(upgradedV4.schemaVersion).toBe(sessionSchemaVersion);
+    expect(upgradedV4.recorder.kind).toBe("e2e-runner");
+  });
+
+  test("bundles carry recording.webm or recording.mp4, never both", () => {
+    const archiveJson = new TextEncoder().encode(JSON.stringify(makeDesktopRecorderArchive()));
+    const picked = pickSessionBundleFiles({ "jl_desktop_fixture/session.archive.json": archiveJson, "jl_desktop_fixture/recording.mp4": mp4Bytes });
+    expect(picked.recording).toEqual(mp4Bytes);
+    expect(picked.recordingFileName).toBe("recording.mp4");
+    expect(picked.recordingMimeType).toBe("video/mp4");
+
+    const webm = pickSessionBundleFiles({ "session.archive.json": archiveJson, "recording.webm": new Uint8Array([0x1a]) });
+    expect(webm.recordingFileName).toBe("recording.webm");
+    expect(webm.recordingMimeType).toBe("video/webm");
+
+    expect(() => pickSessionBundleFiles({ "session.archive.json": archiveJson })).toThrow(
+      "recording.webm or recording.mp4 not found in bundle."
+    );
+    expect(() =>
+      pickSessionBundleFiles({ "session.archive.json": archiveJson, "recording.webm": new Uint8Array([0x1a]), "recording.mp4": mp4Bytes })
+    ).toThrow("Bundle must contain only one of recording.webm or recording.mp4.");
+
+    expect(recordingFileNameForMimeType("video/mp4")).toBe("recording.mp4");
+    expect(recordingFileNameForMimeType("video/mp4; codecs=avc1.640028")).toBe("recording.mp4");
+    expect(recordingFileNameForMimeType("video/webm;codecs=vp9")).toBe("recording.webm");
   });
 });

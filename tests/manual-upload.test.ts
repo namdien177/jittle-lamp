@@ -41,3 +41,14 @@ describe("manual video upload without an archive", () => {
     expect(archive.recorder.kind).toBe("browser-extension");
   });
 });
+
+describe("manual MP4 upload without an archive", () => {
+  test("declares the recording as recording.mp4", async () => {
+    const file = new File([new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70])], "walkthrough.mp4", { type: "video/mp4" });
+    const prepared = await prepareManualEvidenceUploadFile(file);
+    const archiveArtifact = prepared.artifacts.find((artifact) => artifact.key === "archive");
+    const archive = parseSessionArchiveJson(archiveArtifact?.payload ?? new Uint8Array());
+    expect(archive.artifacts[0]).toMatchObject({ kind: "recording.mp4", mimeType: "video/mp4" });
+    expect(prepared.artifacts.find((artifact) => artifact.key === "recording")?.mimeType).toBe("video/mp4");
+  });
+});

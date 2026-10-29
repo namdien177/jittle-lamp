@@ -1,6 +1,7 @@
 import { zipSync } from "fflate";
 
 import {
+  findRecordingArtifact,
   recordingFileName,
   replaceMergeGroups,
   sessionArchiveFileName,
@@ -48,7 +49,7 @@ export class WebReviewedSessionZipExporter implements SessionExporter<ReviewedSe
 
     return zipSync({
       [sessionArchiveFileName]: new TextEncoder().encode(`${JSON.stringify(archive, null, 2)}\n`),
-      [recordingFileName]: Uint8Array.from(input.recordingBytes)
+      [findRecordingArtifact(archive)?.kind ?? recordingFileName]: Uint8Array.from(input.recordingBytes)
     });
   }
 }

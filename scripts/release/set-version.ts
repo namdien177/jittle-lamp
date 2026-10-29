@@ -1,4 +1,11 @@
-import { getWorkspaceVersion, normalizeReleaseVersion, readJsonFile, versionPackageRelativePaths, writeJsonFile } from "./workspace-version";
+import {
+  getWorkspaceVersion,
+  normalizeReleaseVersion,
+  readJsonFile,
+  versionPackageRelativePaths,
+  writeCargoWorkspaceVersion,
+  writeJsonFile
+} from "./workspace-version";
 
 type VersionedPackageJson = {
   version: string;
@@ -22,6 +29,8 @@ for (const relativePath of versionPackageRelativePaths) {
     version: nextVersion
   });
 }
+
+writeCargoWorkspaceVersion(nextVersion);
 
 console.info(`Updated workspace package versions from ${currentVersion} to ${nextVersion}.`);
 console.info("Run `bun install` before committing so bun.lock stays in sync with the version bump.");

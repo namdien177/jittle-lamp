@@ -31,8 +31,8 @@
 apps/backend/node_modules
 apps/backend/server
 apps/backend/dist
-apps/desktop/node_modules
-apps/desktop/dist
+apps/desktop/*
+!apps/desktop/package.json
 apps/evidence-web/node_modules
 apps/evidence-web/dist
 apps/extension/node_modules

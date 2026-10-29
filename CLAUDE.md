@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`jittle-lamp` is a QA evidence manager: capture browser sessions, review them, upload, and share via links. It is a **Bun workspace** (`bun@1.4.4`) with strict TypeScript ESM throughout. The end-to-end flow is the key mental model:
+`jittle-lamp` is a QA evidence manager: capture browser sessions, review them, upload, and share via links. It is a **Bun workspace** (`bun@1.4.4`) with strict TypeScript ESM throughout, except `apps/desktop`, a native macOS app in Rust. The end-to-end flow is the key mental model:
 
 ```
-extension (record)  →  desktop companion server (intake, local save)  →  desktop renderer (review)
+extension (record)  →  desktop companion server (intake, local save)  →  desktop app (review)
                                                                               ↓ authenticated upload
                                                             backend (storage + share links)  →  evidence-web (shared review)
 ```
@@ -19,7 +19,7 @@ bun install
 bun run typecheck                      # tsc over the whole workspace (tsconfig.typecheck.json)
 bun test                               # all Bun tests
 bun test tests/timeline.test.ts        # single test file
-bun run build                          # full ordered build (see "Build order" below)
+bun run build                          # full ordered build (see "Build order" below); no Rust needed
 bun run clean                          # remove all dist/artifacts
 ```
 
@@ -33,18 +33,20 @@ bun run --cwd apps/backend lint:fix
 bun run --cwd apps/backend typecheck
 bun run --cwd apps/backend db:generate # drizzle-kit generate after schema changes
 bun run --cwd apps/backend db:migrate
-bun run --cwd apps/desktop dev         # builds + launches Electron and companion on 127.0.0.1:48115
-bun run --cwd apps/desktop package:local
+bun run --cwd apps/desktop dev         # cargo run: native app + companion on 127.0.0.1:48115
+bun run --cwd apps/desktop test        # cargo test --workspace
+bun run --cwd apps/desktop build       # release binary (also `bun run build:desktop`)
+bun run --cwd apps/desktop bundle      # signed "Jittle Lamp.app" in apps/desktop/target/bundle
 ```
 
-Release helpers live in `scripts/release/` (`bun run release`, `release:check-version`, `release:set-version`, etc.). All app/package versions are kept in sync; `release:check-version` enforces this.
+Release helpers live in `scripts/release/` (`bun run release`, `release:check-version`, `release:set-version`, etc.). All app/package versions, plus `[workspace.package] version` in `apps/desktop/Cargo.toml`, are kept in sync; `release:check-version` enforces this.
 
 ## Build order (matters)
 
 `bun run build` is sequential because packages feed each other. Dependency direction:
 
 - `shared` → `viewer-core` → `viewer-react`, and `ui` is independent.
-- `extension`, `desktop`, `evidence-web` all consume the built packages.
+- `extension` and `evidence-web` consume the built packages. `apps/desktop` is built separately with cargo.
 
 When changing a shared package, rebuild it (or run `bun run build`) before the consumer's `tsc`/bundle picks it up — TS path aliases (`@jittle-lamp/*` in `tsconfig.base.json`) point at `src` for typecheck, but bundlers consume `dist`.
 
@@ -52,11 +54,11 @@ When changing a shared package, rebuild it (or run `bun run build`) before the c
 
 ### `packages/shared` — the contract layer
 
-Canonical **Zod schemas** for everything that crosses a process or storage boundary: capture session drafts, session archives, extension/popup/content messages, companion state, timeline model, and `session-io` helpers. The extension and desktop evolve against these schemas rather than ad-hoc types. Prefer extending a schema here over inventing a parallel type. Exports `.` and `./timeline`.
+Canonical **Zod schemas** for everything that crosses a process or storage boundary: capture session drafts, session archives, extension/popup/content messages, companion state, timeline model, and `session-io` helpers. The extension and web app evolve against these schemas rather than ad-hoc types; the desktop app mirrors the session archive in Rust (`jl-core`). Prefer extending a schema here over inventing a parallel type. Exports `.` and `./timeline`.
 
-### `packages/viewer-core` + `packages/viewer-react` — review parity
+### `packages/viewer-core` + `packages/viewer-react` — the web viewer
 
-`viewer-core` is a **framework-agnostic state machine** (`ViewerCoreState`, timeline/selection/merge logic) with no React dependency. `viewer-react` wraps it in React components + hooks. Both the desktop renderer and `evidence-web` render the **same viewer** from these packages — this is deliberate "review parity" (see `docs/parity-checklist.md` and `tests/review-e2e-parity.test.ts`). Changes to review UX usually belong in these packages, not in an app.
+`viewer-core` is a **framework-agnostic state machine** (`ViewerCoreState`, timeline/selection/merge logic) with no React dependency. `viewer-react` wraps it in React components + hooks. `evidence-web` renders its viewer from these packages; changes to web review UX usually belong here, not in the app. The desktop app has its own GPUI viewer whose timeline (`jl-core::timeline`) is checked against fixtures generated from the TS code, so both show the same timeline (`docs/parity-checklist.md`; the web side is tested in `tests/review-e2e-parity.test.ts`).
 
 ### `apps/extension` — four-runtime MV3 recorder
 
@@ -71,15 +73,16 @@ Captured artifacts: `recording.webm` + structured session archive JSON. URLs and
 
 **Permission/manifest changes** must go through `apps/extension/scripts/manifest.ts` and be called out in the PR. Build-time origins are injected via `define` (`__JITTLE_LAMP_API_ORIGIN__`, `__JITTLE_LAMP_WEB_ORIGIN__`).
 
-### `apps/desktop` — Electron companion + reviewer
+### `apps/desktop` — native macOS app (Rust + GPUI)
 
-Three layers:
+A Cargo workspace (macOS 15+, Apple silicon) that replaced the Electron app; `package.json` only wraps cargo. `apps/desktop/DESIGN.md` is the contract between the crates and the design spec. Needs rustup stable (Homebrew's `rustc` is too old); WebM playback links libvpx (Homebrew's in development, `crates/jl-media/scripts/build-libvpx.sh` for releases).
 
-- `src/electron/main.ts` + `preload.ts` — Electron main process and IPC bridge. RPC contracts are typed in `src/rpc.ts` (`DesktopRequestMap`/`DesktopRendererMessageMap`); add a handler in `main.ts` and a type in `rpc.ts` together.
-- `src/companion/` — local HTTP server on `127.0.0.1:48115` that receives artifacts from the extension and writes them to the configured output folder; `sessions-db.ts` is a libSQL session catalog. The server only accepts writes from `chrome-extension://` origins.
-- `src/mainview/` — the React renderer app (pages, queries via TanStack Query, Clerk auth context, viewer integration). Built into `dist/views/mainview/`.
+- `jl-core` — archive model, `~/.jittle-lamp/companion.json` config, `sessions.db` library, zip import/export, timeline, and the companion HTTP server on `127.0.0.1:48115` (same protocol as before; writes only from `chrome-extension://` origins). Tests compare against TS-generated fixtures in `crates/jl-core/tests/fixtures/` (regenerate with `bun run apps/desktop/crates/jl-core/tests/fixtures/generate.ts` after archive or timeline changes in `packages/shared`).
+- `jl-api` — blocking backend client: device sign-in (Keychain token), orgs, evidence, sync, test runs.
+- `jl-capture`, `jl-media`, `jl-macos` — ScreenCaptureKit recording and app logs, video playback, menu bar/hotkeys/notifications.
+- `jl-app` — the GPUI app (binary `jittle-lamp`). `scripts/bundle.sh` builds and signs `target/bundle/Jittle Lamp.app` (`JL_SIGN_IDENTITY`, ad-hoc by default).
 
-`set-output` / `configure-output.ts` and `cli.ts` manage the companion output folder outside the GUI.
+Native recordings use recorder kind `desktop-recorder` and a `recording.mp4` artifact; keep `packages/shared` and `jl-core::archive` in step when the archive changes.
 
 ### `apps/evidence-web` — shared-link viewer
 
@@ -99,8 +102,8 @@ See `AGENTS.md` for coding style, naming, testing, commit/PR, and security conve
 
 ## Tests
 
-Repo-wide contract/behavior tests are in root `tests/` (schema contracts, session archive, timeline, background recovery, companion media server, viewer parity). Backend tests are under `apps/backend/test/`. Run targeted files during development, full suite before PR.
+Repo-wide contract/behavior tests are in root `tests/` (schema contracts, session archive, timeline, background recovery, viewer parity). Backend tests are under `apps/backend/test/`; desktop tests are Rust (`bun run --cwd apps/desktop test`). Run targeted files during development, full suite before PR.
 
 ## Environment
 
-Copy `.env.sample` to root `.env`. Backend reads `process.env`; desktop and evidence-web build scripts read the root `.env` at build time. Key vars: `DATABASE_URL` (libSQL/Turso, `file:./apps/backend/local.db` for local), Clerk keys, `S3_*` artifact storage, `JITTLE_LAMP_API_ORIGIN` / `JITTLE_LAMP_WEB_ORIGIN`. Never commit `.env`, secrets, or release bundles.
+Copy `.env.sample` to root `.env`. Backend reads `process.env`; the evidence-web build and `apps/desktop/scripts/bundle.sh` read the root `.env` at build time. Key vars: `DATABASE_URL` (libSQL/Turso, `file:./apps/backend/local.db` for local), Clerk keys, `S3_*` artifact storage, `JITTLE_LAMP_API_ORIGIN` / `JITTLE_LAMP_WEB_ORIGIN`. Never commit `.env`, secrets, or release bundles.

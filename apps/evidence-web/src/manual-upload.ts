@@ -183,6 +183,8 @@ function createEmptyArchive(input: {
   durationMs: number | null;
 }): SessionArchive {
   const now = new Date().toISOString();
+  // WebP has no artifact kind of its own; it keeps the WebM name as before.
+  const recordingKind = input.videoMimeType === "video/mp4" ? "recording.mp4" : "recording.webm";
   return sessionArchiveSchema.parse({
     schemaVersion: sessionSchemaVersion,
     sessionId: input.sessionId,
@@ -209,8 +211,8 @@ function createEmptyArchive(input: {
     },
     artifacts: [
       {
-        kind: "recording.webm",
-        relativePath: `${input.sessionId}/recording.webm`,
+        kind: recordingKind,
+        relativePath: `${input.sessionId}/${recordingKind}`,
         mimeType: input.videoMimeType,
         bytes: input.videoBytes,
       },
@@ -248,15 +250,19 @@ async function toPreparedArtifact(input: {
 
 async function prepareZipUpload(file: File): Promise<PreparedManualUpload> {
   let archiveJson: Uint8Array;
-  let recordingWebm: Uint8Array;
+  let recordingBytes: Uint8Array;
+  let recordingFileName: string;
+  let recordingMimeType: string;
   let archive: SessionArchive;
   try {
     const zipBytes = new Uint8Array(await file.arrayBuffer());
     const files = unzipSync(zipBytes);
     const picked = pickSessionBundleFiles(files);
     archiveJson = picked.archiveJson;
-    recordingWebm = picked.recordingWebm;
-    assertVideoSize(recordingWebm.byteLength);
+    recordingBytes = picked.recording;
+    recordingFileName = picked.recordingFileName;
+    recordingMimeType = picked.recordingMimeType;
+    assertVideoSize(recordingBytes.byteLength);
     archive = parseSessionArchiveJson(archiveJson);
   } catch (error) {
     throw new InvalidEvidenceUploadError(
@@ -266,13 +272,13 @@ async function prepareZipUpload(file: File): Promise<PreparedManualUpload> {
     );
   }
   const recordingArtifact = archive.artifacts.find(
-    (artifact) => artifact.kind === "recording.webm",
+    (artifact) => artifact.kind === recordingFileName,
   );
   const recording = await toPreparedArtifact({
     key: "recording",
     kind: "recording",
-    mimeType: recordingArtifact?.mimeType || "video/webm",
-    payload: Uint8Array.from(recordingWebm),
+    mimeType: recordingArtifact?.mimeType || recordingMimeType,
+    payload: Uint8Array.from(recordingBytes),
   });
   const archiveArtifact = await toPreparedArtifact({
     key: "archive",

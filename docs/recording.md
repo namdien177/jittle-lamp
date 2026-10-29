@@ -3,8 +3,8 @@
 ## Extension workflow
 
 1. Run `bun run build` or `bun run --cwd apps/extension build`.
-2. Optional but recommended: run `bun run --cwd apps/desktop set-output "/absolute/path"` once.
-3. Start the desktop companion with `bun run --cwd apps/desktop dev` so captured artifacts are handed to the app.
+2. Optional: choose the output folder in the desktop app's Settings, or set `JITTLE_LAMP_OUTPUT_DIR`.
+3. Start the macOS desktop app (installed, or `bun run --cwd apps/desktop dev` from source) so captured artifacts are handed to its companion server.
 4. Load `apps/extension/dist` as an unpacked extension in Chromium.
 5. Open an `http://` or `https://` tab and open the extension popup.
 6. Press **Start** and grant site access when prompted so capture can survive normal navigations.

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { recordingFileName, sessionArchiveFileName } from "@jittle-lamp/shared";
+import {
+	recordingFileName,
+	recordingMp4FileName,
+	sessionArchiveFileName,
+} from "@jittle-lamp/shared";
 import { eq } from "drizzle-orm";
 import { strToU8, zipSync } from "fflate";
 import { SignJWT } from "jose";
@@ -20,6 +24,8 @@ import {
 	applyMigrations,
 	bytesBody,
 	createAutomationEvidenceZip,
+	createDesktopRecorderArchive,
+	createDesktopRecorderEvidenceZip,
 	expectApiError,
 	getAuthFixture,
 	sha256Hex,
@@ -723,7 +729,7 @@ describe("evidence upload routes", () => {
 		await expectApiError(invalidZipResponse, {
 			code: "AUTOMATION_UPLOAD_ZIP_INVALID",
 			message:
-				"ZIP must contain exactly session.archive.json and recording.webm at the root",
+				"ZIP must contain exactly session.archive.json and one of recording.webm or recording.mp4 at the root",
 			status: 400,
 		});
 
@@ -754,6 +760,254 @@ describe("evidence upload routes", () => {
 			message: "Invalid or expired automation API token",
 			status: 401,
 		});
+	});
+
+	it("uploads native desktop MP4 evidence ZIPs with API tokens", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_automation_mp4",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_automation_mp4" },
+		});
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const clerkToken = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_automation_mp4")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const tokenResponse = await app.handle(
+			new Request("http://localhost/automation/api-tokens", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${clerkToken}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ label: "Mac uploader", permanent: true }),
+			}),
+		);
+		expect(tokenResponse.status).toBe(200);
+		const { token } = (await tokenResponse.json()) as { token: string };
+
+		const uploadZip = (files: Record<string, Uint8Array>) =>
+			app.handle(
+				new Request("http://localhost/automation/evidences/zip", {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${token}`,
+						"content-type": "application/zip",
+					},
+					body: bytesBody(zipSync(files)),
+				}),
+			);
+
+		const uploadResponse = await app.handle(
+			new Request("http://localhost/automation/evidences/zip", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${token}`,
+					"content-type": "application/zip",
+				},
+				body: bytesBody(createDesktopRecorderEvidenceZip()),
+			}),
+		);
+		expect(uploadResponse.status).toBe(200);
+		const uploadPayload = (await uploadResponse.json()) as {
+			evidence: { id: string; title: string };
+		};
+		expect(uploadPayload.evidence.title).toBe("Safari checkout");
+
+		const artifacts = await db.query.evidenceArtifacts.findMany({
+			where: eq(evidenceArtifacts.evidenceId, uploadPayload.evidence.id),
+			columns: { kind: true, mimeType: true, uploadStatus: true },
+		});
+		expect(artifacts.sort((a, b) => a.kind.localeCompare(b.kind))).toEqual([
+			{
+				kind: "network-log",
+				mimeType: "application/json",
+				uploadStatus: "uploaded",
+			},
+			{ kind: "recording", mimeType: "video/mp4", uploadStatus: "uploaded" },
+		]);
+
+		const archiveJson = strToU8(
+			JSON.stringify(createDesktopRecorderArchive("jl_desktop_mp4_002")),
+		);
+		const mp4 = new Uint8Array([0x00, 0x00, 0x00, 0x18]);
+
+		const bothRecordings = await uploadZip({
+			[sessionArchiveFileName]: archiveJson,
+			[recordingFileName]: new Uint8Array([0x1a]),
+			[recordingMp4FileName]: mp4,
+		});
+		expect(bothRecordings.status).toBe(400);
+		await expectApiError(bothRecordings, {
+			code: "AUTOMATION_UPLOAD_ZIP_INVALID",
+			message:
+				"ZIP must contain exactly session.archive.json and one of recording.webm or recording.mp4 at the root",
+			status: 400,
+		});
+
+		// The archive declares recording.mp4, so a WebM file under the other name is rejected.
+		const mismatched = await uploadZip({
+			[sessionArchiveFileName]: archiveJson,
+			[recordingFileName]: new Uint8Array([0x1a]),
+		});
+		expect(mismatched.status).toBe(400);
+		await expectApiError(mismatched, {
+			code: "AUTOMATION_UPLOAD_ZIP_INVALID",
+			message:
+				"session.archive.json must declare recording and archive artifacts",
+			status: 400,
+		});
+	});
+
+	it("syncs desktop sessions with an MP4 recording", async () => {
+		const databaseUrl = `file:/tmp/jittle-lamp-${crypto.randomUUID()}.db`;
+		await applyMigrations(databaseUrl);
+
+		const db = createDb(databaseUrl);
+		if (!db) {
+			throw new Error("Database was not created");
+		}
+
+		await ensureUserAndPersonalOrganization(db, {
+			clerkUserId: "user_clerk_desktop_mp4_sync",
+			source: "clerk-callback",
+			rawPayload: { userId: "user_clerk_desktop_mp4_sync" },
+		});
+
+		const { privateKey, jwtKey } = await getAuthFixture();
+		const token = await new SignJWT({ scope: "read write" })
+			.setProtectedHeader({ alg: "RS256" })
+			.setSubject("user_clerk_desktop_mp4_sync")
+			.setAudience("test-audience")
+			.setIssuedAt()
+			.setExpirationTime("5m")
+			.sign(privateKey);
+
+		const { app } = createApp({
+			NODE_ENV: "development",
+			DATABASE_URL: databaseUrl,
+			APP_VERSION: "9.9.9",
+			APP_SECRET: TEST_APP_SECRET,
+			CLERK_JWT_KEY: jwtKey,
+			CLERK_AUDIENCE: "test-audience",
+		});
+
+		const recordingBody = "mp4 recording bytes";
+		const archiveBody = JSON.stringify(createDesktopRecorderArchive());
+		const startResponse = await app.handle(
+			new Request("http://localhost/evidences/desktop-sessions/sync/start", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					sessionId: "jl_desktop_mp4_001",
+					title: "Safari checkout",
+					sourceMetadata: "native",
+					artifacts: [
+						{
+							key: "recording",
+							kind: "recording",
+							mimeType: "video/mp4",
+							bytes: recordingBody.length,
+							checksum: `sha256:${await sha256Hex(recordingBody)}`,
+						},
+						{
+							key: "archive",
+							kind: "network-log",
+							mimeType: "application/json",
+							bytes: archiveBody.length,
+							checksum: `sha256:${await sha256Hex(archiveBody)}`,
+						},
+					],
+				}),
+			}),
+		);
+		expect(startResponse.status).toBe(200);
+		const startPayload = (await startResponse.json()) as {
+			evidenceId: string;
+			uploadSessions: Array<{
+				key: string;
+				uploadId: string;
+				uploadUrl: string;
+			}>;
+		};
+
+		for (const artifact of [
+			{ key: "recording", body: recordingBody, mimeType: "video/mp4" },
+			{ key: "archive", body: archiveBody, mimeType: "application/json" },
+		]) {
+			const uploadSession = startPayload.uploadSessions.find(
+				(session) => session.key === artifact.key,
+			);
+			if (!uploadSession) throw new Error(`Missing ${artifact.key} upload`);
+
+			const blobResponse = await app.handle(
+				new Request(uploadSession.uploadUrl, {
+					method: "PUT",
+					headers: {
+						"content-type": artifact.mimeType,
+						authorization: `Bearer ${token}`,
+					},
+					body: artifact.body,
+				}),
+			);
+			expect(blobResponse.status).toBe(204);
+
+			const completeResponse = await app.handle(
+				new Request(
+					`http://localhost/evidences/uploads/${uploadSession.uploadId}/complete`,
+					{
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							authorization: `Bearer ${token}`,
+						},
+						body: JSON.stringify({
+							bytes: artifact.body.length,
+							checksum: `sha256:${await sha256Hex(artifact.body)}`,
+							mimeType: artifact.mimeType,
+						}),
+					},
+				),
+			);
+			expect(completeResponse.status).toBe(200);
+		}
+
+		const artifacts = await db.query.evidenceArtifacts.findMany({
+			where: eq(evidenceArtifacts.evidenceId, startPayload.evidenceId),
+			columns: { kind: true, mimeType: true, uploadStatus: true },
+		});
+		expect(artifacts.find((artifact) => artifact.kind === "recording")).toEqual(
+			{
+				kind: "recording",
+				mimeType: "video/mp4",
+				uploadStatus: "uploaded",
+			},
+		);
 	});
 
 	it("uses forwarded proxy origin when returning blob upload URLs", async () => {

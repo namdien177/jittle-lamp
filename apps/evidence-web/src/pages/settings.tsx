@@ -97,17 +97,18 @@ type NetworkSubtype =
   | "other";
 
 export interface SessionArchiveJson {
-  schemaVersion: 3 | 4; // 3: browser extension, 4: adds recorder.kind and step annotations
+  schemaVersion: 3 | 4 | 5; // 3: browser extension, 4: adds recorder.kind and step annotations, 5: current
   sessionId: string; // 8-128 chars
   name: string;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
   phase: CapturePhase;
   page: {
-    url: string;
+    url: string; // web page URL, or app://<bundle id> / screen://display/<id> for desktop recordings
     title: string;
     tabId?: number;
   };
+  recorder?: ArchiveRecorder; // version 4 and later; omitted means the browser extension
   artifacts: SessionArtifact[];
   sections: {
     actions: ArchiveAction[];
@@ -118,8 +119,21 @@ export interface SessionArchiveJson {
   notes?: string[];
 }
 
+export type ArchiveRecorder =
+  | { kind: "browser-extension"; extension: { kind: "browser-extension"; name: string; version: string } }
+  | { kind: "e2e-runner"; runner: { name: string; version: string } }
+  | {
+      kind: "desktop-recorder";
+      recorder: {
+        name: string;
+        version: string;
+        os: string;
+        source: { type: "display" | "window" | "application"; name: string; bundleId?: string; pid?: number };
+      };
+    };
+
 export interface SessionArtifact {
-  kind: "recording.webm" | "session.archive.json";
+  kind: "recording.webm" | "recording.mp4" | "session.archive.json"; // recording.mp4 has mimeType video/mp4
   relativePath: string;
   mimeType: string;
   bytes?: number;
@@ -1173,7 +1187,7 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 						<div className="grid gap-2 text-base text-muted-foreground sm:grid-cols-3">
 							<span>Max size: 20 MB</span>
 							<span>session.archive.json</span>
-							<span>recording.webm</span>
+							<span>recording.webm or recording.mp4</span>
 						</div>
 					</div>
 
@@ -1184,8 +1198,8 @@ export function SettingsApiTokensPage(): React.JSX.Element {
 									session.archive.json standard
 								</div>
 								<p className="text-base text-muted-foreground">
-									Validated as schemaVersion 3 or 4. Include this file with
-									recording.webm in the upload ZIP.
+									Validated as schemaVersion 3, 4 or 5. Include this file with
+									recording.webm or recording.mp4 in the upload ZIP.
 								</p>
 							</div>
 							<Button

@@ -625,8 +625,26 @@ a:focus-visible {
 }
 
 .button[hidden],
-.companion-download[hidden] {
+.companion-download[hidden],
+.companion-open[hidden] {
   display: none;
+}
+
+/* Opens the desktop app's library (the companion forwards the request). */
+.companion-open {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.companion-open:hover {
+  opacity: 0.85;
 }
 
 .primary {

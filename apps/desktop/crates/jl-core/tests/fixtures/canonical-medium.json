@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 5,
+  "sessionId": "jl_lww29hc0",
+  "name": "Canonical Fixture",
+  "createdAt": "2024-06-01T12:00:00.000Z",
+  "updatedAt": "2024-06-01T12:01:02.000Z",
+  "phase": "ready",
+  "page": {
+    "url": "https://example.com/",
+    "title": "Canonical Fixture"
+  },
+  "recorder": {
+    "kind": "browser-extension",
+    "extension": {
+      "kind": "browser-extension",
+      "name": "jittle-lamp",
+      "version": "unknown"
+    }
+  },
+  "summary": {
+    "videoDurationMs": null,
+    "actionCount": 20,
+    "requestCount": 3
+  },
+  "artifacts": [
+    {
+      "kind": "recording.webm",
+      "relativePath": "jl_lww29hc0/recording.webm",
+      "mimeType": "video/webm"
+    },
+    {
+      "kind": "session.archive.json",
+      "relativePath": "jl_lww29hc0/session.archive.json",
+      "mimeType": "application/json"
+    }
+  ],
+  "sections": {
+    "actions": [
+      {
+        "id": "jl_lww29hc0:actions:000000",
+        "seq": 0,
+        "at": "2024-06-01T12:00:00.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "lifecycle",
+          "phase": "recording",
+          "detail": "Fixture start"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000001",
+        "seq": 1,
+        "at": "2024-06-01T12:00:00.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-0",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000002",
+        "seq": 2,
+        "at": "2024-06-01T12:00:01.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-1",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000003",
+        "seq": 3,
+        "at": "2024-06-01T12:00:02.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-2",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000004",
+        "seq": 4,
+        "at": "2024-06-01T12:00:03.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-3",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000005",
+        "seq": 5,
+        "at": "2024-06-01T12:00:04.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-4",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000006",
+        "seq": 6,
+        "at": "2024-06-01T12:00:05.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-5",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000007",
+        "seq": 7,
+        "at": "2024-06-01T12:00:06.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-6",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000008",
+        "seq": 8,
+        "at": "2024-06-01T12:00:07.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-7",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000009",
+        "seq": 9,
+        "at": "2024-06-01T12:00:08.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-8",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000010",
+        "seq": 10,
+        "at": "2024-06-01T12:00:09.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-9",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000011",
+        "seq": 11,
+        "at": "2024-06-01T12:00:10.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-10",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000012",
+        "seq": 12,
+        "at": "2024-06-01T12:00:11.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-11",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000013",
+        "seq": 13,
+        "at": "2024-06-01T12:00:12.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-12",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000014",
+        "seq": 14,
+        "at": "2024-06-01T12:00:13.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-13",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000015",
+        "seq": 15,
+        "at": "2024-06-01T12:00:14.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-14",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000016",
+        "seq": 16,
+        "at": "2024-06-01T12:00:15.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-15",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000017",
+        "seq": 17,
+        "at": "2024-06-01T12:00:16.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-16",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000018",
+        "seq": 18,
+        "at": "2024-06-01T12:00:17.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-17",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000019",
+        "seq": 19,
+        "at": "2024-06-01T12:00:18.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-18",
+          "type": "click"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:actions:000020",
+        "seq": 20,
+        "at": "2024-06-01T12:00:19.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#action-19",
+          "type": "click"
+        }
+      }
+    ],
+    "console": [],
+    "network": [
+      {
+        "id": "jl_lww29hc0:network:000000",
+        "seq": 21,
+        "at": "2024-06-01T12:01:00.000Z",
+        "subtype": "fetch",
+        "payload": {
+          "kind": "network",
+          "method": "POST",
+          "url": "https://example.com/api/graphql",
+          "subtype": "fetch",
+          "status": 500,
+          "statusText": "Internal Server Error",
+          "durationMs": 250,
+          "request": {
+            "headers": [
+              {
+                "name": "content-type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "cookies": [],
+            "body": {
+              "disposition": "captured",
+              "encoding": "utf8",
+              "value": "{\"query\":\"query EdgeCase { viewer { id } }\",\"variables\":{\"unicode\":\"🙂\",\"nullish\":null}}"
+            }
+          },
+          "response": {
+            "headers": [
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ],
+            "setCookieHeaders": [
+              "id=abc; Secure; HttpOnly"
+            ],
+            "setCookies": [
+              {
+                "name": "id",
+                "value": "abc",
+                "httpOnly": true,
+                "secure": true,
+                "raw": "id=abc; Secure; HttpOnly"
+              }
+            ],
+            "body": {
+              "disposition": "captured",
+              "encoding": "utf8",
+              "value": "{\"error\":\"unexpected\"}"
+            }
+          },
+          "failureText": "ERR_HTTP2_PROTOCOL_ERROR"
+        }
+      },
+      {
+        "id": "jl_lww29hc0:network:000001",
+        "seq": 22,
+        "at": "2024-06-01T12:01:01.000Z",
+        "subtype": "script",
+        "payload": {
+          "kind": "network",
+          "method": "GET",
+          "url": "https://cdn.example.com/app.js",
+          "subtype": "script",
+          "status": 200,
+          "statusText": "OK",
+          "durationMs": 15,
+          "request": {
+            "headers": [
+              {
+                "name": "accept",
+                "value": "*/*"
+              }
+            ],
+            "cookies": []
+          },
+          "response": {
+            "headers": [
+              {
+                "name": "content-encoding",
+                "value": "gzip"
+              }
+            ],
+            "setCookieHeaders": [],
+            "setCookies": [],
+            "body": {
+              "disposition": "truncated",
+              "reason": "size_limit"
+            }
+          }
+        }
+      },
+      {
+        "id": "jl_lww29hc0:network:000002",
+        "seq": 23,
+        "at": "2024-06-01T12:01:02.000Z",
+        "subtype": "xhr",
+        "payload": {
+          "kind": "network",
+          "method": "GET",
+          "url": "https://example.com/api/timeout",
+          "subtype": "xhr",
+          "request": {
+            "headers": [
+              {
+                "name": "x-request-id",
+                "value": "req-timeout"
+              }
+            ],
+            "cookies": []
+          },
+          "response": {
+            "headers": [],
+            "setCookieHeaders": [],
+            "setCookies": []
+          },
+          "failureText": "net::ERR_TIMED_OUT"
+        }
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "id": "merge-canonical-001",
+      "kind": "merge-group",
+      "memberIds": [
+        "jl_lww29hc0:actions:000001",
+        "jl_lww29hc0:actions:000002",
+        "jl_lww29hc0:actions:000003"
+      ],
+      "tags": [
+        "canonical",
+        "fixture"
+      ],
+      "label": "Canonical merge group",
+      "createdAt": "2024-06-01T12:00:00.000Z"
+    }
+  ],
+  "notes": []
+}

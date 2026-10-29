@@ -75,7 +75,8 @@ fi
 echo "Waiting for ${app_name} to close"
 osascript -e 'tell application id "dev.jittlelamp.desktop" to quit' >/dev/null 2>&1 || true
 for _ in {1..30}; do
-  if ! pgrep -x "Jittle Lamp" >/dev/null 2>&1; then
+  # jittle-lamp is the native app; "Jittle Lamp" is the Electron app it replaces.
+  if ! pgrep -x "jittle-lamp" >/dev/null 2>&1 && ! pgrep -x "Jittle Lamp" >/dev/null 2>&1; then
     break
   fi
   sleep 1

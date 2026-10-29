@@ -1,5 +1,7 @@
 import { extensionManifest } from "../../apps/extension/scripts/manifest";
 import {
+  cargoManifestRelativePath,
+  getCargoWorkspaceVersion,
   getPackageVersion,
   getWorkspaceVersion,
   normalizeReleaseVersion,
@@ -15,6 +17,11 @@ const mismatches = versionPackageRelativePaths.flatMap((relativePath) => {
     ? []
     : [`${relativePath} has ${packageVersion}, expected ${workspaceVersion}`];
 });
+
+const cargoVersion = getCargoWorkspaceVersion();
+if (cargoVersion !== workspaceVersion) {
+  mismatches.push(`${cargoManifestRelativePath} [workspace.package] has ${cargoVersion}, expected ${workspaceVersion}`);
+}
 
 if (extensionManifest.version !== workspaceVersion) {
   mismatches.push(

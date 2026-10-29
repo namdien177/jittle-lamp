@@ -1,0 +1,293 @@
+{
+  "extension-v5.json": {
+    "anchorMs": 1788932575813,
+    "items": [
+      {
+        "id": "jl_mtto9ln1:actions:000000",
+        "offsetMs": -120,
+        "section": "actions",
+        "label": "armed: Session scaffold created from active tab."
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000001",
+        "offsetMs": 0,
+        "section": "actions",
+        "label": "recording: Recording started."
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000002",
+        "offsetMs": 780,
+        "section": "actions",
+        "label": "[Báo cáo phụ huynh] Click \"Lưu báo cáo\" button"
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000003",
+        "offsetMs": 1380,
+        "section": "actions",
+        "label": "[Báo cáo phụ huynh] input #email"
+      },
+      {
+        "id": "jl_mtto9ln1:console:000000",
+        "offsetMs": 1680,
+        "section": "console",
+        "label": "[Báo cáo phụ huynh] Deprecated API used"
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000004",
+        "offsetMs": 1980,
+        "section": "actions",
+        "label": "[Báo cáo phụ huynh] Key Enter in \"search box\" element"
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000005",
+        "offsetMs": 2280,
+        "section": "actions",
+        "label": "[Báo cáo phụ huynh] submit"
+      },
+      {
+        "id": "jl_mtto9ln1:network:000000",
+        "offsetMs": 2480,
+        "section": "network",
+        "label": "[Báo cáo phụ huynh] POST https://parent.example.test/api/login"
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000006",
+        "offsetMs": 2880,
+        "section": "actions",
+        "label": "[Báo cáo phụ huynh] TypeError: x is undefined"
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000007",
+        "offsetMs": 3180,
+        "section": "actions",
+        "label": "[admin.example.test] navigation https://admin.example.test/"
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000008",
+        "offsetMs": 3480,
+        "section": "actions",
+        "label": "[admin.example.test] Highlight \"Tổng kết học kỳ\""
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000009",
+        "offsetMs": 3580,
+        "section": "actions",
+        "label": "[admin.example.test] Navigate to \"Dashboard\""
+      },
+      {
+        "id": "jl_mtto9ln1:console:000001",
+        "offsetMs": 3780,
+        "section": "console",
+        "label": "[admin.example.test] Failed to load resource"
+      },
+      {
+        "id": "jl_mtto9ln1:network:000001",
+        "offsetMs": 3980,
+        "section": "network",
+        "label": "[admin.example.test] GET https://cdn.example.test/logo.png"
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000010",
+        "offsetMs": 5080,
+        "section": "actions",
+        "label": "ready: Recording stopped."
+      }
+    ]
+  },
+  "runner-v5-expected.json": {
+    "anchorMs": 1791014400000,
+    "items": [
+      {
+        "id": "jl_runner_fixture:actions:000000",
+        "offsetMs": 0,
+        "section": "actions",
+        "label": "recording: Runner started recording."
+      },
+      {
+        "id": "jl_runner_fixture:actions:000001",
+        "offsetMs": 500,
+        "section": "actions",
+        "label": "navigation https://uat.example.test/login"
+      },
+      {
+        "id": "jl_runner_fixture:network:000000",
+        "offsetMs": 600,
+        "section": "network",
+        "label": "GET https://uat.example.test/login"
+      },
+      {
+        "id": "jl_runner_fixture:actions:000002",
+        "offsetMs": 3200,
+        "section": "actions",
+        "label": "click"
+      },
+      {
+        "id": "jl_runner_fixture:network:000001",
+        "offsetMs": 3300,
+        "section": "network",
+        "label": "POST https://uat.example.test/api/logout"
+      },
+      {
+        "id": "jl_runner_fixture:console:000000",
+        "offsetMs": 3500,
+        "section": "console",
+        "label": "logout complete"
+      },
+      {
+        "id": "jl_runner_fixture:actions:000003",
+        "offsetMs": 5000,
+        "section": "actions",
+        "label": "SQL uat-db · 1 row · 13ms\nSELECT id FROM users LIMIT 1\n[{\"id\":42,\"name\":\"Lan\"}]"
+      }
+    ]
+  },
+  "canonical-medium.json": {
+    "anchorMs": 1717243200000,
+    "items": [
+      {
+        "id": "jl_lww29hc0:actions:000000",
+        "offsetMs": 0,
+        "section": "actions",
+        "label": "recording: Fixture start"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000001",
+        "offsetMs": 0,
+        "section": "actions",
+        "label": "click #action-0"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000002",
+        "offsetMs": 1000,
+        "section": "actions",
+        "label": "click #action-1"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000003",
+        "offsetMs": 2000,
+        "section": "actions",
+        "label": "click #action-2"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000004",
+        "offsetMs": 3000,
+        "section": "actions",
+        "label": "click #action-3"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000005",
+        "offsetMs": 4000,
+        "section": "actions",
+        "label": "click #action-4"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000006",
+        "offsetMs": 5000,
+        "section": "actions",
+        "label": "click #action-5"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000007",
+        "offsetMs": 6000,
+        "section": "actions",
+        "label": "click #action-6"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000008",
+        "offsetMs": 7000,
+        "section": "actions",
+        "label": "click #action-7"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000009",
+        "offsetMs": 8000,
+        "section": "actions",
+        "label": "click #action-8"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000010",
+        "offsetMs": 9000,
+        "section": "actions",
+        "label": "click #action-9"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000011",
+        "offsetMs": 10000,
+        "section": "actions",
+        "label": "click #action-10"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000012",
+        "offsetMs": 11000,
+        "section": "actions",
+        "label": "click #action-11"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000013",
+        "offsetMs": 12000,
+        "section": "actions",
+        "label": "click #action-12"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000014",
+        "offsetMs": 13000,
+        "section": "actions",
+        "label": "click #action-13"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000015",
+        "offsetMs": 14000,
+        "section": "actions",
+        "label": "click #action-14"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000016",
+        "offsetMs": 15000,
+        "section": "actions",
+        "label": "click #action-15"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000017",
+        "offsetMs": 16000,
+        "section": "actions",
+        "label": "click #action-16"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000018",
+        "offsetMs": 17000,
+        "section": "actions",
+        "label": "click #action-17"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000019",
+        "offsetMs": 18000,
+        "section": "actions",
+        "label": "click #action-18"
+      },
+      {
+        "id": "jl_lww29hc0:actions:000020",
+        "offsetMs": 19000,
+        "section": "actions",
+        "label": "click #action-19"
+      },
+      {
+        "id": "jl_lww29hc0:network:000000",
+        "offsetMs": 60000,
+        "section": "network",
+        "label": "POST https://example.com/api/graphql"
+      },
+      {
+        "id": "jl_lww29hc0:network:000001",
+        "offsetMs": 61000,
+        "section": "network",
+        "label": "GET https://cdn.example.com/app.js"
+      },
+      {
+        "id": "jl_lww29hc0:network:000002",
+        "offsetMs": 62000,
+        "section": "network",
+        "label": "GET https://example.com/api/timeout"
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 import { zipSync } from "fflate";
 
-import { recordingFileName, sessionArchiveFileName } from "@jittle-lamp/shared";
+import { recordingFileNameForMimeType, sessionArchiveFileName } from "@jittle-lamp/shared";
 
 import { api, type FetchToken } from "./api";
 
@@ -39,7 +39,7 @@ export async function downloadEvidenceAsZip(input: {
 
   const zip = zipSync({
     [sessionArchiveFileName]: archiveBytes,
-    [recordingFileName]: recordingBytes
+    [recordingFileNameForMimeType(recording.mimeType)]: recordingBytes
   });
 
   const blob = new Blob([zip.slice().buffer as ArrayBuffer], { type: "application/zip" });

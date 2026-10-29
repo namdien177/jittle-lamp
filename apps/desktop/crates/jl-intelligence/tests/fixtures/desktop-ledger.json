@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 5,
+  "sessionId": "desk_20261029_ledger01",
+  "name": "Untitled",
+  "createdAt": "2026-10-29T09:15:00.000Z",
+  "updatedAt": "2026-10-29T09:15:16.000Z",
+  "phase": "ready",
+  "page": {
+    "url": "app://com.example.ledger",
+    "title": "Ledger"
+  },
+  "recorder": {
+    "kind": "desktop-recorder",
+    "recorder": {
+      "name": "jittle-lamp-desktop",
+      "version": "1.8.5",
+      "os": "macOS 26.1",
+      "source": {
+        "type": "application",
+        "name": "Ledger",
+        "bundleId": "com.example.ledger",
+        "pid": 4242
+      }
+    }
+  },
+  "summary": {
+    "videoDurationMs": 16000,
+    "actionCount": 8,
+    "requestCount": 0
+  },
+  "artifacts": [
+    {
+      "kind": "recording.mp4",
+      "relativePath": "desk_20261029_ledger01/recording.mp4",
+      "mimeType": "video/mp4"
+    },
+    {
+      "kind": "session.archive.json",
+      "relativePath": "desk_20261029_ledger01/session.archive.json",
+      "mimeType": "application/json"
+    }
+  ],
+  "sections": {
+    "actions": [
+      {
+        "id": "desk_20261029_ledger01:actions:000000",
+        "seq": 1,
+        "at": "2026-10-29T09:15:00.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "lifecycle",
+          "phase": "recording",
+          "detail": "Recording started."
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000001",
+        "seq": 2,
+        "at": "2026-10-29T09:15:01.200Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "click",
+          "x": 420,
+          "y": 300,
+          "clientX": 420,
+          "clientY": 300,
+          "pageX": 420,
+          "pageY": 300,
+          "button": 0,
+          "clickCount": 1,
+          "pointerType": "mouse",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": false,
+            "shift": false
+          },
+          "target": {
+            "selectorAlternates": [],
+            "role": "AXButton",
+            "textPreview": "New Invoice"
+          }
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000002",
+        "seq": 3,
+        "at": "2026-10-29T09:15:02.600Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "navigation",
+          "url": "app://com.example.ledger",
+          "title": "Invoice INV-1042 — Edited"
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000003",
+        "seq": 4,
+        "at": "2026-10-29T09:15:04.100Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "click",
+          "x": 420,
+          "y": 300,
+          "clientX": 420,
+          "clientY": 300,
+          "pageX": 420,
+          "pageY": 300,
+          "button": 0,
+          "clickCount": 1,
+          "pointerType": "mouse",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": false,
+            "shift": false
+          },
+          "target": {
+            "selectorAlternates": [],
+            "role": "AXButton",
+            "textPreview": "Customer"
+          }
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000004",
+        "seq": 5,
+        "at": "2026-10-29T09:15:05.300Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "click",
+          "x": 420,
+          "y": 300,
+          "clientX": 420,
+          "clientY": 300,
+          "pageX": 420,
+          "pageY": 300,
+          "button": 0,
+          "clickCount": 1,
+          "pointerType": "mouse",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": false,
+            "shift": false
+          },
+          "target": {
+            "selectorAlternates": [],
+            "role": "AXMenuItem",
+            "textPreview": "Northwind Traders"
+          }
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000005",
+        "seq": 6,
+        "at": "2026-10-29T09:15:07.800Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "click",
+          "x": 420,
+          "y": 300,
+          "clientX": 420,
+          "clientY": 300,
+          "pageX": 420,
+          "pageY": 300,
+          "button": 0,
+          "clickCount": 1,
+          "pointerType": "mouse",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": false,
+            "shift": false
+          },
+          "target": {
+            "selectorAlternates": [],
+            "role": "AXButton",
+            "textPreview": "Add Line Item"
+          }
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000006",
+        "seq": 7,
+        "at": "2026-10-29T09:15:09.100Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "click",
+          "x": 420,
+          "y": 300,
+          "clientX": 420,
+          "clientY": 300,
+          "pageX": 420,
+          "pageY": 300,
+          "button": 0,
+          "clickCount": 1,
+          "pointerType": "mouse",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": false,
+            "shift": false
+          },
+          "target": {
+            "selectorAlternates": [],
+            "role": "AXButton",
+            "textPreview": "Add Line Item"
+          }
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000007",
+        "seq": 8,
+        "at": "2026-10-29T09:15:11.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "keyboard",
+          "eventType": "keydown",
+          "key": "s",
+          "code": "KeyS",
+          "repeat": false,
+          "isComposing": false,
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": true,
+            "shift": false
+          }
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000008",
+        "seq": 9,
+        "at": "2026-10-29T09:15:11.900Z",
+        "tags": [
+          "marker"
+        ],
+        "payload": {
+          "kind": "lifecycle",
+          "phase": "recording",
+          "detail": "Save shows error sheet"
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000009",
+        "seq": 10,
+        "at": "2026-10-29T09:15:14.500Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "click",
+          "x": 420,
+          "y": 300,
+          "clientX": 420,
+          "clientY": 300,
+          "pageX": 420,
+          "pageY": 300,
+          "button": 0,
+          "clickCount": 1,
+          "pointerType": "mouse",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": false,
+            "shift": false
+          },
+          "target": {
+            "selectorAlternates": [],
+            "role": "AXButton",
+            "textPreview": "OK"
+          }
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000010",
+        "seq": 11,
+        "at": "2026-10-29T09:15:15.500Z",
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "navigation",
+          "url": "app://com.apple.finder",
+          "title": "Finder"
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:actions:000011",
+        "seq": 12,
+        "at": "2026-10-29T09:15:16.000Z",
+        "tags": [],
+        "payload": {
+          "kind": "lifecycle",
+          "phase": "ready",
+          "detail": "Recording stopped."
+        }
+      }
+    ],
+    "console": [
+      {
+        "id": "desk_20261029_ledger01:console:000000",
+        "seq": 100,
+        "at": "2026-10-29T09:15:00.800Z",
+        "payload": {
+          "kind": "console",
+          "level": "info",
+          "message": "Loaded 214 invoices from store",
+          "args": []
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:console:000001",
+        "seq": 101,
+        "at": "2026-10-29T09:15:04.200Z",
+        "payload": {
+          "kind": "console",
+          "level": "warn",
+          "message": "Customer lookup took 1840 ms",
+          "args": []
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:console:000002",
+        "seq": 102,
+        "at": "2026-10-29T09:15:11.050Z",
+        "payload": {
+          "kind": "console",
+          "level": "error",
+          "message": "Failed to save document INV-1042: NSCocoaErrorDomain Code=513 \"You don't have permission to save the file “INV-1042.ledger” in the folder “Invoices”.\"",
+          "args": []
+        }
+      },
+      {
+        "id": "desk_20261029_ledger01:console:000003",
+        "seq": 103,
+        "at": "2026-10-29T09:15:11.060Z",
+        "payload": {
+          "kind": "console",
+          "level": "error",
+          "message": "SyncEngine: upload rejected token=sk_live_9f8a7b6c5d4e3f2a1b0c status=401",
+          "args": []
+        }
+      }
+    ],
+    "network": []
+  },
+  "annotations": [],
+  "notes": []
+}

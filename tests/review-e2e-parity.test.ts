@@ -1,9 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, spyOn, test } from "bun:test";
 
-import { strToU8, zipSync } from "fflate";
+import { strToU8, unzipSync, zipSync } from "fflate";
 import {
   buildSectionTimeline,
   createSessionArchive,
@@ -14,10 +11,9 @@ import {
 import { createMergeGroup, deriveSectionTimeline, getContiguousMergeableSelection } from "@jittle-lamp/viewer-core";
 import { buildViewerStepChips } from "@jittle-lamp/viewer-react";
 
+import { makeDesktopRecorderArchive, mp4Bytes } from "./fixtures/desktop-recorder-archive";
 import { makeRunnerArchive } from "./fixtures/e2e/runner-archive";
 
-import { importZipBundle, buildSessionZip } from "../apps/desktop/src/session/zip-import";
-import { loadLibrarySession, saveLibrarySessionReviewState, _testOverrideDb } from "../apps/desktop/src/companion/sessions-db";
 import { loadSessionZip } from "../apps/evidence-web/src/loader";
 import { buildReviewedSessionZip } from "../apps/evidence-web/src/archive-export";
 
@@ -129,39 +125,26 @@ describe("review E2E parity: web evidence app", () => {
   });
 });
 
-describe("review E2E parity: desktop app", () => {
-  test("loads sample bundle, navigates timeline/filtering, merges actions, exports reviewed ZIP, and re-imports annotations", async () => {
-    _testOverrideDb(":memory:");
-    const zipBytes = makeSampleZip();
-    const loaded = await importZipBundle(zipBytes);
-    const mergeGroup = buildMergeGroupFromArchive(loaded.archive);
-
-    const outputDir = join(tmpdir(), `jl-e2e-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-    const sessionDir = join(outputDir, loaded.archive.sessionId);
-
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(join(sessionDir, "session.archive.json"), JSON.stringify(loaded.archive, null, 2));
-    await writeFile(join(sessionDir, "recording.webm"), new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]));
-
-    await saveLibrarySessionReviewState({
-      sessionId: loaded.archive.sessionId,
-      outputDir,
-      notes: "review complete",
-      annotations: [mergeGroup]
+describe("review E2E parity: native macOS recordings in the web evidence app", () => {
+  test("loads an MP4 bundle and exports it back under recording.mp4", async () => {
+    const zipBytes = zipSync({
+      "session.archive.json": strToU8(JSON.stringify(makeDesktopRecorderArchive())),
+      "recording.mp4": mp4Bytes
     });
+    const createObjectUrl = spyOn(URL, "createObjectURL");
+    const loaded = await loadSessionZip(new File([zipBytes as Uint8Array<ArrayBuffer>], "mac.zip", { type: "application/zip" }));
+    const videoBlob = createObjectUrl.mock.calls[0]?.[0];
+    createObjectUrl.mockRestore();
+    expect(videoBlob instanceof Blob ? videoBlob.type : null).toBe("video/mp4");
+    expect(loaded.archive.recorder.kind).toBe("desktop-recorder");
+    expect(loaded.recordingBytes).toEqual(mp4Bytes);
+    expect(loaded.timeline.filter((item) => item.section === "console")).toHaveLength(2);
 
-    const exportedZip = await buildSessionZip(sessionDir);
-    const reloaded = await importZipBundle(exportedZip);
-
-    assertGoldenReviewFlow(loaded.archive, reloaded.archive as ReturnType<typeof makeSampleArchive>);
-
-    // Environment-specific adapter assertions.
-    expect(loaded.source).toBe("zip");
-    expect(reloaded.source).toBe("zip");
-    const savedArchive = JSON.parse(await readFile(join(sessionDir, "session.archive.json"), "utf8")) as { notes: string[] };
-    expect(savedArchive.notes).toEqual(["review complete"]);
-
-    await rm(outputDir, { recursive: true, force: true });
+    const exported = buildReviewedSessionZip({ archive: loaded.archive, mergeGroups: [], recordingBytes: loaded.recordingBytes });
+    expect(Object.keys(unzipSync(exported)).sort()).toEqual(["recording.mp4", "session.archive.json"]);
+    const reloaded = await loadSessionZip(new File([exported as Uint8Array<ArrayBuffer>], "reviewed.zip", { type: "application/zip" }));
+    expect(reloaded.archive.recorder).toEqual(loaded.archive.recorder);
+    expect(reloaded.recordingBytes).toEqual(mp4Bytes);
   });
 });
 
@@ -182,17 +165,14 @@ describe("review E2E parity: test-run evidence (archive v4)", () => {
     }))
   });
 
-  test("desktop and web show the same steps and step-filtered timelines, and review saves keep steps", async () => {
-    _testOverrideDb(":memory:");
+  test("web shows the run's steps and step-filtered timelines, and reviewed exports keep steps", async () => {
     const web = await loadSessionZip(new File([runnerZip() as Uint8Array<ArrayBuffer>], "run.zip", { type: "application/zip" }));
-    const desktop = await importZipBundle(runnerZip());
 
     expect(web.archive.recorder.kind).toBe("e2e-runner");
-    expect(stepView(desktop.archive)).toEqual(stepView(web.archive));
     expect(stepView(web.archive).chips.map((chip) => chip.status)).toEqual(["passed", "passed"]);
     expect(stepView(web.archive).filtered[1]?.network).toHaveLength(1);
 
-    // Web: reviewed export keeps step annotations next to the new merge groups.
+    // The reviewed export keeps step annotations next to the new merge groups.
     const exported = buildReviewedSessionZip({
       archive: web.archive,
       mergeGroups: [],
@@ -201,25 +181,5 @@ describe("review E2E parity: test-run evidence (archive v4)", () => {
     });
     const reloaded = await loadSessionZip(new File([exported as Uint8Array<ArrayBuffer>], "reviewed.zip", { type: "application/zip" }));
     expect(stepView(reloaded.archive)).toEqual(stepView(web.archive));
-
-    // Desktop: saving review state keeps step annotations too.
-    const outputDir = join(tmpdir(), `jl-e2e-run-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-    const sessionDir = join(outputDir, desktop.archive.sessionId);
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(join(sessionDir, "session.archive.json"), JSON.stringify(desktop.archive, null, 2));
-    await writeFile(join(sessionDir, "recording.webm"), new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]));
-    const saved = await saveLibrarySessionReviewState({
-      sessionId: desktop.archive.sessionId,
-      outputDir,
-      notes: "",
-      annotations: []
-    });
-    expect(stepView(saved)).toEqual(stepView(web.archive));
-
-    // Desktop library sessions are rebuilt from the catalog database; step tags must survive it.
-    const library = await loadLibrarySession(desktop.archive.sessionId, outputDir);
-    expect(stepView(library.archive)).toEqual(stepView(web.archive));
-    expect(library.archive.sections.network.map((entry) => entry.tags)).toEqual(web.archive.sections.network.map((entry) => entry.tags));
-    await rm(outputDir, { recursive: true, force: true });
   });
 });

@@ -4,7 +4,10 @@ import {
 	createSessionArchive,
 	createSessionDraft,
 	recordingFileName,
+	recordingMp4FileName,
 	sessionArchiveFileName,
+	sessionArchiveSchema,
+	sessionSchemaVersion,
 } from "@jittle-lamp/shared";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import { strToU8, zipSync } from "fflate";
@@ -63,6 +66,75 @@ export const createAutomationEvidenceZip = (
 		[recordingFileName]: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
 	});
 };
+
+// An archive as the native macOS app writes it: desktop recorder, H.264 MP4, unified-log console.
+export const createDesktopRecorderArchive = (
+	sessionId = "jl_desktop_mp4_001",
+) => {
+	const at = "2026-10-29T09:00:00.000Z";
+	return sessionArchiveSchema.parse({
+		schemaVersion: sessionSchemaVersion,
+		sessionId,
+		name: "Safari checkout",
+		createdAt: at,
+		updatedAt: at,
+		phase: "ready",
+		page: { url: "app://com.apple.Safari", title: "Safari" },
+		recorder: {
+			kind: "desktop-recorder",
+			recorder: {
+				name: "jittle-lamp-desktop",
+				version: "0.1.0",
+				os: "macOS 26.1",
+				source: {
+					type: "application",
+					name: "Safari",
+					bundleId: "com.apple.Safari",
+					pid: 4242,
+				},
+			},
+		},
+		artifacts: [
+			{
+				kind: recordingMp4FileName,
+				relativePath: `${sessionId}/${recordingMp4FileName}`,
+				mimeType: "video/mp4",
+			},
+			{
+				kind: sessionArchiveFileName,
+				relativePath: `${sessionId}/${sessionArchiveFileName}`,
+				mimeType: "application/json",
+			},
+		],
+		sections: {
+			console: [
+				{
+					id: `${sessionId}:console:000000`,
+					seq: 0,
+					at,
+					payload: {
+						kind: "console",
+						level: "error",
+						message: "WebContent: failed to load checkout",
+					},
+				},
+			],
+		},
+	});
+};
+
+export const createDesktopRecorderEvidenceZip = (
+	sessionId = "jl_desktop_mp4_001",
+) =>
+	zipSync({
+		[sessionArchiveFileName]: strToU8(
+			JSON.stringify(createDesktopRecorderArchive(sessionId)),
+		),
+		// An ISO BMFF `ftyp` box header.
+		[recordingMp4FileName]: new Uint8Array([
+			0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+		]),
+	});
 
 export const bytesBody = (bytes: Uint8Array): ArrayBuffer =>
 	Uint8Array.from(bytes).buffer;

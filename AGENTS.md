@@ -2,16 +2,17 @@
 
 ## Project Structure & Module Organization
 
-This is a Bun workspace. Application code lives in `apps/`: `extension` for the Chromium extension, `desktop` for the companion shell, `evidence-web` for the web viewer, `backend` for the Elysia API, and `mcp` for the local MCP server. Shared libraries live in `packages/`: `shared` contains session schemas, timeline logic and archive compaction, `viewer-core` contains viewer state helpers, `viewer-react` contains reusable React components, `ui` contains shared UI primitives, and `e2e-runner` runs test cases and builds their evidence. Cross-package tests are in root `tests/`; backend-specific tests are in `apps/backend/test/`. Static/sample assets live in `assets/`, docs in `docs/`, and release utilities in `scripts/release/`.
+This is a Bun workspace. Application code lives in `apps/`: `extension` for the Chromium extension, `desktop` for the native macOS app (a Rust/GPUI Cargo workspace: recorder, companion server, reviewer), `evidence-web` for the web viewer, `backend` for the Elysia API, and `mcp` for the local MCP server. Shared libraries live in `packages/`: `shared` contains session schemas, timeline logic and archive compaction, `viewer-core` contains viewer state helpers, `viewer-react` contains reusable React components, `ui` contains shared UI primitives, and `e2e-runner` runs test cases and builds their evidence. Cross-package tests are in root `tests/`; backend-specific tests are in `apps/backend/test/`. Static/sample assets live in `assets/`, docs in `docs/`, and release utilities in `scripts/release/`.
 
 ## Build, Test, and Development Commands
 
-- `bun run build`: builds shared packages, viewer packages, extension, desktop scaffold, and web viewer.
+- `bun run build`: builds shared packages, viewer packages, extension, web viewer and MCP server. It does not build the desktop app.
 - `bun run typecheck`: runs TypeScript over the full workspace.
 - `bun test`: runs all Bun tests.
 - `bun run --cwd apps/extension build`: rebuilds unpacked extension assets into `apps/extension/dist/`.
 - `bun run --cwd apps/backend dev`: starts the backend in watch mode.
 - `bun run --cwd apps/backend lint`: runs Biome checks for backend `src` and `test`.
+- `bun run --cwd apps/desktop dev|build|test|bundle`: runs, builds, tests (`cargo test --workspace`) or bundles the macOS app. Needs rustup stable; `bun run build:desktop` is the explicit release build.
 - `bun run clean`: removes generated dist/release artifacts.
 
 ## Coding Style & Naming Conventions

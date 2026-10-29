@@ -3,7 +3,8 @@ import { z } from "zod/v4";
 // Version 4 (ADR 0002 decision 8) adds `recorder.kind` and `step` annotations. Version 5 (roadmap
 // 2026-10-13 §5.4) adds the `integration` action payload for [Query]/[API] steps. Version 3 archives,
 // still written by released extensions, and v4 archives from earlier runners are upgraded in memory
-// on parse.
+// on parse. Native desktop recordings (`desktop-recorder`, `recording.mp4`) are additive within v5:
+// no existing archive changes shape, so there is nothing to upgrade.
 export const sessionSchemaVersion = 5;
 export const runnerArchiveV4SchemaVersion = 4;
 export const extensionArchiveSchemaVersion = 3;
@@ -23,7 +24,19 @@ export const capturePhaseSchema = z.enum([
   "failed"
 ]);
 
-export const artifactKindSchema = z.enum(["recording.webm", "session.archive.json"]);
+export const artifactKindSchema = z.enum(["recording.webm", "recording.mp4", "session.archive.json"]);
+
+// The browser extension and runner write WebM; the native macOS app writes H.264 MP4.
+export const recordingArtifactMimeTypes = {
+  "recording.webm": "video/webm",
+  "recording.mp4": "video/mp4"
+} as const;
+export type RecordingArtifactKind = keyof typeof recordingArtifactMimeTypes;
+export const recordingArtifactKinds = Object.keys(recordingArtifactMimeTypes) as RecordingArtifactKind[];
+
+export function isRecordingArtifactKind(kind: string): kind is RecordingArtifactKind {
+  return Object.hasOwn(recordingArtifactMimeTypes, kind);
+}
 
 export const sessionArtifactSchema = z.object({
   kind: artifactKindSchema,
@@ -70,6 +83,19 @@ export const e2eRunnerRecorderInfoSchema = z.object({
   viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).optional()
 });
 
+// The native macOS app. `source` is what ScreenCaptureKit captured.
+export const desktopRecorderInfoSchema = z.object({
+  name: z.string().min(1),
+  version: z.string().min(1),
+  os: z.string().min(1),
+  source: z.object({
+    type: z.enum(["display", "window", "application"]),
+    name: z.string().min(1),
+    bundleId: z.string().min(1).optional(),
+    pid: z.number().int().nonnegative().optional()
+  })
+});
+
 export const archiveTestRunRefSchema = z.object({
   runId: z.string().min(1).optional(),
   testCaseId: z.string().min(1).optional(),
@@ -87,6 +113,10 @@ export const archiveRecorderInfoSchema = z.discriminatedUnion("kind", [
     kind: z.literal("e2e-runner"),
     runner: e2eRunnerRecorderInfoSchema,
     testRun: archiveTestRunRefSchema.optional()
+  }),
+  z.object({
+    kind: z.literal("desktop-recorder"),
+    recorder: desktopRecorderInfoSchema
   })
 ]);
 
@@ -529,6 +559,7 @@ export type SessionArtifact = z.infer<typeof sessionArtifactSchema>;
 export type ArchiveRecorderInfo = z.infer<typeof archiveRecorderInfoV3Schema>;
 export type ArchiveRecorder = z.infer<typeof archiveRecorderInfoSchema>;
 export type E2eRunnerRecorderInfo = z.infer<typeof e2eRunnerRecorderInfoSchema>;
+export type DesktopRecorderInfo = z.infer<typeof desktopRecorderInfoSchema>;
 export type ArchiveSummary = z.infer<typeof archiveSummarySchema>;
 export type TabContext = z.infer<typeof tabContextSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
@@ -833,6 +864,11 @@ export function toExtensionWireArchive(archive: SessionArchive): SessionArchiveV
     recorder,
     annotations: archive.annotations.filter((annotation) => annotation.kind === "merge-group")
   });
+}
+
+// The archive's video, whichever recorder wrote it.
+export function findRecordingArtifact(archive: Pick<SessionArchive, "artifacts">): SessionArtifact | undefined {
+  return archive.artifacts.find((artifact) => isRecordingArtifactKind(artifact.kind));
 }
 
 export function getStepAnnotations(archive: Pick<SessionArchive, "annotations">): StepAnnotation[] {

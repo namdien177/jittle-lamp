@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  defaultOutputDir,
-  isTrustedCompanionOrigin,
-  normalizeOutputDir,
-  resolveArtifactDestinationPath
-} from "../apps/desktop/src/companion/config";
-
-import {
   backgroundToContentMessageSchema,
   contentRuntimeMessageSchema,
   createSessionArchive,
@@ -430,24 +423,6 @@ describe("extension contracts", () => {
     expect(request.archive.phase).toBe("ready");
     expect(request.archive.artifacts).toHaveLength(2);
     expect(request.cloudRequired).toBe(true);
-  });
-
-  test("resolves companion artifact destinations inside the configured output directory", () => {
-    const outputDir = normalizeOutputDir(defaultOutputDir());
-    const artifactPath = resolveArtifactDestinationPath({
-      outputDir,
-      sessionId: "jl_test1234",
-      artifactName: "recording.webm"
-    });
-
-    expect(artifactPath.startsWith(outputDir)).toBeTrue();
-    expect(artifactPath.endsWith("jl_test1234/recording.webm")).toBeTrue();
-  });
-
-  test("accepts only extension origins for companion writes", () => {
-    expect(isTrustedCompanionOrigin("chrome-extension://abcdefghijklmnop")).toBeTrue();
-    expect(isTrustedCompanionOrigin("https://example.com")).toBeFalse();
-    expect(isTrustedCompanionOrigin(null)).toBeFalse();
   });
 
   test("parses richer offscreen export responses", () => {

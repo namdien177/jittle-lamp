@@ -1,0 +1,52 @@
+[workspace]
+resolver = "3"
+members = ["crates/jl-core", "crates/jl-api", "crates/jl-capture", "crates/jl-media", "crates/jl-app", "crates/jl-macos", "crates/jl-intelligence"]
+
+[workspace.package]
+version = "1.8.5"
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+jl-core = { path = "crates/jl-core" }
+jl-api = { path = "crates/jl-api" }
+jl-capture = { path = "crates/jl-capture" }
+jl-media = { path = "crates/jl-media" }
+gpui-kit = "0.7.3"
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+dirs = "6"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+sha2 = "0.10"
+base64 = "0.22"
+rusqlite = { version = "0.37", features = ["bundled"] }
+tiny_http = "0.12"
+ureq = { version = "3", features = ["json"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tempfile = "3"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-av-foundation = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-core-foundation = "0.3"
+block2 = "0.6"
+screencapturekit = { version = "11.1.1", features = ["macos_15_0"] }
+security-framework = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 1

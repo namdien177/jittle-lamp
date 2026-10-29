@@ -59,3 +59,32 @@ jobs:
 
       - name: Build workspace
         run: bun run build
+
+  # The macOS app's platform-independent crates: archive model, library, companion server (the
+  # extension's contract), zip, timeline, and the backend client. Capture, media and AppKit crates
+  # need a logged-in macOS session and are tested locally.
+  desktop-core:
+    runs-on: macos-15
+
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/target
+          key: desktop-core-${{ runner.os }}-${{ hashFiles('apps/desktop/Cargo.lock') }}
+
+      - name: Test jl-core and jl-api
+        run: cargo test -p jl-core -p jl-api --locked

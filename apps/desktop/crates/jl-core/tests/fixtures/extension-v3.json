@@ -1,0 +1,405 @@
+{
+  "schemaVersion": 3,
+  "sessionId": "jl_mtto9ln1",
+  "name": "Báo cáo phụ huynh",
+  "createdAt": "2026-09-09T05:42:55.693Z",
+  "updatedAt": "2026-09-09T05:43:00.893Z",
+  "phase": "ready",
+  "page": {
+    "url": "https://parent.example.test/reports",
+    "title": "Báo cáo phụ huynh",
+    "tabId": 11
+  },
+  "recorder": {
+    "extension": {
+      "kind": "browser-extension",
+      "name": "jittle-lamp",
+      "version": "1.8.5",
+      "extensionId": "abcdef",
+      "manifestVersion": 3
+    }
+  },
+  "summary": {
+    "videoDurationMs": 5080,
+    "actionCount": 7,
+    "requestCount": 2
+  },
+  "artifacts": [
+    {
+      "kind": "recording.webm",
+      "relativePath": "jl_mtto9ln1/recording.webm",
+      "mimeType": "video/webm"
+    },
+    {
+      "kind": "session.archive.json",
+      "relativePath": "jl_mtto9ln1/session.archive.json",
+      "mimeType": "application/json"
+    }
+  ],
+  "sections": {
+    "actions": [
+      {
+        "id": "jl_mtto9ln1:actions:000000",
+        "seq": 0,
+        "at": "2026-09-09T05:42:55.693Z",
+        "tags": [],
+        "payload": {
+          "kind": "lifecycle",
+          "phase": "armed",
+          "detail": "Session scaffold created from active tab."
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000001",
+        "seq": 1,
+        "at": "2026-09-09T05:42:55.813Z",
+        "tags": [],
+        "payload": {
+          "kind": "lifecycle",
+          "phase": "recording",
+          "detail": "Recording started."
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000002",
+        "seq": 2,
+        "at": "2026-09-09T05:42:56.593Z",
+        "tab": {
+          "id": 11,
+          "title": "Báo cáo phụ huynh",
+          "url": "https://parent.example.test/reports"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "button.save",
+          "target": {
+            "selector": "button.save",
+            "selectorAlternates": [],
+            "tagName": "BUTTON",
+            "textPreview": "  Lưu   báo cáo  ",
+            "rect": {
+              "left": 100,
+              "top": 30,
+              "width": 80.25,
+              "height": 28
+            }
+          },
+          "page": {
+            "viewport": {
+              "width": 1440,
+              "height": 900
+            },
+            "document": {
+              "width": 1440,
+              "height": 2400
+            },
+            "scroll": {
+              "x": 0,
+              "y": 312.5
+            },
+            "devicePixelRatio": 2
+          },
+          "type": "click",
+          "x": 120.5,
+          "y": 44,
+          "clientX": 120.5,
+          "clientY": 44,
+          "button": 0,
+          "clickCount": 1,
+          "pointerType": "mouse",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": true,
+            "shift": false
+          }
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000003",
+        "seq": 3,
+        "at": "2026-09-09T05:42:57.193Z",
+        "tab": {
+          "id": 11,
+          "title": "Báo cáo phụ huynh",
+          "url": "https://parent.example.test/reports"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "selector": "#email",
+          "target": {
+            "selectorAlternates": [],
+            "tagName": "INPUT",
+            "name": "email",
+            "inputType": "email"
+          },
+          "type": "input",
+          "inputKind": "text",
+          "valueLength": 14,
+          "redacted": true
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000004",
+        "seq": 5,
+        "at": "2026-09-09T05:42:57.793Z",
+        "tab": {
+          "id": 11,
+          "title": "Báo cáo phụ huynh",
+          "url": "https://parent.example.test/reports"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "valuePreview": "search box",
+          "type": "keyboard",
+          "eventType": "keydown",
+          "key": "Enter",
+          "code": "Enter",
+          "modifiers": {
+            "alt": false,
+            "ctrl": false,
+            "meta": false,
+            "shift": false
+          }
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000005",
+        "seq": 6,
+        "at": "2026-09-09T05:42:58.093Z",
+        "tab": {
+          "id": 11,
+          "title": "Báo cáo phụ huynh",
+          "url": "https://parent.example.test/reports"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "submit",
+          "formSelector": "form#login",
+          "method": "post",
+          "action": "https://parent.example.test/login"
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000006",
+        "seq": 8,
+        "at": "2026-09-09T05:42:58.693Z",
+        "tab": {
+          "id": 11,
+          "title": "Báo cáo phụ huynh",
+          "url": "https://parent.example.test/reports"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "error",
+          "message": "TypeError: x is undefined",
+          "stack": "at foo (app.js:1:2)",
+          "source": "page"
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000007",
+        "seq": 9,
+        "at": "2026-09-09T05:42:58.993Z",
+        "tab": {
+          "id": 12,
+          "url": "https://admin.example.test/"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "navigation",
+          "url": "https://admin.example.test/",
+          "navigationType": "pushState"
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000008",
+        "seq": 10,
+        "at": "2026-09-09T05:42:59.293Z",
+        "tab": {
+          "id": 12,
+          "url": "https://admin.example.test/"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "selection",
+          "selectedText": "Tổng   kết\nhọc kỳ",
+          "selectedTextLength": 16
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000009",
+        "seq": 11,
+        "at": "2026-09-09T05:42:59.393Z",
+        "tab": {
+          "id": 12,
+          "url": "https://admin.example.test/"
+        },
+        "tags": [],
+        "payload": {
+          "kind": "interaction",
+          "type": "navigation",
+          "url": "https://admin.example.test/dash",
+          "title": "Dashboard"
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:actions:000010",
+        "seq": 14,
+        "at": "2026-09-09T05:43:00.893Z",
+        "tags": [],
+        "payload": {
+          "kind": "lifecycle",
+          "phase": "ready",
+          "detail": "Recording stopped."
+        }
+      }
+    ],
+    "console": [
+      {
+        "id": "jl_mtto9ln1:console:000000",
+        "seq": 4,
+        "at": "2026-09-09T05:42:57.493Z",
+        "tab": {
+          "id": 11,
+          "title": "Báo cáo phụ huynh",
+          "url": "https://parent.example.test/reports"
+        },
+        "payload": {
+          "kind": "console",
+          "level": "warn",
+          "message": "Deprecated API used",
+          "args": [
+            "Deprecated API used",
+            "{\"a\":1}"
+          ]
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:console:000001",
+        "seq": 12,
+        "at": "2026-09-09T05:42:59.593Z",
+        "tab": {
+          "id": 12,
+          "url": "https://admin.example.test/"
+        },
+        "payload": {
+          "kind": "console",
+          "level": "error",
+          "message": "Failed to load resource",
+          "args": []
+        }
+      }
+    ],
+    "network": [
+      {
+        "id": "jl_mtto9ln1:network:000000",
+        "seq": 7,
+        "at": "2026-09-09T05:42:58.293Z",
+        "tab": {
+          "id": 11,
+          "title": "Báo cáo phụ huynh",
+          "url": "https://parent.example.test/reports"
+        },
+        "subtype": "fetch",
+        "payload": {
+          "kind": "network",
+          "method": "POST",
+          "url": "https://parent.example.test/api/login",
+          "subtype": "fetch",
+          "status": 401,
+          "statusText": "Unauthorized",
+          "durationMs": 87.25,
+          "requestId": "req-1",
+          "request": {
+            "headers": [
+              {
+                "name": "authorization",
+                "value": "Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig"
+              }
+            ],
+            "cookies": [
+              {
+                "cookie": {
+                  "name": "sid",
+                  "value": "s3cr3t",
+                  "domain": "parent.example.test",
+                  "httpOnly": true
+                },
+                "blockedReasons": []
+              }
+            ],
+            "body": {
+              "disposition": "captured",
+              "encoding": "utf8",
+              "mimeType": "application/json",
+              "value": "{\"email\":\"a@b.c\",\"password\":\"hunter22\"}",
+              "byteLength": 38
+            }
+          },
+          "response": {
+            "headers": [
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ],
+            "setCookieHeaders": [],
+            "setCookies": [],
+            "body": {
+              "disposition": "captured",
+              "encoding": "utf8",
+              "value": "{\"error\":\"bad credentials\"}"
+            }
+          }
+        }
+      },
+      {
+        "id": "jl_mtto9ln1:network:000001",
+        "seq": 13,
+        "at": "2026-09-09T05:42:59.793Z",
+        "tab": {
+          "id": 12,
+          "url": "https://admin.example.test/"
+        },
+        "subtype": "image",
+        "payload": {
+          "kind": "network",
+          "method": "GET",
+          "url": "https://cdn.example.test/logo.png",
+          "subtype": "image",
+          "status": 200,
+          "request": {
+            "headers": [],
+            "cookies": []
+          }
+        }
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "id": "merge-1",
+      "kind": "merge-group",
+      "memberIds": [
+        "jl_mtto9ln1:actions:000002",
+        "jl_mtto9ln1:actions:000003"
+      ],
+      "tags": [
+        "login"
+      ],
+      "label": "Log in",
+      "createdAt": "2026-09-09T05:43:01.693Z"
+    }
+  ],
+  "notes": [
+    "First note",
+    "Second note"
+  ]
+}

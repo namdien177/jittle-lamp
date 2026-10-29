@@ -38,10 +38,10 @@ Existing code to reuse, with the files that matter:
 | Artifact storage | `apps/backend/src/services/artifact-storage.ts`; keys are built inline in routes (`uploads/${orgId}/${evidenceId}/…`) |
 | Org-managed tag definitions | `db/tables/evidence-tags.ts` (`organizationEvidenceTags`) as the model for `organization_test_tags` |
 | Session archive schema | `packages/shared/src/session.ts` (`sessionArchiveSchema`, `archiveRecorderInfoSchema`, `archiveAnnotationSchema`); `session-io.ts` for parsing and file names |
-| Viewer | `packages/viewer-core` (state, timeline), `packages/viewer-react`; both desktop and web render the same viewer (ADR 0001, `docs/parity-checklist.md`) |
+| Viewer | `packages/viewer-core` (state, timeline), `packages/viewer-react` for the web; the native desktop app has its own viewer, with its timeline checked against TS-generated fixtures in `apps/desktop/crates/jl-core/tests/fixtures/` (ADR 0001, `docs/parity-checklist.md`) |
 | MCP server | `apps/mcp/src/tools.ts`, `server.ts`, `client.ts`; tool registration pattern with Zod inputs |
 | Web app route placeholder | `apps/evidence-web/src/router.tsx` (`test-cases` → `ComingSoonPage`), `components/workspace/workspace-shell.tsx` |
-| Desktop RPC | `apps/desktop/src/rpc.ts` + `electron/main.ts` (add handler and type together) |
+| Desktop app | Native macOS app in Rust (`apps/desktop`, see `DESIGN.md`); backend calls, including test runs, live in the `jl-api` crate |
 
 The manual workflow this feature replaces lives outside the repo in the owner's Claude skill `~/.claude/skills/littlelives-test-with-evidence/` (`scripts/record-flow.mjs`, `scripts/jl-evidence.mjs`, `references/runner-contract.md`). Read `record-flow.mjs` once: its `checks`/`verify` model and the `behaviorStatus`/`evidenceStatus` split are the origin of the two-level verdict. Credentials for the spike are already provisioned; see §4b.
 
@@ -52,7 +52,7 @@ The manual workflow this feature replaces lives outside the repo in the owner's 
 | Tester Army `e2e` | 0.16.0, Apache-2.0, `ai` peer `^7.0.0`, Node ≥ 22.12, `@e2e-dev/web` engine | Docs: https://e2e.tester.army/docs (index at `/docs/llms.txt`). Key pages: `cache`, `executors`, `reference/config`, `reference/reporters`, `reference/agent`, `writing-an-engine`. No programmatic run API: runs through `e2e run` over `*.e2e.ts` + `e2e.config.ts`. Extension points we rely on: `cache.store`, `reporters`, `artifacts.store`, `agents.<name>.executor`. |
 | Vercel AI SDK | `ai` v7, `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/openai-compatible`, `@openrouter/ai-sdk-provider` | Agent API `ToolLoopAgent`, `isStepCount`; usage fields `inputTokens`, `inputTokenDetails.cacheReadTokens`, `outputTokens`, `outputTokenDetails.reasoningTokens`, `totalTokens`; per-step via `steps[].usage` and `onStepEnd`. The SDK returns tokens, not cost. |
 | Playwright | `playwright-core` (match `e2e`'s dev pin, 1.63 at handover) | Chromium for cloud and self-hosted runners; installed Chrome only for `--headed` local runs. |
-| Electron | 44.9.3 in `apps/desktop` | Bundled Node satisfies ≥ 22.12 should anything run in the desktop process; by decision 3 nothing does. |
+| Desktop runtime | Native Rust app (Electron 44.9.3 until it was replaced) | No Node in the desktop process; by decision 3 nothing from the runner runs there. |
 | Anthropic model ids | `anthropic/claude-opus-5-5` (act), `anthropic/claude-sonnet-5-5` (judge) | AI SDK id form. Price table seeded in `test_model_prices`. |
 
 Pin exact versions in `package.json`; `e2e` is pre-1.0 and its engine version is part of its cache key.

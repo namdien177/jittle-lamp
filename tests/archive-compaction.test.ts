@@ -9,6 +9,8 @@ import {
   type SessionArchive
 } from "@jittle-lamp/shared";
 
+import { makeDesktopRecorderArchive } from "./fixtures/desktop-recorder-archive";
+
 const at = "2026-01-01T00:00:00.000Z";
 let seq = 0;
 
@@ -181,5 +183,24 @@ describe("archive compaction", () => {
       })
     );
     expect(compactSessionArchive(once)).toEqual(once);
+  });
+});
+
+// The macOS app's unified-log lines are console entries; the existing console rules cover them.
+describe("archive compaction: desktop recorder archives", () => {
+  test("caps a chatty unified log, keeping warnings and errors and the recorder untouched", () => {
+    const written = makeDesktopRecorderArchive({ consoleLines: 3100 });
+    const archive = compactSessionArchive(written);
+    expect(archive.recorder).toEqual(written.recorder);
+    expect(archive.page).toEqual(written.page);
+    expect(archive.artifacts).toEqual(written.artifacts);
+    expect(archive.summary.requestCount).toBeNull();
+    // 3099 identical info lines collapse into one, so nothing has to be dropped.
+    expect(archive.sections.console.map((entry) => entry.payload.message)).toEqual([
+      "WebContent: networking idle (×3099)",
+      "WebContent: failed to load checkout"
+    ]);
+    expect(archive.notes.at(-1)).toBe("Archive compaction: collapsed 3098 repeated console lines.");
+    expect(compactSessionArchive(archive)).toEqual(archive);
   });
 });

@@ -23,6 +23,7 @@ const companionStatus = requireElement<HTMLElement>("[data-role='companion-statu
 const companionRoute = requireElement<HTMLParagraphElement>("[data-role='companion-route']");
 const companionPill = requireElement<HTMLSpanElement>("[data-role='companion-pill']");
 const companionDownload = requireElement<HTMLAnchorElement>("[data-role='companion-download']");
+const companionOpen = requireElement<HTMLButtonElement>("[data-role='companion-open']");
 const cloudStatus = requireElement<HTMLElement>("[data-role='cloud-status']");
 const cloudRoute = requireElement<HTMLParagraphElement>("[data-role='cloud-route']");
 const cloudPill = requireElement<HTMLSpanElement>("[data-role='cloud-pill']");
@@ -114,6 +115,19 @@ cloudMenuButton.addEventListener("click", () => {
 openEvidenceButton.addEventListener("click", () => {
   cloudMenu.hidden = true;
   void performAction("jl/popup-open-evidence-list");
+});
+
+// The desktop app brings its library forward when the companion asks it to (POST /api/open).
+companionOpen.addEventListener("click", () => {
+  const origin = companionOpen.dataset.origin ?? "http://127.0.0.1:48115";
+  void fetch(`${origin}/api/open`, { method: "POST" })
+    .then((response) => {
+      if (!response.ok) throw new Error(`Jittle Lamp answered ${response.status}. Update the desktop app to open it from here.`);
+      window.close();
+    })
+    .catch((error: unknown) => {
+      companionStatus.textContent = error instanceof Error ? error.message : "Couldn't reach the desktop app.";
+    });
 });
 
 logoutButton.addEventListener("click", () => {
@@ -375,6 +389,8 @@ function renderState(state: PopupState, error?: string): void {
   companionRoute.textContent = companionRouteText;
   companionRoute.title = companionRouteText;
   companionDownload.hidden = state.companion.status === "online" || state.cloud.status === "signed-in";
+  companionOpen.hidden = state.companion.status !== "online";
+  companionOpen.dataset.origin = state.companion.origin;
   companionPill.textContent = state.companion.status;
   companionPill.dataset.status = state.companion.status;
 

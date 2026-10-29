@@ -1,69 +1,24 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 
 import { getWorkspaceVersion, normalizeReleaseVersion, resolveRepoPath } from "./workspace-version";
 
+// Copies the DMG made by scripts/release/package-macos-desktop.sh to release-artifacts/ under the
+// release asset name. The native app has no in-app updater, so no update metadata is published.
 const version = process.argv[2] ? normalizeReleaseVersion(process.argv[2]) : getWorkspaceVersion();
-const artifactsPath = resolveRepoPath("apps", "desktop", "artifacts");
+const bundlePath = resolveRepoPath("apps", "desktop", "target", "bundle");
 const releaseArtifactsPath = resolveRepoPath("release-artifacts");
 const isSigned = process.env.JL_MACOS_SIGNED === "true";
+const dmgName = `jittle-lamp-desktop-${version}-macos-arm64.dmg`;
 
-if (!existsSync(artifactsPath)) {
-  throw new Error(`Expected Electron artifacts directory at ${artifactsPath}`);
+if (!existsSync(join(bundlePath, dmgName))) {
+  const found = existsSync(bundlePath) ? readdirSync(bundlePath).join(", ") || "nothing" : "no bundle directory";
+  throw new Error(`Expected ${dmgName} in ${bundlePath} (found ${found}).`);
 }
 
-const artifactCandidates = readdirSync(artifactsPath, { withFileTypes: true })
-  .filter((entry) => entry.isFile())
-  .map((entry) => entry.name)
-  .filter((fileName) => fileName.startsWith("jittle-lamp-desktop-"))
-  .filter((fileName) => fileName.endsWith(".dmg") || fileName.endsWith(".zip") || fileName.endsWith(".pkg"))
-  .sort((left, right) => priority(left) - priority(right) || left.localeCompare(right));
-
-const selectedArtifact = artifactCandidates[0];
-
-if (!selectedArtifact) {
-  throw new Error(`No macOS distribution artifact found in ${artifactsPath}`);
-}
-
-const artifactExtension = extname(selectedArtifact);
-const releaseName = `jittle-lamp-desktop-v${version}-macos-arm64-${isSigned ? "signed" : "unsigned"}${artifactExtension}`;
+const releaseName = `jittle-lamp-desktop-v${version}-macos-arm64-${isSigned ? "signed" : "unsigned"}.dmg`;
 
 mkdirSync(releaseArtifactsPath, { recursive: true });
-copyFileSync(join(artifactsPath, selectedArtifact), join(releaseArtifactsPath, releaseName));
-copyLegacyUpdaterArtifacts();
+copyFileSync(join(bundlePath, dmgName), join(releaseArtifactsPath, releaseName));
 
 console.info(`Collected desktop release asset as ${join(releaseArtifactsPath, releaseName)}`);
-
-function priority(fileName: string): number {
-  if (fileName.endsWith(".dmg")) return 0;
-  if (fileName.endsWith(".zip")) return 1;
-  if (fileName.endsWith(".pkg")) return 2;
-  return 99;
-}
-
-function copyLegacyUpdaterArtifacts(): void {
-  const updaterArtifacts = readdirSync(artifactsPath, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter(
-      (fileName) =>
-        fileName === "latest-mac.yml" ||
-        fileName.endsWith(".zip") ||
-        fileName.endsWith(".zip.blockmap") ||
-        fileName.endsWith(".dmg.blockmap")
-    )
-    .sort();
-
-  if (!updaterArtifacts.includes("latest-mac.yml")) {
-    throw new Error(`No latest-mac.yml legacy update metadata found in ${artifactsPath}`);
-  }
-
-  if (!updaterArtifacts.some((fileName) => fileName.endsWith(".zip"))) {
-    throw new Error(`No macOS ZIP legacy updater artifact found in ${artifactsPath}`);
-  }
-
-  for (const artifact of updaterArtifacts) {
-    copyFileSync(join(artifactsPath, artifact), join(releaseArtifactsPath, artifact));
-    console.info(`Collected legacy desktop updater artifact as ${join(releaseArtifactsPath, artifact)}`);
-  }
-}

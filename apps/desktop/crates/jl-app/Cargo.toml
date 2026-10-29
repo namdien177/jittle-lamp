@@ -1,0 +1,32 @@
+[package]
+name = "jl-app"
+description = "Jittle Lamp for macOS — native recorder, library and reviewer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "jittle-lamp"
+path = "src/main.rs"
+
+[features]
+# Offscreen rendering to PNG for visual checks (`--snapshot out.png`).
+snapshot = ["gpui-kit/test-support"]
+
+[dependencies]
+gpui-kit.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+jl-api.workspace = true
+jl-core.workspace = true
+crossbeam-channel = "0.5"
+jl-macos = { path = "../jl-macos" }
+jl-media = { path = "../jl-media" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+jl-capture = { path = "../jl-capture" }
+raw-window-handle = "0.6"
+jl-intelligence = { path = "../jl-intelligence" }

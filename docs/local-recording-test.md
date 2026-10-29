@@ -10,8 +10,8 @@ Use three terminals.
 # Terminal 1: page with motion, actions, logs, and network calls
 bun run dev:recording-fixture
 
-# Terminal 2: save artifacts under the repo
-JITTLE_LAMP_OUTPUT_DIR="$PWD/output/recording-test/sessions" bun run dev:recording-companion
+# Terminal 2: native macOS app (its companion receives the artifacts), saving under the repo
+JITTLE_LAMP_OUTPUT_DIR="$PWD/output/recording-test/sessions" bun run --cwd apps/desktop dev
 
 # Terminal 3: build the unpacked extension
 bun run --cwd apps/extension build

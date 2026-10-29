@@ -1,76 +1,12 @@
 {
   "name": "@jittle-lamp/desktop",
   "version": "1.8.5",
-  "description": "Jittle Lamp desktop companion, evidence reviewer, uploader, and updater.",
+  "description": "Jittle Lamp for macOS: native recorder, library and reviewer (Rust + GPUI).",
   "private": true,
-  "type": "module",
-  "main": "dist/electron/main.js",
   "scripts": {
-    "dev": "JITTLE_LAMP_DESKTOP_BUILD_ENV=dev bun run build && electron .",
-    "build": "bun run --cwd ../../packages/ui build && bun run ./scripts/build.ts",
-    "package": "bun run package:local",
-    "package:local": "bun run ./scripts/package.ts --mode=local --env=stable",
-    "package:ci": "bun run ./scripts/package.ts --mode=ci --env=stable",
-    "package:stable": "bun run package:local",
-    "package:canary": "bun run ./scripts/package.ts --mode=local --env=canary",
-    "set-output": "bun run ./src/configure-output.ts",
-    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
-    "cli": "bun run ./src/cli.ts"
-  },
-  "dependencies": {
-    "@clerk/react": "^6.17.3",
-    "@hookform/resolvers": "^5.9.1",
-    "@jittle-lamp/shared": "workspace:*",
-    "@jittle-lamp/ui": "workspace:*",
-    "@jittle-lamp/viewer-core": "workspace:*",
-    "@jittle-lamp/viewer-react": "workspace:*",
-    "@tanstack/react-query": "^5.104.0",
-    "@vercel/analytics": "^2.0.1",
-    "fflate": "0.8.3",
-    "libsql": "0.5.29",
-    "lucide-react": "^1.48.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "react-hook-form": "^7.89.0",
-    "react-router": "8.4.0",
-    "zod": "4.6.5"
-  },
-  "devDependencies": {
-    "electron": "44.9.3",
-    "electron-builder": "26.15.3"
-  },
-  "build": {
-    "appId": "dev.jittlelamp.desktop",
-    "productName": "Jittle Lamp",
-    "directories": {
-      "output": "artifacts"
-    },
-    "artifactName": "jittle-lamp-desktop-${version}-macos-${arch}.${ext}",
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "namdien177",
-        "repo": "jittle-lamp"
-      }
-    ],
-    "files": [
-      "dist/**/*",
-      "package.json"
-    ],
-    "protocols": [
-      {
-        "name": "Jittle Lamp",
-        "schemes": [
-          "jittle-lamp"
-        ]
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.productivity",
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    }
+    "dev": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo run -p jl-app",
+    "build": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo build --release -p jl-app",
+    "test": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo test --workspace",
+    "bundle": "./scripts/bundle.sh"
   }
 }

@@ -7,7 +7,7 @@ import {
   getWorkspaceVersion,
   normalizeReleaseVersion,
   resolveRepoPath,
-  versionPackageRelativePaths
+  versionFileRelativePaths
 } from "./workspace-version";
 
 type ReleaseIncrement = "patch" | "minor" | "major";
@@ -35,7 +35,7 @@ run("bun", ["run", "release:set-version", nextVersion]);
 run("bun", ["install"]);
 run("bun", ["run", "release:check-version", tagName]);
 
-const releaseFiles = [...versionPackageRelativePaths, "bun.lock"].filter((relativePath) =>
+const releaseFiles = [...versionFileRelativePaths, "bun.lock"].filter((relativePath) =>
   existsSync(resolveRepoPath(relativePath))
 );
 

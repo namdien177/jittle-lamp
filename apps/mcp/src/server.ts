@@ -112,7 +112,7 @@ export function createJittleLampMcpServer(
 		{
 			title: "Upload an evidence ZIP from disk",
 			description:
-				"Upload an existing ZIP containing session.archive.json and recording.webm, up to 20 MB. Accepts the ZIP produced by jl-evidence.mjs --no-upload. Automation API tokens upload to their assigned organisation and may omit orgId. AI tokens require an explicit orgId and current create permission. No share link is created; create_share_link separately requires a suitable AI token.",
+				"Upload an existing ZIP containing session.archive.json and recording.webm (or recording.mp4 from Jittle Lamp for Mac), up to 20 MB. Accepts the ZIP produced by jl-evidence.mjs --no-upload. Automation API tokens upload to their assigned organisation and may omit orgId. AI tokens require an explicit orgId and current create permission. No share link is created; create_share_link separately requires a suitable AI token.",
 			inputSchema: z
 				.object({
 					zipPath: z

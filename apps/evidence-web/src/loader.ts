@@ -1,5 +1,6 @@
 import { unzipSync } from "fflate";
 import {
+  findRecordingArtifact,
   parseSessionArchiveJson,
   pickSessionBundleFiles,
   type ActionMergeGroup,
@@ -26,18 +27,19 @@ export class WebSessionZipLoader implements SessionLoader<File, LoadedSession> {
   async load(file: File): Promise<LoadedSession> {
     const buffer = await file.arrayBuffer();
     const files = unzipSync(new Uint8Array(buffer));
-    const { archiveJson, recordingWebm } = pickSessionBundleFiles(files);
+    const { archiveJson, recording, recordingFileName, recordingMimeType } = pickSessionBundleFiles(files);
 
     const archive = parseSessionArchiveJson(archiveJson);
 
-    const recordingArtifact = archive.artifacts.find((artifact) => artifact.kind === "recording.webm");
-    const blob = createVideoBlob(recordingWebm, recordingArtifact?.mimeType || "video/webm");
+    // The archive's MIME type may carry codecs; it is used only when it describes the bundled file.
+    const declared = archive.artifacts.find((artifact) => artifact.kind === recordingFileName);
+    const blob = createVideoBlob(recording, declared?.mimeType || recordingMimeType);
     const videoUrl = URL.createObjectURL(blob);
 
     return {
       archive,
       videoUrl,
-      recordingBytes: Uint8Array.from(recordingWebm),
+      recordingBytes: Uint8Array.from(recording),
       timeline: deriveTimeline(archive),
       mergeGroups: getArchiveMergeGroups(archive)
     };
@@ -68,7 +70,7 @@ export async function loadRemoteSessionArtifacts(input: {
   }
 
   const archive = parseSessionArchiveJson(await response.text());
-  const recordingArtifact = archive.artifacts.find((artifact) => artifact.kind === "recording.webm");
+  const recordingArtifact = findRecordingArtifact(archive);
   let videoUrl = input.videoUrl;
   let recordingBytes: Uint8Array = new Uint8Array();
 

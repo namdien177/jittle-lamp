@@ -152,17 +152,17 @@ Docker, Compose and systemd setups are in [`deploy/runner/`](deploy/runner), and
 The test runner isn't the only source of evidence. People record sessions too:
 
 1. **Record** with the Chromium extension. Press **Start** on any `http(s)` page and **Stop** when done. It captures `recording.webm` and `session.archive.json`.
-2. **Review** in the desktop app. It receives recordings from the extension, plays them against the timeline, and lets you inspect network requests and add tags and notes.
+2. **Review** in the macOS desktop app. It receives recordings from the extension, plays them against the timeline, and lets you inspect network requests and add tags and notes. It can also record the screen, a window or an app itself, with that app's logs.
 3. **Share** by uploading to your organisation and sending a link. The evidence web viewer renders the same review UI in the browser.
 
-On macOS arm64, install or update the desktop app with:
+On macOS 15+ (Apple silicon), install or update the desktop app with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash
 # a specific release: ... | JITTLE_LAMP_VERSION=vX.Y.Z bash
 ```
 
-Use the terminal installer for upgrades of unsigned builds. The in-app updater needs Developer ID signed and notarized builds. To load the extension from source, run `bun run --cwd apps/extension build`, then load `apps/extension/dist` unpacked from `chrome://extensions` with Developer mode on.
+The desktop app has no in-app updater, so rerun the installer to upgrade. To load the extension from source, run `bun run --cwd apps/extension build`, then load `apps/extension/dist` unpacked from `chrome://extensions` with Developer mode on.
 
 [Recording, archives and storage](docs/recording.md) covers what the recorder captures, how archives are compacted and masked, and upload limits.
 
@@ -182,11 +182,11 @@ extension (record) ──▶ desktop companion (127.0.0.1:48115) ──▶ deskt
 | `apps/backend` | Elysia API: Clerk auth, Drizzle over libSQL/Turso, S3 artifact storage, test runs, webhooks, AI endpoints |
 | `apps/mcp` | Local MCP server for Codex and Claude Code |
 | `apps/extension` | Chromium MV3 recorder |
-| `apps/desktop` | Electron companion, reviewer and uploader |
+| `apps/desktop` | Native macOS app in Rust and GPUI: recorder, companion, reviewer and uploader |
 | `apps/evidence-web` | Web workspace and shared-link viewer |
 | `packages/e2e-runner` | `jl-e2e` CLI and `jl-e2e-runner` daemon |
 | `packages/shared` | Zod schemas for every cross-process payload, including the transcript parser |
-| `packages/viewer-core`, `packages/viewer-react` | One review UI shared by desktop and web |
+| `packages/viewer-core`, `packages/viewer-react` | Review UI for the web workspace and shared links |
 | `packages/ui` | Shared UI components |
 
 ## Develop
@@ -197,9 +197,16 @@ Use Bun 1.4.4, the version pinned for CI and containers. Copy `.env.sample` to `
 bun install
 bun run typecheck
 bun test
-bun run build                 # ordered build: shared → viewer-core → viewer-react → apps
+bun run build                 # ordered build: shared → viewer-core → viewer-react → apps (no Rust)
 bun run --cwd apps/backend dev
-bun run --cwd apps/desktop dev
+```
+
+The desktop app needs macOS 15+ and the Rust toolchain from [rustup](https://rustup.rs) (stable; Homebrew's `rustc` is too old). See [`apps/desktop/DESIGN.md`](apps/desktop/DESIGN.md).
+
+```bash
+bun run --cwd apps/desktop dev      # cargo run, with the companion on 127.0.0.1:48115
+bun run --cwd apps/desktop test     # cargo test --workspace
+bun run --cwd apps/desktop bundle   # signed "Jittle Lamp.app" in apps/desktop/target/bundle
 ```
 
 To use the web workspace without a real Clerk account, run `bun run dev:test-auth`. It starts the backend on `http://127.0.0.1:3001` and the web app on `http://127.0.0.1:4173`, signed in as `dev+clerk_test@jittlelamp.local`. `bun run dev:test-auth:setup` only regenerates `.env.dev-auth`.

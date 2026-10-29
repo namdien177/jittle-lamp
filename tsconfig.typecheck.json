@@ -24,6 +24,7 @@
   ],
   "exclude": [
     "apps/**/dist/**",
+    "apps/desktop/target/**",
     "packages/**/dist/**",
     "release-artifacts/**"
   ]

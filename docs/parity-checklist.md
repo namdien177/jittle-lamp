@@ -6,11 +6,11 @@ Use this single checklist for both manual QA verification and automated coverage
 
 | Task ID | Scope | Covered by automated tests |
 | --- | --- | --- |
-| PARITY-ZIP-01 | ZIP load validation (required files + schema errors) | `tests/evidence-viewer.test.ts` → `importZipBundle` tests: missing `session.archive.json`, missing `recording.webm`, schema validation failure, nested paths accepted |
+| PARITY-ZIP-01 | ZIP load validation (required files + schema errors) | Desktop: `apps/desktop/crates/jl-core/src/zip.rs` → `rejects_incomplete_or_invalid_bundles`, `imports_nested_entries_like_the_web_download`, `export_then_import_round_trips` (`bun run --cwd apps/desktop test`) |
 | PARITY-TL-01 | Timeline rendering and active-item progression | `tests/timeline.test.ts` → `buildTimeline` (offset/sort/labels) + `findActiveIndex` (most recent visible item tracking) |
 | PARITY-MERGE-01 | Merge/unmerge visibility and contiguous selection rules | `tests/timeline.test.ts` → `buildVisibleActionRows`, `buildVisibleActionRangeSelection`, `getContiguousMergeableActionIds`; `tests/viewer-core.test.ts` → `applyArchiveToViewerCore` hydrates merge groups |
 | PARITY-NET-01 | Network filtering/search behavior (plain text + regex) | `tests/timeline.test.ts` → `buildSectionTimeline network search` |
-| PARITY-STEP-01 | Test-run evidence (archive v4): step chips, step-filtered timeline, step seek, review saves keep steps | `tests/review-e2e-parity.test.ts` → `test-run evidence (archive v4)`; `tests/viewer-core.test.ts` → `viewer-core step filter`; `tests/session-contracts.test.ts` → `session archive v4` |
+| PARITY-STEP-01 | Test-run evidence (archive v4): step chips, step-filtered timeline, step seek, review saves keep steps | `tests/review-e2e-parity.test.ts` → `test-run evidence (archive v4)` (web); `jl-core` → `timeline::tests::steps_and_user_markers`, `library::tests::save_review_state_keeps_steps_and_writes_notes` (desktop); `tests/viewer-core.test.ts` → `viewer-core step filter`; `tests/session-contracts.test.ts` → `session archive v4` |
 | PARITY-SKIP-01 | Skip gaps during playback: jump to 1.5 s before the next step, manual seeks respected | `tests/gap-skip.test.ts` → `gapSkipTarget`, `nextGapMarker`, `deriveGapMarkers` (run offsets → step annotations → interactions) |
 | PARITY-EXPORT-01 | Export updated ZIP behavior + schema fidelity | `tests/evidence-viewer.test.ts` → `buildReviewedArchive` + `buildReviewedSessionZip`; `tests/session-contracts.test.ts` → schema version + network payload fidelity checks |
 

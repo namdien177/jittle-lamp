@@ -28,6 +28,7 @@ import {
   serializeTranscriptDocument,
   sha256Hex,
   splitStepBinding,
+  testCaseLinkSchema,
   transcriptLintRules,
   transcriptStepSchema,
   trigramSimilarity,
@@ -35,6 +36,7 @@ import {
   useCaseKeyArg,
   useModeArg,
   variableRoot,
+  webhookRuleSchema,
   type ParsedTestCase
 } from "@jittle-lamp/shared";
 
@@ -891,5 +893,17 @@ describe("chaining grammar (roadmap 2026-10-13)", () => {
     expect(transcriptStepSchema.parse(legacy)).toMatchObject({ alias: null, mode: null, binding: null });
     expect(expandedStepSchema.parse({ ...legacy, parentStepId: null, depth: 0, macroVersion: null })).toMatchObject({ useAlias: null, useMode: null });
     expect(linkedCaseSchema.parse({ key: "TC-1", title: "", version: 1, params: [], transcript: "" }).outputs).toBeUndefined();
+  });
+});
+
+describe("external URLs in test-case contracts", () => {
+  test("test case links and webhook callbacks accept only http(s)", () => {
+    expect(testCaseLinkSchema.safeParse({ url: "https://jira.example.test/browse/PCF-1" }).success).toBe(true);
+    for (const url of ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,x"]) {
+      expect(testCaseLinkSchema.safeParse({ url }).success).toBe(false);
+    }
+    const rule = { when: { events: ["push"] }, run: { suiteId: "s" }, environment: { id: "e" } };
+    expect(webhookRuleSchema.safeParse({ ...rule, report: { callbackUrl: "file:///x" } }).success).toBe(false);
+    expect(webhookRuleSchema.safeParse({ ...rule, report: { callbackUrl: "https://ci.example.test/hook" } }).success).toBe(true);
   });
 });

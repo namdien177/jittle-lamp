@@ -45,7 +45,7 @@ The feature adds no new service type. The backend gains routes and background wo
 | Browser | backend | 443 HTTPS to the backend's `PORT` (default 3001) behind your proxy | All API calls. Cross-origin calls need the web origin in `WEB_APP_ORIGIN` or `CLERK_AUTHORIZED_PARTIES` (CORS) |
 | Browser | Clerk | 443 HTTPS | Sign-in, using the build-time `CLERK_PUBLISHABLE_KEY` |
 | Browser | S3 | 443 HTTPS | Video and artifacts through signed read URLs (`S3_SIGNED_URL_TTL_SECONDS`) |
-| Desktop renderer | backend | 443 HTTPS | Build-time `JITTLE_LAMP_API_ORIGIN` |
+| Desktop app | backend | 443 HTTPS | Build-time `JITTLE_LAMP_API_ORIGIN` |
 | Extension | desktop companion | `http://127.0.0.1:48115` | Local artifact intake. Never exposed off the machine |
 | Backend | libSQL/Turso | 443 (`libsql://`) or a local `file:` path | Data |
 | Backend | S3-compatible storage | 443 | Evidence artifacts |
@@ -170,7 +170,7 @@ The backend reads `process.env` once at startup (`apps/backend/src/config/env.ts
 
 | Variable | Required | Default | Example | Notes |
 | --- | --- | --- | --- | --- |
-| `CLERK_PUBLISHABLE_KEY` | Staging, production | none | `pk_live_<…>` | Also baked into evidence-web and desktop at build time |
+| `CLERK_PUBLISHABLE_KEY` | Staging, production | none | `pk_live_<…>` | Also baked into evidence-web at build time |
 | `CLERK_SECRET_KEY` | One of the two | none | `sk_live_<…>` | Needed for organisation migration and the user directory |
 | `CLERK_JWT_KEY` | One of the two | none | `-----BEGIN PUBLIC KEY-----\n…` | PEM; literal `\n` sequences are converted to newlines |
 | `CLERK_AUDIENCE` | No | none | `jittle-lamp` | |
@@ -273,7 +273,7 @@ These are compiled into the bundles. The build scripts read the shell first and 
 | App | Variables | Notes |
 | --- | --- | --- |
 | evidence-web (`apps/evidence-web/scripts/build.ts`) | `CLERK_PUBLISHABLE_KEY`, `JITTLE_LAMP_API_ORIGIN`, `JITTLE_LAMP_DEV_AUTH_*`, `REACT_APP_VERCEL_OBSERVABILITY_*` | Without `JITTLE_LAMP_API_ORIGIN`, a Vercel build calls `/api`, which `vercel.json` rewrites to the production API host. Staging on Vercel must set `JITTLE_LAMP_API_ORIGIN` or carry its own rewrites. Keep `JITTLE_LAMP_DEV_AUTH_*` empty for staging and production builds |
-| desktop (`apps/desktop/scripts/build.ts`) | `CLERK_PUBLISHABLE_KEY`, `JITTLE_LAMP_API_ORIGIN`, `JITTLE_LAMP_WEB_ORIGIN`, `JITTLE_LAMP_DESKTOP_BUILD_ENV` (`dev`, `canary`, `stable`) | A `stable` build fails without `CLERK_PUBLISHABLE_KEY` and `JITTLE_LAMP_API_ORIGIN` |
+| desktop (`apps/desktop/scripts/bundle.sh`, native macOS app) | `JITTLE_LAMP_API_ORIGIN`, `JITTLE_LAMP_WEB_ORIGIN` | `bundle.sh` takes both from the root `.env` when it has them, over the shell. Unset means the local defaults `http://127.0.0.1:3001` and `:4173`. The same variables in the app's runtime environment override the built-in values |
 | extension (`apps/extension/scripts/build.ts`) | `JITTLE_LAMP_API_ORIGIN`, `JITTLE_LAMP_WEB_ORIGIN` | Default to the production hosts when unset, so staging builds must set both |
 
 ### Runner and CLI variables

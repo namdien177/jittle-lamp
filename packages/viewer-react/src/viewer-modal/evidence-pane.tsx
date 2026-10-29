@@ -369,17 +369,19 @@ export function EvidencePane(props: ViewerModalProps): React.JSX.Element {
   );
 }
 
-function AboutEvidencePanel(props: {
-  about: ViewerModalProps["aboutEvidence"];
-  recordedBy: NonNullable<ViewerModalProps["recordedBy"]> | null;
-}): React.JSX.Element {
-  const recordedBy = props.recordedBy;
-  const about = props.about;
-  const recorderTitle = about.kind === "e2e-runner" ? "Runner used" : "Extension used";
-  const recorderName = about.kind === "e2e-runner" ? about.runner.name : about.extension.name;
-  const recorderRows =
-    about.kind === "e2e-runner"
-      ? [
+const desktopSourceLabels = { display: "Display", window: "Window", application: "App" } as const;
+
+export function describeRecorder(about: ViewerModalProps["aboutEvidence"]): {
+  title: string;
+  name: string;
+  rows: Array<[string, string]>;
+} {
+  switch (about.kind) {
+    case "e2e-runner":
+      return {
+        title: "Runner used",
+        name: about.runner.name,
+        rows: [
           ["Runner", about.runner.name],
           ["Runner version", about.runner.version],
           ["Engine", about.runner.engine ? `${about.runner.engine.name} ${about.runner.engine.version}` : "Not saved"],
@@ -392,13 +394,35 @@ function AboutEvidencePanel(props: {
           ["Test case", about.testRun?.testCaseKey ?? about.testRun?.testCaseId ?? "Not saved"],
           ["Recorder type", "E2E runner"]
         ]
-      : [
+      };
+    case "desktop-recorder": {
+      const { source } = about.recorder;
+      const rows: Array<[string, string]> = [[desktopSourceLabels[source.type], source.name]];
+      if (source.bundleId) rows.push(["Bundle ID", source.bundleId]);
+      rows.push(["App version", about.recorder.version], ["OS", about.recorder.os], ["Recorder type", "Jittle Lamp for Mac"]);
+      return { title: "Recorded with", name: "Jittle Lamp for Mac", rows };
+    }
+    case "browser-extension":
+      return {
+        title: "Extension used",
+        name: about.extension.name,
+        rows: [
           ["Extension", about.extension.name],
           ["Extension version", about.extension.version],
           ["Extension ID", about.extension.extensionId ?? "Not saved"],
           ["Manifest [extension config]", about.extension.manifestVersion ? `MV${about.extension.manifestVersion}` : "Not saved"],
           ["Recorder type", "Chrome extension"]
-        ];
+        ]
+      };
+  }
+}
+
+function AboutEvidencePanel(props: {
+  about: ViewerModalProps["aboutEvidence"];
+  recordedBy: NonNullable<ViewerModalProps["recordedBy"]> | null;
+}): React.JSX.Element {
+  const recordedBy = props.recordedBy;
+  const { title: recorderTitle, name: recorderName, rows: recorderRows } = describeRecorder(props.about);
 
   return (
     <div className="jl-vm-about">

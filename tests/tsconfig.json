@@ -16,10 +16,6 @@
   "include": [
     "../scripts/**/*.ts",
     "./**/*.ts",
-    "../apps/desktop/src/companion/config.ts",
-    "../apps/desktop/src/companion/server.ts",
-    "../apps/desktop/src/companion/sessions-db.ts",
-    "../apps/desktop/src/session/zip-import.ts",
     "../apps/evidence-web/src/archive-export.ts",
     "../apps/extension/src/draft-storage.ts",
     "../apps/extension/src/background.ts"
@@ -33,9 +29,6 @@
     },
     {
       "path": "../packages/viewer-react"
-    },
-    {
-      "path": "../apps/desktop"
     }
   ]
 }

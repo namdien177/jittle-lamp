@@ -1,0 +1,26 @@
+[package]
+name = "jl-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+crossbeam-channel = "0.5"
+dirs = "6"
+log = "0.4"
+parking_lot = "0.12"
+regex = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+# Archives are rewritten in place; keep key order so files diff cleanly against the TS writer.
+serde_json = { version = "1", features = ["preserve_order"] }
+tiny_http = "0.12"
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"
+ureq = "3"

@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer";
 import {
-	recordingFileName,
+	isRecordingArtifactKind,
+	recordingArtifactMimeTypes,
+	recordingFileNames,
 	safeParseSessionArchiveJson,
 	sessionArchiveFileName,
 } from "@jittle-lamp/shared";
@@ -196,7 +198,7 @@ const validateAutomationZip = (zipBytes: Uint8Array) => {
 		const unzipped = unzipBounded(zipBytes, {
 			maxUncompressedBytes: MAX_EVIDENCE_ZIP_UNCOMPRESSED_BYTES,
 			include: (name) =>
-				name === recordingFileName || name === sessionArchiveFileName,
+				isRecordingArtifactKind(name) || name === sessionArchiveFileName,
 		});
 		files = unzipped.files;
 		fileNames = [...unzipped.names].sort();
@@ -215,26 +217,28 @@ const validateAutomationZip = (zipBytes: Uint8Array) => {
 		};
 	}
 
-	const expected = [recordingFileName, sessionArchiveFileName].sort();
+	// The extension and runner bundle recording.webm; the macOS app bundles recording.mp4.
+	const recordingFileName = fileNames.find(isRecordingArtifactKind);
 	if (
-		fileNames.length !== expected.length ||
-		fileNames.some((fileName, index) => fileName !== expected[index])
+		fileNames.length !== 2 ||
+		!fileNames.includes(sessionArchiveFileName) ||
+		!recordingFileName
 	) {
 		return {
 			ok: false as const,
-			message: `ZIP must contain exactly ${sessionArchiveFileName} and ${recordingFileName} at the root`,
+			message: `ZIP must contain exactly ${sessionArchiveFileName} and one of ${recordingFileNames.join(" or ")} at the root`,
 		};
 	}
 
 	const archiveJson = files[sessionArchiveFileName];
-	const recordingWebm = files[recordingFileName];
-	if (!archiveJson || !recordingWebm) {
+	const recording = files[recordingFileName];
+	if (!archiveJson || !recording) {
 		return {
 			ok: false as const,
 			message: "ZIP is missing required session files",
 		};
 	}
-	if (recordingWebm.byteLength === 0) {
+	if (recording.byteLength === 0) {
 		return {
 			ok: false as const,
 			message: `${recordingFileName} must not be empty`,
@@ -266,7 +270,8 @@ const validateAutomationZip = (zipBytes: Uint8Array) => {
 		ok: true as const,
 		archive: parsedArchive.data,
 		archiveJson,
-		recordingWebm,
+		recording,
+		recordingMimeType: recordingArtifactMimeTypes[recordingFileName],
 	};
 };
 
@@ -601,9 +606,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 				}
 
 				const archiveChecksum = await encodeSha256Hex(validated.archiveJson);
-				const recordingChecksum = await encodeSha256Hex(
-					validated.recordingWebm,
-				);
+				const recordingChecksum = await encodeSha256Hex(validated.recording);
 				const now = Date.now();
 				const title = query.title?.trim() || validated.archive.name;
 				const sourceExternalId =
@@ -643,8 +646,7 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 						orgId: evidence.orgId,
 						storageId: writeTarget.storageId,
 						additionalBytes:
-							validated.recordingWebm.byteLength +
-							validated.archiveJson.byteLength,
+							validated.recording.byteLength + validated.archiveJson.byteLength,
 						now,
 					});
 
@@ -684,8 +686,8 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 								kind: "recording",
 								s3Key: `uploads/${apiToken.orgId}/${evidence.id}/automation-recording-${crypto.randomUUID()}`,
 								storageId: writeTarget.storageId,
-								mimeType: "video/webm",
-								bytes: validated.recordingWebm.byteLength,
+								mimeType: validated.recordingMimeType,
+								bytes: validated.recording.byteLength,
 								checksum: `sha256:${recordingChecksum}`,
 								uploadStatus: "uploading",
 								updatedAt: now,
@@ -739,8 +741,8 @@ export const createAutomationRoutes = (auth: ClerkAuthPlugin) =>
 				await Promise.all([
 					writeTarget.storage.putObject({
 						key: recordingArtifact.s3Key,
-						body: validated.recordingWebm,
-						contentType: "video/webm",
+						body: validated.recording,
+						contentType: validated.recordingMimeType,
 						checksumSha256: sha256HexToBase64(recordingChecksum),
 					}),
 					writeTarget.storage.putObject({

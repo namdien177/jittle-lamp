@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { buildCurl, getResponseBodyString } from "@jittle-lamp/viewer-react";
 
+import { describeRecorder } from "../packages/viewer-react/src/viewer-modal/evidence-pane";
+
 const baseRequest = {
   kind: "network" as const,
   method: "POST",
@@ -91,5 +93,43 @@ describe("viewer-modal — getResponseBodyString", () => {
       }
     });
     expect(out).toBe("");
+  });
+});
+
+describe("viewer-modal — about evidence", () => {
+  test("names the macOS app and the captured app for desktop recordings", () => {
+    const about = describeRecorder({
+      kind: "desktop-recorder",
+      recorder: {
+        name: "jittle-lamp-desktop",
+        version: "0.1.0",
+        os: "macOS 26.1",
+        source: { type: "application", name: "Safari", bundleId: "com.apple.Safari", pid: 4242 }
+      }
+    });
+    expect(`${about.title} ${about.name}`).toBe("Recorded with Jittle Lamp for Mac");
+    expect(about.rows).toEqual([
+      ["App", "Safari"],
+      ["Bundle ID", "com.apple.Safari"],
+      ["App version", "0.1.0"],
+      ["OS", "macOS 26.1"],
+      ["Recorder type", "Jittle Lamp for Mac"]
+    ]);
+  });
+
+  test("shows the display for screen captures", () => {
+    const about = describeRecorder({
+      kind: "desktop-recorder",
+      recorder: { name: "jittle-lamp-desktop", version: "0.1.0", os: "macOS 26.1", source: { type: "display", name: "Built-in Retina Display" } }
+    });
+    expect(about.rows[0]).toEqual(["Display", "Built-in Retina Display"]);
+    expect(about.rows.map(([label]) => label)).not.toContain("Bundle ID");
+  });
+
+  test("keeps the extension and runner descriptions", () => {
+    expect(describeRecorder({ kind: "browser-extension", extension: { kind: "browser-extension", name: "jittle-lamp", version: "1.8.2" } }).title).toBe(
+      "Extension used"
+    );
+    expect(describeRecorder({ kind: "e2e-runner", runner: { name: "jl-e2e", version: "1.8.2" } }).title).toBe("Runner used");
   });
 });

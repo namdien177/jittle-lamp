@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { canonicalArchiveBundles, canonicalZipBundles } from "./fixtures/canonical-fixtures";
 
 import { createWebSessionStrategies } from "../apps/evidence-web/src/session-strategy";
-import { createDesktopSessionStrategies } from "../apps/desktop/src/session/session-strategy";
 
 const SESSION_ID = canonicalArchiveBundles.small.sessionId;
 
@@ -71,34 +70,5 @@ describe("web session strategies", () => {
     });
 
     expect(authHeader).toBe("Bearer token-123");
-  });
-});
-
-describe("desktop session strategies", () => {
-  test("local strategy metadata does not require auth configuration", async () => {
-    const strategies = createDesktopSessionStrategies(new Map());
-    expect(strategies.local.mode).toBe("local");
-    expect(strategies.remote.mode).toBe("remote");
-    expect(strategies.zip.mode).toBe("zip");
-  });
-
-  test("remote desktop strategy supports optional auth while preserving shared ZIP handling", async () => {
-    const originalFetch = globalThis.fetch;
-    let authHeader = "";
-
-    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
-      authHeader = new Headers(init?.headers).get("authorization") ?? "";
-      return new Response(toArrayBuffer(canonicalZipBundles.small), { status: 200 });
-    }) as typeof fetch;
-
-    try {
-      const strategies = createDesktopSessionStrategies(new Map());
-      const payload = await strategies.remote.load({ zipUrl: "https://example.test/s.zip", authToken: "abc" });
-      expect(payload.source).toBe("zip");
-      expect(payload.archive.sessionId).toBe(SESSION_ID);
-      expect(authHeader).toBe("Bearer abc");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
   });
 });
