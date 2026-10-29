@@ -15,6 +15,7 @@ import {
 import {
   createMergeGroup,
   deriveGapMarkers,
+  deriveTimelineLaneMarks,
   filterTimelineByStep,
   getContiguousMergeableSelection,
   selectActionRange,
@@ -512,6 +513,8 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
       : base;
   }), [sectionItems, activeSection, selectedActionIds]);
 
+  const laneMarks = useMemo(() => deriveTimelineLaneMarks(loadedTimeline), [loadedTimeline]);
+
   // Embedded in the run page the viewer has no header; its one action joins the page header.
   const embeddedActions =
     embedded && actionsContainer
@@ -600,6 +603,7 @@ export function EvidenceViewerContent(props: EvidenceViewerContentProps): React.
           setNetworkDetailIndex(null);
         }}
         rows={rows}
+        laneMarks={laneMarks}
         steps={stepChips}
         activeStepId={activeStepId}
         onStepSelect={(stepId) => {

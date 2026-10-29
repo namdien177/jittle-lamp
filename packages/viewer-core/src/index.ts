@@ -320,3 +320,68 @@ export function gapSkipTarget(markersMs: readonly number[], currentMs: number, o
 export function nextGapMarker(markersMs: readonly number[], currentMs: number): number | null {
   return markersMs.find((marker) => marker > currentMs) ?? null;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Lane timeline: every item on one of four lanes under the video, the way the desktop viewer
+// draws it (jl-core::timeline classify_action / network_severity, jl-app events_of).
+// ---------------------------------------------------------------------------------------------
+
+export type TimelineLane = "actions" | "network" | "console" | "markers";
+export type TimelineLaneSeverity = "debug" | "info" | "warn" | "error";
+
+export type TimelineLaneMark = {
+  id: string;
+  lane: TimelineLane;
+  // Milliseconds from the recording start, never negative.
+  offsetMs: number;
+  // Requests and integrations span time; everything else is a tick.
+  durationMs: number | null;
+  severity: TimelineLaneSeverity;
+  label: string;
+};
+
+export const timelineLanes: readonly { lane: TimelineLane; label: string }[] = [
+  { lane: "actions", label: "Actions" },
+  { lane: "network", label: "Network" },
+  { lane: "console", label: "Console" },
+  { lane: "markers", label: "Markers" }
+];
+
+function networkSeverity(payload: Extract<TimelineItem["payload"], { kind: "network" }>): TimelineLaneSeverity {
+  // A request that never completed is an error whatever its status.
+  if (payload.failureText) return "error";
+  const status = payload.status ?? 0;
+  if (status >= 500) return "error";
+  if (status >= 400) return "warn";
+  return "info";
+}
+
+function laneMarkOf(item: TimelineItem): TimelineLaneMark | null {
+  const base = { id: item.id, offsetMs: Math.max(0, item.offsetMs), label: item.label };
+  const payload = item.payload;
+  if (payload.kind === "network") {
+    // Requests from before the recording started have no place on the video's timeline.
+    if (item.offsetMs < 0) return null;
+    return { ...base, lane: "network", durationMs: payload.durationMs ?? null, severity: networkSeverity(payload) };
+  }
+  // Console entries keep their level.
+  if (payload.kind === "console") return { ...base, lane: "console", durationMs: null, severity: payload.level };
+  // An uncaught page error reads as a console error.
+  if (payload.kind === "error") return { ...base, lane: "console", durationMs: null, severity: "error" };
+  if (payload.kind === "lifecycle") {
+    const severity = payload.phase === "failed" ? "error" : "info";
+    return { ...base, lane: "markers", durationMs: null, severity };
+  }
+  if (payload.kind === "integration") return { ...base, lane: "actions", durationMs: payload.durationMs, severity: "info" };
+  return { ...base, lane: "actions", durationMs: null, severity: "info" };
+}
+
+/** Lane marks for the timeline under the video, in timeline order. */
+export function deriveTimelineLaneMarks(timeline: readonly TimelineItem[]): TimelineLaneMark[] {
+  const marks: TimelineLaneMark[] = [];
+  for (const item of timeline) {
+    const mark = laneMarkOf(item);
+    if (mark) marks.push(mark);
+  }
+  return marks;
+}

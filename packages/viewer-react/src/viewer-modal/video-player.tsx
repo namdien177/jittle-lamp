@@ -1,10 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import type { TimelineLaneMark } from "@jittle-lamp/viewer-core";
 
 import { BigPlayButton, useBigPlayIdle } from "./big-play";
 import { CopyFrameButton } from "./copy-frame";
 import { SkipGapsButton, useGapSkipper, useSkipGapsPreference } from "./gap-skip";
+import { LaneTimeline, NudgeButtons } from "./lane-timeline";
 import { SeekBar, StepCaption, StepNavButtons, buildStepSegments } from "./seek-bar";
 import type { ViewerStepChip } from "./types";
 
@@ -20,6 +22,8 @@ export type VideoPlayerProps = {
   gapMarkersMs?: readonly number[];
   // Test-run steps: drawn on the seek bar, with previous/next step buttons.
   steps?: readonly ViewerStepChip[];
+  // Docked bar only: the lane timeline (see viewer-core deriveTimelineLaneMarks) replaces the seek bar.
+  laneMarks?: readonly TimelineLaneMark[] | undefined;
   activeStepId?: string | null;
 };
 
@@ -275,7 +279,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
     if (player) void seekVideo(player, next).catch(() => latestCallbacksRef.current.onVideoError?.());
   }, [gapSkipper]);
 
-  const seekToStep = useCallback((seconds: number): void => {
+  const seekToSeconds = useCallback((seconds: number): void => {
     const player = videoNodeRef.current;
     setCurrentTime(seconds);
     gapSkipper.onManualSeek(seconds);
@@ -315,6 +319,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
   }, []);
 
   const segments = useMemo(() => buildStepSegments(props.steps, duration), [props.steps, duration]);
+  const laneMarks = props.laneMarks ?? null;
   const volumePct = muted ? 0 : volume * 100;
 
   return (
@@ -325,6 +330,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
         data-playing={isPlaying ? "true" : "false"}
         data-controls={controlsVisible ? "visible" : "hidden"}
         data-fullscreen={isFullscreen ? "true" : "false"}
+        data-lanes={laneMarks ? "true" : "false"}
         onPointerMove={() => {
           revealControls();
           bigPlay.poke();
@@ -363,7 +369,7 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
 
         {!isPlaying ? <BigPlayButton visible={bigPlay.visible} onClick={togglePlay} /> : null}
 
-        <div className="jl-vm-vc-bar" data-visible={controlsVisible ? "true" : "false"}>
+        <div className="jl-vm-vc-bar" data-visible={controlsVisible ? "true" : "false"} data-lanes={laneMarks ? "true" : "false"}>
           <button
             type="button"
             className="jl-vm-vc-play"
@@ -378,10 +384,23 @@ function NativeEvidenceVideoPlayer(props: VideoPlayerProps): React.JSX.Element {
               <Play aria-hidden size={17} fill="currentColor" />
             )}
           </button>
-          <StepNavButtons segments={segments} currentTime={currentTime} onSeekTo={seekToStep} />
+          <StepNavButtons segments={segments} currentTime={currentTime} onSeekTo={seekToSeconds} />
+          <NudgeButtons currentTime={currentTime} duration={duration} onSeekTo={seekToSeconds} />
 
           <span className="jl-vm-vc-time">{formatTime(currentTime)}</span>
-          <SeekBar currentTime={currentTime} duration={duration} segments={segments} activeStepId={props.activeStepId} onSeek={handleSeek} />
+          {laneMarks ? (
+            <LaneTimeline
+              currentTime={currentTime}
+              duration={duration}
+              marks={laneMarks}
+              segments={segments}
+              activeStepId={props.activeStepId}
+              onSeek={handleSeek}
+              onSeekTo={seekToSeconds}
+            />
+          ) : (
+            <SeekBar currentTime={currentTime} duration={duration} segments={segments} activeStepId={props.activeStepId} onSeek={handleSeek} />
+          )}
           <span className="jl-vm-vc-time jl-vm-vc-time-total">{formatTime(duration)}</span>
           <StepCaption segments={segments} currentTime={currentTime} />
 

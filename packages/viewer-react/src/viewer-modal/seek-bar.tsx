@@ -50,13 +50,42 @@ export function adjacentStepStart(segments: readonly StepSegment[], seconds: num
   return started.at(-2)?.startSeconds ?? 0;
 }
 
-function formatClock(seconds: number): string {
+export function formatClock(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   return `${Math.floor(total / 60)}:${(total % 60).toString().padStart(2, "0")}`;
 }
 
-function pct(seconds: number, duration: number): string {
+export function pct(seconds: number, duration: number): string {
   return `${duration > 0 ? (seconds / duration) * 100 : 0}%`;
+}
+
+// The tip hugs the track's ends instead of overflowing them.
+function tipEdge(ratio: number): "start" | "middle" | "end" {
+  if (ratio < 0.15) return "start";
+  if (ratio > 0.85) return "end";
+  return "middle";
+}
+
+/** Hover readout over a seek track: the time, and the step under the pointer when there is one. */
+export function SeekTip(props: { ratio: number; seconds: number; segments: readonly StepSegment[] }): React.JSX.Element {
+  const segment = stepAtTime(props.segments, props.seconds);
+  const inside = segment && props.seconds <= segment.endSeconds + 0.05 ? segment : null;
+  return (
+    <span className="jl-vm-seek-tip" style={{ left: `${props.ratio * 100}%` }} data-edge={tipEdge(props.ratio)} aria-hidden>
+      {inside ? (
+        <>
+          <span className="jl-vm-seek-tip-head">
+            <span className="jl-vm-seek-tip-dot" data-status={inside.step.status} />
+            Step {inside.step.ordinal} · {inside.step.type}
+            <span className="jl-vm-seek-tip-time">{formatClock(props.seconds)}</span>
+          </span>
+          <span className="jl-vm-seek-tip-label">{inside.step.label}</span>
+        </>
+      ) : (
+        <span className="jl-vm-seek-tip-time">{formatClock(props.seconds)}</span>
+      )}
+    </span>
+  );
 }
 
 type SeekBarProps = {
@@ -71,8 +100,6 @@ export function SeekBar(props: SeekBarProps): React.JSX.Element {
   const [hover, setHover] = useState<{ ratio: number; seconds: number } | null>(null);
   const { duration, segments } = props;
   const progress = pct(Math.min(props.currentTime, duration || props.currentTime), duration);
-  const hoverSegment = hover ? stepAtTime(segments, hover.seconds) : null;
-  const hoverInside = hoverSegment && hover && hover.seconds <= hoverSegment.endSeconds + 0.05 ? hoverSegment : null;
 
   const track = (
     <>
@@ -119,22 +146,7 @@ export function SeekBar(props: SeekBarProps): React.JSX.Element {
           segments.length > 0 ? `, step ${stepAtTime(segments, props.currentTime)?.step.ordinal ?? "—"}` : ""
         }`}
       />
-      {hover ? (
-        <span className="jl-vm-seek-tip" style={{ left: `${hover.ratio * 100}%` }} data-edge={hover.ratio < 0.15 ? "start" : hover.ratio > 0.85 ? "end" : "middle"} aria-hidden>
-          {hoverInside ? (
-            <>
-              <span className="jl-vm-seek-tip-head">
-                <span className="jl-vm-seek-tip-dot" data-status={hoverInside.step.status} />
-                Step {hoverInside.step.ordinal} · {hoverInside.step.type}
-                <span className="jl-vm-seek-tip-time">{formatClock(hover.seconds)}</span>
-              </span>
-              <span className="jl-vm-seek-tip-label">{hoverInside.step.label}</span>
-            </>
-          ) : (
-            <span className="jl-vm-seek-tip-time">{formatClock(hover.seconds)}</span>
-          )}
-        </span>
-      ) : null}
+      {hover ? <SeekTip ratio={hover.ratio} seconds={hover.seconds} segments={segments} /> : null}
     </div>
   );
 }

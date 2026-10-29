@@ -71,6 +71,9 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
       )
     : null;
 
+  // The lanes sit in the docked bar; the floating bar over the video keeps the plain seek bar.
+  const laneMarks = props.compact ? props.laneMarks : undefined;
+
   const viewer = (
     <div
       className={mode === "page" ? "jl-vm-root" : "jl-vm-modal"}
@@ -84,7 +87,7 @@ export function ViewerModal(props: ViewerModalProps): React.JSX.Element | null {
     >
       {props.embedded ? null : <ViewerModalHeader {...props} mode={mode} />}
       <div className="jl-vm-body">
-        <div className="jl-vm-left"><EvidenceVideoPlayer {...props} /></div>
+        <div className="jl-vm-left"><EvidenceVideoPlayer {...props} laneMarks={laneMarks} /></div>
         {paneInDrawer ? null : <EvidencePane {...props} />}
         {paneInDrawer ? null : <ViewerNotesPane {...props} />}
       </div>

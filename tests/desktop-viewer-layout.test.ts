@@ -90,8 +90,8 @@ describe("viewer modal layout CSS", () => {
     expect(css).toMatch(/\.jl-vm-video-inner button\.jl-vm-vc-bigplay\[data-visible="false"\]:not\(:focus-visible\)\s*\{[\s\S]*?opacity:\s*0;[\s\S]*?pointer-events:\s*none;/);
     expect(videoPlayerSource).toContain("bigPlay.poke();");
     expect(videoPlayerSource).toMatch(/className="jl-vm-vc-rate"[\s\S]*?<\/button>\s*<CopyFrameButton videoRef=\{videoNodeRef\} \/>/);
-    expect(css).toContain('[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-frame { grid-column: 11; }');
-    expect(css).toContain('[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-fullscreen { grid-column: 12; }');
+    expect(css).toContain('[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-frame { grid-column: 13; }');
+    expect(css).toContain('[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-fullscreen { grid-column: 14; }');
   });
 
   test("fullscreen targets the wrapper so custom controls stay visible", () => {

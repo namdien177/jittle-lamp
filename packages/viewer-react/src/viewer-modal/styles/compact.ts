@@ -61,6 +61,8 @@ export const compactStyles = `
   [data-compact="true"] .jl-vm-body { flex-direction: column; overflow: hidden; }
   [data-compact="true"] .jl-vm-left { flex: 0 0 auto; border-right: 0; }
   [data-compact="true"] .jl-vm-video-wrap { height: min(48vw, 40dvh); min-height: 180px; flex: none; }
+  /* The lane timeline sits in the same fixed box; give it its own room instead of the video's. */
+  [data-compact="true"] .jl-vm-video-wrap:has(.jl-vm-video-inner[data-lanes="true"]) { height: calc(min(48vw, 40dvh) + 72px); min-height: 252px; }
   [data-compact="true"] .jl-vm-right { flex: 1 1 auto; min-height: 0; width: 100%; }
   [data-compact="true"] .jl-vm-list { max-height: none; flex: 1; }
   [data-compact="true"] .jl-vm-secondary { max-height: 180px; }

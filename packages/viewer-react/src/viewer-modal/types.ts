@@ -1,5 +1,6 @@
 import type * as React from "react";
 
+import type { TimelineLaneMark } from "@jittle-lamp/viewer-core";
 import type { ArchiveRecorder, ArchiveStepMode, NetworkSubtype, TimelineItem, TimelineSection } from "@jittle-lamp/shared";
 
 export type ViewerModalRow = {
@@ -138,6 +139,9 @@ export type ViewerModalProps = {
   subtypeFilter: NetworkSubtype | "all";
   onSubtypeFilterChange: (v: NetworkSubtype | "all") => void;
   rows: ViewerModalRow[];
+  /** Every item on the recording's timeline as lane marks (viewer-core deriveTimelineLaneMarks).
+   * The docked (compact) bar draws them as the desktop viewer's lane timeline under the controls. */
+  laneMarks?: readonly TimelineLaneMark[];
   /** Test-run steps (archive v4). Selecting one filters the stream to `step:<id>` and seeks the video. */
   steps?: ViewerStepChip[];
   activeStepId?: string | null;

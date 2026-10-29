@@ -375,6 +375,8 @@ export const videoStyles = `
 
   .jl-vm-video-inner button.jl-vm-vc-step-prev,
   .jl-vm-video-inner button.jl-vm-vc-step-next,
+  .jl-vm-video-inner button.jl-vm-vc-back,
+  .jl-vm-video-inner button.jl-vm-vc-forward,
   .jl-vm-video-inner button.jl-vm-vc-skip {
     display: none;
   }
@@ -650,7 +652,7 @@ export const videoStyles = `
   position: relative;
   inset: auto;
   display: grid;
-  grid-template-columns: auto auto auto auto auto minmax(0, 1fr) auto auto auto auto auto auto;
+  grid-template-columns: auto auto auto auto auto auto auto minmax(0, 1fr) auto auto auto auto auto auto;
   grid-template-rows: 18px 36px;
   align-items: center;
   column-gap: 4px;
@@ -689,18 +691,20 @@ export const videoStyles = `
 [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-play { grid-column: 1; width: 30px; height: 30px; }
 [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-step-prev { grid-column: 2; }
 [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-step-next { grid-column: 3; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-time { grid-column: 4; width: auto; padding-left: 6px; font-size: calc(12.5px * var(--jl-font-scale, 1)); color: #fff; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-time-total { grid-column: 5; padding-left: 0; color: rgba(255, 255, 255, 0.5); }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-back { grid-column: 4; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-forward { grid-column: 5; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-time { grid-column: 6; width: auto; padding-left: 6px; font-size: calc(12.5px * var(--jl-font-scale, 1)); color: #fff; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-time-total { grid-column: 7; padding-left: 0; color: rgba(255, 255, 255, 0.5); }
 [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-time-total::before { padding: 0 4px; }
 [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-time-total::before { content: "/"; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-step-caption { grid-column: 6; display: flex; padding: 0 10px; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-mute { grid-column: 7; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-step-caption { grid-column: 8; display: flex; padding: 0 10px; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-mute { grid-column: 9; }
 /* Recordings carry no sound worth adjusting; mute stays, the slider goes. */
 [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-volume { display: none; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-skip { grid-column: 9; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-rate { grid-column: 10; height: 24px; min-width: 34px; padding: 0 7px; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-frame { grid-column: 11; }
-[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-fullscreen { grid-column: 12; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-skip { grid-column: 11; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-rate { grid-column: 12; height: 24px; min-width: 34px; padding: 0 7px; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-frame { grid-column: 13; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-fullscreen { grid-column: 14; }
 [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar button.jl-vm-vc-icon { width: 30px; height: 30px; }
 
 @container (max-width: 560px) {
@@ -715,5 +719,178 @@ export const videoStyles = `
   [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-rate { grid-column: 6; min-width: 36px; height: 26px; }
   [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-frame { grid-column: 7; }
   [data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar > .jl-vm-vc-fullscreen { grid-column: 8; }
+}
+
+/* Lane timeline (docked bar with laneMarks): the desktop viewer's lanes under the controls, the
+   playhead across all of them. Colours match the desktop palette on the dark well. */
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar[data-lanes="true"] { grid-template-rows: 36px auto; row-gap: 4px; padding: 4px 10px 10px; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar[data-lanes="true"] > * { grid-row: 1; }
+[data-compact="true"] .jl-vm-video-inner .jl-vm-vc-bar[data-lanes="true"] > .jl-vm-lanes { grid-column: 1 / -1; grid-row: 2; }
+[data-compact="true"] .jl-vm-video-inner[data-lanes="true"] button.jl-vm-vc-surface { bottom: 136px; }
+[data-compact="true"] .jl-vm-video-inner[data-lanes="true"] button.jl-vm-vc-bigplay { top: calc(50% - 68px); }
+
+.jl-vm-video-inner .jl-vm-lanes {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: 8px;
+  min-width: 0;
+  padding: 10px 10px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  --jl-vm-lane-action: #22c55e;
+  --jl-vm-lane-network: #60a5fa;
+  --jl-vm-lane-console: #a78bfa;
+  --jl-vm-lane-debug: rgba(255, 255, 255, 0.4);
+  --jl-vm-lane-warn: #f59e0b;
+  --jl-vm-lane-error: #ef4444;
+}
+
+.jl-vm-video-inner .jl-vm-lanes-labels,
+.jl-vm-video-inner .jl-vm-lanes-track {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jl-vm-video-inner .jl-vm-lanes-label {
+  display: flex;
+  align-items: center;
+  height: 14px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: calc(10px * var(--jl-font-scale, 1));
+  line-height: 1;
+}
+
+.jl-vm-video-inner .jl-vm-lanes-track {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.jl-vm-video-inner .jl-vm-lane {
+  position: relative;
+  height: 14px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.jl-vm-video-inner .jl-vm-lane-mark {
+  position: absolute;
+  top: 2px;
+  width: 3px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--jl-vm-lane-action);
+}
+
+/* Requests and integrations: a bar as long as they took. */
+.jl-vm-video-inner .jl-vm-lane-mark[data-span="true"] {
+  top: 3px;
+  height: 8px;
+  min-width: 3px;
+  border-radius: 2px;
+}
+
+.jl-vm-video-inner .jl-vm-lane-mark[data-lane="network"] { background: var(--jl-vm-lane-network); }
+.jl-vm-video-inner .jl-vm-lane-mark[data-lane="console"] { background: var(--jl-vm-lane-console); }
+.jl-vm-video-inner .jl-vm-lane-mark[data-lane="console"][data-severity="debug"] { background: var(--jl-vm-lane-debug); }
+/* Problems draw over the busy lanes (hundreds of overlapping requests) so they are never buried. */
+.jl-vm-video-inner .jl-vm-lane-mark[data-severity="warn"] { z-index: 1; background: var(--jl-vm-lane-warn); }
+.jl-vm-video-inner .jl-vm-lane-mark[data-severity="error"] { z-index: 2; background: var(--jl-vm-lane-error); }
+
+.jl-vm-video-inner .jl-vm-lane-marker {
+  position: absolute;
+  top: 1px;
+  margin-left: -6px;
+  color: var(--jl-vm-lane-warn);
+  line-height: 0;
+}
+
+.jl-vm-video-inner .jl-vm-lane-marker[data-severity="error"] { color: var(--jl-vm-lane-error); }
+
+.jl-vm-video-inner .jl-vm-lane-step {
+  position: absolute;
+  top: 3px;
+  height: 8px;
+  min-width: 3px;
+  border-radius: 2px;
+  box-shadow: 1px 0 0 0 #101114, -1px 0 0 0 #101114;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.jl-vm-video-inner .jl-vm-lane-step[data-status="passed"] { background: var(--jl-vm-seek-passed, #22c55e); }
+.jl-vm-video-inner .jl-vm-lane-step[data-status="failed"] { background: var(--jl-vm-seek-failed, #ef4444); }
+.jl-vm-video-inner .jl-vm-lane-step[data-status="blocked"] { background: var(--jl-vm-seek-blocked, #f59e0b); }
+.jl-vm-video-inner .jl-vm-lane-step[data-status="running"] { background: var(--jl-vm-seek-running, #60a5fa); }
+.jl-vm-video-inner .jl-vm-lane-step[data-active="true"] { outline: 2px solid #fff; outline-offset: 1px; }
+
+/* The playhead: a line across every lane with a knob on top, following the pointer while dragging. */
+.jl-vm-video-inner .jl-vm-lanes-head {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: var(--jl-vm-seek-progress, 0%);
+  z-index: 1;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 9999px;
+  background: #fff;
+  pointer-events: none;
+}
+
+.jl-vm-video-inner .jl-vm-lanes-head::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border: 2px solid #101114;
+  border-radius: 9999px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+/* Invisible range input over the lanes: click, drag, keyboard and screen readers seek through it. */
+.jl-vm-video-inner .jl-vm-lanes-input {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  inset: -8px 0 -4px;
+  z-index: 2;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* A hairline thumb, so the value under the pointer is the time under the pointer. */
+.jl-vm-video-inner .jl-vm-lanes-input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 2px; height: 24px; }
+.jl-vm-video-inner .jl-vm-lanes-input::-moz-range-thumb { width: 2px; height: 24px; border: 0; }
+
+.jl-vm-video-inner .jl-vm-lanes-track:has(.jl-vm-lanes-input:focus-visible) {
+  outline: 2px solid var(--jl-vm-accent, #22c55e);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.jl-vm-video-inner .jl-vm-lanes .jl-vm-seek-tip { bottom: calc(100% + 12px); }
+
+@container (max-width: 560px) {
+  /* The plain seek bar's narrow height (24px) does not apply to the lanes. */
+  .jl-vm-video-inner .jl-vm-lanes { grid-template-columns: minmax(0, 1fr); height: auto; padding: 8px 8px 4px; }
+  .jl-vm-video-inner .jl-vm-lanes-labels { display: none; }
+  .jl-vm-video-inner .jl-vm-lanes-track { gap: 3px; }
+  .jl-vm-video-inner .jl-vm-lane { height: 10px; }
+  .jl-vm-video-inner .jl-vm-lane-mark { top: 1px; height: 8px; }
+  .jl-vm-video-inner .jl-vm-lane-mark[data-span="true"], .jl-vm-video-inner .jl-vm-lane-step { top: 2px; height: 6px; }
+  .jl-vm-video-inner .jl-vm-lane-marker { top: 0; transform: scale(0.85); }
+  [data-compact="true"] .jl-vm-video-inner[data-lanes="true"] button.jl-vm-vc-surface { bottom: 112px; }
+  [data-compact="true"] .jl-vm-video-inner[data-lanes="true"] button.jl-vm-vc-bigplay { top: calc(50% - 56px); }
 }
 `;
