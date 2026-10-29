@@ -1,421 +1,216 @@
-# jittle-lamp
+# Jittle Lamp
 
-`jittle-lamp` is a QA evidence manager for capturing, organizing, reviewing, and sharing product evidence across browser recordings, screenshots, logs, test cases, and shared review links.
+**QA evidence that agents can read, write and run.**
 
-The canonical source repository is migrating to
-[`Front-End/jittle-lamp`](https://git.littlelives.io/Front-End/jittle-lamp).
-GitHub remains the temporary public release source for existing desktop clients
-during the migration. See [the GitLab migration notes](docs/gitlab-migration.md).
+Jittle Lamp records browser sessions as reviewable evidence: video, user actions, console and full network traffic in one timeline. AI agents can then debug that evidence, write test cases in plain language, run them in real browsers and report results back to your merge requests.
+
+The canonical repository is [`Front-End/jittle-lamp`](https://git.littlelives.io/Front-End/jittle-lamp) on GitLab. GitHub stays the public release source during the migration ([migration notes](docs/gitlab-migration.md)).
 
 ![Jittle Lamp product preview](apps/evidence-web/assets/img-prev.png)
 
-## Install Desktop App
+## What agents can do
 
-For macOS arm64, install the latest desktop release from Terminal:
+### Debug a recording from a link
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash
+Hand an agent an evidence link and it gets the whole session as structured data, not a video it has to watch.
+
+- `GET /ai/evidences/:id/debug` returns the evidence, session and artifact context for one recording. It needs an AI token with the `evidence:debug` scope.
+- `GET /llms.txt` tells agents how to use these endpoints.
+- Through MCP, `read_evidence_events` pages through actions, console lines and network requests, and `get_evidence_debug` returns the same debug context.
+
+Archives mask secrets before they leave the recorder: auth headers, cookies, tokens and password fields keep only their first and last four characters. Typed field values are never captured.
+
+### Write test cases in plain language
+
+A test case is a transcript of tagged lines grouped into checkpoints:
+
+```markdown
+## Checkpoint: Sign in
+[Login: profile=PCF, tenant=HQ]
+[Open] /attendance
+[Act] Mark the first child as present
+[Assert] The child's status shows "Present"
 ```
 
-To install a specific release:
+The transcript is the source of truth, and the parser lives in `packages/shared/src/test-case.ts`. Tags include `Open`, `Act`, `Assert`, `Wait`, `Extract`, `Screenshot` and `Note`, plus a few that do more:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | JITTLE_LAMP_VERSION=vX.Y.Z bash
-```
+- `[Login: …]` calls an organisation macro.
+- `[Use: TC-0001]` runs another case inline.
+- `[Query]` runs a read-only Postgres check behind `packages/shared/src/sql-guard.ts`.
 
-The same command can also replace an existing install with the latest release. For unsigned/ad-hoc builds, use this terminal installer for upgrades too; the macOS in-app updater requires Developer ID signed/notarized builds to pass update signature validation reliably.
+Variables and credentials are referenced only by name (`vars.KEY`, `secret('PROFILE.field')`), so transcripts never contain secrets. A missing name blocks the run instead of guessing. Faker fields such as `{person.name}` generate test data in the environment's locale.
 
-## Workspace layout
+Test cases can be created several ways:
 
-- `apps/mcp`: local MCP server for Codex and Claude, authenticated with a Jittle Lamp token.
-- `apps/extension` — Chromium MV3 extension recorder for active-tab capture orchestration.
-- `apps/desktop` — Electron desktop companion for capture intake, review, uploads, and app updates.
-- `apps/evidence-web` — browser evidence viewer for shared review links and uploaded evidence.
-- `apps/backend` — Elysia API for identity, organization context, evidence upload, artifact storage, and share links.
-- `packages/shared` — strict TypeScript schemas and helpers shared by the extension and desktop app.
-- `docs` — scope, assumptions, and architecture notes for V1.
-- `tests` — repository-level smoke tests.
+- **From your requirements.** Import Jira issues (by JQL), Gherkin, CSV or XLSX files, or another transcript doc.
+- **By exploring.** Give the app plain instructions and a runner explores the app in a real browser, then drafts the transcript.
 
-## Product Scope
+Cases created by agents always land in the review queue, and agent-created macros start as drafts. A person approves them.
 
-The current product path centers on a connected evidence workflow:
+### Run in a browser, then replay without the model
 
-- strict TypeScript workspace configuration
-- Bun workspace scripts for build, typecheck, and test
-- MV3 popup/background/content/offscreen runtimes aligned to one active-tab session at a time
-- shared event/session/message schemas designed around reviewable `WebM + JSON` evidence artifacts
-- sanitized page URLs and interaction metadata without raw typed field values
-- richer debugger-backed network events including request/response headers, cookies, bodies, and best-effort omission/truncation metadata
-- compact session archives: secrets masked, no CORS preflights, analytics beacons, static asset bodies or binary bodies (see [Session archive compaction](#session-archive-compaction))
-- desktop capture intake, session playback, timeline review, network detail inspection, tag editing, and note saving
-- authenticated upload to the backend with organization-aware evidence ownership
-- browser-based evidence review through share links
-- macOS release packaging with in-app update checks from the Settings screen
+The first run is agentic: a model drives a real browser through each step and a judge model checks the asserts. Every verified action is cached as a structured record and shown as Playwright code. Later runs replay that cache with no model calls, and only hand control back to the agent when the page has changed and the cached target is gone.
 
-See `docs/v1-scope.md` for more detail.
+- **Verdicts are honest.** A run's `outcome` is `passed`, `failed` or `blocked`. Missing credentials, broken setup and runner problems are `blocked`, not `failed`.
+- **Runs are evidence.** Each run uploads a normal evidence record, with `recording.webm`, `session.archive.json` and `run-report.json` tagged by step and checkpoint. You review a test run in the same viewer as a manual recording.
+- **Live view and take-over.** Watch a cloud run as it happens and take control of the browser when it gets stuck. Take-over input is tagged `user:takeover` and never cached.
+- **Cost is tracked.** Token usage and cost are recorded per step. An organisation can set a daily USD budget, and runs past it wait with `BUDGET_EXCEEDED`.
 
-## Commands
+### Choose your model
 
-Use Bun 1.4.4, the version pinned for CI and containers.
+The runner uses the Vercel AI SDK. Each organisation picks an act model and a judge model. A provider can have several model accounts, each with a priority and daily or monthly budgets. When one account is rate-limited, out of quota or rejects its key, the run fails over to the next.
 
-```bash
-bun install
-bun run typecheck
-bun run test
-bun run build
-bun run release:check-version
-```
+| Model prefix | Key |
+| --- | --- |
+| `anthropic/` | `ANTHROPIC_API_KEY` |
+| `openai/` | `OPENAI_API_KEY` |
+| `google/` | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| `xai/` | `XAI_API_KEY` |
+| `openrouter/` | `OPENROUTER_API_KEY` |
+| `gateway/` | `AI_GATEWAY_API_KEY` (Vercel AI Gateway, the default for new organisations) |
+| `openai-compatible/` | `OPENAI_COMPATIBLE_BASE_URL`, optional `OPENAI_COMPATIBLE_API_KEY` |
 
-## MCP for Codex and Claude
+### Gate merges on E2E results
 
-The local MCP accepts either an AI token with **MCP** access from **Settings > AI tokens**, or an existing automation API token from **Settings > API tokens**. AI tokens with MCP access manage evidence using your account's permissions. Automation API tokens upload evidence ZIPs to their assigned organisation; account tools return permission errors. Organisation settings remain unavailable.
+Webhooks connect test suites to your repository:
+
+- **Inbound.** `POST /hooks/:endpointId` takes GitHub or GitLab push, merge request, pipeline and deployment events (verified by HMAC or token). Rules map those events to suite runs, deduplicated by commit SHA.
+- **Outbound.** Runs post a `jittle-lamp/e2e` commit status, from pending to final, and can add a comment to the PR or MR. Deliveries retry, and failed ones end in a dead-letter list.
+- **Pipelines.** Templates for [GitHub Actions](deploy/ci/github-actions-e2e.yml) and [GitLab CI](deploy/ci/gitlab-ci-e2e.yml) run `jl-e2e run --suite … --cache strict --wait --junit` and fail the job on failed cases (add `--fail-on-blocked` to fail on blocked ones too).
+- **Notifications.** Test run and batch results go to in-app notifications, Slack or a signed webhook.
+
+## Connect Codex or Claude Code (MCP)
+
+`apps/mcp` is a local MCP server named `jittlelamp`. It exposes over 40 tools:
+
+- **Evidence.** List, read, rename, move, copy, tag, comment on and delete evidence; read events; download artifacts.
+- **Share links.** Create, list, resolve and revoke share links.
+- **Uploads.** Upload evidence ZIPs, or stage a manual upload.
+- **Test cases.** Search, create, update, deduplicate and import cases; generate cases from Jira or instructions.
+- **Runs.** Start a run (optionally waiting for it) and read results.
+
+The full list is in the [MCP guide](docs/mcp.md).
+
+There are two token types, and both go in `JL_AI_TOKEN`:
+
+- **AI tokens** (`jl_ai_`, **Settings > AI tokens**) act with your account's permissions.
+- **Automation tokens** (`jl_api_`, **Settings > API tokens**) are tied to one organisation and limited to ZIP uploads and a small set of test tools.
+
+No token can approve, reject, bulk-edit or delete test cases.
 
 ### Install from terminal
 
-Install Git and your chosen client, Codex or Claude Code. On macOS or Linux, run:
+On macOS or Linux, with Git and your client installed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/install-mcp.sh | bash
 ```
 
-Choose `codex`, `claude`, or `both`, then paste your Jittle Lamp token at the hidden prompt. Both `jl_ai_` and `jl_api_` tokens use the same `JL_AI_TOKEN` configuration variable. The installer downloads the public GitHub source mirror, installs Bun 1.3.11 if needed, builds the MCP, and registers it with your chosen clients. Automatic Bun installation requires `curl` and `unzip`.
+Choose `codex`, `claude` or `both`, then paste your token at the hidden prompt. The installer:
 
-From an existing checkout containing `apps/mcp`, use this one command instead:
+- builds a standalone bundle in `~/.local/share/jittle-lamp/mcp` (or under `$XDG_DATA_HOME`);
+- installs Bun 1.3.11 if no suitable Bun is found, which needs `curl` and `unzip`;
+- registers the `jittlelamp` entry, at user scope for Claude.
+
+Rerun it to update. Restart your client afterwards; with an AI token, asking for your Jittle Lamp context verifies the connection.
 
 ```bash
+# pick the client up front
+curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/install-mcp.sh | bash -s -- --client both
+
+# or install from a checkout
 bash scripts/install-mcp.sh
 ```
 
-The local command builds your checkout. Both commands save a standalone bundle in `~/.local/share/jittle-lamp/mcp`, or under `$XDG_DATA_HOME` when set. You can move or remove the checkout afterward. Keep the installed bundle and the Bun executable used by the client.
+The [MCP guide](docs/mcp.md) covers custom API origins, unattended setup and manual configuration. Run `bash scripts/install-mcp.sh --help` for all installer options.
 
-The token is saved in each client's private configuration. Rerunning the installer updates the bundle and the `jittlelamp` entry. Claude uses user scope; an existing project or local entry with that name takes precedence. Restart your client and check its MCP connection. With an AI token that has MCP access, ask for your Jittle Lamp context to verify account access.
+## Run tests from the command line
 
-To select a client in the command itself:
+`packages/e2e-runner` ships two commands.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/install-mcp.sh | bash -s -- --client both
-```
-
-For custom API origins, unattended setup, manual configuration, and evidence uploads, see the [MCP setup guide](docs/mcp.md). Run `bash scripts/install-mcp.sh --help` for installer options. Registration uses the [Codex MCP CLI](https://developers.openai.com/codex/mcp) and [Claude Code MCP CLI](https://code.claude.com/docs/en/mcp).
-
-## Local Test Auth
-
-Use this when you want the full web workspace without signing in with a real Clerk account:
+**`jl-e2e`** runs a case locally, or drives the backend:
 
 ```bash
-bun run dev:test-auth
+jl-e2e run checkout.transcript.md --env-file .env --mode hybrid --upload   # run locally, upload the evidence
+jl-e2e run --suite <suiteId> --env staging --wait --junit report.xml      # run a suite on the runner pool
+jl-e2e generate instructions.txt --env <environmentId>                    # explore, then draft cases
+jl-e2e cache ls --code                                                    # inspect cached Playwright actions
 ```
 
-The command writes `.env.dev-auth`, builds `apps/evidence-web`, starts the backend on `http://127.0.0.1:3001`, and serves the web app on `http://127.0.0.1:4173`.
+Remote commands need `JL_API_ORIGIN` plus `JL_API_TOKEN` or `JL_AI_TOKEN`. The exit code is `0` for passed, `1` failed, `3` blocked and `4` error. `--mode hybrid` replays `[Use]` preconditions through recorded API calls instead of the browser, and `--mode api` does the same for the case's own actions. A failed API check falls back to the browser.
 
-It uses a generated local JWT public key in `CLERK_JWT_KEY` plus a signed test token injected into the web build. The backend still verifies `Authorization: Bearer ...`; the browser skips Clerk UI and signs in as:
-
-```text
-dev+clerk_test@jittlelamp.local
-```
-
-To only refresh the generated env file:
+**`jl-e2e-runner`** is a worker daemon for a runner pool. It registers with a pool token, claims queued runs and explorations, and uploads their evidence:
 
 ```bash
-bun run dev:test-auth:setup
+jl-e2e-runner start --api https://api.example.com --token <registration-token> --concurrency 2
 ```
 
-## How to use the software
+Docker, Compose and systemd setups are in [`deploy/runner/`](deploy/runner), and the [runner setup guide](docs/e2e-test-cases/runner-setup.md) walks through them.
 
-### 1. Record a session with the extension
+## Record evidence by hand
 
-1. Run `bun run build` or `bun run --cwd apps/extension build`.
-2. Open `chrome://extensions` in Chromium.
-3. Turn on **Developer mode**.
-4. Click **Load unpacked** and select `apps/extension/dist`.
-5. Open an `http://` or `https://` page, open the extension popup, and press **Start**.
-6. Interact with the page, then press **Stop**.
+The test runner isn't the only source of evidence. People record sessions too:
 
-The extension captures the session artifacts:
+1. **Record** with the Chromium extension. Press **Start** on any `http(s)` page and **Stop** when done. It captures `recording.webm` and `session.archive.json`.
+2. **Review** in the desktop app. It receives recordings from the extension, plays them against the timeline, and lets you inspect network requests and add tags and notes.
+3. **Share** by uploading to your organisation and sending a link. The evidence web viewer renders the same review UI in the browser.
 
-- `recording.webm`
-- `session.archive.json`
-
-When the desktop companion is running, the extension hands those artifacts to the app for review, organization, upload, and sharing.
-
-### 2. Use the desktop companion and viewer
-
-The desktop app acts as the companion, reviewer, uploader, and release-updated macOS client.
-
-- `bun run --cwd apps/desktop dev` starts the Electron app and local companion server on `http://127.0.0.1:48115`
-- `bun run --cwd apps/desktop set-output "/absolute/path"` updates the saved output folder
-- `bun run --cwd apps/desktop package:local` builds a local macOS desktop app bundle
-
-Inside the desktop app, the current UI supports:
-
-- **Open Local…** to inspect a session folder
-- **Import ZIP…** to open an exported ZIP bundle
-- **Choose folder…** / **Open folder** in Settings to manage the companion output route
-- **Check for update** in Settings to download and install a newer packaged desktop release
-- session playback, timeline review, network detail inspection, tag editing, and note saving
-- authenticated evidence upload and share-link review through the backend
-
-### 3. Use the browser evidence viewer
-
-Build the lightweight evidence viewer with:
-
-```bash
-bun run --cwd apps/evidence-web build
-```
-
-That emits a static viewer into `apps/evidence-web/dist` for browser-based evidence review.
-
-## Release
-
-### Automated release flow
-
-This repo now includes GitHub Actions automation for stable releases.
-
-- pushing a tag that matches `vX.Y.Z`
-- on the current `main` branch HEAD
-- with all workspace versions already synced to `X.Y.Z`
-
-triggers a release workflow that:
-
-1. runs `bun install`, `bun run release:check-version`, `bun run typecheck`, `bun test`, and `bun run build`
-2. packages the Chromium extension into a release ZIP
-3. builds a macOS desktop distribution artifact on `macos-14`
-4. creates a GitHub Release with GitHub-generated release notes
-
-The release notes/changelog are generated automatically by GitHub when the release is created. There is no manual changelog editing step in the normal tag flow.
-
-### 1. Prepare a release version
-
-Use the root version as the release source of truth. The extension manifest and workspace `package.json` files are checked for sync.
-
-To bump versions before a release:
-
-```bash
-bun run release:set-version 0.1.1
-bun install
-```
-
-Then commit the version bump, merge it to `main`, and create the release tag:
-
-```bash
-git tag v0.1.1
-git push origin main --tags
-```
-
-`origin` is the GitLab repository, but the release workflow runs on GitHub. Until the migration
-finishes, push the same `main` and tag to GitHub as well:
-
-```bash
-git push git@github.com:namdien177/jittle-lamp.git main refs/tags/v0.1.1
-```
-
-Push `main` before the tag: the workflow rejects a tag that is not the current GitHub `main` HEAD.
-
-### 2. Chromium extension release asset
-
-The release workflow builds the extension from `apps/extension/dist` and publishes:
-
-- `jittle-lamp-extension-vX.Y.Z.zip`
-
-The same tag workflow also submits that ZIP to the Chrome Web Store after the desktop artifact build succeeds. Configure these GitHub Actions environment variables in the `production` environment before tagging a release:
-
-- `CHROME_PUBLISHER_ID`
-- `CHROME_EXTENSION_ID`
-
-Also configure these `production` environment variables:
-
-- `CHROME_WORKLOAD_IDENTITY_PROVIDER`: full Google Workload Identity Provider resource name.
-- `CHROME_SERVICE_ACCOUNT`: email of the service account linked under Settings → Management → Service account in the Chrome Web Store Developer Dashboard.
-
-The provider must trust only this repository's release workflow on release tags in the `production` environment. Grant that identity `roles/iam.workloadIdentityUser` on the publishing service account. Enable the Chrome Web Store, IAM, Security Token Service, and IAM Service Account Credentials APIs in its Google Cloud project.
-
-GitHub OIDC generates a short-lived token with the `https://www.googleapis.com/auth/chromewebstore` scope immediately before publishing. No client secret, service account key, or refresh token is needed. Local publishing requires a fresh `CHROME_ACCESS_TOKEN` with that scope, plus the publisher and extension IDs.
-
-See [Chrome Web Store publishing](docs/chrome-webstore-publishing.md) for this repository's Google project, provider condition, and verification steps.
-
-The workflow uses the Chrome Web Store v2 publish API. `CHROME_PUBLISH_TYPE` may be set to `STAGED_PUBLISH`; otherwise the workflow uses `DEFAULT_PUBLISH`. `CHROME_DEPLOY_PERCENTAGE` may be set to an integer from `0` to `100` when you want a staged rollout percentage.
-
-Local build commands remain:
-
-```bash
-bun run build
-# or only the extension
-bun run --cwd apps/extension build
-```
-
-That build generates the unpacked extension directory containing:
-
-- `manifest.json`
-- `background.js`
-- `content.js`
-- `offscreen.js`
-- `popup.js`
-- `popup.html`
-- `popup.css`
-- `offscreen.html`
-
-To install the released extension ZIP:
-
-1. Download `jittle-lamp-extension-vX.Y.Z.zip` from the GitHub Release.
-2. Extract it.
-3. Open `chrome://extensions`.
-4. Turn on **Developer mode**.
-5. Click **Load unpacked**.
-6. Select the extracted folder.
-
-To install from a local build instead:
-
-1. Open `chrome://extensions` or the equivalent extensions page in your Chromium-based browser.
-2. Turn on **Developer mode**.
-3. Click **Load unpacked**.
-4. Select `apps/extension/dist`.
-
-### 3. macOS desktop release asset
-
-The release workflow builds a macOS desktop artifact on a macOS runner and publishes a filename that explicitly states whether it is signed:
-
-- `jittle-lamp-desktop-vX.Y.Z-macos-arm64-signed.dmg`
-- or `jittle-lamp-desktop-vX.Y.Z-macos-arm64-unsigned.dmg`
-
-The current workflow always produces an **arm64** macOS artifact. It does not claim Intel/universal support.
-
-#### Unsigned releases
-
-If Apple signing credentials are not configured in GitHub Actions, the workflow still builds an unsigned DMG. CI explicitly applies and verifies an ad-hoc signature so the app bundle is internally consistent, but that is **not** the same thing as Apple Developer ID signing and notarization.
-
-This means a no-cost Apple account is enough for local development, but it is not enough for a frictionless public macOS installer. Public distribution that opens normally on other Macs requires the paid Apple Developer Program so CI can sign with a Developer ID Application certificate and notarize the DMG/app.
-
-Unsigned macOS releases may still be blocked by Gatekeeper after browser download. For internal installs, use the terminal installer so the DMG is downloaded and copied to `/Applications` without browser quarantine metadata:
+On macOS arm64, install or update the desktop app with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | bash
+# a specific release: ... | JITTLE_LAMP_VERSION=vX.Y.Z bash
 ```
 
-To install a specific release:
+Use the terminal installer for upgrades of unsigned builds. The in-app updater needs Developer ID signed and notarized builds. To load the extension from source, run `bun run --cwd apps/extension build`, then load `apps/extension/dist` unpacked from `chrome://extensions` with Developer mode on.
+
+[Recording, archives and storage](docs/recording.md) covers what the recorder captures, how archives are compacted and masked, and upload limits.
+
+## Architecture
+
+```
+extension (record) ──▶ desktop companion (127.0.0.1:48115) ──▶ desktop reviewer
+                                                                     │ upload
+ jl-e2e / runner pool ──▶ backend (Elysia, S3 artifacts) ◀───────────┘
+ MCP / CI webhooks    ──▶        │
+                                 ▼
+                         evidence-web (shared review)
+```
+
+| Path | What it is |
+| --- | --- |
+| `apps/backend` | Elysia API: Clerk auth, Drizzle over libSQL/Turso, S3 artifact storage, test runs, webhooks, AI endpoints |
+| `apps/mcp` | Local MCP server for Codex and Claude Code |
+| `apps/extension` | Chromium MV3 recorder |
+| `apps/desktop` | Electron companion, reviewer and uploader |
+| `apps/evidence-web` | Web workspace and shared-link viewer |
+| `packages/e2e-runner` | `jl-e2e` CLI and `jl-e2e-runner` daemon |
+| `packages/shared` | Zod schemas for every cross-process payload, including the transcript parser |
+| `packages/viewer-core`, `packages/viewer-react` | One review UI shared by desktop and web |
+| `packages/ui` | Shared UI components |
+
+## Develop
+
+Use Bun 1.4.4, the version pinned for CI and containers. Copy `.env.sample` to `.env` first.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/namdien177/jittle-lamp/main/scripts/release/install-macos-desktop.sh | JITTLE_LAMP_VERSION=vX.Y.Z bash
+bun install
+bun run typecheck
+bun test
+bun run build                 # ordered build: shared → viewer-core → viewer-react → apps
+bun run --cwd apps/backend dev
+bun run --cwd apps/desktop dev
 ```
 
-The same terminal installer can be rerun later to replace an existing app with the latest release. The packaged app's Settings screen uses this same installer path for upgrades: it checks GitHub for the latest release, starts the macOS installer in the background, quits the running app, replaces `/Applications/Jittle Lamp.app`, removes the temporary DMG download, and reopens the app. The app does not use Squirrel/ShipIt installation for ad-hoc upgrades.
+To use the web workspace without a real Clerk account, run `bun run dev:test-auth`. It starts the backend on `http://127.0.0.1:3001` and the web app on `http://127.0.0.1:4173`, signed in as `dev+clerk_test@jittlelamp.local`. `bun run dev:test-auth:setup` only regenerates `.env.dev-auth`.
 
-If the app was already downloaded through a browser and macOS blocks it, remove quarantine manually after installing the app:
+[`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md) hold the coding conventions for people and agents working in this repo.
 
-```bash
-xattr -cr "/Applications/Jittle Lamp.app"
-```
+## Docs
 
-After clearing quarantine, open the app from Finder once. Users may still need to right-click **Open** on the first launch depending on their macOS security settings.
-
-#### Signed and notarized releases
-
-If the required Apple credentials are available in GitHub Actions, the desktop build enables Electron Builder code signing + notarization automatically and the published DMG filename switches to `signed`.
-
-The workflow supports these secrets:
-
-- `MACOS_CSC_LINK` + `MACOS_CSC_KEY_PASSWORD`
-- either `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`
-- or `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`
-
-The API-key path is preferred for CI when App Store Connect API credentials are available.
-
-Desktop packaging is split by environment:
-
-```bash
-bun run --cwd apps/desktop package:local
-bun run --cwd apps/desktop package:ci
-```
-
-Use `package:local` on a developer machine; it loads the workspace `.env` before invoking Electron Builder so local signing/notarization credentials are available. Use `package:ci` in CI/CD; it only uses the environment variables injected by the workflow.
-
-The desktop renderer receives auth/API configuration at build time. Release builds require these GitHub Actions environment secrets in the `production` environment before the tag workflow runs:
-
-- `CLERK_PUBLISHABLE_KEY`
-- `JITTLE_LAMP_API_ORIGIN`
-- optional: `JITTLE_LAMP_WEB_ORIGIN`
-
-Setting these only in the backend/deployment host is not enough for the macOS desktop artifact, because the packaged app cannot read that server environment after it has been built.
-
-With the checked-in config, Electron Builder writes build output into:
-
-- `apps/desktop/artifacts/`
-
-The release workflow collects the install-oriented DMG from `apps/desktop/artifacts/`.
-
-In-app desktop update checks read the latest GitHub release and hand installation to `scripts/release/install-macos-desktop.sh`. The macOS job also publishes `latest-mac.yml`, ZIP, and blockmap artifacts so older installed versions that still use Electron Builder's updater can discover the release and prompt users onto the installer-backed path. Updates are available only from packaged builds, not from `bun run --cwd apps/desktop dev`.
-
-### 4. Release notes specific to this repo
-
-- The release workflow only accepts stable tags that match `vX.Y.Z`.
-- The tag must point at the current `main` HEAD.
-- `bun run release:check-version` fails if any workspace package version drifts from the root release version.
-- The extension companion integration assumes the desktop companion intake server runs on `http://127.0.0.1:48115`.
-- The desktop companion output folder can be changed through the desktop UI or the CLI helper:
-
-```bash
-bun run --cwd apps/desktop set-output "/absolute/path"
-```
-
-For the desktop app specifically:
-
-- `bun run --cwd apps/desktop dev` builds and starts the Electron desktop app with the companion intake server on `http://127.0.0.1:48115`.
-- `bun run --cwd apps/desktop set-output "/absolute/path"` changes the folder where the companion writes sessions.
-- `bun run --cwd apps/desktop package:local` attempts a local Electron Builder package build with workspace `.env` loaded.
-- `bun run --cwd apps/desktop package:ci` attempts a CI Electron Builder package build using only environment-provided secrets.
-- `bun run --cwd apps/desktop build` performs the repository's lightweight desktop shell build validation used by the workspace root.
-
-The companion only accepts artifact writes from `chrome-extension://` origins and rejects normal web origins. It does not currently pin a single extension ID. Output-folder changes happen through the desktop app or CLI, not over HTTP.
-
-## Extension workflow
-
-1. Run `bun run build` or `bun run --cwd apps/extension build`.
-2. Optional but recommended: run `bun run --cwd apps/desktop set-output "/absolute/path"` once.
-3. Start the desktop companion with `bun run --cwd apps/desktop dev` so captured artifacts are handed to the app.
-4. Load `apps/extension/dist` as an unpacked extension in Chromium.
-5. Open an `http://` or `https://` tab and open the extension popup.
-6. Press **Start** and grant site access when prompted so capture can survive normal navigations.
-7. Interact with the page, then press **Stop**.
-8. If the companion server is running, artifacts are handed to the desktop app. Otherwise Chromium prompts you to save the session artifacts:
-   - `recording.webm`
-   - `session.archive.json`
-
-### Recorder architecture
-
-- **popup**: start/stop/status UI
-- **background**: canonical session controller, storage checkpointing, and debugger bridge
-- **offscreen document**: `MediaRecorder`, chunk aggregation, and fallback browser download export
-- **desktop companion server**: localhost intake route used by the extension to hand artifacts to the app
-- **content script**: content-ready + interaction capture (`click`, `input`, `submit`, `navigation`)
-
-The exported JSON is the shared session archive rather than a bare event array. The recorder intentionally avoids raw typed field values and strips query/hash fragments from captured page URLs. Network request URLs keep their query string, but sensitive parameters are masked, as are credentials and cookies (see below).
-
-### Expanded network capture
-
-When the Chrome debugger is attached, the recorder now exports richer per-request network events built from the existing CDP path:
-
-- request headers and associated cookies
-- request post data / body when CDP exposes it
-- response headers plus parsed `set-cookie` headers/cookies
-- response bodies captured after `Network.loadingFinished`, except static assets (images, fonts, media, CSS, scripts) and binary bodies, which keep only their size
-- omission/truncation metadata when bodies are unavailable or too large to store in-session
-
-Requests are captured from both CDP and an in-page probe; duplicates from the two sources are dropped.
-
-### Session archive compaction
-
-Every archive goes through `compactSessionArchive` (`packages/shared/src/archive-compaction.ts`) before it leaves the recorder. The extension, the e2e runner and the backend all use it:
-
-- CORS preflight (`OPTIONS`) and analytics/beacon requests are removed; their count is written to the archive `notes`.
-- Static assets keep URL, status, timing and size only; binary bodies are replaced by their byte length.
-- Sensitive header values (`Authorization`, `Cookie`, `Set-Cookie`, API keys, CSRF tokens), cookie values, sensitive query parameters and body fields such as `password` or `token` are masked to `<first 4>****<last 4>`. Values shorter than 12 characters are masked entirely.
-- Repeated console lines in a row collapse into one with a `(×N)` count; the console section is capped at 3000 lines, dropping the oldest debug/info lines first.
-- Archives are written without indentation.
-
-Older archives are compacted lazily: opening an evidence whose archive was compacted with an older `archiveCompactionVersion` (or never) queues a background job on the backend. It rewrites the stored object under the same key, in the schema version it was stored with, and updates `bytes` and `checksum` on every artifact row sharing it. Organisations in the middle of a migration or storage transfer are skipped until it finishes. When the rules change, bump `archiveCompactionVersion` so existing archives are compacted again.
-
-## Evidence storage
-
-- S3 storage gzips JSON artifacts of 1 KB or more and stores them with `Content-Encoding: gzip`. Browsers and `fetch()` decompress signed-URL downloads on their own, and `getObject` returns the original bytes. Checksums in the database are those of the uncompressed file.
-- Uploads to the JittleLamp default storage are capped per organisation per UTC day: 100 MB for personal workspaces and 3 GB for organisations (`apps/backend/src/services/daily-upload-quota.ts`). Organisations writing to their own S3 storage are not limited. Over the limit, upload routes return `429 DAILY_UPLOAD_LIMIT_EXCEEDED`.
-
-The popup still shows session status locally, but it now receives a typed active-session summary instead of the full live event draft so larger sessions do not obviously break the popup path.
+- [MCP guide](docs/mcp.md)
+- [AI-driven E2E test cases (ADR 0002)](docs/adr/0002-ai-driven-e2e-test-cases.md), plus [design](docs/e2e-test-cases/design.md), [status](docs/e2e-test-cases/STATUS.md) and [deployment](docs/e2e-test-cases/deployment.md)
+- [Runner setup](docs/e2e-test-cases/runner-setup.md)
+- [Recording, archives and storage](docs/recording.md)
+- [Releasing](docs/release.md)
+- [V1 scope](docs/v1-scope.md)
